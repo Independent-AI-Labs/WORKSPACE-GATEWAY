@@ -1,0 +1,24 @@
+version: 1
+project: workspace-gateway
+tier: strict
+languages: [rust]
+hooks:
+  pre-commit:
+    - check-unstaged
+    - block-sensitive-files
+    - gitleaks
+    - ci-check-error-swallow
+    - check-banned-words
+    - check-portable-shell
+    - check-markdown-docs
+    - check-file-length
+    - check-required-hooks-present
+    - ci-lint
+    - ci-type-check
+  commit-msg:
+    - check-commit-message
+    - block-coauthored
+  pre-push:
+    - block-coauthored-history
+    - ci-check-push
+    - check-dead-code

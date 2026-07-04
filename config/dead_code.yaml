@@ -1,0 +1,29 @@
+# Dead Code Detection Configuration
+# Used by check_dead_code.py for AST-based dead code analysis
+
+scan_paths: [src]
+
+ignore_paths:
+  - ci/__pycache__
+
+# Modules that are entry points (called directly, not imported).
+# Override per-project via config/dead_code_overrides.yaml.
+entry_points: []
+
+# Names to never report as dead (regardless of references)
+ignored_names:
+  - "main"
+  - "cli"
+
+# Patterns for names to ignore (regex)
+ignored_name_patterns:
+  - "^__.*__$"
+  - "^test_"
+  - "^Test"
+  - "^fixture_"
+  - "^conftest$"
+
+# Entire files to exclude from REPORTING (still scanned for references)
+reference_only_paths:
+  - tests/
+  - conftest.py

@@ -1,0 +1,24 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# Lua
+*.luac
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.yaml
