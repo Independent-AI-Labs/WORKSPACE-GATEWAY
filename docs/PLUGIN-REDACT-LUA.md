@@ -1,490 +1,504 @@
-# Plugin Spec: PII Redaction - Lua Proxy Shell
+# Plugin Spec: PII Redaction - APISIX Custom Lua Plugin
 
-**Document ID:** AMI-PROP-LLMGW-PLUGIN-REDACT-LUA-v1.0
+**Document ID:** AMI-PROP-LLMGW-PLUGIN-REDACT-LUA-v2.0
 **Status:** Draft
-**Date:** 2026-07-04
-**Parent:** `PROPOSAL-LLM-GATEWAY-v2.md`; inherits `PLUGIN-FOUNDATION.md`
-**Companion:** `PLUGIN-REDACT-ENGINE.md` (the actual Rust redaction sidecar)
+**Date:** 2026-07-05
+**Parent:** `PROPOSAL-LLM-GATEWAY-v3.md`; inherits `PLUGIN-FOUNDATION.md`
+**Companion:** `PLUGIN-REDACT-ENGINE.md` (optional NER sidecar, v2)
 
-This document specifies the **thin in-process Lua Kong plugin** whose sole job is to:
-buffer the OpenAI chat request body, forward it to the Rust redaction engine sidecar
-(via HTTP cosocket in the `access` phase : the ONLY phase where cosockets are permitted),
-stash the returned PII map in `kong.ctx.plugin`, then buffer the upstream response to EOF
-and re-hydrate placeholders locally (no cosocket allowed in `body_filter`).
+This document specifies the **pure Lua APISIX plugin** that performs PII detection
+and anonymization in-process using `ngx.re` (PCRE C bindings) and a file-based
+dictionary of sensitive string patterns. The PII Map is stashed in `ctx`
+(per-request context). Re-hydration in `body_filter` uses local string substitution
+(no cosocket allowed there). Zero sidecar calls on the hot path, all detection is
+in-process, sub-millisecond.
 
-The actual redaction work (regex, Aho-Corasick, NER) lives in the **separate Rust
-sidecar binary** specified in `PLUGIN-REDACT-ENGINE.md`. This Lua plugin is a *proxy
-shell* : it owns the nginx request/response lifecycle glue, the sidecar owns the
-computation. Mirrors the proven `kong-plugin-argus-redact` architecture but with the
-sidecar in pure Rust instead of Python+PyO3.
+v2 adds an optional NER sidecar (`PLUGIN-REDACT-ENGINE.md`) for named-entity
+detection (Person/Org/Location), invoked off-thread via `ngx.timer.at`.
 
 ---
 
 ## 1. Architecture
 
 ```
-                      Lua plugin (in-process, Kong worker)
-                     +--------------------------------------------------+
-                     | access phase : buffer req body -> POST /redact   |
-   request  ----->  |   (cosocket to redact-engine:8081)               |  -----> upstream LLM
-                     |   stash PII map in kong.ctx.plugin               |
-                     | header_filter: clear Content-Length (if active)  |
-                     | body_filter  : buffer to EOF -> local gsub restore|
-   response <-----  |                  from kong.ctx.plugin map          |  <----- upstream LLM
-                     +--------------------------------------------------+
-                                            |
-                                            v  (HTTP, localhost)
-                     +--------------------------------------------------+
-                     | Rust redaction engine (sidecar binary)            |
-                     |   POST /redact  -> aho-corasick + regex + optional|
-                     |                    tract ONNX NER                |
-                     |   POST /restore -> reverse-key apply (rarely used)|
-                     |   GET  /healthz                                  |
-                     +--------------------------------------------------+
+                   APISIX custom Lua plugin (in-process, nginx worker)
+                  +--------------------------------------------------+
+                  | init:   load redact-patterns.json (regex + dict)  |
+                  |         compile PCRE patterns via ngx.re           |
+                  |         build dictionary alternation regex         |
+                  |                                                   |
+                  | access: scan message content with regex + dict     |
+ request ------>  |   replace PII -> [KIND_N] placeholders             | -----> upstream LLM
+                  |   stash PII Map in ctx (per-request)               |
+                  |   rewrite request body                             |
+                  |                                                   |
+                  | header_filter: clear Content-Length                |
+                  | body_filter:  buffer to EOF -> local gsub restore  |
+ response <-----  |               from ctx PII Map                     | <----- upstream LLM
+                  |                                                   |
+                  | log: emit redact.* metrics                         |
+                  +--------------------------------------------------+
+                  | (v2) ngx.timer.at -> POST /ner to ner-engine      |
+                  |       off-thread, best-effort NER enrichment       |
+                  +--------------------------------------------------+
 ```
 
-**Why split:** The nginx worker is single-threaded; running regex/Ner inline in Lua
-blocks every connection on that worker. The cosocket in `access` is a non-blocking
-async I/O call (the worker yields while the sidecar computes). The sidecar, in contrast,
-has its own thread pool and can run heavy regex / NER without blocking the proxy.
+**Why pure Lua (no sidecar on hot path):**
+- `ngx.re` uses PCRE C bindings, compiled native code, not interpreted Lua.
+  Pattern matching is microseconds per kB.
+- Dictionary matching via PCRE alternation (`org1|org2|...`), PCRE optimizes
+  with an internal trie, O(n) in text length.
+- Zero IPC overhead: no serialization, no network round-trip, no sidecar.
+- The nginx worker yields at `ngx.re` find/gsub calls (cooperative multitasking),
+  so other requests are not blocked.
 
 ---
 
 ## 2. Plugin Manifest
 
 ```lua
--- kong/plugins/redact/schema.lua
-local typedefs = require "kong.db.schema.typedefs"
+-- plugins/custom/redact.lua
+local core = require("apisix.core")
+local cjson = require("cjson.safe")
+local ngx_re = require("ngx.re")
 
-return {
-  name = "redact",
-  protocols = typedefs.protocols_http,
-  fields = {
-    {
-      config = {
-        type = "record",
-        required = true,
-        fields = {
-          { engine_url   = typedefs.url({ required = true, default = "http://127.0.0.1:8081" }) },
-          { engine_timeout_ms = { type = "integer", default = 2000, between = { 100, 30000 } } },
-          { pii_map_strategy = { type = "string", enum = { "ctx", "redis" }, default = "ctx" } },
-          { redis = {
-              type = "record",
-              fields = {
-                { host     = { type = "string", default = "redis-cluster.internal.net" } },
-                { port     = { type = "integer", default = 6379 } },
-                { db       = { type = "integer", default = 0 } },
-                { password = { type = "string", referenceable = true } },
-                { ssl      = { type = "boolean", default = false } },
-                { ttl      = { type = "integer", default = 300 } },  -- seconds
-              } } },
-          { stream_mode  = { type = "string", enum = { "reject", "buffer", "passthrough" }, default = "buffer" } },
-          { profile     = { type = "string", default = "pseudonym-llm" } },
-          { on_error    = { type = "string", enum = { "closed", "open" }, default = "closed" } },
-        },
-      },
-    },
-  },
-  entity_checks = {},
-}
-```
+local plugin_name = "redact"
 
-`PRIORITY = 1100` (must run after auth, before `ai-proxy`). Stored in `handler.lua`:
-
-```lua
-local RedactHandler = {
-  PRIORITY = 1100,
-  VERSION = "1.0.0",
+local _M = {
+    version = 0.1,
+    priority = 2500,          -- after auth (2599), before ai-proxy (2402)
+    name = plugin_name,
 }
 ```
 
 ---
 
-## 3. Phases Hooked
-
-| Phase | Action | Cosocket? | Sidecar call? |
-|-------|--------|-----------|---------------|
-| `access` | Buffer request body to EOF; call `POST /redact`; stash PII map | yes (allowed) | yes |
-| `header_filter` | Clear `Content-Length` (only if redaction ran) | no | no |
-| `body_filter` | Buffer response to EOF; local gsub restore from PII map | no (forbidden) | **no** : re-hydration is local string substitution |
-| `log` | emit `redact.active`, `redact.placeholders_count`, `redact.engine.latency_ms` metrics | no | no |
-
-No `rewrite`, no `response` phase (response phase would auto-enable buffered proxying
-and forbid `header_filter`/`body_filter` in the same plugin : Kong refuses to start).
-
----
-
-## 4. `access` Phase
+## 3. Schema
 
 ```lua
-function RedactHandler:access(conf)
-  -- Read & buffer the full request body (chat completions are small; one chunk typically).
-  local body = kong.service.request.get_raw_body()
-  if not body or body == "" then return end
-
-  -- Parse to find content strings to redact (OpenAI chat shape).
-  local ok, parsed = pcall(cjson.decode, body)
-  if not ok or not parsed.messages then
-    -- Not a chat request; pass through. (Let upstream reject non-conformant bodies.)
-    return
-  end
-
-  -- Streaming gate.
-  if parsed.stream and conf.stream_mode == "reject" then
-    return kong.response.exit(400, { error = "redact: streaming rejected; set stream_mode != reject" })
-  end
-
-  -- Sidecar call. cosocket is allowed in access; use the lua-resty-http client.
-  local httpc = http.new()
-  httpc:set_timeout(conf.engine_timeout_ms)
-  local res, err = httpc:request_uri(conf.engine_url .. "/redact", {
-    method = "POST",
-    body = cjson.encode({
-      messages = parsed.messages,
-      profile  = conf.profile,
-      stream   = parsed.stream or false,
-    }),
-    headers = {
-      ["Content-Type"] = "application/json",
-      ["X-Correlation-Id"] = kong.request.get_header("x-request-id") or "",
+_M.schema = {
+    type = "object",
+    properties = {
+        patterns_file   = { type = "string", default = "/etc/apisix/redact-patterns.json" },
+        stream_mode     = { type = "string", enum = { "reject", "buffer", "passthrough" },
+                            default = "buffer" },
+        on_error        = { type = "string", enum = { "closed", "open" }, default = "closed" },
+        ner_sidecar_url = { type = "string", default = "" },     -- v2: empty = disabled
+        ner_timeout_ms  = { type = "integer", default = 500 },
+        redact_ips      = { type = "boolean", default = false },
     },
-  })
-  httpc:set_keepalive()  -- pool the cosocket
+}
 
-  if not res then
-    if conf.on_error == "closed" then
-      return kong.response.exit(503, { error = "redact engine unreachable", detail = err })
-    end
-    kong.log.err("redact engine unreachable: ", err)
-    return  -- fail open: forward unredacted (must emit X-Redact-Error header below)
-  end
-  if res.status ~= 200 then
-    if conf.on_error == "closed" then
-      return kong.response.exit(res.status, res.body, { ["Content-Type"] = "application/json" })
-    end
-    kong.log.err("redact engine non-200: ", res.status, " ", res.body)
-    kong.response.set_header("X-Redact-Error", "engine-status-" .. res.status)
-    return
-  end
-
-  local r_ok, redacted = pcall(cjson.decode, res.body)
-  if not r_ok or not redacted.redacted_messages then
-    if conf.on_error == "closed" then
-      return kong.response.exit(502, { error = "redact engine malformed response" })
-    end
-    return
-  end
-
-  -- Replace the messages with redacted ones; rewrite the request body.
-  parsed.messages = redacted.redacted_messages
-  kong.service.request.set_raw_body(cjson.encode(parsed))
-
-  -- Stash the PII map keyed by placeholder -> original. One merged dict across messages.
-  -- (redacted_messages and redacted.key share positional order; the engine returns a
-  -- single merged key map in redacted.key for v1; per-message keys supported in future.)
-  local ctx = kong.ctx.plugin
-  ctx.redact_key     = redacted.key            -- { [placeholder] = original }
-  ctx.redact_active  = true
-  ctx.redact_engine_latency_ms = tonumber(res.headers["X-Engine-Latency-Ms"]) or 0
-  ctx.redact_placeholder_count = redacted.placeholder_count or 0
-
-  -- Streaming mode buffering marker (for body_filter behaviour).
-  ctx.redact_stream = parsed.stream and true or false
-
-  -- Optional cross-worker durability mirror to Redis (only if strategy=redis).
-  if conf.pii_map_strategy == "redis" and redacted.transaction_id then
-    -- fire-and-forget; cosocket is a new guarded timer to avoid blocking access phase
-    -- further. Falls back to ctx-only if redis is down (fail-open to ctx).
-    pcall(function()
-      local r = redis.new()
-      r:set_timeout(200)
-      local ok = r:connect(conf.redis.host, conf.redis.port)
-      if ok then
-        r:set("redact:tx:" .. redacted.transaction_id, cjson.encode(redacted.key), "EX", conf.redis.ttl)
-        r:set_keepalive()
-      end
-    end)
-  end
+function _M.check_schema(conf)
+    return core.schema.check(_M.schema, conf)
 end
 ```
 
-**Note on `lua-resty-http` and cosocket availability:** `httpc:request_uri` uses
-`ngx.socket.tcp()` internally; this is **allowed in `access`** (one of the phases that
-permits cosockets). It is forbidden in `header_filter`, `body_filter`, `log`. That is why
-the sidecar call MUST happen in `access` and re-hydration MUST be local in `body_filter`.
-
 ---
 
-## 5. `header_filter` Phase
+## 4. Patterns File Format
+
+JSON file (cjson is bundled with APISIX). Loaded once at init, cached in a
+module-level variable. Hot-reload by checking file mtime on each request (or
+periodically via `ngx.timer.at`).
+
+```json
+{
+  "regex": [
+    { "kind": "email",       "pattern": "(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b" },
+    { "kind": "ssn",         "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b" },
+    { "kind": "credit_card", "pattern": "\\b(?:\\d[ -]*?){13,16}\\b", "luhn_check": true },
+    { "kind": "api_key",     "pattern": "(?i)\\b(?:sk|pk|key)-[A-Za-z0-9]{20,}\\b" },
+    { "kind": "phone",       "pattern": "\\b\\+?\\d{1,3}?[-.\\s]?\\(?\\d{3}\\)?[-.\\s]?\\d{3,4}[-.\\s]?\\d{4}\\b" },
+    { "kind": "jwt",         "pattern": "\\beyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b" }
+  ],
+  "dictionary": [
+    { "kind": "organization", "entries": ["Acme Corporation", "Project Phoenix", "Internal System X"] },
+    { "kind": "person_name",  "entries": ["John Smith", "Jane Doe"] }
+  ]
+}
+```
+
+### 4.1 Loading and compilation
 
 ```lua
-function RedactHandler:header_filter(conf)
-  local ctx = kong.ctx.plugin
-  if not ctx.redact_active then return end
-  -- Force chunked transfer so the body_filter rewrite (size may differ) is well-formed.
-  -- Header values are already flushed by the time body_filter runs; clear here.
-  kong.response.clear_header("Content-Length")
-  -- Stamp cache/control signalling header for telemetry.
-  kong.response.set_header("X-Redact-Active", "1")
+local loaded_patterns = nil
+local loaded_mtime = 0
+local dict_alternation = nil  -- compiled PCRE alternation for dictionary entries
+
+local function load_patterns(filepath)
+    local file, err = io.open(filepath, "r")
+    if not file then return nil, err end
+    local content = file:read("*a")
+    file:close()
+    local data = cjson.decode(content)
+    if not data then return nil, "json decode failed" end
+
+    -- Build dictionary alternation pattern: "Acme Corporation|Project Phoenix|..."
+    if data.dictionary then
+        local parts = {}
+        for _, dict in ipairs(data.dictionary) do
+            for _, entry in ipairs(dict.entries or {}) do
+                -- Escape regex metacharacters in dictionary entries
+                local escaped = entry:gsub("([^%w%s])", "%%%1")
+                parts[#parts + 1] = escaped
+            end
+        end
+        if #parts > 0 then
+            dict_alternation = table.concat(parts, "|")
+        end
+    end
+    return data
+end
+
+local function get_patterns(filepath)
+    local attr = lfs.attributes(filepath, "modification")
+    if not loaded_patterns or (attr and attr ~= loaded_mtime) then
+        local data, err = load_patterns(filepath)
+        if data then
+            loaded_patterns = data
+            loaded_mtime = attr or 0
+        elseif err then
+            core.log.error("redact: failed to load patterns: ", err)
+        end
+    end
+    return loaded_patterns
 end
 ```
 
-`kong.response.clear_header("Content-Length")` is the canonical PDK wrapper for
-`ngx.header.content_length = nil`. After clearing, nginx auto-downgrades to
-`Transfer-Encoding: chunked`. **Do NOT set `Content-Length` or `Transfer-Encoding`
-yourself** : nginx manages the latter.
+---
+
+## 5. PII Detection and Placeholder Minting
+
+### 5.1 Luhn check (credit card false-positive suppression)
+
+```lua
+local function luhn_valid(card_number)
+    card_number = card_number:gsub("[%s-]", "")
+    local sum, parity = 0, 0
+    for i = #card_number, 1, -1 do
+        local digit = tonumber(card_number:sub(i, i))
+        if not digit then return false end
+        if parity % 2 == 1 then
+            digit = digit * 2
+            if digit > 9 then digit = digit - 9 end
+        end
+        sum = sum + digit
+        parity = parity + 1
+    end
+    return sum % 10 == 0
+end
+```
+
+### 5.2 Detection + replacement
+
+```lua
+local function redact_text(text, patterns, counters, pii_map, redact_ips)
+    if not text or text == "" then return text end
+
+    -- Regex patterns
+    for _, p in ipairs(patterns.regex or {}) do
+        if p.kind ~= "ipv4" or redact_ips then
+            local it, err = ngx.re.gmatch(text, p.pattern, "ijo")
+            if it then
+                local positions = {}
+                while true do
+                    local m = it()
+                    if not m then break end
+                    local match_text = m[0]
+                    -- Luhn check for credit cards
+                    if p.luhn_check and not luhn_valid(match_text) then
+                        -- false positive; skip
+                    else
+                        positions[#positions + 1] = { m[0].pos, #m[0], match_text }
+                    end
+                end
+                -- Replace from right to left to preserve offsets
+                for i = #positions, 1, -1 do
+                    local pos = positions[i]
+                    local kind_key = string.upper(p.kind)
+                    counters[kind_key] = (counters[kind_key] or 0) + 1
+                    local placeholder = string.format("[%s_%d]", kind_key, counters[kind_key])
+                    pii_map[placeholder] = pos[3]
+                    text = text:sub(1, pos[1] - 1) .. placeholder .. text:sub(pos[1] + pos[2])
+                end
+            end
+        end
+    end
+
+    -- Dictionary alternation
+    if dict_alternation then
+        local it, err = ngx.re.gmatch(text, dict_alternation, "ijo")
+        if it then
+            local positions = {}
+            while true do
+                local m = it()
+                if not m then break end
+                positions[#positions + 1] = { m[0].pos, #m[0], m[0] }
+            end
+            for i = #positions, 1, -1 do
+                local pos = positions[i]
+                counters["DICTIONARY"] = (counters["DICTIONARY"] or 0) + 1
+                local placeholder = string.format("[DICTIONARY_%d]", counters["DICTIONARY"])
+                pii_map[placeholder] = pos[3]
+                text = text:sub(1, pos[1] - 1) .. placeholder .. text:sub(pos[1] + pos[2])
+            end
+        end
+    end
+
+    return text
+end
+```
 
 ---
 
-## 6. `body_filter` Phase (Re-hydration)
+## 6. `access` Phase
 
-**Cosocket is NOT available here.** Restoration is **local string substitution** against
-the stashed PII map. The argus-redact precedent's `restore_with_key` is the canonical
-implementation : copied verbatim with the safe-pattern escape requirement:
+```lua
+function _M.access(conf, ctx)
+    local patterns = get_patterns(conf.patterns_file)
+    if not patterns then
+        if conf.on_error == "closed" then
+            return 503, { error = "redact: patterns file not loaded" }
+        end
+        core.log.error("redact: patterns not loaded; fail-open")
+        return  -- fail open with warning
+    end
+
+    core.request.read_body(ctx)
+    local body = core.request.get_body(ctx)
+    if not body or body == "" then return end
+
+    local ok, parsed = pcall(cjson.decode, body)
+    if not ok or not parsed.messages then return end
+
+    -- Streaming gate
+    if parsed.stream and conf.stream_mode == "reject" then
+        return 400, { error = "redact: streaming rejected; set stream_mode != reject" }
+    end
+
+    -- Redact each message's content
+    local counters = {}
+    local pii_map = {}
+    for _, msg in ipairs(parsed.messages) do
+        if type(msg.content) == "string" then
+            msg.content = redact_text(msg.content, patterns, counters, pii_map, conf.redact_ips)
+        elseif type(msg.content) == "table" then
+            -- Multi-modal content parts
+            for _, part in ipairs(msg.content) do
+                if part.text then
+                    part.text = redact_text(part.text, patterns, counters, pii_map, conf.redact_ips)
+                end
+            end
+        end
+    end
+
+    -- Rewrite request body
+    ngx.req.set_body_data(cjson.encode(parsed), #cjson.encode(parsed))
+
+    -- Stash PII map in ctx
+    local count = 0
+    for _ in pairs(pii_map) do count = count + 1 end
+    ctx.redact_key = pii_map
+    ctx.redact_active = count > 0
+    ctx.redact_placeholder_count = count
+    ctx.redact_stream = parsed.stream and true or false
+
+    -- v2: NER sidecar (off-thread, best-effort)
+    if conf.ner_sidecar_url and conf.ner_sidecar_url ~= "" and count == 0 then
+        -- Only call NER if regex found nothing (regex is fast; NER enriches)
+        local req_id = core.request.header(ctx, "x-request-id") or ""
+        ngx.timer.at(0, function(premature)
+            if premature then return end
+            local http = require("resty.http")
+            local httpc = http.new()
+            httpc:set_timeout(conf.ner_timeout_ms)
+            -- Extract text for NER...
+            local res, err = httpc:request_uri(conf.ner_sidecar_url .. "/ner", {
+                method = "POST",
+                body = cjson.encode({ text = body, correlation_id = req_id }),
+                headers = { ["Content-Type"] = "application/json" },
+            })
+            if res and res.status == 200 then
+                -- Merge NER entities into ctx.redact_key (if timer returns before body_filter)
+                -- Best-effort: if body_filter already ran, NER results are lost (acceptable)
+            end
+            httpc:set_keepalive()
+        end)
+    end
+end
+```
+
+---
+
+## 7. `header_filter` Phase
+
+```lua
+function _M.header_filter(conf, ctx)
+    if not ctx.redact_active then return end
+    ngx.header.content_length = nil          -- force chunked transfer
+    core.response.set_header(ctx, "X-Redact-Active", "1")
+end
+```
+
+After clearing `Content-Length`, nginx auto-downgrades to
+`Transfer-Encoding: chunked`. Do NOT set `Transfer-Encoding` manually.
+
+---
+
+## 8. `body_filter` Phase (Re-hydration)
+
+Cosocket is NOT available here. Restoration is local string substitution.
 
 ```lua
 local function restore_with_key(text, key)
-  if not key or not text then return text end
-  local result = text
-  for fake, original in pairs(key) do
-    -- Plain (non-pattern) substitution; escape every non-word char in the placeholder
-    -- so regex metacharacters in placeholders ([, ], etc.) are treated literally.
-    local esc = fake:gsub("([^%w])", "%%%1")
-    result = result:gsub(esc, original)
-  end
-  return result
+    if not key or not text then return text end
+    local result = text
+    for fake, original in pairs(key) do
+        local esc = fake:gsub("([^%w])", "%%%1")  -- escape regex metacharacters
+        result = result:gsub(esc, original)
+    end
+    return result
 end
 
-function RedactHandler:body_filter(conf)
-  local ctx = kong.ctx.plugin
-  if not ctx.redact_active then return end
+function _M.body_filter(conf, ctx)
+    if not ctx.redact_active then return end
 
-  local chunk, eof = ngx.arg[1], ngx.arg[2]
+    local chunk, eof = ngx.arg[1], ngx.arg[2]
 
-  if conf.stream_mode == "passthrough" and ctx.redact_stream then
-    -- For streaming with passthrough, we CANNOT safely re-hydrate chunk-by-chunk
-    -- because placeholders may straddle chunk boundaries. Either:
-    --   (a) buffer-then-restore on EOF (default 'buffer' mode : see below), or
-    --   (b) emit raw placeholder-laden chunks to the client (information leak risk;
-    --       only acceptable if the client is trusted to re-hydrate). DEFAULT OFF.
-    return  -- passthrough: emit unmodified (placeholders go to client). DANGEROUS.
-  end
-
-  -- Default: buffer-then-restore on EOF. Same pattern as argus-redact-bridge and the
-  -- canonical OpenResty issue #1813 fix.
-  ctx.redact_buffer = (ctx.redact_buffer or "") .. (chunk or "")
-  if not eof then
-    ngx.arg[1] = nil  -- swallow chunk; defer emission to EOF
-    return
-  end
-
-  local full_body = ctx.redact_buffer
-  -- For chat completions: parse the response body, restore each choice message.
-  -- (OpenAI non-streaming: {choices:[{message:{content:...}}]} ; for streaming the
-  -- buffered SSE body is `data: {…}\n\ndata: {…}\n…\ndata: [DONE]\n\n`.)
-  local new_body
-  if ctx.redact_stream then
-    -- SSE buffer: do per-frame restore. Naive gsub over the whole SSE block is safe
-    -- because placeholders never span SSE frames (the engine guarantees placeholders
-    -- are atomic within produced tokens). For belt-and-braces, also gsub the buffer.
-    new_body = restore_with_key(full_body, ctx.redact_key)
-  else
-    -- Non-streaming JSON: parse, restore choices, re-encode.
-    local ok, parsed = pcall(cjson.decode, full_body)
-    if ok and parsed.choices then
-      for _, ch in ipairs(parsed.choices) do
-        if ch.message and ch.message.content then
-          ch.message.content = restore_with_key(ch.message.content, ctx.redact_key)
-        end
-      end
-      new_body = cjson.encode(parsed)
-    else
-      new_body = restore_with_key(full_body, ctx.redact_key)  -- fallback: whole-body gsub
+    if conf.stream_mode == "passthrough" and ctx.redact_stream then
+        return  -- emit unmodified; placeholders pass to client. DANGEROUS, default off.
     end
-  end
 
-  ngx.arg[1] = new_body
-  ngx.arg[2] = true  -- mark EOF (one-shot emission)
-  ctx.redact_buffer = nil
+    -- Buffer-then-restore on EOF (default 'buffer' mode)
+    ctx.redact_buffer = (ctx.redact_buffer or "") .. (chunk or "")
+    if not eof then
+        ngx.arg[1] = nil  -- swallow chunk
+        return
+    end
+
+    local full_body = ctx.redact_buffer
+    local new_body
+    if ctx.redact_stream then
+        -- SSE buffer: gsub the whole concatenated SSE block
+        new_body = restore_with_key(full_body, ctx.redact_key)
+    else
+        -- Non-streaming JSON: parse, restore choices, re-encode
+        local ok, parsed = pcall(cjson.decode, full_body)
+        if ok and parsed.choices then
+            for _, ch in ipairs(parsed.choices) do
+                if ch.message and ch.message.content then
+                    ch.message.content = restore_with_key(ch.message.content, ctx.redact_key)
+                end
+            end
+            new_body = cjson.encode(parsed)
+        else
+            new_body = restore_with_key(full_body, ctx.redact_key)
+        end
+    end
+
+    ngx.arg[1] = new_body
+    ngx.arg[2] = true
+    ctx.redact_buffer = nil
 end
 ```
 
-**Cross-chunk placeholder safety:** The engine MUST guarantee placeholders are
-token-monotonic (a placeholder never spans a token boundary in the produced SSE
-stream). Since the engine produces placeholders itself and replacements happen at the
-PLACEHOLDER level (not character level), an LLM cannot split a placeholder across SSE
-frames unless the LLM itself emits the placeholder text char-by-char : extremely unlikely
-for `[CUSTOMER_NAME_1]`-style fixed tokens. For full safety, the SSE buffer is also
-gsubs'd wholesale in the streaming branch, which is always correct because the buffer
-contains the full concatenated SSE.
+**Cross-chunk safety:** placeholders are fixed ASCII tokens (`[A-Z_0-9]+`). The
+SSE buffer is gsub'd wholesale on EOF, which is always correct because the buffer
+contains the full concatenated response.
 
 ---
 
-## 7. `log` Phase
-
-Emit metrics for billing/telemetry correlation. The redaction-enforced counts feed into
-the audit log alongside the `ai.proxy.usage.*` fields:
+## 9. `log` Phase
 
 ```lua
-function RedactHandler:log(conf)
-  local ctx = kong.ctx.plugin
-  if not ctx.redact_active then return end
-  kong.log.set_serialize_value("redact.active", true)
-  kong.log.set_serialize_value("redact.placeholder_count", ctx.redact_placeholder_count or 0)
-  kong.log.set_serialize_value("redact.engine_latency_ms", ctx.redact_engine_latency_ms or 0)
-  kong.log.set_serialize_value("redact.stream", ctx.redact_stream or false)
-  -- X-Redact-Active response header is also serialised by default via kong.response
+function _M.log(conf, ctx)
+    if not ctx.redact_active then return end
+    -- Set metadata for http-logger to serialize
+    ctx.redact_log = {
+        active = true,
+        placeholder_count = ctx.redact_placeholder_count or 0,
+        stream = ctx.redact_stream or false,
+    }
 end
 ```
 
-These three fields ride the standard Kong log payload (consumed by `http-log` /
-`tcp-log` plugin to Vector → ClickHouse). The billing ledger schema in `PROPOSAL-LLM-
-GATEWAY-v2.md` Section 5.3 already absorbs them as part of the audit trail; per the
-Revised Proposal's billing-grade contract. Add to the `llm_billing_ledger` schema:
-
-```sql
-ALTER TABLE llm_billing_ledger
-  ADD COLUMN redact_active Bool DEFAULT false,
-  ADD COLUMN redact_placeholder_count UInt32 DEFAULT 0,
-  ADD COLUMN redact_engine_latency_ms UInt32 DEFAULT 0,
-  ADD COLUMN redact_stream Bool DEFAULT false;
-```
+These fields ride the `http-logger` payload to Vector -> ClickHouse. The billing
+ledger schema (PROPOSAL §6.3) already has `redact_active`, `redact_placeholder_count`
+columns.
 
 ---
 
-## 8. Filter Ordering (with auth, failover, cache)
-
-Recommended filter chain order on the LLM chat route:
-
-```
-[ auth-oidc | auth-ldap ]  ->  redact (Lua, PRIORITY=1100)
-                              ->  semantic-cache or failover (Proxy-Wasm)
-                              ->  ai-proxy (bundled)
-```
-
-Kong runs Lua plugins in PRIORITY order (higher first) and Wasm filters in chain order
-after Lua. `auth-*` must run before `redact` (so the redact engine can be tenant-aware in
-future). `redact`'s PRIORITY=1100 places it above the `ai-proxy` plugin's default
-PRIORITY (≈ 750) and below `openid-connect` (Enterprise, PRIORITY=1000).
-
-On the **failover** layer's `send_http_response` short-circuit (cache HIT or proxied
-response via `dispatch_http_call`), the `redact` plugin's `body_filter` will still fire
-on the synthesized response ONLY if Kong runs Lua plugins on locally-generated responses
-: verify per Kong version. SAFER: the cache/failover plugin, on cache HIT, must call
-the redaction engine's `POST /restore` endpoint via `dispatch_http_call` before
-`send_http_response`. Specified in `PLUGIN-SEMANTIC-CACHE.md` Section E.4.
-
----
-
-## 9. Streaming Mode Decision Matrix
+## 10. Streaming Mode Decision Matrix
 
 | `stream_mode` | Streaming request behavior |
 |---------------|----------------------------|
 | `reject` | 400 immediately if `stream:true` |
-| `buffer` (default) | Forward `stream:true` upstream; **buffer the SSE stream to EOF in body_filter**; restore once; flush as a single chunk. Breaks per-token streaming UX (client sees whole response at once). |
-| `passthrough` | Emit chunks unmodified; **placeholders pass through to client** (re-hydration skipped). Only acceptable if the client is trusted/internal and re-hydrates. DANGEROUS default-off. |
+| `buffer` (default) | Forward `stream:true` upstream; buffer SSE to EOF in `body_filter`; restore once; flush as single chunk. Breaks per-token streaming UX (client sees whole response at once). |
+| `passthrough` | Emit chunks unmodified; placeholders pass to client. Only acceptable if client is trusted/internal and re-hydrates. DANGEROUS, default off. |
 
-**Future enhancement (v2):** Implement the `parse-sse-chunk` +
-per-frame-restore-then-flush pattern from Kong's `kong/llm/plugin/shared-filters` to
-preserve per-token streaming UX without breaking cross-chunk placeholders. This requires
-parsing `data: {…}\n\n` frames inside the Lua buffer and restoring per frame before
-emitting : non-trivial but proven in `kong/llm/plugin/shared-filters/normalize-sse-chunk.lua`.
-
----
-
-## 10. Security Constraints
-
-- **Sidecar mTLS:** the HTTP leg to `redact-engine:8081` runs on localhost (same pod)
-  or via a private cluster network. If non-localhost, mTLS is mandatory : the sidecar
-  validates Kong's client cert and rejects unauthenticated callers. The PII map and
-  original PII never traverse a public network.
-- **No PII in logs:** the sidecar MUST NOT log original PII. The Lua plugin MUST NOT log
-  `ctx.redact_key` (it's referenced only for substitution, never stringified in
-  `kong.log.err`). The `log` phase metric `redact.placeholder_count` is the count, not
-  the contents.
-- **No silent fallback:** `on_error: closed` (default) returns 503 if the engine is
-  unreachable. `on_error: open` forwards unredacted BUT emits `X-Redact-Error` header +
-  error metric. **Never** silently 200. **Never** silently forward PII to upstream.
-- **Strip `X-Redact-Error` header** before egress to upstream LLM providers (the
-  failover plugin handles this in its header-strip list).
+**Future enhancement (v1.1):** Per-frame restore pattern, parse `data: {…}\n\n`
+frames in the Lua buffer and restore per frame before emitting. Preserves
+per-token streaming UX without breaking cross-chunk placeholders.
 
 ---
 
 ## 11. Failure Modes
 
-| Failure | Detection | `on_error=closed` behavior | `on_error=open` behavior |
-|---------|-----------|----------------------------|---------------------------|
-| Engine unreachable (cosocket refused) | `request_uri` returns nil,err | 503 | forward unredacted + `X-Redact-Error: unreachable` |
-| Engine timeout (`engine_timeout_ms`) | `httpc:set_timeout` fires | 503 | forward unredacted + `X-Redact-Error: timeout` |
-| Engine 5xx | `res.status >= 500` | forward engine status/body | forward unredacted + `X-Redact-Error: engine-5xx` |
-| Engine 4xx | `res.status` is 4xx | forward engine status (likely client misconfig) | forward engine status |
-| Engine malformed JSON | `cjson.decode` fails | 502 | forward unredacted + `X-Redact-Error: malformed` |
-| Request not chat-shaped | `parsed.messages == nil` | passthrough (no redaction, no error) | passthrough |
-| Empty response body from upstream | `body == ""` on EOF | emit empty body | empty body |
-| `body_filter` gsub fails | pcall wrap | log + emit raw `full_body` (placeholders to client!) : alerting | same |
-| Redis mirror write fails (strategy=redis) | pcall returns false | log + fall back to ctx-only (durability degraded) | same |
+| Failure | Detection | `on_error=closed` | `on_error=open` |
+|---------|-----------|---------------------|------------------|
+| Patterns file not found / invalid JSON | `get_patterns` returns nil | 503 | pass through unredacted |
+| `ngx.re.gmatch` error | `it` returns nil, err | log + continue (regex skipped) | same |
+| Request body not chat-shaped | `parsed.messages == nil` | passthrough (no redaction) | passthrough |
+| `cjson.encode` fails on rewrite | pcall returns false | 502 | pass through original body |
+| Empty response from upstream | `body == ""` on EOF | emit empty body | empty body |
+| `body_filter` gsub fails | pcall wrap | log + emit raw (placeholders to client!) | same |
 
-The `on_error=closed` default is the production posture per AGENTS.md Rule 13.
-`open` is provided for degraded-mode ops where unredacted traffic to a private tenant
-LLM is temporarily acceptable (must be a deliberate per-route opt-in, never a global
-default).
+`on_error=closed` (default) is the production posture per AGENTS.md Rule 13.
 
 ---
 
-## 12. Configuration Example (decK)
+## 12. Test Plan
 
-```yaml
-plugins:
-  - name: redact
-    config:
-      engine_url: "http://redact-engine.sidecar.svc.cluster.local:8081"
-      engine_timeout_ms: 2000
-      pii_map_strategy: ctx           # per-stream kong.ctx.plugin
-      stream_mode: buffer             # default
-      profile: pseudonym-llm
-      on_error: closed                # 503 on engine failure (production default)
-```
-
----
-
-## 13. Test Plan (Required)
-
-- Unit: `restore_with_key` with patterns containing `[]`, `%`, parens : must escape
-  metacharacters and not double-substitute.
-- Integration: end-to-end with the redact-engine sidecar running; assert placeholders in
-  upstream call, originals in client response.
+- Unit: `redact_text` with email, SSN, card (valid + Luhn-fail), API key, phone, JWT.
+- Unit: `restore_with_key` with placeholders containing `[]`, `%`, parens, must
+  escape metacharacters and not double-substitute.
+- Unit: Luhn check rejects 16-digit invoice IDs, accepts valid test card numbers.
+- Unit: Dictionary matching, "Acme Corporation" matched, "Acme Corp" not matched
+  (exact match only in v1).
+- Unit: Round-trip: redact then restore = original text.
+- Integration: end-to-end through APISIX; assert placeholders in upstream call,
+  originals in client response.
 - Stream-mode matrix: `reject` (400), `buffer` (defers to EOF, single emission),
   `passthrough` (placeholders pass through).
-- Failure injection: kill redact-engine → assert 503 (`closed`) / unredacted pass +
-  `X-Redact-Error` (`open`).
-- Header: assert `Content-Length` cleared; assert downstream receives chunked transfer.
-- No silent fallback: assert NO request ever proceeds without either redaction or an
-  explicit `X-Redact-Error` header surfaced.
+- Failure: invalid patterns file -> 503 (`closed`) / unredacted pass (`open`).
+- Header: assert `Content-Length` cleared; assert chunked transfer encoding.
+- No silent fallback: assert NO request proceeds without either redaction or
+  an explicit `X-Redact-Error` header.
 
 ---
 
-## 14. Open Questions Carried to Engine Spec
+## 13. Open Questions
 
-| Q | Resolution in `PLUGIN-REDACT-ENGINE.md` |
-|---|----------------------------------------|
-| Placeholder format | `[CUSTOMER_NAME_1]` etc. : defined by `profile` |
-| Numbering namespace | Per-message (collapsed during merge) or per-stream |
-| Streaming placeholder atomicity | Engine guarantees placeholders are unbreakable in produced tokens |
-| NER inline vs sidecar-to-sidecar | Engine config; inline tract is allowed because sidecar has its own thread pool |
-| Cross-tenant key isolation | Not applicable : engine receives messages only; tenant claims already stripped upstream of redaction (redact runs after auth) |
+| Q | Resolution |
+|---|------------|
+| Patterns file format: JSON vs YAML | JSON (cjson bundled); YAML requires `lyaml` not guaranteed in APISIX image |
+| Hot-reload mechanism | Check file mtime on each request (cheap `lfs.attributes` call); or periodic `ngx.timer.at` |
+| Per-tenant dictionaries | v1: one global patterns file; v2: per-tenant file selected by `ctx.X-Tenant-ID` |
+| PCRE alternation vs `lua-resty-aho-corasick` | PCRE alternation first (zero deps); switch to Aho-Corasick FFI if dictionary grows > 1000 entries and perf degrades |
+| Multi-modal content (image URLs) | v1: redact `text` parts only; image URLs not scanned |
 
 ---
 
-## 15. References
+## 14. References
 
-- argus-redact-bridge (precedent): https://github.com/wan9yu/kong-plugin-argus-redact
-- argus-redact engine (Python+PyO3+Rust): https://github.com/wan9yu/argus-redact
-- Kong `ai-sanitizer` (external PII service contract): https://developer.konghq.com/plugins/ai-sanitizer/
-- lua-nginx-module cosocket ban in `body_filter`/`header_filter`: https://github.com/openresty/lua-nginx-module#body_filter_by_lua
-- openresty/lua-nginx-module issue #1813 (Content-Length clear + buffer-then-rewrite): https://github.com/openresty/lua-nginx-module/issues/1813
-- `kong.ctx.plugin` lifetime: https://docs.konghq.com/gateway/latest/plugin-development/pdk/kong.ctx/
-- Kong `header_filter`/`response` phase mutual exclusion: https://developer.konghq.com/custom-plugins/handler.lua/
-- Kong ai-proxy SSE shared filters (`parse-sse-chunk` / `normalize-sse-chunk`): `Kong/kong` `kong/llm/plugin/shared-filters/normalize-sse-chunk.lua`
+- `ngx.re` PCRE bindings: https://github.com/openresty/lua-nginx-module#ngxre
+- PCRE trie optimization for alternation: https://www.pcre.org/original/doc/html/pcrepattern.html
+- OpenResty cosocket ban in `body_filter`: https://github.com/openresty/lua-nginx-module#body_filter_by_lua
+- APISIX plugin development: https://apisix.apache.org/docs/apisix/plugin-develop/
+- Luhn algorithm: https://en.wikipedia.org/wiki/Luhn_algorithm
+- `lua-resty-http`: https://github.com/ledgetech/lua-resty-http
+- `cjson` (bundled with OpenResty): https://github.com/openresty/lua-cjson
 
 ---
 

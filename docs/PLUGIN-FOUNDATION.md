@@ -1,15 +1,12 @@
-# Plugin Foundation Specification - Shared Build/Host Contract
+# Plugin Foundation Specification - APISIX Custom Lua Plugin Development
 
-**Document ID:** AMI-PROP-LLMGW-PLUGIN-FOUNDATION-v1.0
+**Document ID:** AMI-PROP-LLMGW-PLUGIN-FOUNDATION-v2.0
 **Status:** Draft
-**Date:** 2026-07-04
-**Parent:** `PROPOSAL-LLM-GATEWAY-v2.md` (AMI-PROP-LLMGW-v2.0)
-**Scope:** Shared engineering foundation for all four custom Rust Proxy-Wasm filters
-(`PLUGIN-AUTH-OIDC`, `PLUGIN-AUTH-LDAP`, `PLUGIN-SEMANTIC-CACHE`, `PLUGIN-FAILOVER`)
-running inside Kong Gateway 3.14's `ngx_wasm_module`.
-
-This document is the authoritative base; each per-plugin spec inherits these contracts
-and adds its own `config_schema`, callbacks, and sidecar APIs.
+**Date:** 2026-07-05
+**Parent:** `PROPOSAL-LLM-GATEWAY-v3.md`
+**Scope:** Shared engineering foundation for custom Lua plugins running inside
+Apache APISIX 3.17.0. This document is the authoritative base; each per-plugin
+spec inherits these contracts and adds its own schema, phase logic, and config.
 
 ---
 
@@ -17,458 +14,350 @@ and adds its own `config_schema`, callbacks, and sidecar APIs.
 
 | Component | Version | Rationale |
 |-----------|---------|-----------|
-| Kong Gateway | 3.14 (`kong/kong-gateway:3.14.0.4-debian`) | Enterprise image run unlicensed; OSS features (Wasm, `ai-proxy`, custom plugins, Admin API) work in 3.14 free mode. Traditional mode with PostgreSQL ensures restart-survivability. |
-| `ngx_wasm_module` | bundled with Kong 3.14 | Kong-authored Proxy-Wasm host ABI; Wasm toggle removed (GA) in 3.11 |
-| Proxy-Wasm Rust SDK | `proxy-wasm = "0.2.5"` | Last stable 0.2.x; ABI v0.2.1 supported by ngx_wasm_module (0.3.0-dev unreleased) |
-| Rust toolchain | `>= 1.84` (MSRV `1.85` for SDK master; pin 1.84 for 0.2.x) | 1.84 renamed `wasm32-wasi` to `wasm32-wasip1` |
+| Apache APISIX | 3.17.0 (`apache/apisix:3.17.0-debian`) | All plugins OSS, no license enforcement, Docker images for every version, source code public |
+| OpenResty / LuaJIT | bundled with APISIX image | Same OpenResty phase model and cosocket semantics as Kong |
+| Standalone YAML mode | `deployment.role: data_plane`, `config_provider: yaml` | File-driven hot reload, no etcd/PostgreSQL needed for gateway config |
+| Lua | LuaJIT 2.1 (bundled) | JIT-compiled hot traces; `ngx.re` PCRE bindings are native C |
 
-**ABI note:** `0.3.0-dev` (master) is NOT released and uses edition 2024 / MSRV 1.85.
-Do NOT depend on `master` until ngx_wasm_module declares ABI 0.3 support.
-
----
-
-## 2. Build Toolchain
-
-### 2.1 Project skeleton (canonical, per Kong's showcases)
-
-```
-my-filter/
-  .cargo/config.toml      # [build] target = "wasm32-wasip1"
-  Cargo.toml               # crate-type = ["cdylib"]; proxy-wasm = "0.2"
-  src/filter.rs            # proxy_wasm::main! + Root + Http impls
-  my_filter.meta.json      # Draft-4 JSON Schema config_schema
-```
-
-### 2.2 `.cargo/config.toml`
-
-```toml
-[build]
-target = "wasm32-wasip1"
-```
-
-Toolchain setup: `rustup target add wasm32-wasip1` then `cargo build --release`
-(outputs `target/wasm32-wasip1/release/<crate_name>.wasm`).
-`wasm32-wasi` is the legacy name; byte-identical output, but pin `wasm32-wasip1`
-on Rust 1.84+ to avoid deprecation warnings.
-
-### 2.3 `Cargo.toml` baseline (filter crate)
-
-```toml
-[package]
-name = "auth-oidc-filter"   # per-plugin: e.g. failover-filter, semantic-cache-filter
-version = "1.0.0"
-edition = "2021"             # SDK 0.2.x supports 2021; master is 2024 only
-[lib]
-path = "src/filter.rs"
-crate-type = ["cdylib"]
-[dependencies]
-proxy-wasm = "0.2"
-log = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde-json-wasm = "0.5"     # NOT serde_json -- it pulls std filesystem/threading
-[profile.release]
-lto = true
-opt-level = 3
-codegen-units = 1
-panic = "abort"             # panics trap rather than unwind the wasm instance
-strip = "debuginfo"
-```
-
-### 2.4 Core-wasm module, NOT component model
-
-Proxy-Wasm SDKs emit a **plain core Wasm module** (WASI preview-1) that imports
-`proxy_*` host functions from the `env` module. `ngx_wasm_module` does NOT run a
-Wasmtime/component runtime; a **Wasm component (component model) is NOT accepted**.
-Do NOT wrap with `wasm-tools component new`. The `proxy_wasm` crate is designed for
-core modules and `panic = "abort"` (set in the SDK release profile) ensures panics
-trap rather than unwind.
+**No Wasm, no Rust Proxy-Wasm, no `dispatch_http_call`.** All custom logic is pure Lua
+running in-process inside the nginx worker. Network I/O uses non-blocking cosockets
+(`lua-resty-http`, `lua-resty-redis`).
 
 ---
 
-## 3. Kong `meta.json` Schema + Filter Discovery
+## 2. Custom Plugin Structure
 
-### 3.1 Discovery flow
+### 2.1 File layout
 
-Set in `kong.conf` (env `KONG_WASM_FILTERS_PATH`). Kong scans this directory at
-startup for `.wasm` files. Each `.wasm` may have a sibling
-`<name>.meta.json` (filename = `.wasm` basename with `.meta.json` suffix).
-Enable Wasm: `KONG_WASM=on`.
+```
+WORKSPACE-GATEWAY/
+  plugins/
+    custom/
+      redact.lua              # PLUGIN-REDACT-LUA
+      semantic-cache.lua      # PLUGIN-SEMANTIC-CACHE
+  conf/
+    config.yaml               # APISIX config (extra_lua_path, plugins list)
+    apisix.yaml               # standalone YAML routes + plugin configs
+    redact-patterns.yaml      # file-based PII patterns + dictionary (loaded by redact plugin)
+```
 
-### 3.2 `meta.json` validated schema (from `Kong/kong` `kong/runloop/wasm.lua`)
+### 2.2 Plugin manifest
 
-```json
-{
-  "config_schema": <JSON Schema (Draft 4) | optional>,
-  "metrics": {
-    "label_patterns": [
-      { "label": "string", "pattern": "string" }
-    ]
-  }
+Every custom plugin returns a Lua table with these required fields:
+
+```lua
+local core = require("apisix.core")
+
+local _M = {
+    version = 0.1,
+    priority = 2500,           -- higher runs first; auth built-ins are ~2599
+    name = "redact",
 }
 ```
 
-- `config_schema` MUST be **Draft-4** JSON Schema (other drafts rejected).
-- With a schema present, each named filter registers a subschema
-  `proxy_wasm_filters/<name>`, and filter-chain `config` is validated against it and
-  accepted as typed JSON.
-- Without a schema, `config` MUST be a **string** (opaque bytes) and Kong does no
-  validation. Invalid config only fails at the runtime (HTTP 500 on the proxied
-  request).
-- **Always ship a Draft-4 `config_schema`.** Pivot to runtime-safe rejection.
-- Avoid Draft-4-unsupported keywords (`const`, `$ref` to external docs, `if/then/else`).
-- Examples of `label_patterns`: `{ "label": "tenant_id", "pattern": "kong.*.tenant.*.id" }`
-  (wires wasm-side `define_metric` labels to Kong metric extractors).
+### 2.3 Plugin loading via `extra_lua_path`
 
-### 3.3 Kong's `proxy-wasm-rust-rate-limiting` reference (full meta.json)
+In `conf/config.yaml`:
 
-```json
-{
-  "config_schema": {
-    "type": "object",
-    "properties": {
-      "second": { "type": "integer" },
-      "minute": { "type": "integer" },
-      "limit_by": { "type": "string", "enum": ["ip","header","path"], "default": "ip" },
-      "policy": { "type": "string", "enum": ["local"], "default": "local" }
-    }
-  }
-}
+```yaml
+apisix:
+  extra_lua_path: "/usr/local/apisix/apisix/plugins/custom/?.lua;"
+
+plugins:
+  - redact
+  - semantic-cache
 ```
 
-Each plugin spec below defines its own `meta.json` extending this shape.
+APISIX scans the `plugins` list at startup. Each listed name must resolve via
+`extra_lua_path` to `apisix/plugins/custom/<name>.lua` (the `require` path is
+`apisix.plugins.custom.<name>`).
 
-### 3.4 Filter-chain entity schema (decK / Kong DB entity)
+### 2.4 Custom Docker image
 
-Filter chains are managed via decK (`deck gateway sync`) through the Admin API to the
-PostgreSQL-backed Kong instance (traditional mode). The schema:
-
-```
-filter_chains:
-  name:            string
-  enabled:         boolean (default true)
-  filters:
-    - name:    string        # matches .wasm filename in wasm_filters_path
-      enabled: boolean        # per-filter toggle (default true)
-      config:  string | object   # object only if matching meta.json has config_schema
+```dockerfile
+FROM apache/apisix:3.17.0-debian
+COPY plugins/custom/ /usr/local/apisix/apisix/plugins/custom/
+COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
+COPY conf/apisix.yaml /usr/local/apisix/conf/apisix.yaml
+COPY conf/redact-patterns.yaml /etc/apisix/redact-patterns.yaml
 ```
 
-A filter chain links 1:1 with a service or route (Kong 3.4+). Filters within a chain
-execute in definition order; service-chain filters run before route-chain filters.
-Multiple filter chains on different routes/services are permitted.
+Standalone YAML mode: `apisix.yaml` is polled every 1 second for changes.
+No Admin API writes needed for config updates.
 
 ---
 
-## 4. Phase Mapping in `ngx_wasm_module`
+## 3. Plugin Schema
 
-| Proxy-Wasm phase callback | Nginx phase | Yieldable | Can dispatch_http_call? |
-|---------------------------|-------------|-----------|-------------------------|
-| `on_http_request_headers` | access (rewrite+access) | yes | yes |
-| `on_http_request_body`    | rewrite/access (continued) | yes | yes |
-| `on_http_response_headers`| header_filter | **no** | **no** |
-| `on_http_response_body`   | body_filter   | yes (buffered) | **no** in ngx_wasm_module |
-| `on_http_call_response`   | (root context, async) | yes (always) | yes (nested allowed) |
-| `on_http_call_trailers`   | trailer_filter | yes | bitrot-fragile; avoid |
-| `on_log`                  | log_by_lua    | yes | yes (but cosocket-restricted in Lua; wasm has its own dispatch but `on_log` for wasm fires post-stream) |
+APISIX uses Lua table schemas (not JSON Schema). Define a `schema` field and
+a `check_schema` function:
 
-**Lua plugins always run before Wasm filters** in every phase. If a Lua plugin
-short-circuits (e.g. `kong.response.exit`), **no Wasm filters run** for that request.
-Design plugin ordering to account for this : auth must not rely on downstream Wasm to
-rescue a Lua-rejected request.
+```lua
+_M.schema = {
+    type = "object",
+    properties = {
+        patterns_file = { type = "string", default = "/etc/apisix/redact-patterns.yaml" },
+        stream_mode   = { type = "string", enum = { "reject", "buffer", "passthrough" }, default = "buffer" },
+        on_error      = { type = "string", enum = { "closed", "open" }, default = "closed" },
+    },
+}
 
-**Streaming body caveat:** `on_http_response_headers` is non-yieldable; you cannot
-clear `Content-Length` there (it's already flushed). Header mutation must finish
-before the first `body_filter` chunk. To mutate body size, **pause + buffer + resume**
-is required (`Action::Pause` returns to host from `on_http_response_body`; host then
-buffers and re-invokes with accumulated body until `end_of_stream=true`).
+function _M.check_schema(conf)
+    return core.schema.check(_M.schema, conf)
+end
+```
+
+`core.schema.check` validates the config table against the schema at route-load
+time. Invalid config is rejected before any request hits the route.
 
 ---
 
-## 5. Hostcalls Available in `ngx_wasm_module`
+## 4. Phase Mapping
 
-Verified against `Kong/ngx_wasm_module` `docs/PROXY_WASM.md` (ABI v0.2.1):
+APISIX plugins implement phase functions. Same OpenResty phases, same
+cosocket availability rules as Kong:
 
-### 5.1 Supported
+| Phase function | Nginx phase | Cosocket? | Can yield? | Notes |
+|----------------|-------------|-----------|------------|-------|
+| `_M.access(conf, ctx)` | access (rewrite+access) | yes | yes | Main logic phase: auth checks, body modification, sidecar calls, cache lookups |
+| `_M.header_filter(conf, ctx)` | header_filter | no | no | Response header mutation only; clear `Content-Length` here before body_filter |
+| `_M.body_filter(conf, ctx)` | body_filter | no | no | Response body chunk processing; local string ops only (gsub, concat) |
+| `_M.log(conf, ctx)` | log | no (direct) | via `ngx.timer.at` | Emit metrics/telemetry; cosockets only inside `ngx.timer.at` callback |
 
-| Category | Hostcalls |
-|----------|-----------|
-| Logging / time | `proxy_log`, `proxy_get_current_time_nanoseconds`, `proxy_set_effective_context` |
-| Timers | `proxy_set_tick_period_milliseconds` |
-| Buffers | `proxy_get_buffer_bytes`, `proxy_set_buffer_bytes` |
-| Header maps | `proxy_get/set_header_map_pairs`, `proxy_get/set_header_map_value`, `proxy_add_header_map_value`, `proxy_replace_header_map_value`, `proxy_remove_header_map_value` |
-| Properties | `proxy_get_property`, `proxy_set_property` |
-| Streams | `proxy_continue_stream` (`resume_http_request`/`resume_http_response`) |
-| Local response | `proxy_send_local_response` |
-| HTTP dispatch | **`proxy_http_call`** : only outbound network primitive |
-| Shared state | `proxy_get_shared_data` / `proxy_set_shared_data` (cross-worker; CAS-protected) |
-| Shared queues | `proxy_register_shared_queue`, `proxy_enqueue_shared_queue`, `proxy_dequeue_shared_queue` |
-| Metrics | `proxy_define_metric`, `proxy_get_metric`, `proxy_record_metric`, `proxy_increment_metric` |
-| Foreign functions | `proxy_call_foreign_function` (used by `resolve_lua` for async DNS) |
-
-### 5.2 NYI / unsupported in Kong host (must NOT rely on)
-
-| Hostcall | Status |
-|----------|--------|
-| `proxy_get_log_level` | unsupported |
-| `proxy_done` | unsupported |
-| `proxy_close_stream` | unsupported |
-| `proxy_resolve_shared_queue` | unsupported |
-| `proxy_continue_response` | unsupported (cannot pause response except buffered body) |
-| `proxy_resume_downstream` / `proxy_resume_upstream` | unsupported |
-| **All gRPC dispatch** (`proxy_grpc_call`, `proxy_grpc_stream`, `proxy_grpc_send`, `proxy_grpc_cancel`, `proxy_grpc_close`, `proxy_get_status`) | unsupported |
-
-**Implication for plugins:** LDAP/LDAP/OIDC/CACHE/FAILOVER must use `dispatch_http_call`
-(plain HTTP), NOT gRPC. Validate all JWT bodies in guest; never dispatch gRPC for token
-introspection (gRPC is widely assumed by Envoy examples but unavailable here).
+**Cosocket rule (identical to Kong/OpenResty):** `lua-resty-http` and
+`lua-resty-redis` use `ngx.socket.tcp()` internally. This is **allowed in
+`access`** and **forbidden in `header_filter` and `body_filter`**. In `log`,
+use `ngx.timer.at` to get a yieldable context for cosocket calls.
 
 ---
 
-## 6. `dispatch_http_call` Contract (Critical)
+## 5. Request / Response APIs
 
-### 6.1 Signature
+### 5.1 Reading the request body (access phase)
 
-```rust
-fn dispatch_http_call(
-    &self,
-    upstream: &str,                              // host (or host:port), NOT an Envoy cluster name
-    headers: Vec<(&str, &str)>,                   // MUST include :method, :path, :authority
-    body: Option<&[u8]>,
-    trailers: Vec<(&str, &str)>,
-    timeout: Duration,
-) -> Result<u32, Status>;                         // returns token id
+```lua
+function _M.access(conf, ctx)
+    core.request.read_body(ctx)
+    local body = core.request.get_body(ctx)
+    if not body or body == "" then return end
+    -- parse, modify, rewrite...
+end
 ```
 
-### 6.2 ngx_wasm_module specifics
+Alternatively: `ngx.req.read_body()` then `ngx.req.get_body_data()`.
 
-- `upstream` arg is a **hostname/IP with optional `:port`**, resolved via nginx `resolver`
-  or `proxy_wasm_lua_resolver` directive. NOT an Envoy cluster name
- (`Kong/ngx_wasm_module` Discussion #564 confirmed).
-- Pseudo-headers in `headers` vec: `:method`, `:path`, **`:authority`** (NOT `:host`).
-  Wrong pseudo-header → `BadArgument` (proxy-wasm SDK issue #172).
-- Allowed from: `on_http_request_headers`, `on_http_request_body`, `on_tick`,
-  `on_http_call_response` (nested dispatch).
-- **Forbidden from:** `on_http_response_headers` (non-yieldable). Limited to buffered
-  body in `on_http_response_body`.
-- On dispatch failure, `on_http_call_response` fires with all size args 0 AND a synthetic
-  `:dispatch_status` pseudo-header in the response headers map: `"timeout"`,
-  `"broken connection"`, `"tls handshake failure"`, `"resolver failure"`,
-  `"reader failure"`. Filters MUST inspect this and fail usefully (e.g. 503 with
-  `Retry-After`, never silent 200).
+### 5.2 Modifying the request body (access phase)
 
-### 6.3 Pause → Dispatch → Resume pattern (canonical)
-
-```rust
-impl HttpContext for MyFilter {
-    fn on_http_request_headers(&mut self, _: usize, _: bool) -> Action {
-        let body = /* build sidecar request */;
-        match self.dispatch_http_call(
-            "ldap-bridge.svc:8080",
-            vec![(":method","POST"), (":path","/ldap/bind"),
-                 (":authority","ldap-bridge.svc"), ("content-type","application/json")],
-            Some(&body), vec![], Duration::from_millis(1500),
-        ) {
-            Ok(_token) => Action::Pause,        // hold downstream; wait for callback
-            Err(Status::BadArgument) => {
-                self.send_http_response(500, vec![], Some(b"bridge misconfig\n"));
-                Action::Pause
-            }
-            Err(_) => {
-                self.send_http_response(503, vec![("retry-after","2")], Some(b"unreachable\n"));
-                Action::Pause
-            }
-        }
-    }
-}
-impl Context for MyFilter {
-    fn on_http_call_response(&mut self, _t: u32, nh: usize, bs: usize, _: usize) {
-        if nh == 0 && bs == 0 {
-            self.send_http_response(503, vec![], Some(b"timeout\n"));
-            return;
-        }
-        /* parse response, inject headers, resume_http_request or send_http_response */
-        self.resume_http_request();
-    }
-}
+```lua
+local modified = cjson.encode(parsed)
+ngx.req.set_body_data(modified, #modified)
+-- or set header:
+core.request.set_header(ctx, "X-Redact-Active", "1")
 ```
 
-**Pitfalls proven by SDK issues (must handle):**
-1. **`on_http_call_response` fires on the ROOT context** when dispatched from `on_tick`
-   (background refresh), on the originating `HttpContext` when dispatched from a request
-   callback (proxy-wasm-cpp-sdk #188). Use `set_effective_context(http_context_id)` to
-   resume stream-scoped hostcalls from root context.
-2. **Nested borrows** can BorrowMutError-panic if you `resume_http_request` after mutating
-   a struct field after the call (issue #43). Do bookkeeping BEFORE the resume.
-3. **`Action::Pause` only valid** in `on_http_request_headers`, `on_http_request_body`,
-   `on_http_response_body` (buffering only), `on_http_call_response`. Cannot pause in
-   response-header phase.
-4. **Reentrancy**: a second `dispatch_http_call` from within `on_http_call_response`
-   requires a `Response::{None,First,Second}` state field per filter (issue #40).
-5. **Timeout detection** (SDK PR #296): `on_http_call_response` with `num_headers==0
-   && body_size==0` ⇒ the host's per-hostcall timeout expired. Treat as infra failure,
-   never as a silent 200.
+### 5.3 Response headers (header_filter)
+
+```lua
+function _M.header_filter(conf, ctx)
+    if not ctx.redact_active then return end
+    core.response.set_header(ctx, "Content-Length", nil)  -- clear for chunked
+    core.response.set_header(ctx, "X-Redact-Active", "1")
+end
+```
+
+Alternatively: `ngx.header["Content-Length"] = nil`.
+
+### 5.4 Response body chunks (body_filter)
+
+```lua
+function _M.body_filter(conf, ctx)
+    if not ctx.redact_active then return end
+    local chunk, eof = ngx.arg[1], ngx.arg[2]
+    -- buffer chunks until EOF, then restore and emit
+    ctx.redact_buffer = (ctx.redact_buffer or "") .. (chunk or "")
+    if not eof then
+        ngx.arg[1] = nil  -- swallow chunk
+        return
+    end
+    ngx.arg[1] = restore_with_key(ctx.redact_buffer, ctx.redact_key)
+    ngx.arg[2] = true
+    ctx.redact_buffer = nil
+end
+```
+
+### 5.5 Short-circuit response (access phase)
+
+Returning a non-nil value from `access()` sends the response immediately:
+
+```lua
+function _M.access(conf, ctx)
+    if cache_hit then
+        return 200, cached_body  -- APISIX sends this; no upstream call
+    end
+    if auth_failed then
+        return 401, { error = "invalid_token" }
+    end
+end
+```
+
+For more control (custom headers, content-type):
+
+```lua
+core.response.set_header(ctx, "Content-Type", "text/event-stream")
+return 200, sse_body
+```
 
 ---
 
-## 7. State Model
+## 6. Context and State
 
-### 7.1 Per-request state → struct fields on `HttpContext` impl
+### 6.1 Per-request context: `ctx` table
 
-Simplest and safest. `HttpContext` is constructed once per stream; the same `&mut self`
-flows through request and response callbacks. Store the per-stream PII maps,
-pending tokens, parsed claims, decoded request bodies, etc. here.
+The `ctx` table is passed to every phase function for the same request. It is
+shared across all plugins. Use a unique prefix to avoid collisions:
 
-```rust
-struct MyFilter {
-    config: Config,                  // cloned at create_http_context
-    pending_token: Option<u32>,
-    parsed_claims: Option<Claims>,
-    request_body_buffer: Vec<u8>,
-}
-impl HttpContext for MyFilter { /* ... */ }
+```lua
+ctx.redact_key = { ["[EMAIL_1]"] = "john@example.com" }
+ctx.redact_active = true
+ctx.cache_status = "MISS"
 ```
 
-### 7.2 Cross-callback (within one context) state → `wasmx.*` properties
+This replaces Kong's `kong.ctx.plugin` namespacing. Convention: use
+`ctx.<plugin_name>_*` prefix for per-plugin fields.
 
-`set_property(vec!["wasmx","mykey"], Some(&bytes))` / `get_property(...)`.
-The `wasmx.*` namespace is context-scoped : Root-scope writes invisible from HTTP
-context and vice versa. Useful for callbacks within the same context that span multiple
-host-call exchanges (e.g. JWKS cache update on the root context).
+### 6.2 Cross-worker shared state: `ngx.shared.DICT`
 
-### 7.3 Cross-request / cross-worker state → `get_shared_data` / `set_shared_data`
+Declared in `config.yaml`:
 
-SHM zone declared via nginx directive `wasm_shm_kv` (env var
-`KONG_NGINX_WASM_SHM_<ZONE_NAME>=<size>`). CAS-protected atomic updates:
-
-```rust
-match self.set_shared_data(key, Some(&bytes), Some(cas_token)) {
-    Ok(()) => /* saved */,
-    Err(Status::CasMismatch) => /* re-read value+cas from get_shared_data, retry */,
-    Err(_) => /* SDK panics on other errors */,
-}
+```yaml
+nginx_config:
+  http:
+    lua_shared_dict:
+      redact_state: 1m
+      semcache_state: 4m
 ```
 
-Standard retry loop pattern (from Kong's `proxy-wasm-rust-rate-limiting`):
-up to 10 retries, on exhausted return an explicit error (never silent).
+Atomic operations (same as Kong shdict):
 
-```rust
-let mut saved = false;
-for _ in 0..10 {
-    let buf = new_val.to_le_bytes();
-    match self.set_shared_data(&key, Some(&buf), cas) {
-        Ok(()) => { saved = true; break; }
-        Err(Status::CasMismatch) => {
-            let (nv, nc) = self.get_shared_data(&key); // (Some(bytes), Some(cas))
-            if let (Some(b), Some(c)) = (nv, nc) {
-                new_val = i32::from_le_bytes(b.try_into().unwrap());
-                cas = c;
-            }
-        }
-        Err(_) => { /* log + break */ }
-    }
-}
-if !saved { log::error!("could not save state for key {}", key); }
+```lua
+local shm = ngx.shared.redact_state
+shm:set("key", "value", 300)       -- TTL 300s
+local val = shm:get("key")
+shm:incr("counter", 1, 0)          -- atomic increment, default 0
+local ok, err = shm:cas("key", oldval, newval, 0.001)  -- CAS (if available)
 ```
 
-### 7.4 No `kong.*` / `ngx.ctx` access from Wasm
+### 6.3 Off-thread work: `ngx.timer.at`
 
-**Confirmed:** the `kong.*` property namespace used by Kong's own rate-limiting showcase
-filter returns empty in real Kong : it was aspirational; the showcase README lists
-"Getting proper route and service ids" under *What's missing*. The `kong.ctx` PDK API is
-**Lua-only**; Kong's wasm reference states Wasm filters have **no access to Kong's Lua PDK**.
-The `ngx.*` property namespace maps to **nginx variables** (`ngx.var`), not OpenResty's
-`ngx.ctx` table. Most nginx variables are immutable; `set_property(ngx.*)` on an immutable
-var **traps** (wasm trap). Only `request.query` (mapped to `ngx.args`) is documented
-writable among Envoy attributes.
+For async, non-blocking background tasks (NER sidecar calls, cache storage):
 
-**Identity propagation:** auth plugins MUST use `set_http_request_header("x-tenant-id",
-Some(value))` : these become visible in `ngx.req.get_header()` and `kong.service.request
-.get_header()` upstream. NOT `set_property`.
+```lua
+ngx.timer.at(0, function(premature)
+    if premature then return end
+    -- cosockets are available here
+    local httpc = http.new()
+    local res = httpc:request_uri("http://127.0.0.1:8081/ner", { ... })
+end)
+```
+
+The timer runs in a yieldable context. The request thread is NOT blocked.
 
 ---
 
-## 8. Cross-Filter Identity Propagation Contract
+## 7. Network I/O (Cosockets)
 
-All four custom plugins share this canonical header set, injected by the auth filter and
-read by all downstream plugins:
+### 7.1 HTTP calls: `lua-resty-http`
 
-| Header | Source (auth plugin) | Read by | Required in every request? |
-|--------|---------------------|---------|----------------------------|
-| `X-Tenant-ID` | tenant claim / AD attribute | cache, failover, telemetry | yes |
-| `X-User-ID` | OIDC `sub` / AD `sAMAccountName` | failover (LB key), telemetry | yes |
-| `X-Routing-Tier` | group claim / AD group mapping | cache (filter), failover (LB) | yes |
-| `X-Token-Scopes` | `scope`/`scp` claim | failover (RBAC), audit | optional |
+```lua
+local http = require("resty.http")
+local httpc = http.new()
+httpc:set_timeout(conf.timeout_ms)
+local res, err = httpc:request_uri(url, {
+    method = "POST",
+    body = body,
+    headers = { ["Content-Type"] = "application/json" },
+})
+httpc:set_keepalive()  -- pool the cosocket
+```
 
-**Auth filter MUST strip raw `Authorization` header** before forwarding upstream
-(unless an explicit `keep_authorization` per-route config opt-in is set), via
-`remove_http_request_header("authorization")`. This prevents credential leakage to LLM
-providers.
+Non-blocking: the nginx worker handles other requests while awaiting the
+response. Synchronous-looking code via Lua coroutines. Available in `access`
+and `ngx.timer.at` callbacks only.
 
-**Failover/cache/telemetry plugins MUST NOT trust** these headers from the inbound
-client : only trust them after the auth filter has run (filter-chain order: auth first).
-A SAFEDRAFT: also verify there is no `X-Tenant-ID` header pre-existing on inbound before
-auth runs (prevent spoofing; auth overwrites or rejects).
+### 7.2 Redis: `lua-resty-redis`
+
+```lua
+local redis = require("resty.redis")
+local red = redis:new()
+red:set_timeout(500)
+local ok, err = red:connect("127.0.0.1", 6379)
+-- FT.SEARCH with vector similarity (Redis VSS)
+local res, err = red:do_raw("FT.SEARCH idx:semcache "
+    .. "\"(@tenant:{tenant-123})=>[KNN 1 @embedding $qvec AS distance]\" "
+    .. "PARAMS 2 qvec " .. vector_blob .. " LIMIT 0 1 DIALECT 2")
+red:set_keepalive()
+```
+
+For binary protocol commands (FT.SEARCH PARAMS with float32 blobs), use
+`red:do_raw()` or the raw `REDIS` command interface. The vector blob must be
+packed as little-endian FLOAT32 via `ffi.new` + `ffi.string`.
+
+### 7.3 Keepalive and connection pools
+
+Both `lua-resty-http` and `lua-resty-redis` support `set_keepalive()` which
+returns the connection to a pool for reuse. Always call after each request.
+Default pool size: 10 connections per worker.
 
 ---
 
-## 9. Error Handling Discipline
+## 8. Error Handling Discipline
 
-Per AGENTS.md Rule 13: **no silent error swallowing, no silent fallbacks**.
-
-For every filter:
+Per AGENTS.md Rule 13: **no silent error swallowing, no silent fallbacks.**
 
 | Outcome | Behavior |
 |---------|----------|
-| Infra failure (sidecar down, timeout, parse error of sidecar data) | Log + emit `X-Auth-Error`/`X-Cache-Error`/`X-Failover-Error` response header + return 503 (auth) or fall through to upstream (cache). **Never** silently 200. **Never** silently `Continue`. |
-| Auth denial (bad token, expired, wrong audience) | 401/403 with RFC 6750 `WWW-Authenticate: Bearer realm="..."` error attributes. |
-| Internal filter bug (wasm panic) | `panic = "abort"` traps the instance; the host aborts the request (typically 500 from the proxy). Prefer explicit `Err` propagation; no `unwrap()` on hostcalls except where SDK guarantees success. |
-| Config parse failure (`on_configure` returns false) | Filter disabled at startup; logged. No runtime failover attempted at the filter level (Kong route must have a backup plan). |
+| Sidecar unreachable / timeout | Log `core.log.error(...)` + return `503` with error body |
+| Redis down / query error | Log + emit `X-Cache-Error` response header + MISS (cache plugin) or 503 (auth plugin) |
+| Malformed response from sidecar | Log + return `502` with error body |
+| Config parse failure | `check_schema` returns false at route-load time; route rejected |
+| Body parse failure (cjson decode) | Log + emit `X-<Plugin>-Warning` header; pass through unmodified |
+| Auth denial | Return `401` with `WWW-Authenticate: Bearer` (or `403` for scope/aud) |
+
+**Never** silently 200. **Never** silently `Continue` with degraded state.
+Every error surfaces a non-2xx or a `X-*-Error` / `X-*-Warning` header.
 
 ---
 
-## 10. Operational Conventions
+## 9. Plugin Ordering Convention
 
-- **One Wasm module per plugin**, one filter per route's filter chain.
-- **OTP-style plugin guarding:** each plugin documents its own `meta.json` `config_schema`;
-  Kong Admin API rejects invalid config at apply time (return 400), not at request time.
-- **Version pinning in decK:** explicit `min_version` field in filter `config` for forward
-  compatibility assertions, per-plugin. Config is synced via `deck gateway sync` through
-  the Admin API to PostgreSQL (traditional mode).
-- **Sidecar deployment:** sidecars (embedding, cache shim, LDAP bridge, NER) run as
-  systemd user binaries on the same host, reachable from Kong via the nginx `resolver`.
-  mTLS on the bridge leg; secrets (keytabs, OpenAI keys) live on the sidecar, never in
-  the Wasm module.
+APISIX runs plugins in `priority` order (higher first). Recommended priorities:
 
----
+| Plugin | Priority | Rationale |
+|--------|----------|-----------|
+| `openid-connect` | ~2599 | Built-in; auth must run first |
+| `ldap-auth` | ~2599 | Built-in; auth must run first |
+| `semantic-cache` | 2550 | On HIT, short-circuit before redaction/ai-proxy |
+| `redact` | 2500 | After auth, before ai-proxy |
+| `ai-proxy-multi` | ~2402 | Built-in; routes to provider |
+| `ai-proxy` | ~2402 | Built-in; format translation |
+| `ai-rate-limiting` | ~2300 | Built-in; rate limit after routing decision |
+| `proxy-buffering` | ~2800 | Built-in; sets nginx directive (high priority) |
+| `http-logger` | ~410 | Built-in; log phase |
+| `prometheus` | ~500 | Built-in; metrics |
 
-## 11. References (shared)
-
-- Kong `meta.json`/filter schema: https://docs.konghq.com/gateway/latest/plugin-development/wasm/filter-configuration/
-- Kong wasm reference: https://docs.konghq.com/gateway/latest/reference/wasm/
-- Kong showcase `proxy-wasm-rust-rate-limiting` (Cargo.toml, src/filter.rs, .cargo/config.toml, meta.json): https://github.com/Kong/proxy-wasm-rust-rate-limiting
-- `Kong/kong` `kong/runloop/wasm.lua` `FILTER_META_SCHEMA`: https://github.com/Kong/kong/blob/58f2daa5/kong/runloop/wasm.lua
-- `Kong/ngx_wasm_module` `docs/PROXY_WASM.md`: https://github.com/Kong/ngx_wasm_module/blob/main/docs/PROXY_WASM.md
-- `Kong/ngx_wasm_module` `docs/DIRECTIVES.md` (shm_kv zones): https://github.com/Kong/ngx_wasm_module/blob/main/docs/DIRECTIVES.md
-- Proxy-Wasm Rust SDK v0.2.5: https://crates.io/crates/proxy-wasm
-- SDK traits reference: https://docs.rs/proxy-wasm/0.2/proxy_wasm/traits/index.html
-- SDK hostcalls reference: https://docs.rs/proxy-wasm/0.2/proxy_wasm/hostcalls/index.html
-- `dispatch_http_call` async + `:authority` trap (issue #172): https://github.com/proxy-wasm/proxy-wasm-rust-sdk/issues/172
-- Pause/Resume/Promise pattern (PR #265): https://github.com/proxy-wasm/proxy-wasm-rust-sdk/pull/265
-- `wasm32-wasi` → `wasm32-wasip1` rename (Rust 1.84): https://blog.rust-lang.org/2024/11/19/Rust-1.84.0.html
-- `serde-json-wasm` (no_std JSON): https://crates.io/crates/serde-json-wasm
+Custom plugins set their own priority in the manifest `_M.priority`.
 
 ---
 
-## 12. Per-Plugin Doc Index
+## 10. Per-Plugin Doc Index
 
-The four per-plugin specs that inherit this foundation:
+| Document | Plugin | Type | Version |
+|----------|--------|------|---------|
+| `PLUGIN-REDACT-LUA.md` | PII redaction + re-hydration | Custom Lua | v1 |
+| `PLUGIN-SEMANTIC-CACHE.md` | Redis VSS semantic cache | Custom Lua + Rust sidecar | v2 |
+| `PLUGIN-REDACT-ENGINE.md` | Optional NER sidecar (Rust) | Rust binary | v2 |
+| `BUILTIN-PLUGINS.md` | APISIX built-in plugin config guide | Configuration | v1 |
 
-| Document | Plugin | Language | Replaces |
-|----------|--------|----------|---------|
-| `PLUGIN-REDACT.md` | inline PII anonymization + re-hydration | **Lua** (Kong plugin) | none : replaces the v1.0 Rust-Wasm anonymizer |
-| `PLUGIN-AUTH-OIDC.md` | OIDC / OAuth2 JWT bearer validation | Rust Proxy-Wasm | Kong `openid-connect` (Enterprise) |
-| `PLUGIN-AUTH-LDAP.md` | legacy AD via LDAP/Kerberos HTTP bridge | Rust Proxy-Wasm + sidecar | Kong `ldap-auth-advanced` (Enterprise) |
-| `PLUGIN-SEMANTIC-CACHE.md` | Redis VSS semantic cache | Rust Proxy-Wasm + sidecar | Kong `ai-semantic-cache` (Enterprise) |
-| `PLUGIN-FAILOVER.md` | multi-provider weighted LB + adaptive failover | Rust Proxy-Wasm + Lua helper | Kong `ai-proxy-advanced` (Enterprise) |
-
-See `README.md` in this directory for the directory index.
+See `README.md` in this directory for the full docs index and reading order.
 
 **End of document.**
