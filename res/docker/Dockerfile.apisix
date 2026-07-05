@@ -1,0 +1,7 @@
+FROM apache/apisix:3.17.0-debian
+
+COPY plugins/custom/ /usr/local/apisix/apisix/plugins/custom/
+COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
+COPY conf/redact-patterns.json /etc/apisix/redact-patterns.json
+
+EXPOSE 9080 9443

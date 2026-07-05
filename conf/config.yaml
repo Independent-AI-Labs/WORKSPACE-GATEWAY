@@ -1,0 +1,29 @@
+deployment:
+  role: data_plane
+  role_trust_by_default: false
+  config_provider: yaml
+
+apisix:
+  admin_key: ""
+  extra_lua_path: "/usr/local/apisix/apisix/plugins/custom/?.lua;"
+  lua_shared_dict:
+    redact_state: 1m
+    semcache_state: 4m
+
+plugins:
+  - key-auth
+  - ai-proxy
+  - ai-proxy-multi
+  - ai-rate-limiting
+  - proxy-buffering
+  - proxy-rewrite
+  - http-logger
+  - prometheus
+  - redact
+
+nginx_config:
+  http:
+    lua_shared_dict:
+      redact_state: 1m
+      semcache_state: 4m
+    proxy_buffering: "on"

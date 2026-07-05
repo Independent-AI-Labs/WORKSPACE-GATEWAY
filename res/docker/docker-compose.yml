@@ -1,0 +1,54 @@
+services:
+  apisix:
+    build:
+      context: ../..
+      dockerfile: res/docker/Dockerfile.apisix
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+    volumes:
+      - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+      - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
+    depends_on:
+      - vector
+    restart: unless-stopped
+    networks:
+      - gateway
+      - dataops
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+    restart: unless-stopped
+    networks:
+      - gateway
+
+  vector:
+    image: timberio/vector:0.40.0-debian
+    volumes:
+      - ../../conf/vector.toml:/etc/vector/vector.toml:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - clickhouse
+    restart: unless-stopped
+    networks:
+      - gateway
+
+volumes:
+  clickhouse-data:
+
+networks:
+  gateway:
+    driver: bridge
+  dataops:
+    external: true
+    name: dataops_default

@@ -1,0 +1,21 @@
+[sources.apisix_http_logger]
+type = "http_server"
+address = "0.0.0.0:8080"
+path = "/ingest"
+encoding = "json"
+
+[transforms.parse_log]
+type = "remap"
+inputs = ["apisix_http_logger"]
+source = """
+. = parse_json!(.message)
+.timestamp = now()
+"""
+
+[sinks.clickhouse_request_log]
+type = "clickhouse"
+inputs = ["parse_log"]
+endpoint = "http://clickhouse:8123"
+database = "llm_gateway"
+table = "request_log"
+skip_unknown_fields = true
