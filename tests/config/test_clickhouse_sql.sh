@@ -1,0 +1,55 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+pass=0
+fail=0
+
+assert_eq() {
+    local desc="$1"
+    local expected="$2"
+    local actual="$3"
+    if [ "$expected" = "$actual" ]; then
+        echo "[PASS] $desc"
+        pass=$((pass + 1))
+    else
+        echo "[FAIL] $desc -- expected: $expected, actual: $actual"
+        fail=$((fail + 1))
+    fi
+}
+
+summary() {
+    echo ""
+    echo "test_clickhouse_sql.sh: $pass passed, $fail failed"
+    if [ "$fail" -gt 0 ]; then
+        exit 1
+    fi
+}
+
+SQL_FILE="$REPO_ROOT/conf/clickhouse-init.sql"
+
+HAS_DB=$(grep -c 'CREATE DATABASE.*llm_gateway' "$SQL_FILE" || true)
+assert_eq "Creates database llm_gateway" "1" "$HAS_DB"
+
+HAS_REQUEST_LOG=$(grep -c 'request_log' "$SQL_FILE" || true)
+assert_eq "Creates table request_log" "1" "$HAS_REQUEST_LOG"
+
+HAS_BILLING_LEDGER=$(grep -c 'billing_ledger' "$SQL_FILE" || true)
+assert_eq "Creates table billing_ledger" "1" "$HAS_BILLING_LEDGER"
+
+HAS_BILLING_DISC=$(grep -c 'billing_discrepancies' "$SQL_FILE" || true)
+assert_eq "Creates table billing_discrepancies" "1" "$HAS_BILLING_DISC"
+
+HAS_DECIMAL=$(grep -c 'cost.*Decimal64(6)' "$SQL_FILE" || true)
+assert_eq "billing_ledger has Decimal64(6) for cost" "1" "$HAS_DECIMAL"
+
+HAS_TTL=$(grep -c 'INTERVAL 13 MONTH' "$SQL_FILE" || true)
+assert_eq "TTL 13 MONTH on tables" "2" "$HAS_TTL"
+
+ORDER_BY_LEADING=$(grep -o 'ORDER BY ([a-z_]*' "$SQL_FILE" || true)
+LEADING_COUNT=$(echo "$ORDER_BY_LEADING" | grep -c 'ORDER BY (provider\|ORDER BY (tenant_id\|ORDER BY (date' || true)
+assert_eq "ORDER BY leads with low-cardinality keys" "3" "$LEADING_COUNT"
+
+summary

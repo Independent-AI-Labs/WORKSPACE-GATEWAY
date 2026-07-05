@@ -531,11 +531,12 @@ directly.
 ### 12.1 Commit Sequence
 
 Commits A+B are already pushed as `4c3b6b0`.
+Commit B2 is already pushed as `77e2649`.
 
 | Commit | Content | Type |
 |--------|---------|------|
 | A+B (done) | `apisix.yaml`, `OPENCODE-INTEGRATION.md`, `TEST-PLAN.md` | fix |
-| B2 | Revised `TEST-PLAN.md` (agentic gaps closed) | docs |
+| B2 (done) | Revised `TEST-PLAN.md` (agentic gaps closed) | docs |
 | C | `redact_lib.lua` + refactored `redact.lua` | refactor |
 | D | Lua unit tests + runner (Stage 1) | test |
 | E | Config validation tests (Stage 2) | test |
@@ -545,7 +546,74 @@ Commits A+B are already pushed as `4c3b6b0`.
 | I | End-to-end Zen API tests (Stage 6) | test |
 | J | Makefile + coverage config | chore |
 
-### 12.2 Makefile Integration
+### 12.2 Agentic Parallelization Analysis
+
+All stages C through J are implemented by parallel task agents.
+The orchestrator (main agent) handles only: launching agents,
+committing in order, and pushing after each commit.
+
+#### Write-Time Dependency Matrix
+
+No stage blocks another at write time. Every agent reads
+specifications from this document and existing source files.
+No agent needs another agent's output to write its files.
+
+| Stage | Writes To | Reads From | Blocks Others At Write Time? |
+|-------|-----------|------------|------------------------------|
+| C | `plugins/custom/redact_lib.lua`, `plugins/custom/redact.lua` | existing `redact.lua`, this plan sec 2 | No |
+| D | `tests/lua/test_redact_lib.lua`, `tests/lua/run.sh` | this plan sec 6 (API spec + test cases), existing `redact.lua` | No |
+| E | `tests/config/*.sh` (8 files) | `conf/*`, `res/docker/*`, this plan sec 7 | No |
+| F | `tests/reconciler/test_reconciler.sh` | `res/scripts/reconciler.sh`, this plan sec 8 | No |
+| G | `tests/integration/*.sh` (4 files) | `res/docker/docker-compose.yml`, this plan sec 9 | No |
+| H | `tests/ci/test_hooks.sh` | `.git/hooks/*`, CI repo, this plan sec 10 | No |
+| I | `tests/e2e/*.sh` (4 files) | `conf/apisix.yaml`, this plan sec 11 | No |
+| J | `Makefile`, `config/coverage_thresholds.yaml` | this plan sec 12.3-12.4 (path layout) | No |
+
+#### Runtime-Only Dependencies (Verified At Test Time, Not Write Time)
+
+| Constraint | Why | When Verified |
+|------------|-----|---------------|
+| D tests must run against C's `redact_lib.lua` | D calls functions defined by C | Final test run |
+| J Makefile targets must reference existing test dirs | J references paths from this plan | Final test run |
+
+These are runtime constraints, not write-time constraints. Both
+agents follow the same specification in this document, so their
+outputs are compatible by construction.
+
+#### Execution Waves
+
+**Wave 1: All 8 agents launched simultaneously (C, D, E, F, G, H, I, J)**
+
+Each agent receives:
+- The relevant section of this test plan
+- Paths to existing source files to read
+- The API specification (for D) or path layout (for J)
+- Banned words list and file length constraints
+
+**Wave 2: Sequential commits in stage order (orchestrator only)**
+
+After all agents complete, the orchestrator commits and pushes
+in this exact order:
+
+1. Commit C (refactor) -- stage and push
+2. Commit D (test) -- stage and push
+3. Commit E (test) -- stage and push
+4. Commit F (test) -- stage and push
+5. Commit G (test) -- stage and push
+6. Commit H (test) -- stage and push
+7. Commit I (test) -- stage and push
+8. Commit J (chore) -- stage and push
+
+Commit order is fixed regardless of agent completion order. If
+agent E finishes before agent C, E's files sit on disk until the
+orchestrator reaches step 3.
+
+**Wave 3: Run all tests, verify pass**
+
+Execute `tests/run_all.sh` (written by agent J). All 6 stages
+must pass with exit code 0.
+
+### 12.3 Makefile Integration
 
 Update `Makefile` targets:
 
@@ -557,7 +625,7 @@ Update `Makefile` targets:
 | `check` | `lint` + `type-check` + `test` |
 | `check-push` | `check` + stage 6 (if Zen key available) |
 
-### 12.3 Coverage Config
+### 12.4 Coverage Config
 
 Update `config/coverage_thresholds.yaml` to reflect the Lua and
 shell test structure:
