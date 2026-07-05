@@ -1,11 +1,11 @@
 routes:
-  - id: relay-openai
-    uri: /openai/*
+  - id: relay-zen
+    uri: /zen/*
     upstream:
       type: roundrobin
       scheme: https
       nodes:
-        "api.openai.com:443": 1
+        "opencode.ai:443": 1
     plugins:
       key-auth: {}
       ai-rate-limiting:
@@ -23,7 +23,7 @@ routes:
         include_req_body: false
         include_resp_body: false
         log_format:
-          provider: "openai"
+          provider: "opencode-zen"
           model: "$request_body.model"
           stream: "$request_body.stream"
           method: "$request_method"
@@ -32,132 +32,6 @@ routes:
           latency: "$upstream_latency_ms"
       proxy-buffering:
         disable: true
-      proxy-rewrite:
-        regex_uri: ["^/openai/(.*)", "/$1"]
-      redact:
-        patterns_file: "/etc/apisix/redact-patterns.json"
-
-  - id: relay-anthropic
-    uri: /anthropic/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "api.anthropic.com:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 500
-        time_window: 60
-        rejected_code: 429
-      prometheus:
-        prefer_name: true
-      http-logger:
-        uri: "http://vector:8080/ingest"
-        method: POST
-        content_type: "application/json"
-        batch_max_size: 1
-        include_req_body: false
-        include_resp_body: false
-        log_format:
-          provider: "anthropic"
-          model: "$request_body.model"
-          stream: "$request_body.stream"
-      proxy-buffering:
-        disable: true
-      proxy-rewrite:
-        regex_uri: ["^/anthropic/(.*)", "/$1"]
-      redact:
-        patterns_file: "/etc/apisix/redact-patterns.json"
-
-  - id: relay-together
-    uri: /together/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "api.together.xyz:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 500
-        time_window: 60
-      prometheus:
-        prefer_name: true
-      http-logger:
-        uri: "http://vector:8080/ingest"
-        method: POST
-        content_type: "application/json"
-        batch_max_size: 1
-        log_format:
-          provider: "together"
-          model: "$request_body.model"
-      proxy-buffering:
-        disable: true
-      proxy-rewrite:
-        regex_uri: ["^/together/(.*)", "/$1"]
-      redact:
-        patterns_file: "/etc/apisix/redact-patterns.json"
-
-  - id: relay-groq
-    uri: /groq/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "api.groq.com:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
-        time_window: 60
-      prometheus:
-        prefer_name: true
-      http-logger:
-        uri: "http://vector:8080/ingest"
-        method: POST
-        content_type: "application/json"
-        batch_max_size: 1
-        log_format:
-          provider: "groq"
-          model: "$request_body.model"
-      proxy-buffering:
-        disable: true
-      proxy-rewrite:
-        regex_uri: ["^/groq/(.*)", "/$1"]
-      redact:
-        patterns_file: "/etc/apisix/redact-patterns.json"
-
-  - id: relay-openrouter
-    uri: /openrouter/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "openrouter.ai:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 500
-        time_window: 60
-      prometheus:
-        prefer_name: true
-      http-logger:
-        uri: "http://vector:8080/ingest"
-        method: POST
-        content_type: "application/json"
-        batch_max_size: 1
-        log_format:
-          provider: "openrouter"
-          model: "$request_body.model"
-      proxy-buffering:
-        disable: true
-      proxy-rewrite:
-        regex_uri: ["^/openrouter/(.*)", "/$1"]
       redact:
         patterns_file: "/etc/apisix/redact-patterns.json"
 

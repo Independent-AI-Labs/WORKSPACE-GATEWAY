@@ -2,53 +2,441 @@
 
 **Project:** WORKSPACE-GATEWAY
 **Platform:** Apache APISIX 3.17.0, opencode v1.17.13+
-**Status:** Integration specification
-**Date:** 2026-07-05
-
-## 1. Architecture: APISIX as LLM Relay for opencode
-
-opencode performs ALL format conversion internally (SessionV1 parts to
-AI SDK ModelMessage to provider-native wire format). By the time the HTTP
-request leaves opencode's process, it is standard HTTP with a JSON body
-in the upstream provider's native format. APISIX sits between opencode's
-`fetch()` and the upstream LLM provider, acting as a transparent relay
-that intercepts zero format logic.
-
-```
-opencode (Bun/TypeScript)
-  |  AI SDK v5 does ALL conversion:
-  |  SessionV1 -> ModelMessage[] -> provider-native JSON
-  |
-  |  fetch() sends standard HTTP to baseURL
-  v
-APISIX (port 9080)
-  |  Receives provider-native HTTP (any format, doesn't care)
-  |  Plugins: key-auth, ai-rate-limiting, prometheus, http-logger,
-  |           proxy-buffering(off), redact, semantic-cache(v2)
-  |  Relays to upstream, passes SSE back unchanged
-  v
-LLM Provider (api.openai.com, api.anthropic.com, etc.)
-```
-
-**What APISIX touches:** HTTP headers (key injection), JSON body (rate
-limiting reads `model` field, redact scans `messages[].content`), SSE
-pass-through (buffering disabled), response logging (token usage,
-latency, status).
-
-**What APISIX does NOT touch:** Request body format (Chat Completions,
-Anthropic Messages, Gemini, whatever), SSE event structure (beyond
-text-field redaction), tool call schemas, reasoning/thinking fields,
-provider-specific headers (anthropic-beta, etc.).
+**Upstream:** OpenCode Zen (`https://opencode.ai/zen/v1`)
+**Status:** Integration specification (revised)
+**Date:** 2026-07-06
 
 ---
 
-## 2. opencode Server API Reference
+## 1. Architecture: APISIX as Relay to OpenCode Zen
+
+OpenCode Zen is an AI gateway operated by the OpenCode team at
+`https://opencode.ai/zen/v1`. It hosts a curated catalog of models
+(GPT, Claude, Gemini, DeepSeek, MiniMax, GLM, Kimi, Qwen, and free
+stealth/trial models) behind a single set of OpenAI-compatible and
+provider-native endpoints. Zen handles all routing to underlying
+providers -- the gateway never talks to `api.openai.com`,
+`api.anthropic.com`, or any other provider directly.
+
+```
+opencode CLI (Bun/TypeScript)
+  |
+  |  AI SDK v5 serializes to OpenAI Chat Completions JSON
+  |  fetch() sends to baseURL (APISIX)
+  |  Authorization: Bearer <zen-api-key>
+  v
+APISIX (port 9080)
+  |  Plugins: key-auth, ai-rate-limiting, prometheus, http-logger,
+  |           proxy-buffering(off), redact
+  |  Single route: /zen/* -> opencode.ai:443
+  |  Relays to Zen, passes SSE back unchanged
+  v
+OpenCode Zen (https://opencode.ai/zen/v1)
+  |  /v1/chat/completions  (OpenAI-compatible: DeepSeek, MiniMax,
+  |                          GLM, Kimi, Grok, free models)
+  |  /v1/responses         (OpenAI Responses: GPT 5.x)
+  |  /v1/messages          (Anthropic Messages: Claude, Qwen)
+  |  /v1/models/gemini-*   (Google native: Gemini)
+  |  /v1/models            (model catalog)
+  v
+Underlying LLM Providers (OpenAI, Anthropic, Google, etc.)
+```
+
+**What APISIX touches:** HTTP headers (gateway key validation via
+key-auth), JSON body (rate-limiting reads `model` field, redact scans
+`messages[].content`), SSE pass-through (buffering disabled), response
+logging (status, latency, model, stream flag).
+
+**What APISIX does NOT touch:** Request body format (Chat Completions,
+Anthropic Messages, Gemini, whatever Zen expects), SSE event structure
+(beyond text-field redaction), tool call schemas, reasoning/thinking
+fields, provider-specific headers. Zen handles all provider-specific
+wire format negotiation.
+
+---
+
+## 2. OpenCode Zen: The Upstream
+
+### 2.1 What Is Zen?
+
+Zen is an AI gateway operated by the OpenCode team. It benchmarks,
+verifies, and serves a curated list of models that work well as coding
+agents. The gateway never needs to talk to individual providers -- Zen
+handles that.
+
+Source: `packages/web/src/content/docs/zen.mdx` in the opencode repo.
+
+### 2.2 Endpoints
+
+Zen exposes multiple API formats under `https://opencode.ai/zen/v1/`:
+
+| Endpoint | Format | AI SDK Package | Models |
+|----------|--------|----------------|--------|
+| `/v1/chat/completions` | OpenAI Chat Completions | `@ai-sdk/openai-compatible` | DeepSeek, MiniMax, GLM, Kimi, Grok, Big Pickle, all free models |
+| `/v1/responses` | OpenAI Responses API | `@ai-sdk/openai` | GPT 5.x, GPT 5.x Codex |
+| `/v1/messages` | Anthropic Messages API | `@ai-sdk/anthropic` | Claude, Qwen |
+| `/v1/models/{id}` | Google native | `@ai-sdk/google` | Gemini |
+| `/v1/models` | OpenAI Models list | any | Catalog endpoint |
+
+The `/v1/models` endpoint returns the full model catalog:
+
+```
+GET https://opencode.ai/zen/v1/models
+Authorization: Bearer <zen-api-key>
+```
+
+### 2.3 Free Models
+
+The following models are free for a limited time:
+
+| Display Name | Model ID | Endpoint |
+|--------------|----------|----------|
+| Big Pickle | `big-pickle` | `/v1/chat/completions` |
+| MiMo-V2.5 Free | `mimo-v2.5-free` | `/v1/chat/completions` |
+| North Mini Code Free | `north-mini-code-free` | `/v1/chat/completions` |
+| Nemotron 3 Ultra Free | `nemotron-3-ultra-free` | `/v1/chat/completions` |
+| DeepSeek V4 Flash Free | `deepseek-v4-flash-free` | `/v1/chat/completions` |
+
+All free models use the OpenAI Chat Completions format.
+
+### 2.4 Zen "Go" Sub-endpoint
+
+Zen also exposes a "Go" sub-endpoint at `https://opencode.ai/zen/go/v1/`
+with a different model catalog (Chinese model families: MiniMax, Kimi,
+GLM, DeepSeek, Qwen, MiMo, HY3). This is a separate tier from the main
+Zen catalog. The main `/zen/v1/` endpoint is the primary upstream.
+
+### 2.5 Privacy Notes
+
+- Big Pickle: Data may be used to improve the model during free period.
+- North Mini Code Free: Data may be retained and used. Do not submit
+  personal or confidential data.
+- Nemotron 3 Ultra Free: NVIDIA trial terms apply. Usage logged.
+- OpenAI APIs: 30-day retention per OpenAI data policies.
+- Anthropic APIs: 30-day retention per Anthropic data policies.
+
+---
+
+## 3. opencode CLI Configuration
+
+### 3.1 Single Provider: Gateway to Zen
+
+opencode is configured with a single custom provider whose `baseURL`
+points at APISIX. APISIX relays to Zen. The AI SDK package is
+`@ai-sdk/openai-compatible` because all free models use Chat Completions.
+
+```jsonc
+// opencode.json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gateway": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Gateway (via APISIX to Zen)",
+      "options": {
+        "baseURL": "http://apisix:9080/zen/v1",
+        "apiKey": "{env:OPENCODE_ZEN_API_KEY}"
+      },
+      "models": {
+        "big-pickle": {
+          "name": "Big Pickle",
+          "limit": { "context": 128000, "output": 65536 }
+        },
+        "mimo-v2.5-free": {
+          "name": "MiMo V2.5 Free",
+          "limit": { "context": 128000, "output": 65536 }
+        },
+        "north-mini-code-free": {
+          "name": "North Mini Code Free",
+          "limit": { "context": 128000, "output": 65536 }
+        },
+        "nemotron-3-ultra-free": {
+          "name": "Nemotron 3 Ultra Free",
+          "limit": { "context": 128000, "output": 65536 }
+        },
+        "deepseek-v4-flash-free": {
+          "name": "DeepSeek V4 Flash Free",
+          "limit": { "context": 128000, "output": 65536 }
+        }
+      }
+    }
+  },
+  "model": "gateway/big-pickle",
+  "small_model": "gateway/mimo-v2.5-free",
+  "share": "disabled"
+}
+```
+
+### 3.2 Variable Substitution
+
+`baseURL` supports `${VAR}` substitution from environment variables:
+
+```jsonc
+{
+  "options": {
+    "baseURL": "http://${APISIX_HOST}:${APISIX_PORT}/zen/v1",
+    "apiKey": "{env:OPENCODE_ZEN_API_KEY}"
+  }
+}
+```
+
+### 3.3 How opencode Sends Requests
+
+When opencode uses `@ai-sdk/openai-compatible`, it sends standard OpenAI
+Chat Completions to the `baseURL`:
+
+```
+POST /zen/v1/chat/completions
+Authorization: Bearer <zen-api-key>
+Content-Type: application/json
+
+{
+  "model": "big-pickle",
+  "messages": [
+    { "role": "system", "content": "..." },
+    { "role": "user", "content": "..." }
+  ],
+  "stream": true,
+  "tools": [...],
+  "temperature": 0.7,
+  "max_tokens": 4096
+}
+```
+
+### 3.4 Auth Credential Storage
+
+API keys can be set via `options.apiKey` in config, environment
+variables, or `{file:path}` substitution. Credentials set via `/connect`
+command are stored in `~/.local/share/opencode/auth.json`.
+
+---
+
+## 4. APISIX Route Configuration
+
+### 4.1 Single Route to Zen
+
+One APISIX route covers all Zen endpoints. The route matches `/zen/*`
+and proxies to `opencode.ai:443` with TLS. No path rewriting is needed
+-- the `/zen/` prefix is part of Zen's URL structure.
+
+```yaml
+# conf/apisix.yaml -- APISIX standalone YAML mode
+
+routes:
+  - id: relay-zen
+    uri: /zen/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      nodes:
+        "opencode.ai:443": 1
+    plugins:
+      key-auth: {}
+      ai-rate-limiting:
+        model: "$request_body.model"
+        limit: 1000
+        time_window: 60
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: false
+        include_resp_body: false
+        log_format:
+          provider: "opencode-zen"
+          model: "$request_body.model"
+          stream: "$request_body.stream"
+          method: "$request_method"
+          uri: "$uri"
+          status: "$status"
+          latency: "$upstream_latency_ms"
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+
+consumers:
+  - id: opencode
+    key_auth_credentials:
+      - key: "opencode-gateway-key"
+```
+
+### 4.2 What Each Plugin Does on the Relay Path
+
+| Plugin | Phase | What It Does |
+|--------|-------|--------------|
+| `key-auth` | `access` | Validates the gateway consumer key (`opencode-gateway-key`). This is the gateway auth key, NOT the Zen API key. Two different keys. |
+| `ai-rate-limiting` | `access` | Reads `model` from request body. Enforces per-model RPM. Returns `429` on exceed. |
+| `proxy-buffering` | `access` | Disables NGINX proxy buffering. Critical for SSE streaming. Without this, SSE chunks queue in NGINX buffer and streaming breaks. |
+| `redact` | `access` + `body_filter` | Scans request body JSON for PII before relay. Stores token map in `ctx`. Restores originals in response body (re-hydration). |
+| `prometheus` | `log` | Exports HTTP metrics: request count, latency histogram, status code distribution. Scraped at `/apisix/prometheus/metrics`. |
+| `http-logger` | `log` | Sends structured JSON log to Vector at `http://vector:8080/ingest`. Vector inserts into ClickHouse for billing/analytics. |
+
+### 4.3 API Key Flow
+
+```
+opencode config:
+  options.apiKey = "{env:OPENCODE_ZEN_API_KEY}"  (real Zen key)
+
+opencode sends:
+  Authorization: Bearer sk-C0kL...   (Zen API key)
+  POST http://apisix:9080/zen/v1/chat/completions
+
+APISIX key-auth plugin:
+  Validates "opencode-gateway-key" (the gateway consumer key)
+  NOT the Zen key. Two different keys.
+
+APISIX upstream:
+  Forwards to https://opencode.ai/zen/v1/chat/completions
+  with the original Authorization header (which contains the
+  real Zen API key that opencode put there)
+
+Result:
+  - Client auth: APISIX key-auth (gateway key)
+  - Upstream auth: Zen API key (from opencode config)
+```
+
+### 4.4 SSE Streaming Path
+
+When `stream: true` is in the request body:
+
+1. opencode sends `POST /zen/v1/chat/completions` with `"stream": true`
+2. APISIX `proxy-buffering` plugin disables NGINX buffering for this route
+3. Zen responds with `Content-Type: text/event-stream`
+4. APISIX passes SSE chunks through in real-time via `body_filter`
+5. `redact` plugin scans SSE chunks for PII in `delta.content` fields
+6. `http-logger` captures the final response metadata
+7. opencode's AI SDK parses the SSE stream
+
+---
+
+## 5. Telemetry and Observability
+
+### 5.1 Metrics (Prometheus)
+
+The `prometheus` plugin exports metrics per route. Scrape endpoint:
+`http://apisix:9099/apisix/prometheus/metrics`.
+
+### 5.2 Telemetry Logging (http-logger to Vector to ClickHouse)
+
+The `http-logger` plugin sends a JSON log entry to Vector for every
+request/response. Vector parses and inserts into ClickHouse.
+
+Log entry format (sent to Vector):
+```json
+{
+  "provider": "opencode-zen",
+  "model": "big-pickle",
+  "stream": true,
+  "method": "POST",
+  "uri": "/zen/v1/chat/completions",
+  "status": 200,
+  "latency": 1234
+}
+```
+
+Vector pipeline (`conf/vector.toml`):
+```toml
+[sources.apisix_http_logger]
+type = "http_server"
+address = "0.0.0.0:8080"
+path = "/ingest"
+encoding = "json"
+
+[transforms.parse_log]
+type = "remap"
+inputs = ["apisix_http_logger"]
+source = """
+. = parse_json!(.message)
+.timestamp = now()
+"""
+
+[sinks.clickhouse_request_log]
+type = "clickhouse"
+inputs = ["parse_log"]
+endpoint = "http://clickhouse:8123"
+database = "llm_gateway"
+table = "request_log"
+skip_unknown_fields = true
+```
+
+### 5.3 Rate Limiting (ai-rate-limiting)
+
+The `ai-rate-limiting` plugin reads the `model` field from the request
+body and enforces per-model limits.
+
+### 5.4 PII Redaction (redact plugin)
+
+Custom Lua plugin. Runs in `access` phase (request body) and
+`body_filter` phase (response body, including SSE chunks).
+
+See `PLUGIN-REDACT-LUA.md` for full plugin spec.
+
+---
+
+## 6. Integration Summary
+
+### What We Build
+
+1. **APISIX route**: single route `/zen/*` to `opencode.ai:443` with
+   the full plugin stack (key-auth, ai-rate-limiting, prometheus,
+   http-logger, proxy-buffering, redact).
+2. **opencode config**: single custom provider with `baseURL` pointing
+   to APISIX. `npm` is `@ai-sdk/openai-compatible`. `apiKey` is the
+   real Zen key.
+3. **Telemetry pipeline**: APISIX `http-logger` to Vector to ClickHouse.
+   Prometheus scrapes APISIX metrics endpoint.
+4. **PII redaction**: custom Lua `redact` plugin on the Zen route.
+5. **Rate limiting**: `ai-rate-limiting` plugin, per-model RPM.
+6. **SSE pass-through**: `proxy-buffering` plugin with `disable: true`.
+
+### What We Do NOT Build
+
+- No format conversion in APISIX (Zen handles all provider-specific
+  wire format negotiation).
+- No direct connections to individual LLM providers (OpenAI, Anthropic,
+  Google, etc.). Zen is the only upstream.
+- No OAuth flows in APISIX (opencode handles OAuth natively).
+- No tool execution in APISIX (opencode's agent loop handles it).
+- No session management in APISIX (opencode's server handles it).
+
+### Data Flow
+
+```
+ 1. User sends prompt to opencode CLI
+ 2. opencode creates session, runs agent prompt loop
+ 3. Agent loop calls AI SDK streamText()
+ 4. AI SDK serializes ModelMessage[] to OpenAI Chat Completions JSON
+ 5. AI SDK fetch() sends HTTP to APISIX (baseURL in opencode config)
+ 6. APISIX key-auth validates gateway key
+ 7. APISIX ai-rate-limiting checks model RPM
+ 8. APISIX redact scans request body for PII
+ 9. APISIX relays to OpenCode Zen (https://opencode.ai/zen/v1/...)
+10. Zen routes to the underlying LLM provider
+11. Provider responds (JSON or SSE stream)
+12. APISIX proxy-buffering passes SSE through unbuffered
+13. APISIX redact scans response for PII (re-hydrate tokens)
+14. APISIX prometheus records metrics
+15. APISIX http-logger sends log to Vector -> ClickHouse
+16. opencode AI SDK parses response/SSE
+17. opencode SessionProcessor builds message parts
+18. Client receives response
+```
+
+---
+
+## 7. opencode Server API Reference
 
 The `opencode serve` command runs an HTTP server (default `:4096`) with
-an OpenAPI 3.1 spec at `GET /doc`. All endpoints below are from the v1.17.13
-server docs.
+an OpenAPI 3.1 spec at `GET /doc`. All endpoints below are from the
+v1.17.13 server docs. This is the opencode CLI's own server API, NOT
+the Zen upstream API.
 
-### 2.1 Authentication
+### 7.1 Authentication
 
 HTTP Basic Auth. Enabled when `OPENCODE_SERVER_PASSWORD` is set.
 
@@ -57,88 +445,86 @@ HTTP Basic Auth. Enabled when `OPENCODE_SERVER_PASSWORD` is set.
 | `Authorization` | `Basic base64(username:password)` |
 | Query `?auth_token=` | `base64(username:password)` |
 
-Username defaults to `opencode`. Override with `OPENCODE_SERVER_USERNAME`.
+Username defaults to `opencode`. Override with
+`OPENCODE_SERVER_USERNAME`. No auth when password is unset (default).
 
-No auth when password is unset (default). No bearer tokens, no API keys,
-no session cookies.
+### 7.2 Global
 
-### 2.2 Global
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/global/health` | Server health and version |
+| `GET` | `/global/event` | Global events (SSE stream) |
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/global/health` | Server health and version | `{ healthy: true, version: string }` |
-| `GET` | `/global/event` | Global events (SSE stream) | Event stream |
+### 7.3 Project
 
-### 2.3 Project
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/project` | List all projects |
+| `GET` | `/project/current` | Get the current project |
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/project` | List all projects | `Project[]` |
-| `GET` | `/project/current` | Get the current project | `Project` |
+### 7.4 Path and VCS
 
-### 2.4 Path and VCS
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/path` | Get the current path |
+| `GET` | `/vcs` | Get VCS info for current project |
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/path` | Get the current path | `Path` |
-| `GET` | `/vcs` | Get VCS info for current project | `VcsInfo` |
+### 7.5 Instance
 
-### 2.5 Instance
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/instance/dispose` | Dispose the current instance |
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `POST` | `/instance/dispose` | Dispose the current instance | `boolean` |
+### 7.6 Config
 
-### 2.6 Config
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/config` | Get config info |
+| `PATCH` | `/config` | Update config |
+| `GET` | `/config/providers` | List providers and default models |
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/config` | Get config info | `Config` |
-| `PATCH` | `/config` | Update config | `Config` |
-| `GET` | `/config/providers` | List providers and default models | `{ providers: Provider[], default: {[k]: string} }` |
+### 7.7 Provider
 
-### 2.7 Provider
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/provider` | List all providers |
+| `GET` | `/provider/auth` | Get provider auth methods |
+| `POST` | `/provider/{id}/oauth/authorize` | Authorize provider via OAuth |
+| `POST` | `/provider/{id}/oauth/callback` | Handle OAuth callback |
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/provider` | List all providers | `{ all: Provider[], default: {...}, connected: string[] }` |
-| `GET` | `/provider/auth` | Get provider auth methods | `{ [providerID]: ProviderAuthMethod[] }` |
-| `POST` | `/provider/{id}/oauth/authorize` | Authorize provider via OAuth | `ProviderAuthAuthorization` |
-| `POST` | `/provider/{id}/oauth/callback` | Handle OAuth callback | `boolean` |
+### 7.8 Sessions
 
-### 2.8 Sessions
+| Method | Path | Description | Body / Query |
+|--------|------|-------------|--------------|
+| `GET` | `/session` | List all sessions | |
+| `POST` | `/session` | Create a new session | `{ parentID?, title? }` |
+| `GET` | `/session/status` | Get status for all sessions | |
+| `GET` | `/session/:id` | Get session details | |
+| `DELETE` | `/session/:id` | Delete session and all data | |
+| `PATCH` | `/session/:id` | Update session properties | `{ title? }` |
+| `GET` | `/session/:id/children` | Get child sessions | |
+| `GET` | `/session/:id/todo` | Get todo list for session | |
+| `POST` | `/session/:id/init` | Analyze app, create AGENTS.md | `{ messageID, providerID, modelID }` |
+| `POST` | `/session/:id/fork` | Fork session at a message | `{ messageID? }` |
+| `POST` | `/session/:id/abort` | Abort a running session | |
+| `POST` | `/session/:id/share` | Share a session | |
+| `DELETE` | `/session/:id/share` | Unshare a session | |
+| `GET` | `/session/:id/diff` | Get diff for this session | `?messageID=` |
+| `POST` | `/session/:id/summarize` | Summarize the session | `{ providerID, modelID }` |
+| `POST` | `/session/:id/revert` | Revert a message | `{ messageID, partID? }` |
+| `POST` | `/session/:id/unrevert` | Restore all reverted messages | |
+| `POST` | `/session/:id/permissions/:permissionID` | Respond to permission request | `{ response, remember? }` |
 
-| Method | Path | Description | Body / Query | Response |
-|--------|------|-------------|--------------|----------|
-| `GET` | `/session` | List all sessions | | `Session[]` |
-| `POST` | `/session` | Create a new session | `{ parentID?, title? }` | `Session` |
-| `GET` | `/session/status` | Get status for all sessions | | `{ [sessionID]: SessionStatus }` |
-| `GET` | `/session/:id` | Get session details | | `Session` |
-| `DELETE` | `/session/:id` | Delete session and all data | | `boolean` |
-| `PATCH` | `/session/:id` | Update session properties | `{ title? }` | `Session` |
-| `GET` | `/session/:id/children` | Get child sessions | | `Session[]` |
-| `GET` | `/session/:id/todo` | Get todo list for session | | `Todo[]` |
-| `POST` | `/session/:id/init` | Analyze app, create AGENTS.md | `{ messageID, providerID, modelID }` | `boolean` |
-| `POST` | `/session/:id/fork` | Fork session at a message | `{ messageID? }` | `Session` |
-| `POST` | `/session/:id/abort` | Abort a running session | | `boolean` |
-| `POST` | `/session/:id/share` | Share a session | | `Session` |
-| `DELETE` | `/session/:id/share` | Unshare a session | | `Session` |
-| `GET` | `/session/:id/diff` | Get diff for this session | `?messageID=` | `FileDiff[]` |
-| `POST` | `/session/:id/summarize` | Summarize the session | `{ providerID, modelID }` | `boolean` |
-| `POST` | `/session/:id/revert` | Revert a message | `{ messageID, partID? }` | `boolean` |
-| `POST` | `/session/:id/unrevert` | Restore all reverted messages | | `boolean` |
-| `POST` | `/session/:id/permissions/:permissionID` | Respond to permission request | `{ response, remember? }` | `boolean` |
+### 7.9 Messages (the core prompt endpoint)
 
-### 2.9 Messages (the core prompt endpoint)
-
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/session/:id/message` | List messages in session | `{ info: Message, parts: Part[] }[]` |
-| `POST` | `/session/:id/message` | Send a message, wait for response | `{ info: Message, parts: Part[] }` |
-| `GET` | `/session/:id/message/:messageID` | Get message details | `{ info: Message, parts: Part[] }` |
-| `POST` | `/session/:id/prompt_async` | Send a message asynchronously | `204 No Content` |
-| `POST` | `/session/:id/command` | Execute a slash command | `{ info: Message, parts: Part[] }` |
-| `POST` | `/session/:id/shell` | Run a shell command | `{ info: Message, parts: Part[] }` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/session/:id/message` | List messages in session |
+| `POST` | `/session/:id/message` | Send a message, wait for response |
+| `GET` | `/session/:id/message/:messageID` | Get message details |
+| `POST` | `/session/:id/prompt_async` | Send a message asynchronously |
+| `POST` | `/session/:id/command` | Execute a slash command |
+| `POST` | `/session/:id/shell` | Run a shell command |
 
 #### POST /session/:id/message Request Body
 
@@ -146,8 +532,8 @@ no session cookies.
 {
   "messageID": "string (optional, for replies)",
   "model": {
-    "providerID": "string (e.g. \"anthropic\")",
-    "modelID": "string (e.g. \"claude-sonnet-4-5\")"
+    "providerID": "string (e.g. \"gateway\")",
+    "modelID": "string (e.g. \"big-pickle\")"
   },
   "agent": "string (optional, e.g. \"build\" or \"plan\")",
   "noReply": false,
@@ -166,9 +552,6 @@ no session cookies.
 }
 ```
 
-When `noReply: true`, the message is injected as context without
-triggering an AI response. Returns the user message only.
-
 #### POST /session/:id/message Response
 
 ```json
@@ -179,8 +562,8 @@ triggering an AI response. Returns the user message only.
     "role": "assistant",
     "time": 1720195200,
     "model": {
-      "providerID": "anthropic",
-      "modelID": "claude-sonnet-4-5"
+      "providerID": "gateway",
+      "modelID": "big-pickle"
     },
     "cost": {
       "input": 0.003,
@@ -210,78 +593,78 @@ triggering an AI response. Returns the user message only.
 }
 ```
 
-### 2.10 Commands
+### 7.10 Commands
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/command` | List all commands | `Command[]` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/command` | List all commands |
 
-### 2.11 Files
+### 7.11 Files
 
-| Method | Path | Description | Query | Response |
-|--------|------|-------------|-------|----------|
-| `GET` | `/find` | Search for text in files | `?pattern=` | Match objects with `path`, `lines`, `line_number`, `absolute_offset`, `submatches` |
-| `GET` | `/find/file` | Find files/dirs by name | `?query=&type=&directory=&limit=` | `string[]` (paths) |
-| `GET` | `/find/symbol` | Find workspace symbols | `?query=` | `Symbol[]` |
-| `GET` | `/file` | List files and directories | `?path=` | `FileNode[]` |
-| `GET` | `/file/content` | Read a file | `?path=` | `FileContent` |
-| `GET` | `/file/status` | Get status for tracked files | | `File[]` |
+| Method | Path | Description | Query |
+|--------|------|-------------|-------|
+| `GET` | `/find` | Search for text in files | `?pattern=` |
+| `GET` | `/find/file` | Find files/dirs by name | `?query=&type=&directory=&limit=` |
+| `GET` | `/find/symbol` | Find workspace symbols | `?query=` |
+| `GET` | `/file` | List files and directories | `?path=` |
+| `GET` | `/file/content` | Read a file | `?path=` |
+| `GET` | `/file/status` | Get status for tracked files | |
 
-### 2.12 Tools (Experimental)
+### 7.12 Tools (Experimental)
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/experimental/tool/ids` | List all tool IDs | `ToolIDs` |
-| `GET` | `/experimental/tool` | List tools with JSON schemas | `?provider=&model=` | `ToolList` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/experimental/tool/ids` | List all tool IDs |
+| `GET` | `/experimental/tool` | List tools with JSON schemas |
 
-### 2.13 LSP, Formatters and MCP
+### 7.13 LSP, Formatters and MCP
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/lsp` | Get LSP server status | `LSPStatus[]` |
-| `GET` | `/formatter` | Get formatter status | `FormatterStatus[]` |
-| `GET` | `/mcp` | Get MCP server status | `{ [name]: MCPStatus }` |
-| `POST` | `/mcp` | Add MCP server dynamically | `{ name, config }` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/lsp` | Get LSP server status |
+| `GET` | `/formatter` | Get formatter status |
+| `GET` | `/mcp` | Get MCP server status |
+| `POST` | `/mcp` | Add MCP server dynamically |
 
-### 2.14 Agents
+### 7.14 Agents
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/agent` | List all available agents | `Agent[]` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/agent` | List all available agents |
 
-### 2.15 Logging
+### 7.15 Logging
 
-| Method | Path | Description | Body | Response |
-|--------|------|-------------|------|----------|
-| `POST` | `/log` | Write log entry | `{ service, level, message, extra? }` | `boolean` |
+| Method | Path | Description | Body |
+|--------|------|-------------|------|
+| `POST` | `/log` | Write log entry | `{ service, level, message, extra? }` |
 
-### 2.16 TUI Control
+### 7.16 TUI Control
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `POST` | `/tui/append-prompt` | Append text to the prompt | `boolean` |
-| `POST` | `/tui/open-help` | Open the help dialog | `boolean` |
-| `POST` | `/tui/open-sessions` | Open the session selector | `boolean` |
-| `POST` | `/tui/open-themes` | Open the theme selector | `boolean` |
-| `POST` | `/tui/open-models` | Open the model selector | `boolean` |
-| `POST` | `/tui/submit-prompt` | Submit the current prompt | `boolean` |
-| `POST` | `/tui/clear-prompt` | Clear the prompt | `boolean` |
-| `POST` | `/tui/execute-command` | Execute a command `{ command }` | `boolean` |
-| `POST` | `/tui/show-toast` | Show toast `{ title?, message, variant }` | `boolean` |
-| `GET` | `/tui/control/next` | Wait for next control request | Control request object |
-| `POST` | `/tui/control/response` | Respond to a control request `{ body }` | `boolean` |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/tui/append-prompt` | Append text to the prompt |
+| `POST` | `/tui/open-help` | Open the help dialog |
+| `POST` | `/tui/open-sessions` | Open the session selector |
+| `POST` | `/tui/open-themes` | Open the theme selector |
+| `POST` | `/tui/open-models` | Open the model selector |
+| `POST` | `/tui/submit-prompt` | Submit the current prompt |
+| `POST` | `/tui/clear-prompt` | Clear the prompt |
+| `POST` | `/tui/execute-command` | Execute a command |
+| `POST` | `/tui/show-toast` | Show toast |
+| `GET` | `/tui/control/next` | Wait for next control request |
+| `POST` | `/tui/control/response` | Respond to a control request |
 
-### 2.17 Auth
+### 7.17 Auth
 
-| Method | Path | Description | Body | Response |
-|--------|------|-------------|------|----------|
-| `PUT` | `/auth/:id` | Set auth credentials for a provider | Provider-specific | `boolean` |
+| Method | Path | Description | Body |
+|--------|------|-------------|------|
+| `PUT` | `/auth/:id` | Set auth credentials for a provider | Provider-specific |
 
-### 2.18 Events (SSE)
+### 7.18 Events (SSE)
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/event` | Server-sent events stream | SSE stream |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/event` | Server-sent events stream |
 
 First event is `server.connected`, then bus events. 10-second heartbeat
 (`server.heartbeat`). Response headers: `Cache-Control: no-cache,
@@ -294,24 +677,23 @@ Events include: `session.updated`, `session.created`, `session.deleted`,
 `file.edited`, `lsp.updated`, `server.connected`, `server.heartbeat`,
 `server.instance.disposed`.
 
-### 2.19 Docs
+### 7.19 Docs
 
-| Method | Path | Description | Response |
-|--------|------|-------------|----------|
-| `GET` | `/doc` | OpenAPI 3.1 specification | HTML page with OpenAPI spec |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/doc` | OpenAPI 3.1 specification |
 
 ---
 
-## 3. opencode Provider and Model Selection
+## 8. opencode Provider and Model Selection
 
-### 3.1 How Providers Work
+### 8.1 How Providers Work
 
 opencode uses the Vercel AI SDK v5 (`ai` package). Each provider is an
 AI SDK factory that returns a `LanguageModelV3` interface. The factory
 handles HTTP communication with the upstream LLM API.
 
-**Three-tier provider loading:**
-
+Three-tier provider loading:
 1. **Bundled** (in opencode binary): `@ai-sdk/openai`,
    `@ai-sdk/anthropic`, `@ai-sdk/google`, `@ai-sdk/azure`,
    `@ai-sdk/amazon-bedrock`, `@ai-sdk/openai-compatible`,
@@ -322,24 +704,21 @@ handles HTTP communication with the upstream LLM API.
 3. **Dynamic NPM import**: for any provider not bundled, opencode
    installs the npm package at runtime and imports it.
 
-### 3.2 Model ID Format
+### 8.2 Model ID Format
 
 Models are identified as `providerID/modelID`. Examples:
-- `anthropic/claude-sonnet-4-5`
-- `openai/gpt-5`
-- `opencode/gpt-5.1-codex` (OpenCode Zen)
-- `ollama/llama2` (custom provider)
+- `gateway/big-pickle` (our custom provider via APISIX to Zen)
+- `anthropic/claude-sonnet-4-5` (direct Anthropic)
+- `opencode/gpt-5.1-codex` (OpenCode Zen direct)
 
-### 3.3 Model Resolution Priority
+### 8.3 Model Resolution Priority
 
-1. `--model` CLI flag (e.g., `-m anthropic/claude-sonnet-4-5`)
+1. `--model` CLI flag (e.g., `-m gateway/big-pickle`)
 2. `model` key in `opencode.json` config
 3. Last used model (persisted)
 4. First model by internal priority
 
-### 3.4 Custom Provider Configuration
-
-Any provider can be configured in `opencode.json`. The key fields:
+### 8.4 Custom Provider Configuration
 
 ```jsonc
 {
@@ -349,7 +728,7 @@ Any provider can be configured in `opencode.json`. The key fields:
       "npm": "@ai-sdk/openai-compatible",
       "name": "Display Name",
       "options": {
-        "baseURL": "http://apisix:9080/v1",
+        "baseURL": "http://apisix:9080/zen/v1",
         "apiKey": "gateway-api-key",
         "headers": { "X-Custom-Header": "value" }
       },
@@ -357,7 +736,7 @@ Any provider can be configured in `opencode.json`. The key fields:
         "<model-id>": {
           "name": "Display Name",
           "limit": { "context": 128000, "output": 65536 },
-          "cost": { "input": 0.003, "output": 0.015 },
+          "cost": { "input": 0, "output": 0 },
           "options": { "temperature": 0.7 }
         }
       }
@@ -368,594 +747,22 @@ Any provider can be configured in `opencode.json`. The key fields:
 ```
 
 The `npm` field selects which AI SDK factory builds the HTTP client.
-`@ai-sdk/openai-compatible` speaks OpenAI Chat Completions format.
-`@ai-sdk/anthropic` speaks Anthropic Messages format. The `baseURL`
-is where opencode sends HTTP requests. `apiKey` is injected as
+`@ai-sdk/openai-compatible` speaks OpenAI Chat Completions format. The
+`baseURL` is where opencode sends HTTP requests. `apiKey` is injected as
 `Authorization: Bearer <key>` by the AI SDK.
 
-### 3.5 Provider `baseURL` Override
+### 8.5 Provider baseURL Override
 
 Every provider accepts `options.baseURL`. This is the primary mechanism
-for routing through APISIX. Set `baseURL` to the APISIX route and opencode
-will send all requests for that provider to APISIX instead of the
-provider's real endpoint.
-
-### 3.6 Variable Substitution
-
-`baseURL` supports `${VAR}` substitution from environment variables:
-
-```json
-{
-  "options": {
-    "baseURL": "http://${APISIX_HOST}:${APISIX_PORT}/v1"
-  }
-}
-```
-
-### 3.7 Auth Credential Storage
-
-Credentials set via `/connect` command are stored in
-`~/.local/share/opencode/auth.json`. API keys can also be set via
-`options.apiKey` in config, environment variables, or `{file:path}`
-substitution.
+for routing through APISIX. Set `baseURL` to the APISIX route and
+opencode will send all requests for that provider to APISIX instead of
+the provider's real endpoint.
 
 ---
 
-## 4. APISIX Relay Configuration
+## 9. OpenAI Compatibility Assessment
 
-### 4.1 Approach: Per-Provider APISIX Routes
-
-Create one APISIX route per upstream LLM provider. Each route relays to
-the provider's real endpoint and applies the full plugin stack. opencode
-is configured with one custom provider per APISIX route.
-
-```
-opencode
-  |
-  |-- provider "gw-openai"    -> http://apisix:9080/openai/*    -> api.openai.com
-  |-- provider "gw-anthropic" -> http://apisix:9080/anthropic/* -> api.anthropic.com
-  |-- provider "gw-together"  -> http://apisix:9080/together/*  -> api.together.xyz
-  |-- provider "gw-groq"      -> http://apisix:9080/groq/*      -> api.groq.com
-  \-- provider "gw-openrouter"-> http://apisix:9080/openrouter/*-> openrouter.ai/api
-```
-
-### 4.2 opencode Configuration
-
-```jsonc
-// opencode.json
-{
-  "$schema": "https://opencode.ai/config.json",
-
-  "provider": {
-    // OpenAI: uses @ai-sdk/openai (Responses API) natively.
-    // Point baseURL at APISIX. APISIX relays to api.openai.com.
-    "gw-openai": {
-      "npm": "@ai-sdk/openai",
-      "name": "OpenAI (via Gateway)",
-      "options": {
-        "baseURL": "http://apisix:9080/openai/v1",
-        "apiKey": "{env:OPENAI_API_KEY}"
-      },
-      "models": {
-        "gpt-5": { "name": "GPT-5" },
-        "gpt-5.1-codex": { "name": "GPT-5.1 Codex" },
-        "gpt-5-mini": { "name": "GPT-5 Mini" }
-      }
-    },
-
-    // Anthropic: uses @ai-sdk/anthropic (Messages API) natively.
-    // Point baseURL at APISIX. APISIX relays to api.anthropic.com.
-    "gw-anthropic": {
-      "npm": "@ai-sdk/anthropic",
-      "name": "Anthropic (via Gateway)",
-      "options": {
-        "baseURL": "http://apisix:9080/anthropic/v1",
-        "apiKey": "{env:ANTHROPIC_API_KEY}"
-      },
-      "models": {
-        "claude-sonnet-4-5": { "name": "Claude Sonnet 4.5" },
-        "claude-opus-4-5": { "name": "Claude Opus 4.5" }
-      }
-    },
-
-    // OpenAI-compatible providers: use @ai-sdk/openai-compatible.
-    // APISIX relays Chat Completions to the upstream.
-    "gw-together": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Together AI (via Gateway)",
-      "options": {
-        "baseURL": "http://apisix:9080/together/v1",
-        "apiKey": "{env:TOGETHER_API_KEY}"
-      },
-      "models": {
-        "deepseek-v3": { "name": "DeepSeek V3" }
-      }
-    },
-
-    "gw-groq": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Groq (via Gateway)",
-      "options": {
-        "baseURL": "http://apisix:9080/groq/v1",
-        "apiKey": "{env:GROQ_API_KEY}"
-      },
-      "models": {
-        "llama-4-scout": { "name": "Llama 4 Scout" }
-      }
-    },
-
-    "gw-openrouter": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "OpenRouter (via Gateway)",
-      "options": {
-        "baseURL": "http://apisix:9080/openrouter/v1",
-        "apiKey": "{env:OPENROUTER_API_KEY}"
-      },
-      "models": {
-        "anthropic/claude-sonnet-4-5": { "name": "Claude Sonnet 4.5 (OR)" },
-        "google/gemini-3-pro": { "name": "Gemini 3 Pro (OR)" }
-      }
-    }
-  },
-
-  // Default model
-  "model": "gw-anthropic/claude-sonnet-4-5",
-
-  // Small model for title generation etc.
-  "small_model": "gw-openai/gpt-5-mini",
-
-  // Disable sharing (enterprise)
-  "share": "disabled"
-}
-```
-
-### 4.3 APISIX Route Configuration (apisix.yaml)
-
-```yaml
-# APISIX standalone YAML mode routes
-
-routes:
-  # ---- OpenAI ----
-  - id: relay-openai
-    uri: /openai/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "api.openai.com:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
-        time_window: 60
-        rejected_code: 429
-      prometheus:
-        prefer_name: true
-      http-logger:
-        endpoint: "http://vector:8888/llm-log"
-        content_type: "application/json"
-        log_format:
-          provider: "openai"
-          model: "$request_body.model"
-          stream: "$request_body.stream"
-          method: "$request_method"
-          uri: "$uri"
-          status: "$status"
-          latency: "$upstream_latency_ms"
-      proxy-buffering:
-        disable: true
-      proxy-rewrite:
-        regex_uri: ["^/openai/(.*)", "/$1"]
-      redact:
-        patterns_file: "/usr/local/apisix/conf/redact-patterns.json"
-
-  # ---- Anthropic ----
-  - id: relay-anthropic
-    uri: /anthropic/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "api.anthropic.com:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 500
-        time_window: 60
-        rejected_code: 429
-      prometheus:
-        prefer_name: true
-      http-logger:
-        endpoint: "http://vector:8888/llm-log"
-        content_type: "application/json"
-        log_format:
-          provider: "anthropic"
-          model: "$request_body.model"
-          stream: "$request_body.stream"
-      proxy-buffering:
-        disable: true
-      proxy-rewrite:
-        regex_uri: ["^/anthropic/(.*)", "/$1"]
-      redact:
-        patterns_file: "/usr/local/apisix/conf/redact-patterns.json"
-
-  # ---- Together AI ----
-  - id: relay-together
-    uri: /together/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "api.together.xyz:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 500
-        time_window: 60
-      prometheus: { prefer_name: true }
-      http-logger:
-        endpoint: "http://vector:8888/llm-log"
-        content_type: "application/json"
-        log_format:
-          provider: "together"
-          model: "$request_body.model"
-      proxy-buffering: { disable: true }
-      proxy-rewrite:
-        regex_uri: ["^/together/(.*)", "/$1"]
-      redact:
-        patterns_file: "/usr/local/apisix/conf/redact-patterns.json"
-
-  # ---- Groq ----
-  - id: relay-groq
-    uri: /groq/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "api.groq.com:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
-        time_window: 60
-      prometheus: { prefer_name: true }
-      http-logger:
-        endpoint: "http://vector:8888/llm-log"
-        content_type: "application/json"
-        log_format:
-          provider: "groq"
-          model: "$request_body.model"
-      proxy-buffering: { disable: true }
-      proxy-rewrite:
-        regex_uri: ["^/groq/(.*)", "/$1"]
-      redact:
-        patterns_file: "/usr/local/apisix/conf/redact-patterns.json"
-
-  # ---- OpenRouter ----
-  - id: relay-openrouter
-    uri: /openrouter/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      nodes:
-        "openrouter.ai:443": 1
-    plugins:
-      key-auth: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 500
-        time_window: 60
-      prometheus: { prefer_name: true }
-      http-logger:
-        endpoint: "http://vector:8888/llm-log"
-        content_type: "application/json"
-        log_format:
-          provider: "openrouter"
-          model: "$request_body.model"
-      proxy-buffering: { disable: true }
-      proxy-rewrite:
-        regex_uri: ["^/openrouter/(.*)", "/$1"]
-      redact:
-        patterns_file: "/usr/local/apisix/conf/redact-patterns.json"
-
-# Consumer keys for key-auth
-consumers:
-  - id: opencode
-    key_auth_credentials:
-      - key: "opencode-gateway-key"
-```
-
-### 4.4 What Each Plugin Does on the Relay Path
-
-| Plugin | Phase | What It Does |
-|--------|-------|--------------|
-| `key-auth` | `access` | Validates client API key. opencode sends `Authorization: Bearer <key>`. APISIX checks against consumer registry. |
-| `ai-rate-limiting` | `access` | Reads `model` from request body. Enforces per-model RPM/TPM limits. Returns `429` on exceed. |
-| `proxy-rewrite` | `access` | Strips the provider prefix from the URI (`/openai/v1/chat/completions` to `/v1/chat/completions`). |
-| `proxy-buffering` | `access` | Disables NGINX proxy buffering for this route. Critical for SSE streaming. Without this, SSE chunks queue in NGINX buffer and streaming breaks. |
-| `redact` | `access` + `body_filter` | Scans request body JSON for PII patterns (SSN, email, phone, etc.) before relay. Scans response body (including SSE chunks) for PII in `content`/`text` fields. Stores PII Map in `ctx` for re-hydration. |
-| `prometheus` | `log` | Exports HTTP metrics: request count, latency histogram, status code distribution, upstream latency. Scraped by Prometheus at `/apisix/prometheus/metrics`. |
-| `http-logger` | `log` | Sends structured JSON log to Vector at `http://vector:8888/llm-log`. Vector parses and inserts into ClickHouse for billing/analytics. Log includes provider, model, stream flag, status, latency. |
-
-### 4.5 API Key Flow
-
-```
-opencode config:
-  options.apiKey = "{env:OPENAI_API_KEY}"  (real upstream key)
-
-opencode sends:
-  Authorization: Bearer sk-real-upstream-key
-  POST http://apisix:9080/openai/v1/chat/completions
-
-APISIX key-auth plugin:
-  Validates "opencode-gateway-key" (the gateway consumer key)
-  NOT the upstream key. Two different keys.
-
-APISIX proxy-rewrite / upstream:
-  Forwards to api.openai.com with the original Authorization header
-  (which contains the real upstream key that opencode put there)
-
-Result:
-  - Client auth: APISIX key-auth (gateway key)
-  - Upstream auth: original provider API key (from opencode config)
-```
-
-If you want APISIX to inject the upstream key instead of opencode:
-
-```yaml
-plugins:
-  proxy-rewrite:
-    regex_uri: ["^/openai/(.*)", "/$1"]
-    headers:
-      set:
-        Authorization: "Bearer sk-injected-by-gateway"
-```
-
-Then opencode config sets `apiKey` to the gateway key, and APISIX
-replaces it with the real upstream key before relaying.
-
-### 4.6 SSE Streaming Path
-
-When `stream: true` is in the request body:
-
-1. opencode sends `POST /openai/v1/chat/completions` with `"stream": true`
-2. APISIX `proxy-buffering` plugin disables NGINX buffering for this route
-3. Upstream responds with `Content-Type: text/event-stream`
-4. APISIX passes SSE chunks through in real-time via `body_filter`
-5. `redact` plugin scans each SSE chunk for PII in `delta.content` fields
-6. `http-logger` captures the final response metadata (status, latency, token usage if in trailing chunk)
-7. opencode's AI SDK parses the SSE stream and yields normalized events
-
-The `X-Accel-Buffering: no` header is already set by opencode's server
-when it streams to clients. For the upstream relay, `proxy-buffering`
-plugin with `disable: true` achieves the same effect.
-
-### 4.7 Alternative: Single OpenAI-Compatible Provider
-
-If all upstreams are OpenAI-compatible, use a single provider and a
-single route. APISIX uses `ai-proxy` plugin with model-to-provider
-mapping:
-
-```jsonc
-// opencode.json (simplified)
-{
-  "provider": {
-    "gateway": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "APISIX Gateway",
-      "options": {
-        "baseURL": "http://apisix:9080/v1",
-        "apiKey": "gateway-key"
-      },
-      "models": {
-        "gpt-5": { "name": "GPT-5" },
-        "claude-sonnet-4-5": { "name": "Claude Sonnet 4.5" },
-        "deepseek-v3": { "name": "DeepSeek V3" }
-      }
-    }
-  },
-  "model": "gateway/gpt-5"
-}
-```
-
-```yaml
-# apisix.yaml (single route with ai-proxy)
-routes:
-  - id: llm-gateway
-    uri: /v1/chat/completions
-    methods: [POST]
-    plugins:
-      key-auth: {}
-      ai-proxy:
-        provider: openai
-        api_key: "$env://OPENAI_API_KEY"
-        model: "$request_body.model"
-        endpoint: "https://api.openai.com"
-        # For multiple providers, use ai-proxy-multi
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
-        time_window: 60
-      prometheus: { prefer_name: true }
-      http-logger:
-        endpoint: "http://vector:8888/llm-log"
-        content_type: "application/json"
-      proxy-buffering: { disable: true }
-      redact:
-        patterns_file: "/usr/local/apisix/conf/redact-patterns.json"
-
-  - id: llm-models
-    uri: /v1/models
-    methods: [GET]
-    plugins:
-      key-auth: {}
-    upstream:
-      type: roundrobin
-      nodes:
-        "api.openai.com:443": 1
-```
-
-This works when ALL upstreams speak OpenAI Chat Completions. For
-providers that do not (Anthropic native, Bedrock, Vertex), use the
-per-provider route approach from section 4.3.
-
----
-
-## 5. Telemetry and Stats Hooks
-
-### 5.1 Metrics (Prometheus)
-
-The `prometheus` plugin exports the following metrics per route:
-
-| Metric | Type | Labels |
-|--------|------|--------|
-| `apisix_http_status_code` | counter | `route`, `status` |
-| `apisix_http_latency` | histogram | `route`, `latency_type` (upstream, total) |
-| `apisix_request_total` | counter | `route` |
-| `apisix_upstream_latency_ms` | histogram | `route`, `provider` (from log_format) |
-
-Scrape endpoint: `http://apisix:9099/apisix/prometheus/metrics`.
-
-Prometheus scrape config:
-```yaml
-scrape_configs:
-  - job_name: apisix
-    static_configs:
-      - targets: ["apisix:9099"]
-    metrics_path: /apisix/prometheus/metrics
-```
-
-### 5.2 Telemetry Logging (http-logger to Vector to ClickHouse)
-
-The `http-logger` plugin sends a JSON log entry to Vector for every
-request/response. Vector parses and inserts into ClickHouse.
-
-Log entry format (sent to Vector):
-```json
-{
-  "provider": "openai",
-  "model": "gpt-5",
-  "stream": true,
-  "method": "POST",
-  "uri": "/openai/v1/chat/completions",
-  "status": 200,
-  "latency": 1234,
-  "request_size": 5678,
-  "response_size": 9012,
-  "client_ip": "10.0.0.1",
-  "timestamp": "2026-07-05T12:00:00Z"
-}
-```
-
-Vector pipeline (`vector.toml`):
-```toml
-[sources.apisix_llm]
-type = "http_server"
-address = "0.0.0.0:8888"
-path = "/llm-log"
-encoding = "json"
-
-[sinks.clickhouse_llm]
-type = "clickhouse"
-inputs = ["apisix_llm"]
-endpoint = "http://clickhouse:8123"
-database = "llm_gateway"
-table = "request_log"
-skip_unknown_fields = true
-```
-
-ClickHouse table (from `DEPLOYMENT.md`):
-```sql
-CREATE TABLE llm_gateway.request_log (
-  timestamp DateTime64(3),
-  provider LowCardinality(String),
-  model LowCardinality(String),
-  stream Bool,
-  method LowCardinality(String),
-  uri String,
-  status UInt16,
-  latency_ms UInt32,
-  request_size UInt32,
-  response_size UInt32,
-  client_ip IPv4,
-  api_key_id String
-) ENGINE = MergeTree()
-ORDER BY (provider, model, timestamp)
-TTL timestamp + INTERVAL 13 MONTHS;
-```
-
-### 5.3 Rate Limiting (ai-rate-limiting)
-
-The `ai-rate-limiting` plugin reads the `model` field from the request
-body and enforces per-model limits. Configuration:
-
-```yaml
-ai-rate-limiting:
-  model: "$request_body.model"
-  limit: 1000        # requests per time window
-  time_window: 60    # seconds
-  rejected_code: 429
-  rejected_msg: "Rate limit exceeded for model"
-```
-
-Supports RPM (requests per minute) and TPM (tokens per minute, if
-upstream returns usage in response).
-
-### 5.4 PII Redaction (redact plugin)
-
-Custom Lua plugin. Runs in `access` phase (request body) and
-`body_filter` phase (response body, including SSE chunks).
-
-Request-side: parses JSON body, scans `messages[].content` text fields
-against PCRE patterns from `redact-patterns.json`. Replaces matches with
-tokens (`[REDACTED_EMAIL_1]`). Stores original-to-token mapping in
-`ctx.redact_pii_map`.
-
-Response-side: scans `choices[].delta.content` (SSE) or
-`choices[].message.content` (non-streaming) for tokens. Replaces tokens
-with original values (re-hydration). This ensures the LLM sees redacted
-input and the client sees un-redacted output.
-
-See `PLUGIN-REDACT-LUA.md` for full plugin spec.
-
-### 5.5 Semantic Cache (v2)
-
-Custom Lua plugin. Checks Redis VSS for semantically similar prior
-requests. On HIT, returns cached response (synthesizes SSE if original
-was streaming). On MISS, relays to upstream and caches the response.
-
-See `PLUGIN-SEMANTIC-CACHE.md` for full plugin spec.
-
-### 5.6 Failover (ai-proxy-multi)
-
-For providers with multiple endpoints (e.g., OpenAI primary + Azure
-fallback), use `ai-proxy-multi`:
-
-```yaml
-ai-proxy-multi:
-  providers:
-    - openai:
-        api_key: "$env://OPENAI_API_KEY"
-        endpoint: "https://api.openai.com"
-    - azure:
-        api_key: "$env://AZURE_API_KEY"
-        endpoint: "https://my-resource.openai.azure.com"
-  failover:
-    retry: 2
-    timeout: 30
-```
-
-See `BUILTIN-PLUGINS.md` for full config.
-
----
-
-## 6. OpenAI API Compatibility Assessment
-
-### 6.1 opencode Server API vs OpenAI API
+### 9.1 opencode Server API vs OpenAI API
 
 | Aspect | OpenAI API | opencode Server API |
 |--------|-----------|---------------------|
@@ -967,22 +774,21 @@ See `BUILTIN-PLUGINS.md` for full config.
 | Auth | `Authorization: Bearer sk-...` | HTTP Basic (`OPENCODE_SERVER_PASSWORD`) |
 | Sessions | Stateless | Stateful (create, list, fork, revert, share) |
 | Tools | Client-side declaration | Server-side execution with permissions |
-| Structured output | `response_format: { type: "json_schema" }` | `format: { type: "json_schema", schema }` |
 | Token usage | `usage: { prompt_tokens, completion_tokens }` | `info.tokens: { input, output, reasoning }` |
 | Cost | Not returned | `info.cost: { input, output, total }` |
 
-### 6.2 opencode's AI SDK Wire Format (what APISIX sees)
+### 9.2 opencode's AI SDK Wire Format (what APISIX sees)
 
 When opencode uses `@ai-sdk/openai-compatible`, it sends standard OpenAI
 Chat Completions to the `baseURL`:
 
 ```
-POST /v1/chat/completions
-Authorization: Bearer <api-key>
+POST /zen/v1/chat/completions
+Authorization: Bearer <zen-api-key>
 Content-Type: application/json
 
 {
-  "model": "gpt-5",
+  "model": "big-pickle",
   "messages": [
     { "role": "system", "content": "..." },
     { "role": "user", "content": "..." }
@@ -994,277 +800,79 @@ Content-Type: application/json
 }
 ```
 
-When opencode uses `@ai-sdk/openai` (built-in OpenAI provider), it sends
-to the Responses API:
-
-```
-POST /v1/responses
-Authorization: Bearer <api-key>
-Content-Type: application/json
-
-{
-  "model": "gpt-5",
-  "input": [...],
-  "stream": true,
-  "reasoning": { "effort": "high" },
-  "store": false
-}
-```
-
-When opencode uses `@ai-sdk/anthropic`, it sends Anthropic Messages:
-
-```
-POST /v1/messages
-x-api-key: <api-key>
-anthropic-version: 2023-06-01
-anthropic-beta: interleaved-thinking-2025-05-14
-Content-Type: application/json
-
-{
-  "model": "claude-sonnet-4-5",
-  "messages": [...],
-  "max_tokens": 8192,
-  "stream": true
-}
-```
-
-APISIX sees all three formats. It does not parse or convert any of them.
-It relays the HTTP request as-is to the upstream. The only body parsing
-APISIX does is:
-- `ai-rate-limiting`: reads `model` field (present in all formats)
-- `redact`: reads `messages[].content` / `input[].content` text fields
+APISIX sees this format. It does not parse or convert it. It relays the
+HTTP request as-is to Zen. The only body parsing APISIX does is:
+- `ai-rate-limiting`: reads `model` field
+- `redact`: reads `messages[].content` text fields
 - `http-logger`: reads `model` and `stream` fields for log metadata
 
-### 6.3 Provider OpenAI Compatibility Matrix
+### 9.3 Zen Provider Compatibility Matrix
 
-| Provider | Native Format | OpenAI-Compatible Endpoint | APISIX Relay Approach |
-|----------|--------------|---------------------------|---------------------|
-| OpenAI | Responses API | Chat Completions (`/v1/chat/completions`) | `@ai-sdk/openai` or `@ai-sdk/openai-compatible` |
-| Anthropic | Messages API | No | `@ai-sdk/anthropic` (native) or via OpenRouter |
-| Google Gemini | generateContent | Yes (`/v1beta/openai/chat/completions`) | `@ai-sdk/openai-compatible` to Gemini OpenAI endpoint |
-| Amazon Bedrock | Native AWS | No | `@ai-sdk/amazon-bedrock` (native) or via OpenRouter |
-| Google Vertex | Native | No | `@ai-sdk/google-vertex` (native) or via OpenRouter |
-| Azure OpenAI | Chat Completions | Yes | `@ai-sdk/azure` or `@ai-sdk/openai-compatible` |
-| Together AI | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| Groq | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| DeepSeek | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| OpenRouter | Chat Completions | Yes (routes to all providers) | `@ai-sdk/openai-compatible` |
-| Fireworks AI | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| Cerebras | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| Mistral | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| xAI | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| Ollama | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| LM Studio | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| llama.cpp | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| NVIDIA NIM | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| Moonshot AI | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| MiniMax | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| OpenCode Zen | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
-| OpenCode Go | Chat Completions | Yes | `@ai-sdk/openai-compatible` |
+All models on Zen are accessible through the gateway. The endpoint
+depends on the model's native format:
 
-For non-OpenAI-compatible providers (Anthropic native, Bedrock, Vertex),
-two options:
-1. Use the native AI SDK package with `baseURL` pointing to APISIX.
-   APISIX relays the native format. No conversion needed.
-2. Use OpenRouter (OpenAI-compatible) as the upstream. APISIX relays
-   Chat Completions to OpenRouter, which converts to the native format.
+| Model Family | Native Format | Zen Endpoint | AI SDK Package |
+|--------------|--------------|--------------|----------------|
+| GPT 5.x | OpenAI Responses | `/v1/responses` | `@ai-sdk/openai` |
+| Claude | Anthropic Messages | `/v1/messages` | `@ai-sdk/anthropic` |
+| Gemini | Google native | `/v1/models/{id}` | `@ai-sdk/google` |
+| DeepSeek, MiniMax, GLM, Kimi, Grok | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Free models (Big Pickle, MiMo, Nemotron, North Mini, DeepSeek Flash) | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+
+For the gateway, all free models use `/v1/chat/completions` and
+`@ai-sdk/openai-compatible`. A single APISIX route covers them all.
 
 ---
 
-## 7. opencode Extensions Beyond OpenAI API
+## 10. opencode Extensions Beyond OpenAI API
 
-### 7.1 Session Management
+### 10.1 Session Management
 
 opencode is stateful. Sessions persist message history, tool outputs,
-file diffs, and todo lists. OpenAI API is stateless (each request is
-independent).
+file diffs, and todo lists. OpenAI API is stateless.
 
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Create session | N/A | `POST /session` |
-| List sessions | N/A | `GET /session` |
-| Delete session | N/A | `DELETE /session/:id` |
-| Fork session | N/A | `POST /session/:id/fork` |
-| Revert message | N/A | `POST /session/:id/revert` |
-| Share session | N/A | `POST /session/:id/share` |
-| Session diff | N/A | `GET /session/:id/diff` |
-| Session todos | N/A | `GET /session/:id/todo` |
+### 10.2 Agent System
 
-### 7.2 Agent System
+opencode has built-in agents (build, plan) and custom agents. Each
+agent has its own system prompt, tool set, and permissions.
 
-opencode has built-in agents (build, plan) and custom agents. Each agent
-has its own system prompt, tool set, and permissions. OpenAI has no
-agent concept.
-
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Built-in agents | N/A | build, plan |
-| Custom agents | N/A | config or `.opencode/agents/*.md` |
-| Agent-specific tools | N/A | per-agent tool whitelist/blacklist |
-| Agent-specific model | N/A | per-agent model override |
-| Agent-specific permissions | N/A | per-agent permission rules |
-| Subagents | N/A | `@general` subagent invocation |
-
-### 7.3 Tool Execution
+### 10.3 Tool Execution
 
 opencode executes tools server-side. The LLM calls tools, opencode
-executes them, and returns results to the LLM. OpenAI expects the client
-to execute tools.
+executes them, and returns results to the LLM. OpenAI expects the
+client to execute tools.
 
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Tool declaration | Client sends `tools` array | Agent config defines available tools |
-| Tool execution | Client-side (function calling) | Server-side (opencode runs the tool) |
-| Tool permissions | N/A | `allow` / `ask` / `deny` per tool |
-| Built-in tools | N/A | read, write, edit, bash, grep, glob, ls, webfetch, websearch, task, todowrite, question |
-| Custom tools | N/A | Plugin-defined tools with Zod schemas |
-| MCP tools | N/A | External MCP servers (stdio, HTTP+SSE) |
-
-### 7.4 SSE Event Bus
+### 10.4 SSE Event Bus
 
 opencode has a global event bus (`GET /event`) that streams all session
 events. OpenAI has per-request SSE only.
 
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| SSE scope | Per-request | Global (all sessions) |
-| Heartbeat | None | 10-second `server.heartbeat` |
-| Event types | `delta`, `finish` | 20+ event types (session, message, tool, permission, file, lsp) |
-| First event | First delta | `server.connected` |
-| Connection | Per request | Long-lived (subscribe once, receive all events) |
+### 10.5 Message Part Types
 
-### 7.5 Message Part Types
+opencode messages have rich part types: text, image, reasoning, tool,
+file, agent, subtask, tool-approval-request, tool-approval-response.
 
-opencode messages have rich part types. OpenAI messages are text-only
-(or text + image).
+### 10.6 Structured Output
 
-| Part Type | OpenAI | opencode |
-|-----------|--------|----------|
-| `text` | Yes | Yes |
-| `image` | Yes (`image_url`) | Yes (`source.base64`) |
-| `reasoning` | No (separate `reasoning` field) | Yes (first-class part type) |
-| `tool` | No (separate `tool_calls` field) | Yes (first-class part type with state) |
-| `file` | No | Yes |
-| `agent` | No | Yes (subagent invocation) |
-| `subtask` | No | Yes |
-| `tool-approval-request` | No | Yes |
-| `tool-approval-response` | No | Yes |
+Both support JSON schema output, but the API differs: OpenAI uses
+`response_format`, opencode uses `format` with `retryCount`.
 
-### 7.6 Structured Output
+### 10.7 Context Management
 
-Both support JSON schema output, but the API differs:
+opencode has auto-compaction when context overflows, configurable
+pruning, and token budget management.
 
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Request field | `response_format` | `format` |
-| Schema format | JSON Schema | JSON Schema |
-| Retry | No | `retryCount` (default 2) |
-| Error handling | HTTP error | `StructuredOutputError` in response |
+### 10.8 Permission System
 
-### 7.7 Context Management
+opencode has `allow` / `ask` / `deny` per tool, per agent, with
+interactive prompts and wildcard matching.
 
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Context compaction | No | Auto-compaction when context overflows |
-| Compaction hooks | No | `experimental.session.compacting` plugin hook |
-| Context pruning | No | Configurable (`compaction.prune`) |
-| Token budget | Client manages | `compaction.reserved` buffer |
+### 10.9 Plugin System
 
-### 7.8 Permission System
+opencode has 20+ hook events, npm package or local file loading,
+and custom tools with Zod schemas.
 
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Permission model | N/A | `allow` / `ask` / `deny` per tool, per agent |
-| Interactive prompts | N/A | `POST /session/:id/permissions/:permissionID` |
-| Wildcard matching | N/A | `Wildcard.match(toolName, rule.permission)` |
-| Remember decision | N/A | `{ remember: true }` in permission response |
+### 10.10 LSP and Formatter Integration
 
-### 7.9 Plugin System
-
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Plugin hooks | N/A | 20+ hook events |
-| Plugin loading | N/A | npm packages or local files |
-| Plugin events | N/A | `tool.execute.before/after`, `chat.message`, `shell.env`, `session.compacted`, `file.edited`, etc. |
-| Custom tools via plugins | N/A | Yes, with Zod schema and `tool()` helper |
-
-### 7.10 LSP and Formatter Integration
-
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| LSP servers | N/A | Auto-discovered, per-language |
-| Code formatters | N/A | `prettier`, custom formatters |
-| Symbol search | N/A | `GET /find/symbol` |
-| Diagnostics | N/A | `lsp.client.diagnostics` event |
-
-### 7.11 Other Extensions
-
-| Feature | OpenAI | opencode |
-|---------|--------|----------|
-| Share links | N/A | `POST /session/:id/share` |
-| mDNS discovery | N/A | `--mdns` flag |
-| Desktop app | N/A | Tauri v2 (macOS, Windows, Linux) |
-| IDE extensions | N/A | VS Code, Zed |
-| GitHub Action | N/A | Built-in |
-| Remote config | N/A | `.well-known/opencode` |
-| Managed settings | N/A | MDM (macOS `.mobileconfig`), `/etc/opencode/` (Linux) |
-| Image normalization | N/A | Auto-resize, max base64 bytes |
-| Provider blacklist/whitelist | N/A | Per-provider model filtering |
-| Model variants | N/A | Built-in (high/low/medium) + custom |
-| OpenTelemetry | N/A | `experimental.openTelemetry` |
-| Native LLM runtime | N/A | `experimentalNativeLlm` flag (bypasses AI SDK) |
-
----
-
-## 8. Integration Summary
-
-### What We Build
-
-1. **APISIX routes**: one per upstream LLM provider, each with the full
-   plugin stack (key-auth, ai-rate-limiting, prometheus, http-logger,
-   proxy-buffering, proxy-rewrite, redact).
-2. **opencode config**: custom providers with `baseURL` pointing to
-   APISIX routes. `npm` field selects the AI SDK factory (native or
-   OpenAI-compatible). `apiKey` is the real upstream key.
-3. **Telemetry pipeline**: APISIX `http-logger` to Vector to ClickHouse.
-   Prometheus scrapes APISIX metrics endpoint.
-4. **PII redaction**: custom Lua `redact` plugin on every LLM route.
-5. **Rate limiting**: `ai-rate-limiting` plugin, per-model RPM.
-6. **SSE pass-through**: `proxy-buffering` plugin with `disable: true`
-   on every LLM route.
-
-### What We Do NOT Build
-
-- No format conversion in APISIX (opencode's AI SDK handles all of it).
-- No OAuth flows in APISIX (opencode handles Copilot/GitLab/ChatGPT
-  OAuth natively).
-- No AWS SigV4 in APISIX (opencode's `@ai-sdk/amazon-bedrock` handles
-  it, APISIX just relays the signed request).
-- No Google ADC in APISIX (opencode's `@ai-sdk/google-vertex` handles
-  it, APISIX just relays).
-- No tool execution in APISIX (opencode's agent loop handles it).
-- No session management in APISIX (opencode's server handles it).
-
-### Data Flow
-
-```
-1. User sends prompt to opencode TUI/SDK/CLI
-2. opencode creates session, runs agent prompt loop
-3. Agent loop calls AI SDK streamText()
-4. AI SDK factory serializes ModelMessage[] to provider-native JSON
-5. AI SDK fetch() sends HTTP to APISIX (baseURL in opencode config)
-6. APISIX key-auth validates gateway key
-7. APISIX ai-rate-limiting checks model RPM
-8. APISIX redact scans request body for PII
-9. APISIX proxy-rewrite strips provider prefix from URI
-10. APISIX relays to upstream LLM provider
-11. Upstream responds (JSON or SSE stream)
-12. APISIX proxy-buffering passes SSE through unbuffered
-13. APISIX redact scans response for PII (re-hydrate tokens)
-14. APISIX prometheus records metrics
-15. APISIX http-logger sends log to Vector -> ClickHouse
-16. opencode AI SDK parses response/SSE
-17. opencode SessionProcessor builds message parts
-18. opencode publishes events to /event SSE bus
-19. Client receives response via /session/:id/message (sync) or /event (stream)
-```
+opencode has auto-discovered LSP servers, code formatters, symbol
+search, and diagnostics.
