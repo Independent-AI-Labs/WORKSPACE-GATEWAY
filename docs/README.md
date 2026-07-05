@@ -16,15 +16,17 @@
 | [`PLUGIN-REDACT-ENGINE.md`](PLUGIN-REDACT-ENGINE.md) | Optional NER sidecar (v2): Rust binary, ONNX BERT-tiny, `POST /ner`. Off-thread via `ngx.timer.at`. Best-effort enrichment. |
 | [`PLUGIN-SEMANTIC-CACHE.md`](PLUGIN-SEMANTIC-CACHE.md) | Custom Lua plugin (v2): Redis VSS semantic cache via `lua-resty-redis` cosocket. Embedding via Rust sidecar (torch/llama.cpp). Canonical JSON storage + SSE synthesis on HIT. |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | Deployment infrastructure: docker-compose stack, `config.yaml`, `apisix.yaml`, custom Docker image, ClickHouse schema, Vector pipeline, reconciler job, health checks. |
+| [`OPENCODE-INTEGRATION.md`](OPENCODE-INTEGRATION.md) | opencode integration: server API reference, provider/model selection, APISIX relay config with `opencode.json` + `apisix.yaml`, telemetry hooks, OpenAI compatibility assessment, extensions beyond OpenAI. |
 
 ## Reading Order
 
 1. `PROPOSAL-LLM-GATEWAY-v3.md`, the umbrella architecture & rationale.
 2. `PLUGIN-FOUNDATION.md`, shared plugin development contracts.
 3. `BUILTIN-PLUGINS.md`, built-in plugin configuration (auth, proxy, failover, telemetry).
-4. `PLUGIN-REDACT-LUA.md`, the v1 custom plugin (redaction).
-5. `DEPLOYMENT.md`, how to deploy and operate.
-6. v2 specs: `PLUGIN-SEMANTIC-CACHE.md`, `PLUGIN-REDACT-ENGINE.md`.
+4. `OPENCODE-INTEGRATION.md`, how opencode connects to the gateway.
+5. `PLUGIN-REDACT-LUA.md`, the v1 custom plugin (redaction).
+6. `DEPLOYMENT.md`, how to deploy and operate.
+7. v2 specs: `PLUGIN-SEMANTIC-CACHE.md`, `PLUGIN-REDACT-ENGINE.md`.
 
 ## License Posture
 
