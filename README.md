@@ -1,10 +1,11 @@
 # WORKSPACE-GATEWAY
 
 High-performance, enterprise, multi-tenant **LLM Gateway** built on
-**Kong Gateway Open Source (>= 3.14)** plus four custom plugins that replace the
-Kong Enterprise-only capabilities (`openid-connect`, `ldap-auth-advanced`,
-`ai-proxy-advanced`, `ai-semantic-cache`) : and a PII redaction pipeline built from
-scratch.
+**Kong Gateway 3.14** (`kong/kong-gateway:3.14.0.4-debian`, Enterprise image run
+unlicensed; all OSS features work in 3.14 free mode) in **traditional mode with
+PostgreSQL**, plus four custom plugins that replace the Kong Enterprise-only
+capabilities (`openid-connect`, `ldap-auth-advanced`, `ai-proxy-advanced`,
+`ai-semantic-cache`) : and a PII redaction pipeline built from scratch.
 
 > Part of the `Independent-Ai-Labs/WORKSPACE-VM` monorepo.
 > Live spec docs in [`docs/`](docs/README.md). Implementation land is open.
@@ -28,9 +29,13 @@ and self-hosted vLLM and provides:
   consistent-hashing / least-connections / lowest-latency / lowest-usage / priority),
   circuit breakers, mid-flight retry on 429/5xx for non-streaming requests.
 
-The data plane runs **entirely on the free Kong OSS edition**. The four Enterprise
-plugins are rebuilt as either Rust Proxy-Wasm filters (inside `ngx_wasm_module`) or
-Lua plugins with Rust sidecars for heavy lifting, all specified in `docs/`.
+The data plane runs on **Kong Gateway 3.14** (Enterprise image, unlicensed). All OSS
+features (Wasm, `ai-proxy`, custom plugins, Admin API) work in 3.14 free mode. Kong runs
+in **traditional mode with PostgreSQL** (from the DATAOPS `ami-postgres` service),
+providing writable Admin API, decK GitOps config management, and restart-survivability
+even without an Enterprise license. The four Enterprise plugins are rebuilt as either
+Rust Proxy-Wasm filters (inside `ngx_wasm_module`) or Lua plugins with Rust sidecars
+for heavy lifting, all specified in `docs/`.
 
 ---
 
@@ -66,7 +71,7 @@ implementation begins (e.g. `plugins/auth-oidc-filter/`, `plugins/redact-engine/
         |  (JWT / Bearer / Kerberos ticket)
         v
 +----------------------------------------------------------------+
-| KONG AI DATA PLANE  (Kong Gateway OSS >= 3.14, DB-less)        |
+| KONG AI DATA PLANE  (Kong Gateway 3.14, traditional mode + PostgreSQL)  |
 |                                                                |
 | Phase 1: Unified Auth Engine                                  |
 |   PLUGIN-AUTH-OIDC   cached-JWKS stateless JWT validation      |
@@ -82,7 +87,7 @@ implementation begins (e.g. `plugins/auth-oidc-filter/`, `plugins/redact-engine/
 | Phase 3: AI Proxy + Custom Routing                            |
 |   PLUGIN-SEMANTIC-CACHE  Redis VSS cosine cache (>= 0.95 sim)  |
 |   PLUGIN-FAILOVER  weighted LB + 429/5xx failover + translation|
-|   ai-proxy (OSS)  canonical OpenAI format translation         |
+|   ai-proxy (bundled)  canonical OpenAI format translation     |
 |                                                                |
 | Log phase (off-thread, ngx.timer.at / kong.async):           |
 |   ai.proxy.usage.* -> Vector -> ClickHouse + Prometheus       |
@@ -103,8 +108,9 @@ implementation begins (e.g. `plugins/auth-oidc-filter/`, `plugins/redact-engine/
 ## OSS vs Enterprise correction
 
 The original draft of this proposal was titled "Kong OSS" but advertised three
-Enterprise-only capabilities. After technical due diligence, the following three
-Enterprise plugins are rebuilt as custom components on top of free Kong:
+Enterprise-only capabilities. After technical due diligence, the following four
+Enterprise plugins are rebuilt as custom components on top of Kong Gateway 3.14
+(Enterprise image run unlicensed; all OSS features work in 3.14 free mode):
 
 | Kong Enterprise plugin missing from OSS | Replaced by |
 |------------------------------------------|------------|
@@ -172,7 +178,9 @@ Per `docs/PROPOSAL-LLM-GATEWAY-v2.md` §5.2, the gateway enforces:
 
 1. `stream_options.include_usage: true` on every streaming route to every provider
    that supports it (injected by `PLUGIN-FAILOVER` access-phase).
-2. Kong version pin **>= 3.14** (OTLP Gen-AI metrics + Prometheus `consumer` labels).
+2. Kong version pin **3.14** (`kong/kong-gateway:3.14.0.4-debian`; OTLP Gen-AI metrics
+   + Prometheus `consumer` labels). Traditional mode with PostgreSQL ensures
+   restart-survivability even without an Enterprise license.
 3. Per-type token breakdown stored separately (`prompt_tokens`, `completion_tokens`,
    `reasoning_tokens`, `cached_tokens`) : never summed into `total_tokens` for billing
    math (per Kong bug #14816).
@@ -213,7 +221,10 @@ pass before merge (no `#[allow]` / no silent fallback per the workspace
 
 ## License posture
 
-- **Kong Gateway OSS** (free) >= 3.14 : no Enterprise license required.
+- **Kong Gateway 3.14** (`kong/kong-gateway:3.14.0.4-debian`, Enterprise image run
+  unlicensed): all OSS features (Wasm, `ai-proxy`, custom plugins, Admin API) work in
+  3.14 free mode. Traditional mode with PostgreSQL ensures restart-survivability.
+  No Enterprise license required for normal operation.
 - **Custom plugins** are bespoke, written for this project (license TBD with the
   workspace maintainer : see `AGENTS.md`).
 - **Sidecar dependencies**: `aho-corasick`, `regex`, `rsa`/`p256`/`ed25519-dalek`
@@ -225,7 +236,7 @@ pass before merge (no `#[allow]` / no silent fallback per the workspace
 
 ## References
 
-- Kong WebAssembly / Proxy-Wasm in Kong 3.4 OSS (beta → GA 3.11):
+- Kong WebAssembly / Proxy-Wasm in Kong (beta in 3.4, GA in 3.11, bundled in 3.14):
   https://konghq.com/blog/product-releases/gateway-3-4-oss
 - `Kong/ngx_wasm_module` (Kong-authored Proxy-Wasm host):
   https://github.com/Kong/ngx_wasm_module

@@ -359,7 +359,7 @@ Recommended filter chain order on the LLM chat route:
 ```
 [ auth-oidc | auth-ldap ]  ->  redact (Lua, PRIORITY=1100)
                               ->  semantic-cache or failover (Proxy-Wasm)
-                              ->  ai-proxy (Kong OSS)
+                              ->  ai-proxy (bundled)
 ```
 
 Kong runs Lua plugins in PRIORITY order (higher first) and Wasm filters in chain order

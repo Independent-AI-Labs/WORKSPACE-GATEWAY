@@ -28,6 +28,7 @@ Rust Proxy-Wasm plugins to be specified in follow-up documents.
 | 5 | `estimated_cost Float64` in ClickHouse | `Float64` aggregates are non-deterministic under ClickHouse MPP (`sum(toFloat64(0.45)) x 10000 = 4499.999...`); wrong for money. | `cost Decimal64(6)` + `rate_input`/`rate_output`/`currency` snapshot columns for audit-grade reproducibility. |
 | 6 | "Sub-millisecond overhead / zero performance degradation" | Kong log-phase network I/O is already off-thread (`ngx.timer.at`), but broker backpressure spills into worker timer/connection exhaustion; synchronous Redis in access/rewrite is on-path and is not sub-millisecond. | Claim qualified: "off-request-thread, bounded by timer-pool capacity and broker ingest rate." Separate async-redaction branch (sidecar) explicitly avoids any on-path ML cost. |
 | 7 | Kong faithfully records streamed token usage | Only an *estimate* when the provider omits usage. Open bugs: #14535 (streaming completion_tokens=0), #14816 (reasoning tokens not summed by Prometheus). Requires `stream_options.include_usage` + Kong >= 3.13 for real numbers; OTLP metrics need >= 3.14. | **Billing-grade contract**: enforce `stream_options.include_usage` on all streaming routes, pin Kong >= 3.14, add a daily **reconciler job** that cross-checks Kong logs against upstream provider billing APIs, and store per-rate snapshots. |
+| 8 | DB-less mode with declarative config file | DB-less mode breaks on container restart without an Enterprise license in Kong 3.15+ ("new nodes can't come up and restarts will break in DB-less mode"). Admin API becomes read-only. | **Traditional mode with PostgreSQL** (from DATAOPS `ami-postgres`). Writable Admin API, decK `gateway sync` for GitOps, restart-survivable even without license. Pin `kong/kong-gateway:3.14.0.4-debian`. |
 
 **Net architectural shift:** The Wasm/Rust layer no longer carries the redaction hot path;
 it is now the implementation vehicle for the four *missing* Enterprise plugins (auth, failover,
@@ -39,13 +40,14 @@ semantic cache). The redaction hot path returns to Lua (industry precedent: Kong
 ## 1. Scope
 
 This document specifies the **feasibility-corrected, OSS-only** architecture for a unified,
-multi-tenant LLM Gateway built on **Kong Gateway Open Source (>= 3.14)** plus four custom
-Rust Proxy-Wasm plugins (separately specified). It governs identity integration, per-user
-virtual-token billing, PII anonymization/re-hydration, and edge intelligence (semantic cache,
-adaptive failover).
+multi-tenant LLM Gateway built on **Kong Gateway 3.14** (Enterprise image run unlicensed;
+all OSS features including Wasm, `ai-proxy`, and custom plugins work without a license in 3.14)
+in **traditional mode with PostgreSQL**, plus four custom Rust Proxy-Wasm plugins (separately
+specified). It governs identity integration, per-user virtual-token billing, PII
+anonymization/re-hydration, and edge intelligence (semantic cache, adaptive failover).
 
 **In scope:**
-- Routing, auth, telemetry, and redaction data plane on free Kong.
+- Routing, auth, telemetry, and redaction data plane on Kong 3.14 (unlicensed).
 - The interface contracts (header context, log schema, sidecar protocol) the custom Rust
   plugins must satisfy.
 - Billing-grade token accounting with reconciliation.
@@ -62,7 +64,7 @@ adaptive failover).
 | Term | Definition |
 |------|-----------|
 | Data Plane | The Kong gateway instance(s) executing request/auth/proxy/redaction logic. |
-| Control Plane | decK-managed declarative config; no Kong DB-mode CP in this design (DB-less). |
+| Control Plane | decK-managed config synced via Admin API to PostgreSQL-backed Kong (traditional mode). |
 | IdP | Identity Provider - Keycloak, Entra ID, or raw Active Directory (LDAP/Kerberos). |
 | Context Pattern | Standardized `ngx.ctx` + header injection of `X-Tenant-ID`, `X-User-ID`, `X-Routing-Tier`. |
 | PII Map | The per-stream `{placeholder -> original}` association used for re-hydration. |
@@ -78,7 +80,7 @@ adaptive failover).
         | (JWT / Bearer Token / Kerberos Service Ticket)
         v
 +----------------------------------------------------------------+
-| KONG AI DATA PLANE  (Kong Gateway OSS >= 3.14, DB-less)        |
+| KONG AI DATA PLANE  (Kong Gateway 3.14, traditional mode + PostgreSQL)  |
 |                                                                |
 |  Phase 1: Unified Auth Engine                                 |
 |    [PLUGIN-AUTH-OIDC]   cached-JWKS stateless JWT validation    |
@@ -372,9 +374,37 @@ metric, TTL, tenant keying) in the two follow-up plugin specs before implementat
 ## 8. Infrastructure as Code (GitOps / decK) - Revised Blueprint
 
 The v1.0 decK blueprint used a fabricated `wasm` schema. The revised blueprint below uses only
-the free Kong plugin surface (`jwt`, `key-auth`, the `ai-proxy` OSS plugin, `tcp-log`/`http-log`
+the bundled Kong plugin surface (`jwt`, `key-auth`, the `ai-proxy` plugin, `tcp-log`/`http-log`
 for telemetry); the four custom plugins are placeholders pending their own specs and will be
 loaded as bundled Proxy-Wasm filters discovered at startup via `wasm_filters_path`.
+
+### 8.1 Deployment Mode: Traditional with PostgreSQL
+
+Kong runs in **traditional mode** (not DB-less) backed by PostgreSQL. This provides:
+- **Writable Admin API** for runtime config changes and decK `gateway sync` operations.
+- **Survivable restarts**: traditional-mode nodes restart cleanly even with an expired or
+  absent Enterprise license (unlike DB-less mode, which breaks on restart without a license
+  in Kong 3.15+). We pin `kong/kong-gateway:3.14.0.4` but this ensures forward safety.
+- **Horizontal scaling**: multiple Kong data-plane nodes share the same PostgreSQL database.
+- **decK GitOps**: `deck gateway sync kong.yaml` pushes declarative config through the
+  Admin API; `deck gateway dump` exports current state for drift detection.
+
+PostgreSQL is provided by the existing DATAOPS compose stack (`ami-postgres`,
+`pgvector/pgvector:pg16`). A dedicated `kong` database is created via the DATAOPS
+`postgres-init` scripts. Connection environment variables:
+
+```
+KONG_DATABASE=postgres
+KONG_PG_HOST=ami-postgres
+KONG_PG_PORT=5432
+KONG_PG_USER=<from DATAOPS .env>
+KONG_PG_PASSWORD=<from DATAOPS .env>
+KONG_PG_DATABASE=kong
+```
+
+Bootstrap step (one-time): `kong migrations bootstrap` before first start.
+
+### 8.2 decK declarative config blueprint
 
 ```yaml
 _format_version: "3.0"
@@ -469,7 +499,7 @@ services:
                   max_fails: 5
                   fail_timeout_seconds: 30
 
-          # Telemetry (Kong OSS built-ins). Log-phase, off-request-thread.
+          # Telemetry (Kong built-ins). Log-phase, off-request-thread.
           - name: http-log
             config:
               endpoint: "http://vector.internal.net:8080/ingest"
@@ -490,9 +520,11 @@ services:
 1. **Auth network topology** - Confirm raw AD Domain Controllers expose LDAP endpoints or a
    Kerberos SPN target; pick the LDAP bridge (HTTP-fronted `POST /ldap/bind` reached via
    `dispatch_http_call`) vs Kerberos-only validation path before `PLUGIN-AUTH-LDAP` spec lock.
-2. **Pin Kong >= 3.14** across dev/staging/prod and verify OTLP metrics and Prometheus
-   `ai_llm_tokens_total` `consumer` label behave as documented (open bugs #14535, #14816 to be
-   regression-tested against this version).
+2. **Pin Kong 3.14** (`kong/kong-gateway:3.14.0.4-debian`) across dev/staging/prod and
+   verify OTLP metrics and Prometheus `ai_llm_tokens_total` `consumer` label behave as
+   documented (open bugs #14535, #14816 to be regression-tested against this version).
+   Run `kong migrations bootstrap` against the DATAOPS PostgreSQL instance before first start.
+   Traditional mode ensures restart-survivability even without an Enterprise license.
 3. **Redaction Lua plugin** - Port `kong-plugin-argus-redact` patterns (per-stream
    `kong.ctx.plugin` stash, `body_filter` rehydration, cross-chunk sliding window, `Content-Length`
    clear in header phase). Benchmark under realistic SSE chunk sizes.
@@ -525,7 +557,11 @@ services:
 
 - Kong plugin tier frontmatter (`ai-proxy` OSS; `ai-proxy-advanced`/`ai-semantic-cache`/
   `openid-connect`/`ldap-auth` Enterprise): `docs.konghq.com/plugins/*`
-- Kong OSS bundled-plugins list: `Kong/kong` `spec/01-unit/12-plugins_order_spec.lua`
+- Kong Gateway 3.14 unlicensed Enterprise image: OSS features (Wasm, `ai-proxy`, custom
+  plugins, Admin API) work in 3.14 free mode (deprecated since 3.10, removed in 3.15).
+  Traditional mode allows restarts even with expired/absent license.
+  See: `developer.konghq.com/gateway/entities/license/`
+- Kong bundled-plugins list: `Kong/kong` `spec/01-unit/12-plugins_order_spec.lua`
 - AI Gateway audit log reference (usage fields): `developer.konghq.com/ai-gateway/ai-audit-log-reference/`
 - OpenTelemetry Gen AI spans (v3.13+) / OTLP metrics (v3.14+): `developer.konghq.com/ai-gateway/llm-open-telemetry/`, `developer.konghq.com/ai-gateway/ai-otel-metrics/`
 - Streaming usage estimate caveat: `developer.konghq.com/ai-gateway/streaming/`

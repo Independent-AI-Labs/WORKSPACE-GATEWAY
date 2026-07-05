@@ -38,8 +38,11 @@ The redaction plugin is custom (no Enterprise equivalent except `ai-sanitizer`, 
 already delegates to an external PII service : we replicate the same pattern with our
 own Rust engine).
 
-The underlying Kong data plane is **OSS-only** (>= 3.14): `ai-proxy` (bundled),
-`http-log`/`tcp-log` (bundled), and the Wasm host (`ngx_wasm_module`, OSS GA in 3.11).
+The underlying Kong data plane is **Kong Gateway 3.14** (`kong/kong-gateway:3.14.0.4-debian`,
+Enterprise image run unlicensed): `ai-proxy` (bundled), `http-log`/`tcp-log` (bundled), and the
+Wasm host (`ngx_wasm_module`, GA in 3.11) all work without a license in 3.14 free mode.
+Kong runs in **traditional mode with PostgreSQL** (provided by DATAOPS `ami-postgres`),
+enabling writable Admin API, decK `gateway sync` for GitOps, and restart-survivability.
 No Enterprise license required for normal operation. See
 `PROPOSAL-LLM-GATEWAY-v2.md` Section 0 for the full OSS-vs-Enterprise correction table.
 

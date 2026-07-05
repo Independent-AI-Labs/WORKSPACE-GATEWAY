@@ -6,7 +6,7 @@
 **Parent:** `PROPOSAL-LLM-GATEWAY-v2.md` (AMI-PROP-LLMGW-v2.0)
 **Scope:** Shared engineering foundation for all four custom Rust Proxy-Wasm filters
 (`PLUGIN-AUTH-OIDC`, `PLUGIN-AUTH-LDAP`, `PLUGIN-SEMANTIC-CACHE`, `PLUGIN-FAILOVER`)
-running inside Kong Gateway OSS's `ngx_wasm_module`.
+running inside Kong Gateway 3.14's `ngx_wasm_module`.
 
 This document is the authoritative base; each per-plugin spec inherits these contracts
 and adds its own `config_schema`, callbacks, and sidecar APIs.
@@ -17,7 +17,7 @@ and adds its own `config_schema`, callbacks, and sidecar APIs.
 
 | Component | Version | Rationale |
 |-----------|---------|-----------|
-| Kong Gateway OSS | >= 3.14 | OTLP metrics (`gen_ai.client.token.usage`, `kong.gen_ai.llm.cost`); Prometheus `ai_llm_tokens_total` with `consumer` label |
+| Kong Gateway | 3.14 (`kong/kong-gateway:3.14.0.4-debian`) | Enterprise image run unlicensed; OSS features (Wasm, `ai-proxy`, custom plugins, Admin API) work in 3.14 free mode. Traditional mode with PostgreSQL ensures restart-survivability. |
 | `ngx_wasm_module` | bundled with Kong 3.14 | Kong-authored Proxy-Wasm host ABI; Wasm toggle removed (GA) in 3.11 |
 | Proxy-Wasm Rust SDK | `proxy-wasm = "0.2.5"` | Last stable 0.2.x; ABI v0.2.1 supported by ngx_wasm_module (0.3.0-dev unreleased) |
 | Rust toolchain | `>= 1.84` (MSRV `1.85` for SDK master; pin 1.84 for 0.2.x) | 1.84 renamed `wasm32-wasi` to `wasm32-wasip1` |
@@ -138,6 +138,9 @@ Enable Wasm: `KONG_WASM=on`.
 Each plugin spec below defines its own `meta.json` extending this shape.
 
 ### 3.4 Filter-chain entity schema (decK / Kong DB entity)
+
+Filter chains are managed via decK (`deck gateway sync`) through the Admin API to the
+PostgreSQL-backed Kong instance (traditional mode). The schema:
 
 ```
 filter_chains:
@@ -427,10 +430,12 @@ For every filter:
 - **OTP-style plugin guarding:** each plugin documents its own `meta.json` `config_schema`;
   Kong Admin API rejects invalid config at apply time (return 400), not at request time.
 - **Version pinning in decK:** explicit `min_version` field in filter `config` for forward
-  compatibility assertions, per-plugin.
+  compatibility assertions, per-plugin. Config is synced via `deck gateway sync` through
+  the Admin API to PostgreSQL (traditional mode).
 - **Sidecar deployment:** sidecars (embedding, cache shim, LDAP bridge, NER) run as
-  sidecars in the same pod/VM, reachable from Kong via the nginx `resolver`. mTLS on the
-  bridge leg; secrets (keytabs, OpenAI keys) live on the sidecar, never in the Wasm module.
+  systemd user binaries on the same host, reachable from Kong via the nginx `resolver`.
+  mTLS on the bridge leg; secrets (keytabs, OpenAI keys) live on the sidecar, never in
+  the Wasm module.
 
 ---
 

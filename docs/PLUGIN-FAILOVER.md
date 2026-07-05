@@ -89,10 +89,10 @@ After consideration, the cleanest architecture is:
    injection, provider format translation. For state, it uses Kong's built-in
    `ngx.shared.dict` (worker-shared, cross-worker via shdict semantics : same as
    Kong's own `kong-api-health-checker`).
-2. **Multi-target Kong Upstreams** (one per provider): declared in `kong.conf` /
-   declarative config; nginx's `proxy_next_upstream` retries on 429/5xx automatically
-   via the upstream's balancer failover_criteria. The Lua plugin picks which upstream
-   to point at via `kong.service.set_upstream(target_name)` per request.
+2. **Multi-target Kong Upstreams** (one per provider): declared in decK config and synced
+   via `deck gateway sync` to PostgreSQL; nginx's `proxy_next_upstream` retries on 429/5xx
+   automatically via the upstream's balancer failover_criteria. The Lua plugin picks which
+   upstream to point at via `kong.service.set_upstream(target_name)` per request.
 3. **No custom Rust Proxy-Wasm filter for this plugin**. The research confirmed the
    alternative (`filter-as-proxy` for streaming) does NOT work because
    `dispatch_http_call` buffers. Lua + shdict + `set_upstream` is the proven Kong-native
