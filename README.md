@@ -49,8 +49,7 @@ curl -s http://localhost:9080/zen/v1/chat/completions \
   -d '{"model":"big-pickle","messages":[{"role":"user","content":"Say hello"}]}'
 ```
 
-That is it. The gateway is live on port 9080, ClickHouse on 8123,
-Prometheus metrics on 9100, OpenBao on 8201.
+Ports: 9080 (gateway), 8123 (ClickHouse), 9100 (Prometheus), 8201 (OpenBao).
 
 ### Prerequisites
 
@@ -106,8 +105,7 @@ graph TB
     PROM -.->|":9100"| METRICS["Prometheus"]
 ```
 
-The gateway runs as a single APISIX data plane in standalone YAML mode.
-No etcd, no PostgreSQL. Configuration is file-driven with hot reload.
+Standalone YAML mode: file-driven configuration, hot reload.
 
 **Current upstream**: OpenCode Zen (`opencode.ai:443`), which itself
 routes to 50+ models across OpenAI, Anthropic, Google, DeepSeek, and
@@ -119,10 +117,9 @@ OpenAI-compatible API by editing `conf/apisix.yaml`.
 ## Supported Providers
 
 APISIX's built-in `ai-proxy` and `ai-proxy-multi` plugins support the
-following LLM provider backends. The gateway currently uses a plain
-upstream proxy to Zen, but can switch to `ai-proxy` for provider-aware
-routing, or `ai-proxy-multi` for load balancing, retries, and health
-checks across multiple providers.
+following LLM provider backends. Swap the plain upstream proxy in
+`conf/apisix.yaml` for `ai-proxy` (single provider) or `ai-proxy-multi`
+(load balancing, retries, health checks across multiple providers).
 
 | Provider | `provider` value | Default Endpoint | Since |
 |----------|------------------|------------------|-------|
@@ -180,9 +177,6 @@ Each custom plugin is split into two files:
 |------|------|------------------|
 | `*_lib.lua` | Pure logic module, requireable, unit-testable | `cjson`, `ngx.re` only |
 | `*.lua` | APISIX adapter: lifecycle phases, ctx, shared dict | Full APISIX API |
-
-Unit tests run via `resty` CLI inside the APISIX container. No external
-test framework needed.
 
 ---
 
@@ -259,7 +253,7 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 ## opencode Integration
 
 The gateway registers as a `workspace-gateway` custom provider in
-opencode. The built-in `opencode` provider is untouched.
+opencode.
 
 ```bash
 # Sync all models from gateway into opencode config
@@ -292,25 +286,21 @@ Result in opencode config:
 
 ## Testing
 
-6 stages, 254 assertions, 0 failures:
-
 ```bash
 make test          # Run all stages
 make dev-test      # Same, via Ansible
 ```
 
-| Stage | What | Assertions |
-|-------|------|------------|
-| 1 | Lua unit tests via `resty` CLI | 89 |
-| 2 | Config validation (7 scripts) | 112 |
-| 3 | Reconciler static analysis | 7 |
-| 4 | Integration (black-box HTTP) | 20 |
-| 5 | CI hook verification | 9 |
-| 6 | E2E Zen API (real upstream) | 17 |
+| Stage | What |
+|-------|------|
+| 1 | Lua unit tests via `resty` CLI inside the APISIX container |
+| 2 | Config validation: 7 scripts checking every YAML, SQL, TOML, JSON file |
+| 3 | Reconciler static analysis: syntax, strict mode, error handling |
+| 4 | Integration: black-box HTTP against the running stack |
+| 5 | CI hook verification: pre-commit and pre-push hooks present and wired |
+| 6 | E2E: real Zen API calls (streaming, non-streaming, redaction, errors) |
 
-Tests detect if the stack is already running and skip startup +
-teardown (`EXTERNAL_STACK` pattern). No test will destroy your
-running dev stack.
+See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 
 ---
 
@@ -324,7 +314,7 @@ WORKSPACE-GATEWAY/
 ├── .env                            # Secrets (gitignored)
 ├── docs/
 │   ├── ARCHITECTURE.md             # Complete technical reference
-│   ├── TEST-PLAN.md                # 6-stage test plan
+│   ├── TEST-PLAN.md                # Test plan
 │   ├── PROPOSAL-LLM-GATEWAY-v3.md  # Umbrella architecture
 │   ├── PLUGIN-FOUNDATION.md        # APISIX Lua plugin dev guide
 │   ├── BUILTIN-PLUGINS.md          # Built-in plugin config
@@ -358,13 +348,13 @@ WORKSPACE-GATEWAY/
 │       ├── reconciler.sh           # Daily billing reconciliation
 │       └── sync-opencode-models.sh # Sync models to opencode config
 ├── tests/
-│   ├── run_all.sh                  # Master runner (6 stages)
-│   ├── lua/                        # Stage 1: 89 unit assertions
-│   ├── config/                     # Stage 2: 112 config assertions
-│   ├── reconciler/                 # Stage 3: 7 static assertions
-│   ├── integration/                # Stage 4: 20 black-box assertions
-│   ├── ci/                         # Stage 5: 9 hook assertions
-│   └── e2e/                        # Stage 6: 17 Zen API assertions
+│   ├── run_all.sh                  # Master runner
+│   ├── lua/                        # Lua unit tests (resty CLI)
+│   ├── config/                     # Config validation (7 scripts)
+│   ├── reconciler/                 # Reconciler static analysis
+│   ├── integration/                # Black-box HTTP tests
+│   ├── ci/                         # CI hook verification
+│   └── e2e/                        # End-to-end Zen API tests
 └── config/
     └── coverage_thresholds.yaml
 ```
@@ -404,7 +394,7 @@ WORKSPACE-GATEWAY/
 |--------|-------------|
 | `make lint` | Shell syntax + YAML validation |
 | `make type-check` | Lua syntax check via `resty` in Podman |
-| `make test` | Run all 6 test stages |
+| `make test` | Run all test stages |
 | `make check` | lint + type-check + test |
 | `make check-push` | check + E2E tests (if Zen key set) |
 
@@ -415,7 +405,7 @@ WORKSPACE-GATEWAY/
 | Document | Content |
 |----------|---------|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete technical reference: every component, plugin, data flow, schema, script, test |
-| [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) | 6-stage testing strategy with extract-testable-core pattern |
+| [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) | Testing strategy with extract-testable-core pattern |
 | [`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md) | Architecture rationale, Kong-to-APISIX pivot, billing contract |
 | [`docs/PLUGIN-FOUNDATION.md`](docs/PLUGIN-FOUNDATION.md) | APISIX custom Lua plugin development foundation |
 | [`docs/PLUGIN-REDACT-LUA.md`](docs/PLUGIN-REDACT-LUA.md) | Redact plugin specification |
@@ -434,15 +424,11 @@ WORKSPACE-GATEWAY/
 
 ## License
 
-- **Apache APISIX 3.17.0**: Apache 2.0. All plugins OSS, no license
-  enforcement, no tier split. Source public. Docker images for every
-  version.
-- **OpenBao 2.4.4**: MPL 2.0. Open source fork of HashiCorp Vault.
-- **ClickHouse 24.8**: Apache 2.0.
-- **Vector 0.40**: MPL 2.0.
-- **Custom Lua plugins**: Bespoke, written for this project.
-
-No Kong. No Wasm. No Proxy-Wasm. No Enterprise licensing concerns.
+- **Apache APISIX 3.17.0**: Apache 2.0
+- **OpenBao 2.4.4**: MPL 2.0
+- **ClickHouse 24.8**: Apache 2.0
+- **Vector 0.40**: MPL 2.0
+- **Custom Lua plugins**: bespoke, written for this project
 
 ---
 
