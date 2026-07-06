@@ -57,6 +57,9 @@ assert_eq "Has vector service" "true" "$HAS_VECTOR"
 APISIX_PORT_9080=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9080:9080")] | length')
 assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
 
+APISIX_PORT_9100=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9100:9100")] | length')
+assert_eq "APISIX exposes port 9100 for prometheus" "1" "$APISIX_PORT_9100"
+
 APISIX_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.apisix.volumes[]')
 HAS_APISIX_YAML=$(echo "$APISIX_MOUNTS" | grep -c "apisix.yaml" || true)
 assert_eq "APISIX mounts apisix.yaml" "1" "$HAS_APISIX_YAML"
@@ -74,6 +77,9 @@ assert_eq "Vector mounts vector.toml" "1" "$HAS_VECTOR_TOML"
 
 VECTOR_PORT_8080=$(echo "$JSON_DATA" | jq '[.services.vector.ports[] | select(. == "8080:8080")] | length')
 assert_eq "Vector exposes port 8080" "1" "$VECTOR_PORT_8080"
+
+VECTOR_CMD=$(echo "$JSON_DATA" | jq -r '[.services.vector.command[] | select(. == "/etc/vector/vector.toml")] | length')
+assert_eq "Vector command specifies vector.toml config" "1" "$VECTOR_CMD"
 
 HAS_GATEWAY=$(echo "$JSON_DATA" | jq '.networks | has("gateway")')
 assert_eq "Networks has gateway" "true" "$HAS_GATEWAY"

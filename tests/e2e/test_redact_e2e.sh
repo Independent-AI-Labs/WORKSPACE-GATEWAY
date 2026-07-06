@@ -66,11 +66,33 @@ else
     check "Response contains X-Redact-Active: 1 header" "1"
 fi
 
-if printf '%s' "$body" | grep -qi "$PII_EMAIL"; then
+if grep -qi "$PII_EMAIL" "$body_file"; then
     echo "[DEBUG] response body contains original PII email"
     check "Response body does not contain original PII email" "1"
 else
     check "Response body does not contain original PII email" "0"
+fi
+
+echo "[INFO] Waiting 5 seconds for Vector to process..."
+sleep 5
+
+CH_URL="http://localhost:8123"
+PII_TOKEN="[EMAIL_1]"
+
+echo "[INFO] Querying ClickHouse for logged request body..."
+logged_req_body=$(curl -sf "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" 2>/dev/null || echo "")
+
+if grep -q "$PII_TOKEN" <<< "$logged_req_body"; then
+    check "ClickHouse logged request body contains redaction token" "0"
+else
+    check "ClickHouse logged request body contains redaction token" "1"
+    echo "[DEBUG] logged_req_body does not contain $PII_TOKEN"
+fi
+
+if grep -qi "$PII_EMAIL" <<< "$logged_req_body"; then
+    check "ClickHouse logged request body does NOT contain raw PII email" "1"
+else
+    check "ClickHouse logged request body does NOT contain raw PII email" "0"
 fi
 
 rm -f "$headers_file" "$body_file"

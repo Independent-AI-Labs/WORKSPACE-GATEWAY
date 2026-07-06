@@ -25,12 +25,12 @@ limiting, telemetry logging, and billing-grade token accounting.
 
 The `redact` plugin has two categories of code:
 
-1. **Pure logic** -- Luhn validation, pattern loading, text
+1. **Pure logic** - Luhn validation, pattern loading, text
    redaction, token restoration. Depends only on `ngx.re.gsub`
    and `cjson.safe`, both available via the `resty` CLI.
-2. **Nginx-coupled code** -- request body reading, response header
+2. **Nginx-coupled code** - request body reading, response header
    manipulation, response body filtering. Depends on `ngx.req`,
-   `ngx.arg`, `ngx.header` -- only available inside the Nginx
+   `ngx.arg`, `ngx.header` - only available inside the Nginx
    request lifecycle.
 
 Pure logic is extracted into `redact_lib.lua` as a requireable
@@ -595,14 +595,14 @@ Each agent receives:
 After all agents complete, the orchestrator commits and pushes
 in this exact order:
 
-1. Commit C (refactor) -- stage and push
-2. Commit D (test) -- stage and push
-3. Commit E (test) -- stage and push
-4. Commit F (test) -- stage and push
-5. Commit G (test) -- stage and push
-6. Commit H (test) -- stage and push
-7. Commit I (test) -- stage and push
-8. Commit J (chore) -- stage and push
+1. Commit C (refactor) - stage and push
+2. Commit D (test) - stage and push
+3. Commit E (test) - stage and push
+4. Commit F (test) - stage and push
+5. Commit G (test) - stage and push
+6. Commit H (test) - stage and push
+7. Commit I (test) - stage and push
+8. Commit J (chore) - stage and push
 
 Commit order is fixed regardless of agent completion order. If
 agent E finishes before agent C, E's files sit on disk until the
@@ -620,7 +620,7 @@ Update `Makefile` targets:
 | Target | Action |
 |--------|--------|
 | `lint` | `bash -n` on all `.sh` files; YAML validation via Python |
-| `type-check` | Lua syntax check via `resty -bl` in Podman |
+| `type-check` | Lua syntax check via `resty -e "loadfile(...)"` in Podman |
 | `test` | `tests/run_all.sh` (stages 1 through 5; skip 6 unless `OPENCODE_ZEN_API_KEY` set) |
 | `check` | `lint` + `type-check` + `test` |
 | `check-push` | `check` + stage 6 (if Zen key available) |
@@ -633,21 +633,21 @@ shell test structure:
 ```yaml
 unit:
   path: tests/lua
-  min_coverage: 0
+  min_coverage: 1
   source_path: plugins/custom
   runner: "tests/lua/run.sh"
   coverage: "false"
 
 config:
   path: tests/config
-  min_coverage: 0
+  min_coverage: 1
   source_path: conf
   runner: "tests/config/run.sh"
   coverage: "false"
 
 integration:
   path: tests/integration
-  min_coverage: 0
+  min_coverage: 5
   source_path: .
   runner: "tests/integration/run.sh"
   coverage: "false"
@@ -673,3 +673,256 @@ E2E tests are black-box (no coverage measurement).
 - PII redaction is active (verified by `X-Redact-Active` header and
   by Lua unit tests testing `redact_text` directly)
 - Telemetry logs reach ClickHouse via Vector
+
+---
+
+## 14. Audit Findings and Remediation Plan
+
+A comprehensive three-agent audit was conducted on 2026-07-06
+covering configuration, plugin implementation, test suite
+comprehensiveness, and documentation completeness.
+
+### 14.1 Critical Issues (P0)
+
+#### P0-1: Billing Pipeline Not Wired
+
+The `billing_ledger` table exists in `clickhouse-init.sql` with
+full token/cost columns but is never populated. Vector
+(`vector.toml`) only writes to `request_log`. No sink, transform,
+or job writes to `billing_ledger`. The entire billing-grade
+ledger is an empty schema.
+
+**Files:** `conf/vector.toml:20`, `conf/clickhouse-init.sql:26-53`
+**Fix:** Add a second Vector sink for `billing_ledger`, or add a
+Lua log-phase plugin that parses response body for `usage` fields
+and inserts billing rows via an HTTP call to ClickHouse.
+
+#### P0-2: No Token Usage Capture
+
+The `http-logger` `log_format` in `apisix.yaml` captures only 7
+fields (provider, model, stream, method, uri, status, latency).
+Missing: `prompt_tokens`, `completion_tokens`, `total_tokens`,
+`cost`, `client_ip`, `request_size`, `response_size`,
+`api_key_id`, `redact_active`, `redact_token_count`. With
+`include_resp_body: false`, token usage data from the response
+body is never captured.
+
+**Files:** `conf/apisix.yaml:24-33`
+**Fix:** Enrich `log_format` with Nginx variables and response
+body parsing. Consider a custom `body_filter` Lua snippet that
+captures `usage` from the final response chunk and stores it in
+`ctx` for the `log` phase. Alternatively, set
+`include_resp_body: true` and parse in Vector's remap transform.
+
+#### P0-3: Reconciler Is Incomplete
+
+`reconciler.sh` queries ClickHouse for gateway-side totals and
+logs them, but the upstream provider API comparison is a TODO
+(line 38-39). The `TOLERANCE` variable is defined but never used.
+No divergence is calculated. `billing_discrepancies` table is
+never written to. The query does not group by `tenant_id`.
+
+**Files:** `res/scripts/reconciler.sh:5,14,38-39`
+**Fix:** Either implement the upstream comparison (query Zen API
+for usage data, compare, calculate divergence, insert into
+`billing_discrepancies`) or mark the reconciler as v2 and remove
+the dead `TOLERANCE` variable and `billing_discrepancies` table
+from v1 scope.
+
+#### P0-4: E2E Redact Test Flawed
+
+`test_redact_e2e.sh` asserts the response body does not contain
+the original PII email. However, the redact plugin *restores*
+tokens to original PII in the response (`body_filter` calls
+`restore_with_key`). If the model echoes the email, it would
+appear restored in the response. The test passing only proves
+the model did not echo the email, not that redaction worked
+upstream.
+
+**Files:** `tests/e2e/test_redact_e2e.sh`
+**Fix:** After sending a request with PII, query ClickHouse
+`request_log` (or inspect http-logger output) to verify the
+logged request body contains `[EMAIL_1]` (the redacted token),
+not the raw email address. This proves the upstream received the
+redacted version.
+
+#### P0-5: No Data-Flow Verification Test
+
+No test sends a request through the gateway and verifies a row
+appears in ClickHouse with correct fields. The integration test
+checks that `request_log` table *exists* (count=0) but never
+verifies it *receives rows* after a request. The entire
+APISIX-to-Vector-to-ClickHouse data path is untested.
+
+**Files:** `tests/integration/test_stack_up.sh`
+**Fix:** Add a test case that sends a chat request through the
+gateway, waits 2-3 seconds for Vector to process, then queries
+ClickHouse `SELECT count() FROM llm_gateway.request_log` and
+asserts count > 0. Further assert the row contains the correct
+model and status values.
+
+### 14.2 Code Bugs (P1)
+
+#### P1-1: Invalid APISIX Variable
+
+`$upstream_latency_ms` in `apisix.yaml:33` is not a standard
+APISIX built-in variable. APISIX exposes `$upstream_response_time`
+(seconds, float). This field will produce empty or invalid data.
+
+**Fix:** Replace with `$upstream_response_time` and rename the
+log_format key to `upstream_response_time_s`, or multiply in a
+Lua log phase.
+
+#### P1-2: Dictionary Escaping Bug
+
+`redact_lib.lua:34` uses Lua pattern escaping (`%%%1`) for
+dictionary entries, but the escaped string is fed to
+`ngx.re.gsub` which uses PCRE where the escape character is `\`.
+For entries with regex metacharacters (`.`, `(`, `)`, `+`, `?`,
+`*`), the escaping is wrong. Latent because current dictionary
+entries have no metacharacters.
+
+**Fix:** Replace `entry:gsub("([^%w%s])", "%%%1")` with
+`entry:gsub("([^%w%s])", "\\%1")` to produce PCRE-escaped strings.
+
+#### P1-3: Dockerfile Duplicate COPY
+
+`Dockerfile.apisix:4` copies `redact.lua` to
+`/usr/local/apisix/apisix/plugins/redact.lua` (parent `plugins/`
+dir) in addition to line 3 which copies the entire `plugins/custom/`
+directory. This creates a redundant copy that could cause
+double-registration if APISIX auto-discovers plugins in the
+parent directory.
+
+**Fix:** Remove line 4. The `extra_lua_path` in `config.yaml`
+already resolves `require("apisix.plugins.custom.redact")` to the
+correct path. If APISIX requires the plugin at
+`apisix.plugins.redact` (without `custom`), update `config.yaml`
+`extra_lua_path` instead.
+
+#### P1-4: cjson.encode Failure Unhandled
+
+`redact.lua:86` calls `cjson.encode(parsed)` to re-encode the
+redacted request body. If encode fails (returns nil), the result
+is passed to `ngx.req.set_body_data(new_body, #new_body)` which
+will error on `#nil`. No pcall wrap.
+
+**Fix:** Wrap in pcall. On failure in `on_error: closed` mode,
+return 503. In `on_error: open` mode, pass through the original
+body.
+
+#### P1-5: Non-Chat Body Passthrough Violates Rule 13
+
+`redact.lua:57-59` returns without redaction when the request
+body is not valid JSON or lacks a `messages` array. No error
+header is set. PII in non-chat-shaped requests passes to upstream
+unredacted with no indication. This violates AGENTS.md Rule 13
+(no unreported reduced behavior) and the plugin's own test plan
+assertion (PLUGIN-REDACT-LUA.md section 12).
+
+**Fix:** Set an `X-Redact-Error: non-chat-body` header when
+redaction is skipped due to body shape, so callers are aware that
+no redaction was applied.
+
+#### P1-6: Patterns Loaded Every Request
+
+`redact.lua:44` calls `load_patterns()` on every request in the
+`access` phase. This performs file I/O and JSON parse on every
+single request. The `redact_state` shared dict is allocated in
+`config.yaml` but never used for caching.
+
+**Fix:** Cache patterns in the `redact_state` shared dict with
+an mtime check. Load from disk only when the file has changed.
+
+#### P1-7: Dead Configuration
+
+`config.yaml` allocates `semcache_state: 4m` shared dict for the
+v2 semantic-cache plugin that does not exist. `ai-proxy` and
+`ai-proxy-multi` are listed in the plugins array but no route
+uses them. These waste memory and create confusion.
+
+**Fix:** Remove `semcache_state` from shared dicts. Remove
+`ai-proxy` and `ai-proxy-multi` from the plugins list (re-add
+when v2 semantic cache or multi-provider routing is implemented).
+
+### 14.3 Test Gaps (P1)
+
+| Gap | Current State | Required Test |
+|-----|--------------|---------------|
+| `redact.lua` plugin: 0 unit tests | 153 lines of access/header_filter/body_filter/log logic untested | Unit tests for body parsing, stream_mode reject, on_error closed/open, header_filter X-Redact-Active |
+| No streaming + redaction E2E | `body_filter` stream branch unexercised | E2E test with `stream: true` + PII in prompt, verify redaction + restore on SSE chunks |
+| No rate-limit enforcement test | `ai-rate-limiting` 429 never triggered | Send N+1 requests rapidly, verify 429 on the (N+1)th |
+| No Prometheus metrics test | `/apisix/prometheus/metrics` never curled | Curl metrics endpoint, verify gateway-specific metrics present |
+| No Vector-to-ClickHouse flow test | No event posted to `/ingest` and verified in DB | Post a test log entry to Vector `/ingest`, query ClickHouse, verify row appears |
+| Reconciler never executed | 7 assertions are all grep/syntax checks | Run `reconciler.sh` against ClickHouse with seed data, verify row-logging and empty-result paths |
+| No upstream error handling test | No 500/502/503 from upstream simulated | Send request to invalid model, verify error response propagation |
+| No invalid-model E2E test | All E2E tests use valid free models | Send request with non-existent model, verify 4xx error |
+| No concurrent requests test | All tests are sequential | Send 10 parallel curls, verify all complete without errors |
+| No ClickHouse log content verification | Row count checked, content never validated | After E2E request, query `request_log` and assert model/status/latency match the request |
+| `token_map` correctness unverified | Token presence asserted, mapping value never checked | Assert `token_map["[EMAIL_1]"] == "john@example.com"` |
+| Counter increments unverified | Never asserts `counters["EMAIL"] == 2` after two emails | Add counter assertions to Lua unit tests |
+| Config test value gaps | Plugin presence checked, config values mostly unchecked | Validate `ai-rate-limiting` limit/window/code, `http-logger` full log_format, `redact` patterns_file path |
+
+### 14.4 Documentation Gaps (P1)
+
+| Issue | Fix |
+|-------|-----|
+| `DEPLOYMENT.md` describes enterprise architecture (OIDC/LDAP/ai-proxy-multi) not the actual Zen relay | Update to reflect single-route Zen relay, or mark enterprise sections as "future/v2" |
+| `README.md` status says "implementation not started" | Update to reflect actual implementation state (plugin, config, stack, tests all exist) |
+| `ci-profile.yaml` declares `languages: [rust]` | Change to `[lua, shell]` |
+| Docs use different column name than code for redact count field | Align docs to match code (`redact_token_count`) |
+| Docs say Vector writes to `llm_billing_ledger`, code writes to `request_log` | Update docs to match actual Vector sink configuration |
+| `TEST-PLAN.md` section 12.4 shows `min_coverage: 0`, actual config has `min_coverage: 1` | Update plan to match actual thresholds |
+| `TEST-PLAN.md` section 12.3 says `resty -bl`, actual Makefile uses `loadfile()` | Update plan to match actual Makefile |
+| `PLUGIN-FOUNDATION.md` and `PROPOSAL` reference `redact-patterns.yaml` (YAML), actual file is `.json` | Update docs to reference JSON format |
+
+### 14.5 Deferred Features (P2, Intentional)
+
+| Feature | Status |
+|---------|--------|
+| Semantic cache plugin | v2 deferred (documented in `PLUGIN-SEMANTIC-CACHE.md`) |
+| NER sidecar | v2 deferred (documented in `PLUGIN-REDACT-ENGINE.md`) |
+| Embedding service | v2 deferred |
+| TLS termination at gateway (port 9443) | Port exposed, no certs/SSL config |
+| Health checks (Docker/APISIX/upstream) | None configured |
+| Multi-tenant auth (OIDC/LDAP) | Not implemented (simplified to key-auth) |
+| Multi-provider failover | Not implemented (single Zen upstream) |
+| Alerting rules | Documented in `DEPLOYMENT.md` section 9.3 but not configured |
+
+### 14.6 Remediation Backlog
+
+Priority-ordered list of work items to close the audit gaps:
+
+| ID | Priority | Title | Type |
+|----|----------|-------|------|
+| R-01 | P0 | Wire billing pipeline (token capture to ClickHouse) | feat |
+| R-02 | P0 | Fix E2E redact test to verify upstream received tokens | fix |
+| R-03 | P0 | Add data-flow integration test (request to ClickHouse row) | test |
+| R-04 | P0 | Finish or remove reconciler | fix |
+| R-05 | P1 | Fix `$upstream_latency_ms` invalid variable | fix |
+| R-06 | P1 | Fix dictionary PCRE escaping in `redact_lib.lua` | fix |
+| R-07 | P1 | Remove Dockerfile duplicate COPY | fix |
+| R-08 | P1 | Handle `cjson.encode` failure in `redact.lua` | fix |
+| R-09 | P1 | Set error header on non-chat body passthrough | fix |
+| R-10 | P1 | Cache patterns in shared dict | perf |
+| R-11 | P1 | Remove dead config (semcache_state, unused plugins) | chore |
+| R-12 | P1 | Add `redact.lua` plugin unit tests | test |
+| R-13 | P1 | Add streaming + redaction E2E test | test |
+| R-14 | P1 | Add rate-limit enforcement test | test |
+| R-15 | P1 | Add Prometheus metrics endpoint test | test |
+| R-16 | P1 | Add Vector-to-ClickHouse flow test | test |
+| R-17 | P1 | Add reconciler execution test | test |
+| R-18 | P1 | Add upstream error handling test | test |
+| R-19 | P1 | Add invalid-model E2E test | test |
+| R-20 | P1 | Add ClickHouse log content verification | test |
+| R-21 | P1 | Add `token_map` and counter assertions to unit tests | test |
+| R-22 | P1 | Deepen config validation tests (values not just presence) | test |
+| R-23 | P1 | Update `DEPLOYMENT.md` to match Zen relay architecture | docs |
+| R-24 | P1 | Update `README.md` status | docs |
+| R-25 | P1 | Fix `ci-profile.yaml` language declaration | fix |
+| R-26 | P1 | Align doc/code column names and Vector table names | docs |
+| R-27 | P1 | Update TEST-PLAN sections 12.3-12.4 to match actual config | docs |
+| R-28 | P2 | Add TLS termination or document HTTP-only as v1 scope | feat/docs |
+| R-29 | P2 | Add health checks (Docker, APISIX, upstream) | feat |
+| R-30 | P2 | Add concurrent requests test | test |
+| R-31 | P2 | Add large request body test | test |

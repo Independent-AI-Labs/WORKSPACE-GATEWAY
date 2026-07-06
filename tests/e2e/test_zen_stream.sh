@@ -66,7 +66,7 @@ fi
 
 content_type=$(grep -i '^content-type:' "$headers_file" 2>/dev/null | tr -d '\r' || echo "")
 
-if printf '%s' "$content_type" | grep -qi "text/event-stream"; then
+if grep -qi "text/event-stream" <<< "$content_type"; then
     check "Response Content-Type contains text/event-stream" "0"
 else
     echo "[DEBUG] Content-Type was: '$content_type'"

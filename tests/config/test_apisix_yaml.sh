@@ -87,7 +87,19 @@ assert_eq "Consumer exists with key opencode-gateway-key" "opencode-gateway-key"
 HTTP_LOGGER_URI=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].uri')
 assert_eq "http-logger uri is http://vector:8080/ingest" "http://vector:8080/ingest" "$HTTP_LOGGER_URI"
 
-LOG_FORMAT_PROVIDER=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].log_format.provider')
-assert_eq "log_format provider is opencode-zen" "opencode-zen" "$LOG_FORMAT_PROVIDER"
+HAS_LOG_FORMAT=$(echo "$JSON_DATA" | jq '.routes[0].plugins["http-logger"] | has("log_format")')
+assert_eq "http-logger has no log_format (uses default format)" "false" "$HAS_LOG_FORMAT"
+
+INCLUDE_REQ_BODY=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].include_req_body')
+assert_eq "http-logger include_req_body is true" "true" "$INCLUDE_REQ_BODY"
+
+INCLUDE_RESP_BODY=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].include_resp_body')
+assert_eq "http-logger include_resp_body is true" "true" "$INCLUDE_RESP_BODY"
+
+MAX_REQ_BODY=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].max_req_body_bytes')
+assert_eq "http-logger max_req_body_bytes is 8192" "8192" "$MAX_REQ_BODY"
+
+MAX_RESP_BODY=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].max_resp_body_bytes')
+assert_eq "http-logger max_resp_body_bytes is 8192" "8192" "$MAX_RESP_BODY"
 
 summary

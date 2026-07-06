@@ -1,8 +1,8 @@
 FROM apache/apisix:3.17.0-debian
 
-COPY plugins/custom/ /usr/local/apisix/apisix/plugins/custom/
 COPY plugins/custom/redact.lua /usr/local/apisix/apisix/plugins/redact.lua
+COPY plugins/custom/redact_lib.lua /usr/local/apisix/apisix/plugins/redact_lib.lua
 COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
 COPY conf/redact-patterns.json /etc/apisix/redact-patterns.json
 
-EXPOSE 9080 9443
+EXPOSE 9080 9443 9100

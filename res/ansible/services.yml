@@ -1,0 +1,9 @@
+# WORKSPACE-GATEWAY - Managed services declaration
+# Read by ami/cli_components/status_systemd.py for orphan detection.
+
+podman_pods:
+  gateway:
+    containers:
+      - docker_apisix_1
+      - docker_clickhouse_1
+      - docker_vector_1

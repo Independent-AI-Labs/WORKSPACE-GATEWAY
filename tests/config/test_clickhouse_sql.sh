@@ -52,4 +52,22 @@ ORDER_BY_LEADING=$(grep -o 'ORDER BY ([a-z_]*' "$SQL_FILE" || true)
 LEADING_COUNT=$(echo "$ORDER_BY_LEADING" | grep -c 'ORDER BY (provider\|ORDER BY (tenant_id\|ORDER BY (date' || true)
 assert_eq "ORDER BY leads with low-cardinality keys" "3" "$LEADING_COUNT"
 
+HAS_PROMPT_TOKENS=$(grep -c 'prompt_tokens' "$SQL_FILE" || true)
+assert_eq "Has prompt_tokens column" "true" "$([ "$HAS_PROMPT_TOKENS" -ge 2 ] && echo true || echo false)"
+
+HAS_COMPLETION_TOKENS=$(grep -c 'completion_tokens' "$SQL_FILE" || true)
+assert_eq "Has completion_tokens column" "true" "$([ "$HAS_COMPLETION_TOKENS" -ge 2 ] && echo true || echo false)"
+
+HAS_TOTAL_TOKENS=$(grep -c 'total_tokens' "$SQL_FILE" || true)
+assert_eq "Has total_tokens column" "true" "$([ "$HAS_TOTAL_TOKENS" -ge 2 ] && echo true || echo false)"
+
+HAS_REQ_BODY=$(grep -c 'req_body' "$SQL_FILE" || true)
+assert_eq "Has req_body column in request_log" "1" "$HAS_REQ_BODY"
+
+HAS_UPSTREAM_TIME=$(grep -c 'upstream_response_time_s' "$SQL_FILE" || true)
+assert_eq "Has upstream_response_time_s column" "1" "$HAS_UPSTREAM_TIME"
+
+NO_OLD_LATENCY=$(grep -cE '^\s*latency_ms' "$SQL_FILE" || true)
+assert_eq "Old latency_ms column removed" "0" "$NO_OLD_LATENCY"
+
 summary

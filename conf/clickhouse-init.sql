@@ -1,21 +1,26 @@
 CREATE DATABASE IF NOT EXISTS llm_gateway;
 
 CREATE TABLE IF NOT EXISTS llm_gateway.request_log (
-    event_id          String,
-    provider          LowCardinality(String),
-    model             LowCardinality(String),
-    stream            Bool,
-    method            LowCardinality(String),
-    uri               String,
-    status            UInt16,
-    latency_ms        UInt32,
-    request_size      UInt32,
-    response_size     UInt32,
-    client_ip         IPv4,
-    api_key_id        String,
-    redact_active     Bool DEFAULT false,
-    redact_token_count UInt32 DEFAULT 0,
-    timestamp         DateTime64(3) DEFAULT now()
+    event_id                  String DEFAULT '',
+    provider                  LowCardinality(String),
+    model                     LowCardinality(String) DEFAULT '',
+    stream                    Bool DEFAULT false,
+    method                    LowCardinality(String),
+    uri                       String,
+    status                    UInt16,
+    upstream_response_time_s  Float64 DEFAULT 0,
+    request_size              UInt32 DEFAULT 0,
+    response_size             UInt32 DEFAULT 0,
+    client_ip                 String DEFAULT '0.0.0.0',
+    api_key_id                String DEFAULT '',
+    prompt_tokens             UInt32 DEFAULT 0,
+    completion_tokens         UInt32 DEFAULT 0,
+    total_tokens              UInt32 DEFAULT 0,
+    req_body                  String DEFAULT '',
+    resp_body                 String DEFAULT '',
+    redact_active             Bool DEFAULT false,
+    redact_token_count        UInt32 DEFAULT 0,
+    timestamp                 DateTime64(3) DEFAULT now()
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)

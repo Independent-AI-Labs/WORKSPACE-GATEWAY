@@ -1,6 +1,6 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
-local redact_lib = require("redact_lib")
+local redact_lib = require("apisix.plugins.redact_lib")
 
 local plugin_name = "redact"
 
@@ -41,7 +41,37 @@ end
 function plugin.access(conf, ctx)
     local conf_path = conf.patterns_file
         or "/etc/apisix/redact-patterns.json"
-    local loaded_patterns, dict_alt = redact_lib.load_patterns(conf_path)
+    local shared = ngx.shared.redact_state
+    local loaded_patterns, dict_alt
+
+    local cached_json = shared:get("patterns")
+    local cache_time = shared:get("patterns_time")
+    local now_time = ngx.time()
+
+    if cached_json and cache_time and (now_time - cache_time < 60) then
+        loaded_patterns = cjson.decode(cached_json)
+        if not loaded_patterns then
+            loaded_patterns = nil
+        end
+        dict_alt = shared:get("dict_alt")
+        if dict_alt == "" then dict_alt = nil end
+    end
+
+    if not loaded_patterns then
+        loaded_patterns, dict_alt = redact_lib.load_patterns(conf_path)
+        if loaded_patterns then
+            local encoded = cjson.encode(loaded_patterns)
+            if encoded then
+                shared:set("patterns", encoded, 60)
+                shared:set("patterns_time", now_time, 60)
+            end
+            if dict_alt then
+                shared:set("dict_alt", dict_alt, 60)
+            else
+                shared:set("dict_alt", "", 60)
+            end
+        end
+    end
     if not loaded_patterns then
         if conf.on_error == "closed" then
             return 503, { error = "redact: patterns file not loaded" }
@@ -55,8 +85,14 @@ function plugin.access(conf, ctx)
     if not body or body == "" then return end
 
     local ok, parsed = pcall(cjson.decode, body)
-    if not ok or not parsed then return end
-    if not parsed.messages then return end
+    if not ok or not parsed then
+        core.response.set_header("X-Redact-Error", "non-chat-body")
+        return
+    end
+    if not parsed.messages then
+        core.response.set_header("X-Redact-Error", "non-chat-body")
+        return
+    end
 
     if parsed.stream and conf.stream_mode == "reject" then
         return 400, { error = "redact: streaming rejected" }
@@ -83,7 +119,14 @@ function plugin.access(conf, ctx)
         end
     end
 
-    local new_body = cjson.encode(parsed)
+    local encode_ok, new_body = pcall(cjson.encode, parsed)
+    if not encode_ok or not new_body then
+        if conf.on_error == "closed" then
+            return 503, { error = "redact: body re-encode failed" }
+        end
+        core.log.error("redact: body re-encode failed; proceeding with original body")
+        return
+    end
     ngx.req.set_body_data(new_body, #new_body)
 
     local count = 0

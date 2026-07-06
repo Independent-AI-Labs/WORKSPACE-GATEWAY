@@ -26,8 +26,8 @@ check "Valid bash syntax" "$?"
 grep -q 'set -euo pipefail' "$RECONCILER"
 check "set -euo pipefail present" "$?"
 
-grep -q ':-clickhouse' "$RECONCILER"
-check "CLICKHOUSE_HOST has default" "$?"
+grep -q ':-localhost' "$RECONCILER"
+check "CLICKHOUSE_HOST has default (localhost)" "$?"
 
 grep -q ':-8123' "$RECONCILER"
 check "CLICKHOUSE_PORT has default" "$?"
@@ -38,8 +38,8 @@ check "Error handling on query failure" "$?"
 grep -q 'nothing to reconcile' "$RECONCILER"
 check "Empty results handled" "$?"
 
-grep -q 'TODO' "$RECONCILER"
-check "TODO comment for upstream API queries" "$?"
+grep -q 'request_log' "$RECONCILER"
+check "Queries request_log not billing_ledger" "$?"
 
 echo ""
 echo "Reconciler tests: $pass passed, $fail failed"

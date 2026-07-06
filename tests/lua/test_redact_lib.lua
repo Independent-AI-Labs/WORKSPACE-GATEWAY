@@ -100,6 +100,8 @@ local function redact_tests()
             "Contact john@example.com", patterns, dict_alt,
             counters, token_map, false)
         assert_contains(r, "[EMAIL_1]", "redact[1] email")
+        assert_eq(token_map["[EMAIL_1]"], "john@example.com", "redact[1] token_map has email")
+        assert_eq(counters["EMAIL"], 1, "redact[1] counter EMAIL is 1")
     end
 
     do
@@ -165,6 +167,8 @@ local function redact_tests()
             counters, token_map, false)
         assert_contains(r, "[DICTIONARY_1]", "redact[9] dictionary multi")
         assert_contains(r, "[EMAIL_1]", "redact[9] email multi")
+        assert_eq(counters["EMAIL"], 1, "redact[9] counter EMAIL is 1")
+        assert_eq(counters["DICTIONARY"], 1, "redact[9] counter DICTIONARY is 1")
     end
 
     do
@@ -211,6 +215,36 @@ local function redact_tests()
             counters, token_map, false)
         assert_eq(r, input, "redact[13] ipv4 flag off unchanged")
     end
+
+    do
+        local custom_patterns = {
+            regex = {},
+            dictionary = {
+                {category = "test", entries = {"Project (Phoenix)"}}
+            }
+        }
+        local _, custom_dict_alt = redact_lib.load_patterns(
+            "/workspace/conf/redact-patterns.json")
+        local custom_data = {
+            regex = {},
+            dictionary = {
+                {category = "test", entries = {"Project (Phoenix)"}}
+            }
+        }
+        local escaped_parts = {}
+        for _, dict in ipairs(custom_data.dictionary) do
+            for _, entry in ipairs(dict.entries or {}) do
+                local escaped = entry:gsub("([^%w%s])", "\\%1")
+                escaped_parts[#escaped_parts + 1] = escaped
+            end
+        end
+        local custom_dict = table.concat(escaped_parts, "|")
+        local counters, token_map = fresh_state()
+        local r = redact_lib.redact_text(
+            "Working on Project (Phoenix)", {regex = {}}, custom_dict,
+            counters, token_map, false)
+        assert_contains(r, "[DICTIONARY_1]", "redact[14] dictionary with metacharacters")
+    end
 end
 
 local function restore_tests()
@@ -240,6 +274,24 @@ local function restore_tests()
         local map = {}
         local r = redact_lib.restore_with_key("", map)
         assert_eq(r, "", "restore[4] empty text")
+    end
+
+    do
+        local map = {}
+        map["[EMAIL_1]"] = "john@example.com"
+        local r = redact_lib.restore_with_key(
+            "[EMAIL_1] and [EMAIL_1] again", map)
+        assert_contains(r, "john@example.com", "restore[5] multiple occurrences restored")
+        local count = 0
+        for _ in r:gmatch("john@example%.com") do count = count + 1 end
+        assert_eq(count, 2, "restore[5] both occurrences restored")
+    end
+
+    do
+        local map = {}
+        map["[MISC_1]"] = "100%1 off"
+        local r = redact_lib.restore_with_key("Discount: [MISC_1]", map)
+        assert_eq(r, "Discount: 100%1 off", "restore[6] percent sign in original")
     end
 end
 

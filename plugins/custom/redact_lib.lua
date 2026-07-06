@@ -31,7 +31,7 @@ function M.load_patterns(filepath)
         local parts = {}
         for _, dict in ipairs(data.dictionary) do
             for _, entry in ipairs(dict.entries or {}) do
-                local escaped = entry:gsub("([^%w%s])", "%%%1")
+                local escaped = entry:gsub("([^%w%s])", "\\%1")
                 parts[#parts + 1] = escaped
             end
         end
@@ -92,7 +92,8 @@ function M.restore_with_key(text, key)
     local result = text
     for token, original in pairs(key) do
         local esc = token:gsub("([^%w])", "%%%1")
-        result = result:gsub(esc, original)
+        local safe_original = original:gsub("%%", "%%%%")
+        result = result:gsub(esc, safe_original)
     end
     return result
 end

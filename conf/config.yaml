@@ -5,25 +5,23 @@ deployment:
 
 apisix:
   admin_key: ""
-  extra_lua_path: "/usr/local/apisix/apisix/plugins/custom/?.lua;"
-  lua_shared_dict:
-    redact_state: 1m
-    semcache_state: 4m
 
 plugins:
   - key-auth
-  - ai-proxy
-  - ai-proxy-multi
   - ai-rate-limiting
   - proxy-buffering
-  - proxy-rewrite
   - http-logger
   - prometheus
   - redact
 
+plugin_attr:
+  prometheus:
+    export_addr:
+      ip: "0.0.0.0"
+      port: 9100
+
 nginx_config:
   http:
-    lua_shared_dict:
+    custom_lua_shared_dict:
       redact_state: 1m
-      semcache_state: 4m
     proxy_buffering: "on"

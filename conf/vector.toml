@@ -8,8 +8,40 @@ encoding = "json"
 type = "remap"
 inputs = ["apisix_http_logger"]
 source = """
-. = parse_json!(.message)
-.timestamp = now()
+.provider = "opencode-zen"
+
+req_body_str = to_string!(.request.body || "")
+req_parsed = parse_json(req_body_str) ?? {}
+.model = to_string!(req_parsed.model || "")
+.stream = to_bool(req_parsed.stream || false) ?? false
+.method = to_string!(.request.method || "")
+.uri = to_string!(.request.uri || "")
+.request_size = to_int(.request.size || 0) ?? 0
+
+resp_body_str = to_string!(.response.body || "")
+resp_parsed = parse_json(resp_body_str) ?? {}
+usage_obj = resp_parsed.usage || {}
+.prompt_tokens = to_int(usage_obj.prompt_tokens || 0) ?? 0
+.completion_tokens = to_int(usage_obj.completion_tokens || 0) ?? 0
+.total_tokens = to_int(usage_obj.total_tokens || 0) ?? 0
+
+.status = to_int(.response.status || 0) ?? 0
+.response_size = to_int(.response.size || 0) ?? 0
+upstream_latency_ms = to_float(.upstream_latency || 0) ?? 0.0
+.upstream_response_time_s = upstream_latency_ms / 1000.0
+.client_ip = to_string!(.client_ip || "0.0.0.0")
+
+consumer_obj = .consumer || {}
+.api_key_id = to_string!(consumer_obj.username || "")
+
+route_id_str = to_string!(.route_id || "")
+start_time_int = to_int(.start_time || 0) ?? 0
+.event_id = route_id_str + "_" + to_string(start_time_int)
+
+.req_body = req_body_str
+.resp_body = resp_body_str
+
+.timestamp = format_timestamp!(from_unix_timestamp(start_time_int, "milliseconds") ?? now(), "%Y-%m-%d %H:%M:%S%.3f")
 """
 
 [sinks.clickhouse_request_log]

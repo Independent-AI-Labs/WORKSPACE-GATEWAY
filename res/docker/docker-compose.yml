@@ -6,6 +6,7 @@ services:
     ports:
       - "9080:9080"
       - "9443:9443"
+      - "9100:9100"
     volumes:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
@@ -25,14 +26,18 @@ services:
       - clickhouse-data:/var/lib/clickhouse
       - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     environment:
-      - CLICKHOUSE_USER=default
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
     restart: unless-stopped
     networks:
       - gateway
 
   vector:
     image: timberio/vector:0.40.0-debian
+    command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
     ports:

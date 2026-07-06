@@ -47,7 +47,7 @@ fi
 unset KEEP_STACK_UP
 
 if stack_is_up; then
-    for test_script in test_key_auth.sh test_route_relay.sh; do
+    for test_script in test_key_auth.sh test_route_relay.sh test_prometheus.sh; do
         echo ""
         echo "--- $test_script ---"
         if bash "$SCRIPT_DIR/$test_script"; then
@@ -59,6 +59,20 @@ if stack_is_up; then
 else
     echo "[WARN] Stack is not running; skipping black-box tests"
     fail=$((fail + 1))
+fi
+
+if stack_is_up && [ -n "${OPENCODE_ZEN_API_KEY:-}" ]; then
+    for test_script in test_data_flow.sh test_reconciler_exec.sh; do
+        echo ""
+        echo "--- $test_script ---"
+        if bash "$SCRIPT_DIR/$test_script"; then
+            pass=$((pass + 1))
+        else
+            fail=$((fail + 1))
+        fi
+    done
+else
+    echo "[INFO] Skipping data-flow and reconciler-exec tests (need Zen key)"
 fi
 
 echo ""

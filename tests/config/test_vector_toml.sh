@@ -48,4 +48,19 @@ assert_eq "Endpoint http://clickhouse:8123" "1" "$HAS_ENDPOINT"
 HAS_TABLE=$(grep -c 'table = "request_log"' "$VECTOR_TOML" || true)
 assert_eq "Table request_log" "1" "$HAS_TABLE"
 
+HAS_DATABASE=$(grep -c 'database = "llm_gateway"' "$VECTOR_TOML" || true)
+assert_eq "Database is llm_gateway" "1" "$HAS_DATABASE"
+
+HAS_SKIP_UNKNOWN=$(grep -c 'skip_unknown_fields = true' "$VECTOR_TOML" || true)
+assert_eq "skip_unknown_fields is true" "1" "$HAS_SKIP_UNKNOWN"
+
+HAS_REMAP=$(grep -c 'type = "remap"' "$VECTOR_TOML" || true)
+assert_eq "Has remap transform" "1" "$HAS_REMAP"
+
+HAS_REQ_BODY_PARSE=$(grep -c 'parse_json(req_body_str)' "$VECTOR_TOML" || true)
+assert_eq "Remap parses request body from APISIX default format" "1" "$HAS_REQ_BODY_PARSE"
+
+HAS_TOKEN_EXTRACT=$(grep -c 'prompt_tokens' "$VECTOR_TOML" || true)
+assert_eq "Remap extracts prompt_tokens" "1" "$HAS_TOKEN_EXTRACT"
+
 summary

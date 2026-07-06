@@ -1,7 +1,7 @@
 version: 1
 project: workspace-gateway
 tier: strict
-languages: [rust]
+languages: [lua, shell]
 hooks:
   pre-commit:
     - check-unstaged

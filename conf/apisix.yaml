@@ -21,16 +21,10 @@ routes:
         method: POST
         content_type: "application/json"
         batch_max_size: 1
-        include_req_body: false
-        include_resp_body: false
-        log_format:
-          provider: "opencode-zen"
-          model: "$request_body.model"
-          stream: "$request_body.stream"
-          method: "$request_method"
-          uri: "$uri"
-          status: "$status"
-          latency: "$upstream_latency_ms"
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 8192
+        max_resp_body_bytes: 8192
       proxy-buffering:
         disable: true
       redact:

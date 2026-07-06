@@ -13,27 +13,25 @@ Auth, failover, rate-limiting, AI proxy, and telemetry are APISIX built-in plugi
 
 ## What this is
 
-A single fault-tolerant edge that fronts OpenAI, Azure OpenAI, AWS Bedrock,
-Anthropic, and self-hosted vLLM and provides:
+A single-route LLM gateway that relays requests to OpenCode Zen
+(`https://opencode.ai/zen/v1`), providing:
 
-- **Multi-IdP authentication**, OIDC/OAuth2 (Keycloak, Entra ID) and LDAP
-  Windows Active Directory. APISIX built-in `openid-connect` and `ldap-auth`
-  plugins. Zero user-directory sync.
-- **Per-user, per-tenant virtual token billing**, audit-grade, billing-reconciled
-  against upstream provider APIs. Streaming-safe via enforced
-  `stream_options.include_usage`.
-- **Real-time PII anonymization & re-hydration**, regex + file-based dictionary
-  detection in pure Lua (`ngx.re` PCRE). PII never reaches upstream LLM providers.
-  Optional NER sidecar (v2) for named-entity detection.
-- **Semantic cache** (v2), Redis VSS similarity lookup via `lua-resty-redis`
-  cosocket. Cache hits skip upstream cost.
-- **Adaptive multi-provider failover**, weighted load balancing, priority groups,
-  fallback strategies, retries, health checks. APISIX built-in `ai-proxy-multi`.
+- **PII anonymization and re-hydration** in pure Lua (`ngx.re` PCRE).
+  PII never reaches the upstream LLM. Regex + file-based dictionary
+  detection with Luhn validation for credit cards.
+- **Key-based authentication** via APISIX built-in `key-auth` plugin.
+- **Per-model rate limiting** via APISIX built-in `ai-rate-limiting`.
+- **Telemetry logging** via `http-logger` to Vector to ClickHouse
+  (`request_log` table with token usage capture).
+- **Prometheus metrics** endpoint at `/apisix/prometheus/metrics`.
+- **Billing-grade schema** in ClickHouse (`request_log`,
+  `billing_ledger`, `billing_discrepancies`) with Decimal64(6) for
+  cost, 13-month TTL, low-cardinality ORDER BY keys.
 
-The data plane runs on **Apache APISIX 3.17.0** (`apache/apisix:3.17.0-debian`).
-All plugins are OSS, no license enforcement, no tier split, no Enterprise image.
-Standalone YAML mode provides file-driven hot reload with no etcd or PostgreSQL
-needed for gateway config.
+The data plane runs on Apache APISIX 3.17.0
+(`apache/apisix:3.17.0-debian`). All plugins are OSS, no license
+enforcement, no tier split. Standalone YAML mode provides file-driven
+hot reload with no etcd or PostgreSQL needed.
 
 ---
 
@@ -62,35 +60,47 @@ entirely. See [`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.m
 ```
 WORKSPACE-GATEWAY/
 ├── README.md                      # this file
+├── Makefile                       # lint, type-check, test, check targets
+├── pyproject.toml                 # podman-compose dependency
+├── ci-profile.yaml                # CI configuration profile
+├── .gitignore
 ├── docs/                          # architecture & plugin specifications
 │   ├── README.md                  # docs index + reading order
-│   ├── PROPOSAL-LLM-GATEWAY-v3.md # umbrella architecture (supersedes v2)
+│   ├── TEST-PLAN.md               # 6-stage test plan + audit findings
+│   ├── PROPOSAL-LLM-GATEWAY-v3.md # umbrella architecture
 │   ├── PLUGIN-FOUNDATION.md       # APISIX custom Lua plugin dev foundation
 │   ├── BUILTIN-PLUGINS.md         # APISIX built-in plugin config guide
 │   ├── PLUGIN-REDACT-LUA.md       # custom Lua: regex + dict PII redaction (v1)
 │   ├── PLUGIN-REDACT-ENGINE.md    # optional Rust NER sidecar (v2)
 │   ├── PLUGIN-SEMANTIC-CACHE.md   # custom Lua: Redis VSS semantic cache (v2)
-│   └── DEPLOYMENT.md              # docker-compose, config, ClickHouse, Vector
-├── plugins/                       # (created at implementation time)
+│   ├── DEPLOYMENT.md              # deployment guide
+│   └── OPENCODE-INTEGRATION.md    # OpenCode Zen integration specifics
+├── plugins/
 │   └── custom/
-│       ├── redact.lua             # v1 custom plugin
-│       └── semantic-cache.lua     # v2 custom plugin
-├── conf/                          # (created at implementation time)
+│       ├── redact_lib.lua         # pure logic module (requireable, testable)
+│       └── redact.lua             # APISIX plugin adapter (lifecycle)
+├── conf/
 │   ├── config.yaml                # APISIX config (standalone YAML mode)
 │   ├── apisix.yaml                # routes + plugin configs
 │   ├── redact-patterns.json       # PII regex + dictionary
-│   ├── clickhouse-init.sql        # billing ledger schema
+│   ├── clickhouse-init.sql        # ClickHouse schema
 │   └── vector.toml                # telemetry pipeline config
 ├── res/
 │   ├── docker/
 │   │   ├── docker-compose.yml
 │   │   └── Dockerfile.apisix
-│   ├── scripts/
-│   │   └── reconciler.sh          # daily billing reconciler
-│   └── LOGO_RAW.png
-└── sidecars/                      # (v2)
-    ├── ner-engine/                # Rust binary, ONNX BERT-tiny
-    └── embedding-service/         # Rust binary, torch/llama.cpp
+│   └── scripts/
+│       └── reconciler.sh          # daily billing reconciler
+├── tests/
+│   ├── lua/                       # Stage 1: Lua unit tests
+│   ├── config/                    # Stage 2: Config validation
+│   ├── reconciler/                # Stage 3: Reconciler static tests
+│   ├── integration/               # Stage 4: Podman stack integration
+│   ├── ci/                        # Stage 5: CI hook verification
+│   ├── e2e/                       # Stage 6: End-to-end Zen API
+│   └── run_all.sh                 # master test runner
+└── config/
+    └── coverage_thresholds.yaml   # CI coverage config
 ```
 
 ---
@@ -99,41 +109,34 @@ WORKSPACE-GATEWAY/
 
 ```
 [ Inbound App Clients ]
-        |  (JWT / Bearer / LDAP credentials)
+        |  (apikey header for gateway auth)
         v
 +----------------------------------------------------------------+
 | APISIX AI DATA PLANE  (Apache APISIX 3.17.0, standalone YAML)  |
 |                                                                |
-|  Phase 1: Unified Auth (built-in plugins)                     |
-|    openid-connect   cached-JWKS JWT validation (Keycloak/Entra)|
-|    ldap-auth         LDAP bind against AD DC                   |
-|    -> injects X-Tenant-ID / X-User-ID / X-Routing-Tier         |
+|  Phase 1: Authentication (built-in plugin)                    |
+|    key-auth          shared-key consumer validation            |
 |                                                                |
 |  Phase 2: PII Anonymization (custom Lua plugin, v1)           |
 |    redact   ngx.re PCRE + file-based dictionary                |
 |             PII Map stashed in ctx (per-request)               |
 |             response: body_filter re-hydration (local gsub)    |
-|             v2: NER sidecar via ngx.timer.at (off-thread)      |
+|             patterns cached in shared dict (60s TTL)          |
 |                                                                |
-|  Phase 3: AI Proxy + Routing (built-in plugins)               |
-|    semantic-cache   Redis VSS cosine cache (v2, custom Lua)    |
-|    ai-proxy-multi   weighted LB + failover + retry             |
-|    ai-proxy         provider format translation                |
-|    ai-rate-limiting per-consumer, per-model token limits       |
-|    proxy-buffering  disabled per-route for SSE                 |
+|  Phase 3: Rate Limiting + Proxy (built-in plugins)            |
+|    ai-rate-limiting  per-model request count limits            |
+|    proxy-buffering   disabled per-route for SSE                |
 |                                                                |
-|  Log phase (off-thread, ngx.timer.at):                        |
-|    http-logger  -> Vector -> ClickHouse (billing ledger)       |
-|    prometheus   -> real-time alerts                            |
+|  Log phase:                                                   |
+|    http-logger  -> Vector -> ClickHouse (request_log)          |
+|    prometheus   -> /apisix/prometheus/metrics                  |
 +----------------------------------------------------------------+
-        |  (Stripped PII + Per-target API key)
+        |  (Redacted body + Authorization: Bearer Zen key)
         v
-[ Upstream Providers ]  (OpenAI / Azure / Bedrock / Anthropic / vLLM)
+[ OpenCode Zen ]  (https://opencode.ai/zen/v1)
 
-[ Redis 8 (VSS) ]   <- semantic cache vectors (v2)
-[ ClickHouse ]      <- billing ledger
-[ Vector ]          <- telemetry ingest
-[ Keycloak ]        <- OIDC IdP (from DATAOPS)
+[ ClickHouse ]      <- request_log + billing schema
+[ Vector ]          <- telemetry ingest (HTTP to ClickHouse)
 ```
 
 ---
@@ -170,38 +173,55 @@ Vector, all configured via YAML.
 
 ---
 
-## Billing-grade contract
+## Billing and telemetry
 
-Per [`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md) §6.2, the
-gateway enforces:
+The gateway captures token usage from LLM responses and logs it to
+ClickHouse via Vector:
 
-1. `stream_options.include_usage: true` on every streaming route (via `ai-proxy`
-   config or Lua glue plugin).
-2. Token breakdown stored separately (`prompt_tokens`, `completion_tokens`,
-   `reasoning_tokens`, `cached_tokens`), never summed for billing math.
-3. **Rate snapshots** stored at request time for reproducible historical bills.
-4. **Daily reconciler job** cross-checks ClickHouse ledger against OpenAI/Azure
-   usage APIs; divergence flagged to `billing_discrepancies` table, never silently
-   dropped.
+1. `http-logger` sends request metadata + request/response bodies to
+   Vector (response body limited to 8KB).
+2. Vector's remap transform extracts `model`, `stream` from the
+   request body and `prompt_tokens`, `completion_tokens`,
+   `total_tokens` from the response body's `usage` object.
+3. Vector writes the enriched event to ClickHouse `request_log`
+   table.
+4. Daily reconciler (`res/scripts/reconciler.sh`) queries
+   `request_log` for gateway-side token totals. Upstream provider
+   API comparison is v2.
 
-ClickHouse schema uses `Decimal64(6)` for `cost` (NOT `Float64`, MPP aggregates
-non-deterministic with floats), `PARTITION BY toYYYYMM(timestamp)`, TTL 13 months,
-`ORDER BY (tenant_id, user_id, timestamp)` for prefix-pruned per-tenant queries.
+ClickHouse schema uses `Decimal64(6)` for `cost` in `billing_ledger`
+(NOT `Float64`), `PARTITION BY toYYYYMM(timestamp)`, TTL 13 months,
+`ORDER BY (provider, model, timestamp)` for prefix-pruned queries.
 
 ---
 
 ## Status
 
-**Phase: specification complete, implementation not started.**
+**Phase: v1 implementation complete, testing in progress.**
 
-All seven specs in `docs/` are research-validated drafts with config examples,
-failure-mode tables, test plans, and open questions. v1 scope: redaction plugin +
-built-in plugin configuration + deployment. v2 scope: semantic cache + NER sidecar
-+ embedding sidecar.
+v1 scope (implemented):
+- Custom Lua redact plugin (`redact.lua` + `redact_lib.lua`) with
+  regex + dictionary PII detection, Luhn validation, per-request
+  token map, response re-hydration
+- APISIX standalone YAML config with `key-auth`, `ai-rate-limiting`,
+  `prometheus`, `http-logger`, `proxy-buffering`, `redact` plugins
+- Single route relay to OpenCode Zen (`/zen/*` to `opencode.ai:443`)
+- ClickHouse billing schema (`request_log`, `billing_ledger`,
+  `billing_discrepancies` tables)
+- Vector telemetry pipeline (HTTP ingest to ClickHouse)
+- Docker compose stack (APISIX, ClickHouse, Vector)
+- 6-stage test suite (Lua unit, config validation, reconciler,
+  integration, CI hooks, E2E with real Zen API)
+- Daily reconciler script (gateway totals logging; upstream
+  comparison is v2)
 
-Implementation begins once the specs land stakeholder review signoff; per-plugin
-specs each define their own test plan that must pass before merge (no `#[allow]` /
-no silent fallback per the workspace `AGENTS.md` rules).
+v2 scope (deferred):
+- Semantic cache plugin (`semantic-cache.lua`)
+- NER sidecar (`ner-engine` Rust binary)
+- Embedding service (`embedding-service` Rust binary)
+- Multi-provider failover (`ai-proxy-multi`)
+- OIDC/LDAP authentication
+- Upstream billing API reconciliation
 
 ---
 
@@ -249,5 +269,5 @@ no silent fallback per the workspace `AGENTS.md` rules).
 ---
 
 **Maintained by:** AMI-Agents Engineering
-**Last updated:** 2026-07-05
+**Last updated:** 2026-07-06
 **Document set version:** v3.0 (APISIX, supersedes v2.0 Kong architecture)

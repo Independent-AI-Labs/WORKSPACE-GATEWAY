@@ -33,7 +33,7 @@ fi
 pass=0
 fail=0
 
-for test_script in test_zen_chat.sh test_zen_stream.sh test_redact_e2e.sh; do
+for test_script in test_zen_chat.sh test_zen_stream.sh test_redact_e2e.sh test_stream_redact.sh test_invalid_model.sh; do
     echo ""
     echo "=== Running $test_script ==="
     if bash "$SCRIPT_DIR/$test_script"; then
