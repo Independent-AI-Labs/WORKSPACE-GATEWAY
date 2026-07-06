@@ -109,6 +109,9 @@ dev-test: ## Run full test suite against running stack
 dev-smoke: ## Quick smoke test: one request through the gateway
 	$(ANSIBLE_DEV) --tags smoke
 
+sync-models: ## Sync models from gateway into opencode config
+	bash $(REPO_ROOT)/res/scripts/sync-opencode-models.sh
+
 # =============================================================================
 # Quality Gates
 # =============================================================================
