@@ -54,6 +54,18 @@ assert_eq "Has clickhouse service" "true" "$HAS_CLICKHOUSE"
 HAS_VECTOR=$(echo "$JSON_DATA" | jq '.services | has("vector")')
 assert_eq "Has vector service" "true" "$HAS_VECTOR"
 
+HAS_OPENBAO=$(echo "$JSON_DATA" | jq '.services | has("openbao")')
+assert_eq "Has openbao service" "true" "$HAS_OPENBAO"
+
+OPENBAO_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.openbao.image')
+assert_eq "OpenBao image is openbao/openbao:2.4.4" "docker.io/openbao/openbao:2.4.4" "$OPENBAO_IMAGE"
+
+OPENBAO_PORT=$(echo "$JSON_DATA" | jq '[.services.openbao.ports[] | select(. == "8201:8200")] | length')
+assert_eq "OpenBao exposes port 8201:8200" "1" "$OPENBAO_PORT"
+
+OPENBAO_NETWORK=$(echo "$JSON_DATA" | jq '[.services.openbao.networks[] | select(. == "gateway")] | length')
+assert_eq "OpenBao on gateway network" "1" "$OPENBAO_NETWORK"
+
 APISIX_PORT_9080=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9080:9080")] | length')
 assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
 
@@ -90,5 +102,9 @@ assert_eq "Networks has dataops" "true" "$HAS_DATAOPS"
 APISIX_ENV_FILE=$(echo "$JSON_DATA" | jq -r '.services.apisix.env_file[]')
 HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" || true)
 assert_eq "APISIX has env_file pointing to .env" "1" "$HAS_ENV_FILE"
+
+APISIX_DEPS=$(echo "$JSON_DATA" | jq -r '.services.apisix.depends_on[]')
+HAS_OPENBAO_DEP=$(echo "$APISIX_DEPS" | grep -c "openbao" || true)
+assert_eq "APISIX depends on openbao" "1" "$HAS_OPENBAO_DEP"
 
 summary

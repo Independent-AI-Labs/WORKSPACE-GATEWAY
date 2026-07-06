@@ -63,14 +63,20 @@ assert_eq "Upstream node is opencode.ai:443" "opencode.ai:443" "$UPSTREAM_NODE"
 HAS_PROXY_REWRITE=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("proxy-rewrite")')
 assert_eq "No proxy-rewrite plugin" "false" "$HAS_PROXY_REWRITE"
 
-HAS_KEY_AUTH=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("gateway-auth")')
-assert_eq "gateway-auth plugin present" "true" "$HAS_KEY_AUTH"
+HAS_KEY_AUTH=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("key-resolver")')
+assert_eq "key-resolver plugin present" "true" "$HAS_KEY_AUTH"
 
-GATEWAY_AUTH_MODE=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["gateway-auth"].mode')
-assert_eq "gateway-auth mode is inject" "inject" "$GATEWAY_AUTH_MODE"
+HAS_GATEWAY_AUTH=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("gateway-auth")')
+assert_eq "gateway-auth plugin removed" "false" "$HAS_GATEWAY_AUTH"
 
-GATEWAY_AUTH_KEY=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["gateway-auth"].gateway_key')
-assert_eq "gateway-auth gateway_key is opencode-gateway-key" "opencode-gateway-key" "$GATEWAY_AUTH_KEY"
+HAS_SSE_USAGE=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("sse-usage")')
+assert_eq "sse-usage plugin present" "true" "$HAS_SSE_USAGE"
+
+KEY_RESOLVER_ADDR=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["key-resolver"].openbao_addr')
+assert_eq "key-resolver openbao_addr is http://openbao:8200" "http://openbao:8200" "$KEY_RESOLVER_ADDR"
+
+KEY_RESOLVER_PREFIX=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["key-resolver"].virtual_key_prefix')
+assert_eq "key-resolver virtual_key_prefix is vgw-" "vgw-" "$KEY_RESOLVER_PREFIX"
 
 HAS_AI_RATE=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("ai-rate-limiting")')
 assert_eq "ai-rate-limiting plugin present" "true" "$HAS_AI_RATE"
@@ -91,7 +97,7 @@ HAS_NO_KEY_AUTH=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("key-auth")')
 assert_eq "key-auth plugin removed" "false" "$HAS_NO_KEY_AUTH"
 
 NO_CONSUMERS=$(echo "$JSON_DATA" | jq 'has("consumers")')
-assert_eq "No consumers section (gateway-auth replaces key-auth)" "false" "$NO_CONSUMERS"
+assert_eq "No consumers section" "false" "$NO_CONSUMERS"
 
 HTTP_LOGGER_URI=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].uri')
 assert_eq "http-logger uri is http://vector:8080/ingest" "http://vector:8080/ingest" "$HTTP_LOGGER_URI"

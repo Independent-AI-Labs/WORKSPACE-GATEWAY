@@ -15,6 +15,18 @@ export PATH="$PATH:$REPO_ROOT/.venv/bin"
 pass=0
 fail=0
 
+stack_is_up() {
+    podman ps --format '{{.Names}}' 2>/dev/null | grep -q apisix
+}
+
+if stack_is_up; then
+    export EXTERNAL_STACK=1
+    echo "[INFO] Stack is already running: tests will NOT tear it down."
+else
+    export EXTERNAL_STACK=0
+    echo "[INFO] Stack is not running: tests will start and tear down their own."
+fi
+
 run_stage() {
     local stage_num="$1"
     local stage_name="$2"
@@ -53,10 +65,13 @@ else
     echo "[SKIP] OPENCODE_ZEN_API_KEY not set"
 fi
 
-if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ]; then
+if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ] && [ "${EXTERNAL_STACK:-0}" != "1" ]; then
     echo ""
-    echo "[INFO] Tearing down stack after all tests..."
+    echo "[INFO] Tearing down test stack after all tests..."
     podman-compose -f "$REPO_ROOT/res/docker/docker-compose.yml" down 2>/dev/null || true
+elif [ "${EXTERNAL_STACK:-0}" = "1" ]; then
+    echo ""
+    echo "[INFO] Stack was already running: leaving it up."
 fi
 
 echo ""

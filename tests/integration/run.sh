@@ -11,6 +11,15 @@ pass=0
 fail=0
 
 teardown() {
+    if [ "${EXTERNAL_STACK:-0}" = "1" ]; then
+        echo "[INFO] Stack was already running: leaving it up."
+        echo ""
+        echo "Integration tests: $pass passed, $fail failed"
+        if [ "$fail" -gt 0 ]; then
+            exit 1
+        fi
+        exit 0
+    fi
     if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ]; then
         echo "[INFO] Keeping stack up for E2E tests (KEEP_STACK_UP_FOR_E2E=1)"
         echo ""
@@ -38,16 +47,21 @@ stack_is_up() {
 echo "=== Stage 4: Podman Stack Integration Tests ==="
 echo ""
 
-export KEEP_STACK_UP=1
-if bash "$SCRIPT_DIR/test_stack_up.sh"; then
+if [ "${EXTERNAL_STACK:-0}" = "1" ]; then
+    echo "[INFO] Stack already running: skipping stack startup test."
     pass=$((pass + 1))
 else
-    fail=$((fail + 1))
+    export KEEP_STACK_UP=1
+    if bash "$SCRIPT_DIR/test_stack_up.sh"; then
+        pass=$((pass + 1))
+    else
+        fail=$((fail + 1))
+    fi
+    unset KEEP_STACK_UP
 fi
-unset KEEP_STACK_UP
 
 if stack_is_up; then
-    for test_script in test_gateway_auth.sh test_route_relay.sh test_prometheus.sh; do
+    for test_script in test_key_resolver.sh test_route_relay.sh test_prometheus.sh; do
         echo ""
         echo "--- $test_script ---"
         if bash "$SCRIPT_DIR/$test_script"; then

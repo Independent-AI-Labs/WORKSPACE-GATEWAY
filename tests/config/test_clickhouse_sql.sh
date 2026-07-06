@@ -33,7 +33,7 @@ SQL_FILE="$REPO_ROOT/conf/clickhouse-init.sql"
 HAS_DB=$(grep -c 'CREATE DATABASE.*llm_gateway' "$SQL_FILE" || true)
 assert_eq "Creates database llm_gateway" "1" "$HAS_DB"
 
-HAS_REQUEST_LOG=$(grep -c 'request_log' "$SQL_FILE" || true)
+HAS_REQUEST_LOG=$(grep -c 'CREATE TABLE.*request_log' "$SQL_FILE" || true)
 assert_eq "Creates table request_log" "1" "$HAS_REQUEST_LOG"
 
 HAS_BILLING_LEDGER=$(grep -c 'billing_ledger' "$SQL_FILE" || true)
@@ -46,7 +46,7 @@ HAS_DECIMAL=$(grep -c 'cost.*Decimal64(6)' "$SQL_FILE" || true)
 assert_eq "billing_ledger has Decimal64(6) for cost" "1" "$HAS_DECIMAL"
 
 HAS_TTL=$(grep -c 'INTERVAL 13 MONTH' "$SQL_FILE" || true)
-assert_eq "TTL 13 MONTH on tables" "2" "$HAS_TTL"
+assert_eq "TTL 13 MONTH on tables" "true" "$([ "$HAS_TTL" -ge 2 ] && echo true || echo false)"
 
 ORDER_BY_LEADING=$(grep -o 'ORDER BY ([a-z_]*' "$SQL_FILE" || true)
 LEADING_COUNT=$(echo "$ORDER_BY_LEADING" | grep -c 'ORDER BY (provider\|ORDER BY (tenant_id\|ORDER BY (date' || true)
@@ -69,5 +69,23 @@ assert_eq "Has upstream_response_time_s column" "1" "$HAS_UPSTREAM_TIME"
 
 NO_OLD_LATENCY=$(grep -cE '^\s*latency_ms' "$SQL_FILE" || true)
 assert_eq "Old latency_ms column removed" "0" "$NO_OLD_LATENCY"
+
+HAS_TENANT_ID=$(grep -c 'tenant_id' "$SQL_FILE" || true)
+assert_eq "Has tenant_id column" "true" "$([ "$HAS_TENANT_ID" -ge 2 ] && echo true || echo false)"
+
+HAS_USER_ID=$(grep -c 'user_id' "$SQL_FILE" || true)
+assert_eq "Has user_id column" "true" "$([ "$HAS_USER_ID" -ge 2 ] && echo true || echo false)"
+
+HAS_KEY_ID=$(grep -c 'key_id' "$SQL_FILE" || true)
+assert_eq "Has key_id column" "true" "$([ "$HAS_KEY_ID" -ge 1 ] && echo true || echo false)"
+
+HAS_SESSION_ID=$(grep -c 'session_id' "$SQL_FILE" || true)
+assert_eq "Has session_id column" "true" "$([ "$HAS_SESSION_ID" -ge 1 ] && echo true || echo false)"
+
+HAS_USER_AGENT=$(grep -c 'user_agent' "$SQL_FILE" || true)
+assert_eq "Has user_agent column" "true" "$([ "$HAS_USER_AGENT" -ge 1 ] && echo true || echo false)"
+
+HAS_USAGE_LOG=$(grep -c 'usage_log' "$SQL_FILE" || true)
+assert_eq "Has usage_log table" "true" "$([ "$HAS_USAGE_LOG" -ge 1 ] && echo true || echo false)"
 
 summary

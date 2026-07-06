@@ -7,12 +7,13 @@ apisix:
   admin_key: ""
 
 plugins:
-  - gateway-auth
+  - key-resolver
   - ai-rate-limiting
   - proxy-buffering
   - http-logger
   - prometheus
   - redact
+  - sse-usage
 
 plugin_attr:
   prometheus:
@@ -23,7 +24,9 @@ plugin_attr:
 nginx_config:
   envs:
     - OPENCODE_ZEN_API_KEY
+    - OPENBAO_TOKEN
   http:
     custom_lua_shared_dict:
       redact_state: 1m
+      key_cache: 5m
     proxy_buffering: "on"

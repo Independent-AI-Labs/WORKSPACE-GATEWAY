@@ -113,6 +113,21 @@ sync-models: ## Sync models from gateway into opencode config
 	bash $(REPO_ROOT)/res/scripts/sync-opencode-models.sh
 
 # =============================================================================
+# Key Management (OpenBao-backed virtual keys)
+# =============================================================================
+.PHONY: issue-key list-keys revoke-key
+
+issue-key: ## Issue a new virtual gateway key (use KEY_ID=, TENANT_ID=, USER_ID=)
+	@bash $(REPO_ROOT)/res/scripts/issue-key.sh $(if $(KEY_ID),--key-id $(KEY_ID)) $(if $(TENANT_ID),--tenant $(TENANT_ID)) $(if $(USER_ID),--user $(USER_ID)) $(if $(UPSTREAM_KEY),--upstream-key $(UPSTREAM_KEY))
+
+list-keys: ## List all virtual gateway keys
+	@bash $(REPO_ROOT)/res/scripts/list-keys.sh
+
+revoke-key: ## Revoke a virtual gateway key (KEY_ID=vgw-xxx required)
+	@if [ -z "$(KEY_ID)" ]; then echo "ERROR: KEY_ID required. Usage: make revoke-key KEY_ID=vgw-xxx" >&2; exit 1; fi
+	@bash $(REPO_ROOT)/res/scripts/revoke-key.sh $(KEY_ID)
+
+# =============================================================================
 # Quality Gates
 # =============================================================================
 .PHONY: check lint type-check test check-push

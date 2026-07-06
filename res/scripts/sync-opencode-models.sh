@@ -16,7 +16,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:9080}"
-GATEWAY_API_KEY="${GATEWAY_API_KEY:-opencode-gateway-key}"
+GATEWAY_API_KEY="${GATEWAY_API_KEY:-vgw-gateway-key}"
 OPENCODE_CONFIG="${OPENCODE_CONFIG:-$HOME/.config/opencode/opencode.jsonc}"
 PROVIDER_ID="workspace-gateway"
 
@@ -26,7 +26,7 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-GATEWAY_API_KEY="${GATEWAY_API_KEY:-opencode-gateway-key}"
+GATEWAY_API_KEY="${GATEWAY_API_KEY:-vgw-gateway-key}"
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:9080}"
 
 echo "=== Fetching models from gateway ==="
@@ -128,6 +128,10 @@ config['provider'][provider_id] = {
     'options': {
         'baseURL': gateway_url + '/zen/v1',
         'apiKey': gateway_api_key,
+        'headers': {
+            'X-Tenant-ID': 'default',
+            'X-User-ID': 'agent',
+        },
     },
     'models': {mid: {} for mid in sorted(model_ids)},
 }

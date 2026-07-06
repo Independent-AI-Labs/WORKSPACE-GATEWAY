@@ -8,9 +8,13 @@ routes:
       nodes:
         "opencode.ai:443": 1
     plugins:
-      gateway-auth:
-        mode: inject
-        gateway_key: "opencode-gateway-key"
+      key-resolver:
+        openbao_addr: "http://openbao:8200"
+        openbao_token_env: "OPENBAO_TOKEN"
+        upstream_key_env: "OPENCODE_ZEN_API_KEY"
+        key_prefix: "secret/data/gateway/keys/"
+        cache_ttl: 5
+        virtual_key_prefix: "vgw-"
       ai-rate-limiting:
         model: "$request_body.model"
         limit: 1000
@@ -31,5 +35,7 @@ routes:
         disable: true
       redact:
         patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
 
 #END

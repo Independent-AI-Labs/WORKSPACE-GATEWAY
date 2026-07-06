@@ -1,273 +1,449 @@
 # WORKSPACE-GATEWAY
 
-High-performance, enterprise, multi-tenant **LLM Gateway** built on
-**Apache APISIX 3.17.0** (standalone YAML mode, Apache 2.0, all plugins OSS),
-with one custom Lua plugin (redaction) in v1 and a second (semantic cache) in v2.
-Auth, failover, rate-limiting, AI proxy, and telemetry are APISIX built-in plugins
-, zero custom code.
+Multi-tenant LLM gateway on Apache APISIX 3.17.0. Routes traffic to any
+OpenAI-compatible LLM provider, with PII redaction, virtual key
+management, and billing-grade token accounting. Three custom Lua
+plugins, four built-in plugins, zero sidecars on the hot path.
+
+Currently configured with **OpenCode Zen** as the upstream. APISIX's
+built-in `ai-proxy` / `ai-proxy-multi` plugins support 10 provider
+backends out of the box (see [Supported Providers](#supported-providers)).
 
 > Part of the `Independent-Ai-Labs/WORKSPACE-VM` monorepo.
-> Live spec docs in [`docs/`](docs/README.md). Implementation land is open.
+> Full technical reference: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ---
 
-## What this is
+## Table of Contents
 
-A single-route LLM gateway that relays requests to OpenCode Zen
-(`https://opencode.ai/zen/v1`), providing:
-
-- **PII anonymization and re-hydration** in pure Lua (`ngx.re` PCRE).
-  PII never reaches the upstream LLM. Regex + file-based dictionary
-  detection with Luhn validation for credit cards.
-- **Key-based authentication** via APISIX built-in `key-auth` plugin.
-- **Per-model rate limiting** via APISIX built-in `ai-rate-limiting`.
-- **Telemetry logging** via `http-logger` to Vector to ClickHouse
-  (`request_log` table with token usage capture).
-- **Prometheus metrics** endpoint at `/apisix/prometheus/metrics`.
-- **Billing-grade schema** in ClickHouse (`request_log`,
-  `billing_ledger`, `billing_discrepancies`) with Decimal64(6) for
-  cost, 13-month TTL, low-cardinality ORDER BY keys.
-
-The data plane runs on Apache APISIX 3.17.0
-(`apache/apisix:3.17.0-debian`). All plugins are OSS, no license
-enforcement, no tier split. Standalone YAML mode provides file-driven
-hot reload with no etcd or PostgreSQL needed.
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Supported Providers](#supported-providers)
+- [Features](#features)
+- [Plugins](#plugins)
+- [Key Management](#key-management)
+- [Configuration](#configuration)
+- [opencode Integration](#opencode-integration)
+- [Testing](#testing)
+- [Repository Layout](#repository-layout)
+- [Make Targets](#make-targets)
+- [Documentation](#documentation)
+- [License](#license)
 
 ---
 
-## Why APISIX (not Kong)
+## Quick Start
 
-The v2.0 architecture used Kong Gateway 3.14 (Enterprise image, unlicensed) with
-four custom Rust Proxy-Wasm plugins. Deep research revealed:
+```bash
+# 1. Install podman-compose and build images
+make install
 
-- Kong 3.14 Enterprise code is private; 3.14 was never tagged on GitHub.
-- Free mode is deprecated (3.10) and **removed** in 3.15.
-- `openid-connect`, `ldap-auth-advanced`, `ai-proxy-advanced`, `ai-semantic-cache`
-  are all Enterprise-only.
-- Custom Rust Wasm requires `wasm32-wasip1` toolchain, `dispatch_http_call` async
-  state machines, no socket access in the guest.
+# 2. Start the gateway stack (APISIX + ClickHouse + Vector + OpenBao)
+make dev-start
 
-APISIX resolves all of this: Apache 2.0, all plugins OSS, source fully public,
-Docker images for every version. The pivot reduces **5 custom plugin
-implementations to 2 custom Lua plugins** and eliminates the Rust Wasm toolchain
-entirely. See [`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md)
-§0 for the full rationale.
+# 3. Send a request through the gateway
+KEY="$GATEWAY_API_KEY"  # from .env (provisioned in OpenBao on start)
+curl -s http://localhost:9080/zen/v1/chat/completions \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"big-pickle","messages":[{"role":"user","content":"Say hello"}]}'
+```
+
+That is it. The gateway is live on port 9080, ClickHouse on 8123,
+Prometheus metrics on 9100, OpenBao on 8201.
+
+### Prerequisites
+
+- [Podman](https://podman.io/) 5.x
+- [Ansible](https://docs.ansible.com/) 2.21+
+- `uv` (for `.venv` setup)
+- A `.env` file with `OPENCODE_ZEN_API_KEY`, `GATEWAY_API_KEY`,
+  `OPENBAO_TOKEN` (see `.env` example in repo, gitignored)
 
 ---
 
-## Repository layout
+## Architecture
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        C["opencode / curl / any HTTP client"]
+    end
+
+    subgraph "Gateway :9080"
+        subgraph "Auth + Redaction"
+            KR["key-resolver<br/>2555"]
+            RD["redact<br/>2500"]
+        end
+        subgraph "Proxy"
+            RL["ai-rate-limiting<br/>990"]
+            PB["proxy-buffering<br/>300"]
+        end
+        subgraph "Telemetry"
+            SU["sse-usage<br/>2400"]
+            HL["http-logger<br/>410"]
+            PROM["prometheus"]
+        end
+    end
+
+    subgraph "Data Layer"
+        OB["OpenBao<br/>key store"]
+        V["Vector<br/>ingest"]
+        CH["ClickHouse<br/>request_log + usage_log"]
+    end
+
+    subgraph "Upstream"
+        ZEN["OpenCode Zen<br/>or any OpenAI-compatible API"]
+    end
+
+    C -->|"POST /zen/*"| KR
+    KR --> RD --> RL --> PB -->|"HTTPS"| ZEN
+    ZEN -->|"response"| SU
+
+    KR -.->|"GET key"| OB
+    HL -.->|"POST log"| V --> CH
+    SU -.->|"INSERT usage"| CH
+    PROM -.->|":9100"| METRICS["Prometheus"]
+```
+
+The gateway runs as a single APISIX data plane in standalone YAML mode.
+No etcd, no PostgreSQL. Configuration is file-driven with hot reload.
+
+**Current upstream**: OpenCode Zen (`opencode.ai:443`), which itself
+routes to 50+ models across OpenAI, Anthropic, Google, DeepSeek, and
+others. The gateway can be reconfigured to point at any
+OpenAI-compatible API by editing `conf/apisix.yaml`.
+
+---
+
+## Supported Providers
+
+APISIX's built-in `ai-proxy` and `ai-proxy-multi` plugins support the
+following LLM provider backends. The gateway currently uses a plain
+upstream proxy to Zen, but can switch to `ai-proxy` for provider-aware
+routing, or `ai-proxy-multi` for load balancing, retries, and health
+checks across multiple providers.
+
+| Provider | `provider` value | Default Endpoint | Since |
+|----------|------------------|------------------|-------|
+| OpenAI | `openai` | `api.openai.com/chat/completions` | 3.0 |
+| DeepSeek | `deepseek` | `api.deepseek.com/chat/completions` | 3.0 |
+| Azure OpenAI | `azure-openai` | custom (via `override.endpoint`) | 3.0 |
+| AIMLAPI | `aimlapi` | `api.aimlapi.com/v1/chat/completions` | 3.14 |
+| Anthropic | `anthropic` | `api.anthropic.com/v1/chat/completions` | 3.15 |
+| OpenRouter | `openrouter` | `openrouter.ai/api/v1/chat/completions` | 3.15 |
+| Google Gemini | `gemini` | `generativelanguage.googleapis.com/v1beta/openai` | 3.15 |
+| Google Vertex AI | `vertex-ai` | `aiplatform.googleapis.com` (needs `project_id` + `region`) | 3.15 |
+| AWS Bedrock | `bedrock` | `bedrock-runtime.{region}.amazonaws.com` (SigV4 signed) | 3.17 |
+| Any OpenAI-compatible | `openai-compatible` | custom (via `override.endpoint`) | 3.0 |
+
+**`ai-proxy-multi`** adds: load balancing across instances, automatic
+retries on failure, health checks, and provider-level routing rules.
+
+---
+
+## Features
+
+| Feature | How | Custom Code |
+|---------|-----|-------------|
+| PII redaction + re-hydration | `redact` plugin: regex + dictionary + Luhn, pure Lua | Yes |
+| Virtual key management | `key-resolver` plugin: OpenBao KVv2, shared dict cache | Yes |
+| Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Yes |
+| SSE token extraction | `sse-usage` plugin: buffers SSE, extracts usage, writes ClickHouse | Yes |
+| Per-model rate limiting | `ai-rate-limiting` built-in | No |
+| Request/response logging | `http-logger` built-in, to Vector to ClickHouse | No |
+| Prometheus metrics | `prometheus` built-in at `:9100` | No |
+| SSE streaming support | `proxy-buffering` disabled per-route | No |
+| Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL only |
+
+---
+
+## Plugins
+
+Seven plugins on a single route, ordered by Nginx phase priority:
+
+| Plugin | Priority | Type | Phase(s) | Purpose |
+|--------|----------|------|----------|---------|
+| `key-resolver` | 2555 | Custom Lua | access | Resolve `vgw-*` keys via OpenBao; pass through others |
+| `redact` | 2500 | Custom Lua | access, header_filter, body_filter, log | PII anonymization + re-hydration |
+| `sse-usage` | 2400 | Custom Lua | header_filter, body_filter, log | Extract token usage from SSE/JSON responses |
+| `ai-rate-limiting` | 990 | Built-in | access | Per-model rate limit (1000 req / 60s) |
+| `http-logger` | 410 | Built-in | log | Send req/resp metadata to Vector |
+| `proxy-buffering` | 300 | Built-in | filter | Disable buffering for SSE |
+| `prometheus` | N/A | Built-in | log | Export metrics at `:9100` |
+
+### Extract-Testable-Core Pattern
+
+Each custom plugin is split into two files:
+
+| File | Role | Nginx Dependency |
+|------|------|------------------|
+| `*_lib.lua` | Pure logic module, requireable, unit-testable | `cjson`, `ngx.re` only |
+| `*.lua` | APISIX adapter: lifecycle phases, ctx, shared dict | Full APISIX API |
+
+Unit tests run via `resty` CLI inside the APISIX container. No external
+test framework needed.
+
+---
+
+## Key Management
+
+```mermaid
+flowchart TD
+    REQ["Authorization: Bearer <token>"] --> CHECK{"Starts with vgw-?"}
+    CHECK -->|"YES"| OPENBAO["Lookup in OpenBao<br/>secret/data/gateway/keys/<token>"]
+    OPENBAO -->|"Found + active"| INJECT["Replace with upstream key<br/>Set X-Gateway-* identity headers"]
+    OPENBAO -->|"Not found"| R401["401: invalid key"]
+    OPENBAO -->|"Revoked"| R401R["401: key revoked"]
+    OPENBAO -->|"Unreachable"| R503["503: key store unreachable"]
+    CHECK -->|"NO"| PASS["Pass through as-is<br/>X-Gateway-Key-Id: passthrough"]
+    INJECT --> UPSTREAM["Proxy to Zen"]
+    PASS --> UPSTREAM
+```
+
+### Two Key Modes
+
+1. **Virtual keys** (`vgw-*`): Stored in OpenBao. Resolved to an
+   upstream Zen key. Can be revoked, rate-limited per tenant, audited.
+   Cached in `key_cache` shared dict (5s TTL in dev, 300s in prod).
+
+2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): Passed through
+   to upstream as-is. No OpenBao lookup. Users can bring their own
+   Zen API keys.
+
+### Commands
+
+```bash
+make issue-key                              # Create vgw-<random hex> key
+make issue-key KEY_ID=my-key TENANT_ID=acme USER_ID=alice
+make list-keys                              # List all keys with metadata
+make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
+```
+
+---
+
+## Configuration
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `conf/config.yaml` | APISIX standalone mode: plugin list, shared dicts, env vars, Prometheus port |
+| `conf/apisix.yaml` | Route + plugin configs (single `/zen/*` route, 7 plugins) |
+| `conf/redact-patterns.json` | PII detection: 6 regex patterns + 2 dictionary categories |
+| `conf/clickhouse-init.sql` | 4 tables: `request_log`, `usage_log`, `billing_ledger`, `billing_discrepancies` |
+| `conf/vector.toml` | Vector pipeline: HTTP source, VRL remap, ClickHouse sink |
+| `res/docker/docker-compose.yml` | 4 services: apisix, clickhouse, vector, openbao |
+| `res/docker/Dockerfile.apisix` | Custom APISIX image: 5 Lua files + config copied in |
+| `.env` | Secrets: `OPENCODE_ZEN_API_KEY`, `GATEWAY_API_KEY`, `OPENBAO_TOKEN` |
+
+### Environment Variables
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `OPENCODE_ZEN_API_KEY` | Upstream Zen key (injected into proxied requests) | `sk-C0kL...` |
+| `GATEWAY_API_KEY` | Default virtual key for opencode integration | `vgw-gateway-key` |
+| `OPENBAO_TOKEN` | Root token for OpenBao KVv2 API | `2e22c6e...` |
+
+### ClickHouse Tables
+
+| Table | Written By | Key Columns |
+|-------|-----------|-------------|
+| `request_log` | Vector (from http-logger) | model, tokens, req_body, resp_body, 11 identity columns |
+| `usage_log` | sse-usage plugin (via timer) | model, prompt_tokens, completion_tokens, total_tokens |
+| `billing_ledger` | v2 billing pipeline (deferred) | cost `Decimal64(6)`, rate_input/output, cache_status |
+| `billing_discrepancies` | v2 reconciler (deferred) | gateway_tokens, provider_tokens, divergence |
+
+---
+
+## opencode Integration
+
+The gateway registers as a `workspace-gateway` custom provider in
+opencode. The built-in `opencode` provider is untouched.
+
+```bash
+# Sync all models from gateway into opencode config
+make sync-models
+```
+
+This fetches `/zen/v1/models` from the gateway and writes the
+`workspace-gateway` provider entry into `~/.config/opencode/opencode.jsonc`
+with all model IDs, the gateway URL, and the virtual key.
+
+Result in opencode config:
+
+```json
+{
+  "provider": {
+    "workspace-gateway": {
+      "api": "http://localhost:9080/zen/v1",
+      "options": {
+        "baseURL": "http://localhost:9080/zen/v1",
+        "apiKey": "vgw-gateway-key",
+        "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
+      },
+      "models": { "big-pickle": {}, "gpt-5": {}, "...": {} }
+    }
+  }
+}
+```
+
+---
+
+## Testing
+
+6 stages, 254 assertions, 0 failures:
+
+```bash
+make test          # Run all stages
+make dev-test      # Same, via Ansible
+```
+
+| Stage | What | Assertions |
+|-------|------|------------|
+| 1 | Lua unit tests via `resty` CLI | 89 |
+| 2 | Config validation (7 scripts) | 112 |
+| 3 | Reconciler static analysis | 7 |
+| 4 | Integration (black-box HTTP) | 20 |
+| 5 | CI hook verification | 9 |
+| 6 | E2E Zen API (real upstream) | 17 |
+
+Tests detect if the stack is already running and skip startup +
+teardown (`EXTERNAL_STACK` pattern). No test will destroy your
+running dev stack.
+
+---
+
+## Repository Layout
 
 ```
 WORKSPACE-GATEWAY/
-├── README.md                      # this file
-├── Makefile                       # lint, type-check, test, check targets
-├── pyproject.toml                 # podman-compose dependency
-├── ci-profile.yaml                # CI configuration profile
-├── .gitignore
-├── docs/                          # architecture & plugin specifications
-│   ├── README.md                  # docs index + reading order
-│   ├── TEST-PLAN.md               # 6-stage test plan + audit findings
-│   ├── PROPOSAL-LLM-GATEWAY-v3.md # umbrella architecture
-│   ├── PLUGIN-FOUNDATION.md       # APISIX custom Lua plugin dev foundation
-│   ├── BUILTIN-PLUGINS.md         # APISIX built-in plugin config guide
-│   ├── PLUGIN-REDACT-LUA.md       # custom Lua: regex + dict PII redaction (v1)
-│   ├── PLUGIN-REDACT-ENGINE.md    # optional Rust NER sidecar (v2)
-│   ├── PLUGIN-SEMANTIC-CACHE.md   # custom Lua: Redis VSS semantic cache (v2)
-│   ├── DEPLOYMENT.md              # deployment guide
-│   └── OPENCODE-INTEGRATION.md    # OpenCode Zen integration specifics
-├── plugins/
-│   └── custom/
-│       ├── redact_lib.lua         # pure logic module (requireable, testable)
-│       └── redact.lua             # APISIX plugin adapter (lifecycle)
+├── README.md
+├── Makefile                        # Dev lifecycle + quality gates
+├── pyproject.toml
+├── .env                            # Secrets (gitignored)
+├── docs/
+│   ├── ARCHITECTURE.md             # Complete technical reference
+│   ├── TEST-PLAN.md                # 6-stage test plan
+│   ├── PROPOSAL-LLM-GATEWAY-v3.md  # Umbrella architecture
+│   ├── PLUGIN-FOUNDATION.md        # APISIX Lua plugin dev guide
+│   ├── BUILTIN-PLUGINS.md          # Built-in plugin config
+│   ├── PLUGIN-REDACT-LUA.md        # Redact plugin spec
+│   ├── PLUGIN-REDACT-ENGINE.md     # NER sidecar spec (v2)
+│   ├── PLUGIN-SEMANTIC-CACHE.md    # Semantic cache spec (v2)
+│   ├── DEPLOYMENT.md               # Deployment guide
+│   └── OPENCODE-INTEGRATION.md     # Zen integration specifics
+├── plugins/custom/
+│   ├── key-resolver.lua            # priority 2555: virtual key + pass-through
+│   ├── redact.lua                  # priority 2500: PII redaction adapter
+│   ├── redact_lib.lua              # pure logic: luhn, load, redact, restore
+│   ├── sse-usage.lua               # priority 2400: SSE usage extraction adapter
+│   └── sse_usage_lib.lua           # pure logic: buffer, scan, parse, extract
 ├── conf/
-│   ├── config.yaml                # APISIX config (standalone YAML mode)
-│   ├── apisix.yaml                # routes + plugin configs
-│   ├── redact-patterns.json       # PII regex + dictionary
-│   ├── clickhouse-init.sql        # ClickHouse schema
-│   └── vector.toml                # telemetry pipeline config
+│   ├── config.yaml                 # APISIX standalone config
+│   ├── apisix.yaml                 # route + 7 plugin configs
+│   ├── redact-patterns.json        # 6 regex + 2 dictionary PII patterns
+│   ├── clickhouse-init.sql         # 4 tables with idempotent ALTERs
+│   └── vector.toml                 # HTTP source + VRL remap + ClickHouse sink
 ├── res/
 │   ├── docker/
-│   │   ├── docker-compose.yml
-│   │   └── Dockerfile.apisix
+│   │   ├── docker-compose.yml      # 4 services, 2 networks
+│   │   └── Dockerfile.apisix       # APISIX 3.17 + 5 Lua files
+│   ├── ansible/
+│   │   └── dev.yml                 # Lifecycle playbook (start/stop/clean/test/smoke)
 │   └── scripts/
-│       └── reconciler.sh          # daily billing reconciler
+│       ├── issue-key.sh            # Create virtual key in OpenBao
+│       ├── list-keys.sh            # List all keys
+│       ├── revoke-key.sh           # Revoke key (preserve record)
+│       ├── reconciler.sh           # Daily billing reconciliation
+│       └── sync-opencode-models.sh # Sync models to opencode config
 ├── tests/
-│   ├── lua/                       # Stage 1: Lua unit tests
-│   ├── config/                    # Stage 2: Config validation
-│   ├── reconciler/                # Stage 3: Reconciler static tests
-│   ├── integration/               # Stage 4: Podman stack integration
-│   ├── ci/                        # Stage 5: CI hook verification
-│   ├── e2e/                       # Stage 6: End-to-end Zen API
-│   └── run_all.sh                 # master test runner
+│   ├── run_all.sh                  # Master runner (6 stages)
+│   ├── lua/                        # Stage 1: 89 unit assertions
+│   ├── config/                     # Stage 2: 112 config assertions
+│   ├── reconciler/                 # Stage 3: 7 static assertions
+│   ├── integration/                # Stage 4: 20 black-box assertions
+│   ├── ci/                         # Stage 5: 9 hook assertions
+│   └── e2e/                        # Stage 6: 17 Zen API assertions
 └── config/
-    └── coverage_thresholds.yaml   # CI coverage config
+    └── coverage_thresholds.yaml
 ```
 
 ---
 
-## Architecture (high-level)
+## Make Targets
 
-```
-[ Inbound App Clients ]
-        |  (apikey header for gateway auth)
-        v
-+----------------------------------------------------------------+
-| APISIX AI DATA PLANE  (Apache APISIX 3.17.0, standalone YAML)  |
-|                                                                |
-|  Phase 1: Authentication (built-in plugin)                    |
-|    key-auth          shared-key consumer validation            |
-|                                                                |
-|  Phase 2: PII Anonymization (custom Lua plugin, v1)           |
-|    redact   ngx.re PCRE + file-based dictionary                |
-|             PII Map stashed in ctx (per-request)               |
-|             response: body_filter re-hydration (local gsub)    |
-|             patterns cached in shared dict (60s TTL)          |
-|                                                                |
-|  Phase 3: Rate Limiting + Proxy (built-in plugins)            |
-|    ai-rate-limiting  per-model request count limits            |
-|    proxy-buffering   disabled per-route for SSE                |
-|                                                                |
-|  Log phase:                                                   |
-|    http-logger  -> Vector -> ClickHouse (request_log)          |
-|    prometheus   -> /apisix/prometheus/metrics                  |
-+----------------------------------------------------------------+
-        |  (Redacted body + Authorization: Bearer Zen key)
-        v
-[ OpenCode Zen ]  (https://opencode.ai/zen/v1)
+### Dev Lifecycle (Ansible-managed)
 
-[ ClickHouse ]      <- request_log + billing schema
-[ Vector ]          <- telemetry ingest (HTTP to ClickHouse)
-```
+| Target | Description |
+|--------|-------------|
+| `make dev-start` | Build images, start stack, provision keys, health checks |
+| `make dev-stop` | Stop stack (keep volumes) |
+| `make dev-restart` | Stop + start |
+| `make dev-rebuild` | Stop + start (rebuilds images) |
+| `make dev-status` | Show containers + health |
+| `make dev-logs` | Tail container logs |
+| `make dev-clean` | Stop + destroy volumes (data loss) |
+| `make dev-shell` | Exec into APISIX container |
+| `make dev-reset-db` | Drop + recreate ClickHouse tables |
+| `make dev-smoke` | Single curl request through gateway |
+| `make dev-test` | Run full test suite via Ansible |
 
----
+### Key Management
 
-## Plugin mapping: Kong Enterprise to APISIX
+| Target | Description |
+|--------|-------------|
+| `make issue-key` | Create new `vgw-*` key in OpenBao |
+| `make list-keys` | List all keys with metadata |
+| `make revoke-key KEY_ID=vgw-xxx` | Revoke a key |
+| `make sync-models` | Sync models from gateway to opencode config |
 
-| Kong Enterprise plugin | APISIX replacement | Custom code? |
-|------------------------|-------------------|--------------|
-| `openid-connect` | Built-in `openid-connect` | No, config only |
-| `ldap-auth-advanced` | Built-in `ldap-auth` / `forward-auth` | No, config only |
-| `ai-proxy-advanced` | Built-in `ai-proxy-multi` | No, config only |
-| `ai-semantic-cache` | Custom Lua `semantic-cache` (v2) | Yes, Lua plugin |
-| `ai-proxy` (OSS) | Built-in `ai-proxy` | No, config only |
-| Rate limiting | Built-in `ai-rate-limiting` | No, config only |
-| Telemetry | Built-in `http-logger` + `prometheus` | No, config only |
-| SSE buffering | Built-in `proxy-buffering` | No, config only |
-| PII redaction (no Kong equivalent) | Custom Lua `redact` (v1) | Yes, Lua plugin |
+### Quality Gates
 
-**5 custom plugin implementations reduced to 2.** No Rust Wasm. No
-`dispatch_http_call`. No `meta.json` Draft-4 schemas.
+| Target | Description |
+|--------|-------------|
+| `make lint` | Shell syntax + YAML validation |
+| `make type-check` | Lua syntax check via `resty` in Podman |
+| `make test` | Run all 6 test stages |
+| `make check` | lint + type-check + test |
+| `make check-push` | check + E2E tests (if Zen key set) |
 
 ---
 
-## Sidecar inventory
+## Documentation
 
-| Sidecar | Version | Listens on | Purpose |
-|---------|---------|-----------|---------|
-| (none) | v1 | N/A | All hot-path logic in pure Lua; auth/failover/rate-limit built-in |
-| `ner-engine` | v2 | `127.0.0.1:8081` | Rust binary, ONNX BERT-tiny, `POST /ner` (off-thread enrichment) |
-| `embedding-service` | v2 | `127.0.0.1:8090` | Rust binary, torch/llama.cpp, `POST /v1/embeddings` (local model) |
+| Document | Content |
+|----------|---------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete technical reference: every component, plugin, data flow, schema, script, test |
+| [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) | 6-stage testing strategy with extract-testable-core pattern |
+| [`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md) | Architecture rationale, Kong-to-APISIX pivot, billing contract |
+| [`docs/PLUGIN-FOUNDATION.md`](docs/PLUGIN-FOUNDATION.md) | APISIX custom Lua plugin development foundation |
+| [`docs/PLUGIN-REDACT-LUA.md`](docs/PLUGIN-REDACT-LUA.md) | Redact plugin specification |
+| [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md) | Built-in plugin configuration guide |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deployment and operations guide |
+| [`docs/OPENCODE-INTEGRATION.md`](docs/OPENCODE-INTEGRATION.md) | OpenCode Zen integration specifics |
 
-**v1 has zero sidecars.** The entire gateway is APISIX + Redis + ClickHouse +
-Vector, all configured via YAML.
+### v2 Specs (Deferred)
 
----
-
-## Billing and telemetry
-
-The gateway captures token usage from LLM responses and logs it to
-ClickHouse via Vector:
-
-1. `http-logger` sends request metadata + request/response bodies to
-   Vector (response body limited to 8KB).
-2. Vector's remap transform extracts `model`, `stream` from the
-   request body and `prompt_tokens`, `completion_tokens`,
-   `total_tokens` from the response body's `usage` object.
-3. Vector writes the enriched event to ClickHouse `request_log`
-   table.
-4. Daily reconciler (`res/scripts/reconciler.sh`) queries
-   `request_log` for gateway-side token totals. Upstream provider
-   API comparison is v2.
-
-ClickHouse schema uses `Decimal64(6)` for `cost` in `billing_ledger`
-(NOT `Float64`), `PARTITION BY toYYYYMM(timestamp)`, TTL 13 months,
-`ORDER BY (provider, model, timestamp)` for prefix-pruned queries.
+| Document | Feature |
+|----------|---------|
+| [`docs/PLUGIN-SEMANTIC-CACHE.md`](docs/PLUGIN-SEMANTIC-CACHE.md) | Redis VSS semantic cache |
+| [`docs/PLUGIN-REDACT-ENGINE.md`](docs/PLUGIN-REDACT-ENGINE.md) | Rust NER sidecar (ONNX BERT-tiny) |
 
 ---
 
-## Status
+## License
 
-**Phase: v1 implementation complete, testing in progress.**
+- **Apache APISIX 3.17.0**: Apache 2.0. All plugins OSS, no license
+  enforcement, no tier split. Source public. Docker images for every
+  version.
+- **OpenBao 2.4.4**: MPL 2.0. Open source fork of HashiCorp Vault.
+- **ClickHouse 24.8**: Apache 2.0.
+- **Vector 0.40**: MPL 2.0.
+- **Custom Lua plugins**: Bespoke, written for this project.
 
-v1 scope (implemented):
-- Custom Lua redact plugin (`redact.lua` + `redact_lib.lua`) with
-  regex + dictionary PII detection, Luhn validation, per-request
-  token map, response re-hydration
-- APISIX standalone YAML config with `key-auth`, `ai-rate-limiting`,
-  `prometheus`, `http-logger`, `proxy-buffering`, `redact` plugins
-- Single route relay to OpenCode Zen (`/zen/*` to `opencode.ai:443`)
-- ClickHouse billing schema (`request_log`, `billing_ledger`,
-  `billing_discrepancies` tables)
-- Vector telemetry pipeline (HTTP ingest to ClickHouse)
-- Docker compose stack (APISIX, ClickHouse, Vector)
-- 6-stage test suite (Lua unit, config validation, reconciler,
-  integration, CI hooks, E2E with real Zen API)
-- Daily reconciler script (gateway totals logging; upstream
-  comparison is v2)
-
-v2 scope (deferred):
-- Semantic cache plugin (`semantic-cache.lua`)
-- NER sidecar (`ner-engine` Rust binary)
-- Embedding service (`embedding-service` Rust binary)
-- Multi-provider failover (`ai-proxy-multi`)
-- OIDC/LDAP authentication
-- Upstream billing API reconciliation
-
----
-
-## Reading order
-
-1. [`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md), revised
-   umbrella architecture & rationale.
-2. [`docs/PLUGIN-FOUNDATION.md`](docs/PLUGIN-FOUNDATION.md), shared APISIX plugin
-   development contracts.
-3. [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md), built-in plugin
-   configuration (auth, proxy, failover, telemetry).
-4. [`docs/PLUGIN-REDACT-LUA.md`](docs/PLUGIN-REDACT-LUA.md), the v1 custom plugin.
-5. [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), how to deploy and operate.
-6. v2 specs: [`docs/PLUGIN-SEMANTIC-CACHE.md`](docs/PLUGIN-SEMANTIC-CACHE.md),
-   [`docs/PLUGIN-REDACT-ENGINE.md`](docs/PLUGIN-REDACT-ENGINE.md).
-
----
-
-## License posture
-
-- **Apache APISIX 3.17.0**, Apache 2.0. ALL plugins OSS, no license enforcement,
-  no tier split. Source code public. Docker images for every version.
-- **Custom Lua plugins** are bespoke, written for this project.
-- **Rust sidecars** (v2): `ort` (ONNX Runtime, MIT), `axum` (MIT), `tokenizers`
-  (Apache 2.0). All dependencies MIT or Apache-2.0.
-- No Kong, no Wasm, no Proxy-Wasm, no Enterprise licensing concerns.
-
----
-
-## References
-
-- Apache APISIX: https://apisix.apache.org/
-- APISIX plugin development: https://apisix.apache.org/docs/apisix/plugin-develop/
-- APISIX standalone mode: https://apisix.apache.org/docs/apisix/deployment-modes/
-- APISIX `openid-connect`: https://apisix.apache.org/docs/apisix/plugins/openid-connect/
-- APISIX `ai-proxy` / `ai-proxy-multi`: https://apisix.apache.org/docs/apisix/plugins/ai-proxy/
-- APISIX `ai-rate-limiting`: https://apisix.apache.org/docs/apisix/plugins/ai-rate-limiting/
-- APISIX `proxy-buffering` (PR #13446, 3.17.0): https://github.com/apache/apisix/pull/13446
-- Redis VSS: https://redis.io/docs/latest/develop/ai/search-and-query/vectors/
-- ClickHouse Decimal vs Float: https://clickhouse.com/docs/sql-reference/data-types/float
-- OpenResty cosocket phases: https://github.com/openresty/lua-nginx-module#cosockets
-- `lua-resty-http`: https://github.com/ledgetech/lua-resty-http
-- `lua-resty-redis`: https://github.com/openresty/lua-resty-redis
+No Kong. No Wasm. No Proxy-Wasm. No Enterprise licensing concerns.
 
 ---
 
 **Maintained by:** AMI-Agents Engineering
-**Last updated:** 2026-07-06
-**Document set version:** v3.0 (APISIX, supersedes v2.0 Kong architecture)

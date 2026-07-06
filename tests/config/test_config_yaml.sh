@@ -54,14 +54,23 @@ assert_eq "deployment.role_data_plane.config_provider is yaml" "yaml" "$DEPLOY_P
 PLUGINS_REDACT=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "redact")] | length')
 assert_eq "redact in plugins list" "1" "$PLUGINS_REDACT"
 
+PLUGINS_KEY_RESOLVER=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "key-resolver")] | length')
+assert_eq "key-resolver in plugins list" "1" "$PLUGINS_KEY_RESOLVER"
+
+PLUGINS_SSE_USAGE=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "sse-usage")] | length')
+assert_eq "sse-usage in plugins list" "1" "$PLUGINS_SSE_USAGE"
+
 PLUGINS_GATEWAY_AUTH=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "gateway-auth")] | length')
-assert_eq "gateway-auth in plugins list" "1" "$PLUGINS_GATEWAY_AUTH"
+assert_eq "gateway-auth removed from plugins list" "0" "$PLUGINS_GATEWAY_AUTH"
 
 PLUGINS_KEYAUTH=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "key-auth")] | length')
 assert_eq "key-auth removed from plugins list" "0" "$PLUGINS_KEYAUTH"
 
 HAS_REDACT_DICT=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("redact_state")')
 assert_eq "custom_lua_shared_dict has redact_state" "true" "$HAS_REDACT_DICT"
+
+HAS_KEY_CACHE=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("key_cache")')
+assert_eq "custom_lua_shared_dict has key_cache" "true" "$HAS_KEY_CACHE"
 
 PLUGINS_RATE=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "ai-rate-limiting")] | length')
 assert_eq "ai-rate-limiting in plugins list" "1" "$PLUGINS_RATE"
@@ -92,5 +101,8 @@ assert_eq "prometheus export_addr port is 9100" "9100" "$PROM_EXPORT_PORT"
 
 HAS_ENVS=$(echo "$JSON_DATA" | jq '.nginx_config.envs | index("OPENCODE_ZEN_API_KEY") != null')
 assert_eq "nginx_config.envs contains OPENCODE_ZEN_API_KEY" "true" "$HAS_ENVS"
+
+HAS_OPENBAO_ENV=$(echo "$JSON_DATA" | jq '.nginx_config.envs | index("OPENBAO_TOKEN") != null')
+assert_eq "nginx_config.envs contains OPENBAO_TOKEN" "true" "$HAS_OPENBAO_ENV"
 
 summary

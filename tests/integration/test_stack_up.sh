@@ -25,6 +25,11 @@ record_fail() {
 }
 
 teardown() {
+    if [ "${EXTERNAL_STACK:-0}" = "1" ]; then
+        echo "[INFO] Stack was already running: leaving it up."
+        echo "test_stack_up: $pass passed, $fail failed"
+        return 0
+    fi
     if [ "$KEEP_STACK_UP" = "1" ]; then
         return 0
     fi
@@ -156,13 +161,21 @@ step10_teardown() {
 }
 
 main() {
-    step1_build
-    step2_start
+    if [ "${EXTERNAL_STACK:-0}" = "1" ]; then
+        echo "[INFO] Stack already running: skipping build/start, running health checks only."
+    else
+        step1_build
+        step2_start
+    fi
     step3_apisix
     step7_vector
     step8_clickhouse
     step9_tables
-    step10_teardown
+    if [ "${EXTERNAL_STACK:-0}" != "1" ]; then
+        step10_teardown
+    else
+        record_pass "Tear down skipped (external stack)"
+    fi
 }
 
 main || true

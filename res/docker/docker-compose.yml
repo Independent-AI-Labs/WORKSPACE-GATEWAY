@@ -14,6 +14,7 @@ services:
       - ../../.env
     depends_on:
       - vector
+      - openbao
     restart: unless-stopped
     networks:
       - gateway
@@ -42,6 +43,22 @@ services:
       - "8080:8080"
     depends_on:
       - clickhouse
+    restart: unless-stopped
+    networks:
+      - gateway
+
+  openbao:
+    image: docker.io/openbao/openbao:2.4.4
+    container_name: gw-openbao
+    command:
+      - server
+      - -dev
+      - -dev-root-token-id=${OPENBAO_TOKEN:-2e22c6e00b0815bcada90dfecb03f3c0}
+      - -dev-listen-address=0.0.0.0:8200
+    environment:
+      BAO_LOG_LEVEL: info
+    ports:
+      - "8201:8200"
     restart: unless-stopped
     networks:
       - gateway

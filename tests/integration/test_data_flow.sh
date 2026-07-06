@@ -80,30 +80,30 @@ else
     check "ClickHouse has big-pickle model rows (count=$model_count)" "1"
 fi
 
-echo "[INFO] Querying for token usage..."
-token_data=$(curl -sf "$CH_URL/?query=SELECT+prompt_tokens,completion_tokens,total_tokens+FROM+llm_gateway.request_log+WHERE+model='big-pickle'+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" 2>/dev/null || echo "")
+echo "[INFO] Querying for token usage from usage_log..."
+token_data=$(curl -sf "$CH_URL/?query=SELECT+prompt_tokens,completion_tokens,total_tokens+FROM+llm_gateway.usage_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" 2>/dev/null || echo "")
 
 if [ -n "$token_data" ]; then
     prompt_tokens=$(echo "$token_data" | cut -f1)
     total_tokens=$(echo "$token_data" | cut -f3)
     if [ "${prompt_tokens:-0}" -gt 0 ] 2>/dev/null; then
-        check "ClickHouse has prompt_tokens > 0 (value=$prompt_tokens)" "0"
+        check "usage_log has prompt_tokens > 0 (value=$prompt_tokens)" "0"
     else
-        check "ClickHouse has prompt_tokens > 0 (value=$prompt_tokens)" "1"
+        check "usage_log has prompt_tokens > 0 (value=$prompt_tokens)" "1"
     fi
     if [ "${total_tokens:-0}" -gt 0 ] 2>/dev/null; then
-        check "ClickHouse has total_tokens > 0 (value=$total_tokens)" "0"
+        check "usage_log has total_tokens > 0 (value=$total_tokens)" "0"
     else
-        check "ClickHouse has total_tokens > 0 (value=$total_tokens)" "1"
+        check "usage_log has total_tokens > 0 (value=$total_tokens)" "1"
     fi
 else
-    check "ClickHouse returned token usage data" "1"
-    check "ClickHouse has prompt_tokens > 0" "1"
-    check "ClickHouse has total_tokens > 0" "1"
+    check "usage_log returned token usage data" "1"
+    check "usage_log has prompt_tokens > 0" "1"
+    check "usage_log has total_tokens > 0" "1"
 fi
 
 echo "[INFO] Querying for req_body..."
-req_body=$(curl -sf "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+WHERE+model='big-pickle'+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" 2>/dev/null || echo "")
+req_body=$(curl -sf "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" 2>/dev/null || echo "")
 
 if [ -n "$req_body" ] && [ "$req_body" != "" ]; then
     check "ClickHouse has req_body populated" "0"

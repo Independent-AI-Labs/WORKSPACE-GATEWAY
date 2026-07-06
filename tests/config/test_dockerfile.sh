@@ -34,7 +34,19 @@ HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" || tru
 assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" || true)
-assert_eq "Copies plugins/custom/ (gateway-auth + redact + redact_lib)" "3" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (key-resolver + sse-usage + sse_usage_lib + redact + redact_lib)" "5" "$HAS_CUSTOM_PLUGINS"
+
+HAS_KEY_RESOLVER=$(grep -c 'key-resolver.lua' "$DOCKERFILE" || true)
+assert_eq "Copies key-resolver.lua" "1" "$HAS_KEY_RESOLVER"
+
+HAS_SSE_USAGE=$(grep -c 'sse-usage.lua' "$DOCKERFILE" || true)
+assert_eq "Copies sse-usage.lua" "1" "$HAS_SSE_USAGE"
+
+HAS_SSE_USAGE_LIB=$(grep -c 'sse_usage_lib.lua' "$DOCKERFILE" || true)
+assert_eq "Copies sse_usage_lib.lua" "1" "$HAS_SSE_USAGE_LIB"
+
+NO_GATEWAY_AUTH=$(grep -c 'gateway-auth.lua' "$DOCKERFILE" || true)
+assert_eq "gateway-auth.lua removed from Dockerfile" "0" "$NO_GATEWAY_AUTH"
 
 HAS_CONFIG_YAML=$(grep -c 'config.yaml' "$DOCKERFILE" || true)
 assert_eq "Copies conf/config.yaml" "1" "$HAS_CONFIG_YAML"

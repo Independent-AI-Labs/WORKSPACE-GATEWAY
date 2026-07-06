@@ -72,6 +72,36 @@
       changed_when: true
       tags: [start]
 
+    - name: Wait for OpenBao to be ready
+      ansible.builtin.uri:
+        url: http://localhost:8201/v1/sys/health
+        method: GET
+        status_code: [200, 429, 472, 473, 501, 503]
+        timeout: 5
+      register: bao_health
+      until: bao_health.status in [200, 429, 472, 473, 501, 503]
+      retries: 15
+      delay: 2
+      tags: [start]
+
+    - name: Provision default gateway key in OpenBao
+      ansible.builtin.shell: |
+        if [ -f {{ project_root }}/.env ]; then
+          set -a; . {{ project_root }}/.env; set +a
+        fi
+        curl -sf -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d '{"data":{"virtual_key":"vgw-gateway-key","upstream_key":"","tenant_id":"default","user_id":"agent","active":true,"created_at":"2026-01-01T00:00:00Z"}}' \
+          "http://localhost:8201/v1/secret/data/gateway/keys/vgw-gateway-key"
+      args:
+        chdir: "{{ project_root }}"
+      register: bao_provision
+      changed_when: true
+      failed_when: bao_provision.stdout not in ["200", "204"]
+      tags: [start]
+
     - name: Wait for APISIX to be ready
       ansible.builtin.uri:
         url: http://localhost:9080/
@@ -96,6 +126,15 @@
       delay: 2
       tags: [start]
 
+    - name: Run ClickHouse init SQL (idempotent)
+      ansible.builtin.shell: >
+        podman exec -i docker_clickhouse_1 clickhouse-client --multiquery
+        < {{ project_root }}/conf/clickhouse-init.sql
+      register: ch_init
+      changed_when: true
+      failed_when: false
+      tags: [start]
+
     - name: Wait for Prometheus metrics endpoint
       ansible.builtin.uri:
         url: http://localhost:9100/apisix/prometheus/metrics
@@ -116,6 +155,7 @@
             Prometheus: http://localhost:9100/apisix/prometheus/metrics
             ClickHouse: http://localhost:8123
             Vector:     http://localhost:8080/ingest
+            OpenBao:    http://localhost:8201
       tags: [start]
 
 
