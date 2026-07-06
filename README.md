@@ -1,10 +1,13 @@
-# WORKSPACE-GATEWAY
+# Multi-tenant LLM Gateway on APISIX
 
-Multi-tenant LLM gateway on Apache APISIX 3.17.0. Routes traffic to any
-OpenAI-compatible LLM provider, with PII redaction, virtual key
-management, billing-grade token accounting, and a Grafana dashboard.
-Three custom Lua plugins, five built-in plugins, zero sidecars on the
-hot path.
+Routes traffic to any OpenAI-compatible LLM provider through Apache APISIX
+3.17.0, with PII redaction, virtual key management, billing-grade token
+accounting, and a Grafana dashboard. Three custom Lua plugins, five built-in
+plugins, zero sidecars on the hot path. Per-tenant isolation runs entirely
+inside APISIX: virtual keys are minted in OpenBao, every request is scoped
+to a tenant route, and token usage is streamed to ClickHouse via Vector for
+second-granularity audit and cost attribution. No proxy process to babysit,
+no external rate-limiter, no separate auth tier; the gateway is the policy.
 
 Currently configured with **OpenCode Go** as the upstream. APISIX's
 built-in `ai-proxy` / `ai-proxy-multi` plugins support 10 provider
