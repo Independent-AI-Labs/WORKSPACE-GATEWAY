@@ -131,8 +131,8 @@ following LLM provider backends. Swap the plain upstream proxy in
 `conf/apisix.yaml` for `ai-proxy` (single provider) or `ai-proxy-multi`
 (load balancing, retries, health checks across multiple providers).
 
-| Provider | `provider` value | Default Endpoint | Since |
-|----------|------------------|------------------|-------|
+| Provider | Value | Default Endpoint | Since |
+|----------|-------|------------------|-------|
 | OpenAI | `openai` | `api.openai.com/chat/completions` | 3.0 |
 | DeepSeek | `deepseek` | `api.deepseek.com/chat/completions` | 3.0 |
 | Azure OpenAI | `azure-openai` | custom (via `override.endpoint`) | 3.0 |
@@ -151,16 +151,18 @@ retries on failure, health checks, and provider-level routing rules.
 
 ## Features
 
-- **PII redaction + re-hydration** : `redact` plugin: regex + dictionary + Luhn, pure Lua (custom)
-- **Virtual key management** : `key-resolver` plugin: OpenBao KVv2 (persistent file-storage), shared dict cache (custom)
-- **Direct key pass-through** : `key-resolver`: non-`vgw-` keys forwarded as-is (custom)
-- **SSE token extraction** : `sse-usage` plugin: buffers SSE, extracts usage, writes ClickHouse (custom)
-- **Per-model rate limiting** : `ai-rate-limiting` built-in (built-in)
-- **Request/response logging** : `http-logger` built-in, to Vector to ClickHouse (built-in)
-- **Prometheus metrics** : `prometheus` built-in at `:9100` (built-in)
-- **SSE streaming support** : `proxy-buffering` disabled per-route (config)
-- **Grafana dashboard** : pre-provisioned datasources + dashboards for gateway observability (config)
-- **Billing-grade schema** : ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys (SQL only)
+| Feature | Plugin / Mechanism | Type |
+|---------|-------------------|------|
+| PII redaction (on-the-fly sensitive data anonymisation) + re-hydration | `redact`: regex + dictionary + Luhn, pure Lua | Custom |
+| Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
+| Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
+| SSE token extraction | `sse-usage`: buffers SSE, extracts usage, writes ClickHouse | Custom |
+| Per-model rate limiting | `ai-rate-limiting` | Built-in |
+| Request/response logging | `http-logger` to Vector to ClickHouse | Built-in |
+| Prometheus metrics | `prometheus` at `:9100` | Built-in |
+| SSE streaming support | `proxy-buffering` disabled per-route | Config |
+| Grafana dashboard | Pre-provisioned datasources + dashboards for gateway observability | Config |
+| Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL |
 
 ---
 
@@ -228,21 +230,19 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `conf/config.yaml` | APISIX standalone mode: plugin list, shared dicts, env vars, Prometheus port |
-| `conf/apisix.yaml` | Two routes: `/opencode/*` + `/opencode_federated/*`, 8 plugins each |
-| `conf/openbao.hcl` | OpenBao production config (file-storage backend) |
-| `conf/prometheus.yml` | Prometheus scrape config (APISIX `:9100`) |
-| `conf/grafana/` | Grafana datasources + dashboards (provisioned on start) |
-| `conf/redact-patterns.json` | PII detection: 6 regex patterns + 2 dictionary categories |
-| `conf/clickhouse-init.sql` | 4 tables: `request_log`, `usage_log`, `billing_ledger`, `billing_discrepancies` |
-| `conf/vector.toml` | Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink |
-| `res/docker/docker-compose.yml` | 6 services: apisix, clickhouse, vector, openbao, prometheus, grafana |
-| `res/docker/Dockerfile.apisix` | Custom APISIX image: 5 Lua files + config copied in |
-| `res/docker/Dockerfile.openbao` | Custom OpenBao image (production file-storage) |
-| `res/docker/openbao-entrypoint.sh` | OpenBao auto-init, auto-unseal, gateway key provisioning (data persists via `openbao-data` named volume) |
-| `.env` | Secrets: `OPENCODE_API_KEY`, `GATEWAY_API_KEY`, `OPENBAO_TOKEN` |
+- `conf/config.yaml`: APISIX standalone mode: plugin list, shared dicts, env vars, Prometheus port
+- `conf/apisix.yaml`: Two routes: `/opencode/*` + `/opencode_federated/*`, 8 plugins each
+- `conf/openbao.hcl`: OpenBao production config (file-storage backend)
+- `conf/prometheus.yml`: Prometheus scrape config (APISIX `:9100`)
+- `conf/grafana/`: Grafana datasources + dashboards (provisioned on start)
+- `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
+- `conf/clickhouse-init.sql`: 4 tables: `request_log`, `usage_log`, `billing_ledger`, `billing_discrepancies`
+- `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink
+- `res/docker/docker-compose.yml`: 6 services: apisix, clickhouse, vector, openbao, prometheus, grafana
+- `res/docker/Dockerfile.apisix`: Custom APISIX image: 5 Lua files + config copied in
+- `res/docker/Dockerfile.openbao`: Custom OpenBao image (production file-storage)
+- `res/docker/openbao-entrypoint.sh`: OpenBao auto-init, auto-unseal, gateway key provisioning (data persists via `openbao-data` named volume)
+- `.env`: Secrets: `OPENCODE_API_KEY`, `GATEWAY_API_KEY`, `OPENBAO_TOKEN`
 
 ### Environment Variables
 
@@ -347,14 +347,12 @@ make test-live     # Run all stages including live upstream API tests
 make dev-test      # Same as test, via Ansible
 ```
 
-| Stage | What |
-|-------|------|
-| 1 | Lua unit tests via `resty` CLI inside the APISIX container |
-| 2 | Config validation: 7 scripts checking every YAML, SQL, TOML, JSON file |
-| 3 | Reconciler static analysis: syntax, strict mode, error handling |
-| 4 | Integration: black-box HTTP against the running stack |
-| 5 | CI hook verification: pre-commit and pre-push hooks present and wired |
-| 6 | E2E: real Go API calls (gated behind `RUN_LIVE_API_TESTS=1`) |
+1. Lua unit tests via `resty` CLI inside the APISIX container
+2. Config validation: 7 scripts checking every YAML, SQL, TOML, JSON file
+3. Reconciler static analysis: syntax, strict mode, error handling
+4. Integration: black-box HTTP against the running stack
+5. CI hook verification: pre-commit and pre-push hooks present and wired
+6. E2E: real Go API calls (gated behind `RUN_LIVE_API_TESTS=1`)
 
 See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 
