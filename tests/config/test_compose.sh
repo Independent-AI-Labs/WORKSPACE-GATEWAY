@@ -57,14 +57,53 @@ assert_eq "Has vector service" "true" "$HAS_VECTOR"
 HAS_OPENBAO=$(echo "$JSON_DATA" | jq '.services | has("openbao")')
 assert_eq "Has openbao service" "true" "$HAS_OPENBAO"
 
-OPENBAO_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.openbao.image')
-assert_eq "OpenBao image is openbao/openbao:2.4.4" "docker.io/openbao/openbao:2.4.4" "$OPENBAO_IMAGE"
+HAS_PROMETHEUS=$(echo "$JSON_DATA" | jq '.services | has("prometheus")')
+assert_eq "Has prometheus service" "true" "$HAS_PROMETHEUS"
+
+HAS_GRAFANA=$(echo "$JSON_DATA" | jq '.services | has("grafana")')
+assert_eq "Has grafana service" "true" "$HAS_GRAFANA"
+
+OPENBAO_BUILD=$(echo "$JSON_DATA" | jq '.services.openbao.build != null')
+assert_eq "OpenBao uses custom build (Dockerfile.openbao)" "true" "$OPENBAO_BUILD"
+
+OPENBAO_VOLUME=$(echo "$JSON_DATA" | jq '[.volumes | has("openbao-data")] | any')
+assert_eq "OpenBao has persistent volume" "true" "$OPENBAO_VOLUME"
+
+PROMETHEUS_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.prometheus.image')
+assert_eq "Prometheus image is prom/prometheus:v3.11.3" "prom/prometheus:v3.11.3" "$PROMETHEUS_IMAGE"
+
+GRAFANA_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.grafana.image')
+assert_eq "Grafana image is grafana/grafana-oss:12.0.0" "grafana/grafana-oss:12.0.0" "$GRAFANA_IMAGE"
 
 OPENBAO_PORT=$(echo "$JSON_DATA" | jq '[.services.openbao.ports[] | select(. == "8201:8200")] | length')
 assert_eq "OpenBao exposes port 8201:8200" "1" "$OPENBAO_PORT"
 
 OPENBAO_NETWORK=$(echo "$JSON_DATA" | jq '[.services.openbao.networks[] | select(. == "gateway")] | length')
 assert_eq "OpenBao on gateway network" "1" "$OPENBAO_NETWORK"
+
+PROMETHEUS_CONTAINER=$(echo "$JSON_DATA" | jq -r '.services.prometheus.container_name')
+assert_eq "Prometheus container name is gw-prometheus" "gw-prometheus" "$PROMETHEUS_CONTAINER"
+
+PROMETHEUS_PORT=$(echo "$JSON_DATA" | jq '[.services.prometheus.ports[] | select(. == "9092:9090")] | length')
+assert_eq "Prometheus exposes port 9092:9090" "1" "$PROMETHEUS_PORT"
+
+PROMETHEUS_NETWORK=$(echo "$JSON_DATA" | jq '[.services.prometheus.networks[] | select(. == "gateway")] | length')
+assert_eq "Prometheus on gateway network" "1" "$PROMETHEUS_NETWORK"
+
+GRAFANA_CONTAINER=$(echo "$JSON_DATA" | jq -r '.services.grafana.container_name')
+assert_eq "Grafana container name is gw-grafana" "gw-grafana" "$GRAFANA_CONTAINER"
+
+GRAFANA_PORT=$(echo "$JSON_DATA" | jq '[.services.grafana.ports[] | select(. == "3030:3000")] | length')
+assert_eq "Grafana exposes port 3030:3000" "1" "$GRAFANA_PORT"
+
+GRAFANA_NETWORK=$(echo "$JSON_DATA" | jq '[.services.grafana.networks[] | select(. == "gateway")] | length')
+assert_eq "Grafana on gateway network" "1" "$GRAFANA_NETWORK"
+
+GRAFANA_PLUGIN=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_PLUGINS_PREINSTALL')
+assert_eq "Grafana preinstalls ClickHouse plugin" "grafana-clickhouse-datasource" "$GRAFANA_PLUGIN"
+
+GRAFANA_ANON=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_AUTH_ANONYMOUS_ENABLED')
+assert_eq "Grafana anonymous auth enabled" "true" "$GRAFANA_ANON"
 
 APISIX_PORT_9080=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9080:9080")] | length')
 assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
@@ -98,6 +137,12 @@ assert_eq "Networks has gateway" "true" "$HAS_GATEWAY"
 
 HAS_DATAOPS=$(echo "$JSON_DATA" | jq '.networks | has("dataops")')
 assert_eq "Networks has dataops" "true" "$HAS_DATAOPS"
+
+HAS_PROM_VOLUME=$(echo "$JSON_DATA" | jq '.volumes | has("prometheus-data")')
+assert_eq "Has prometheus-data volume" "true" "$HAS_PROM_VOLUME"
+
+HAS_GRAFANA_VOLUME=$(echo "$JSON_DATA" | jq '.volumes | has("grafana-data")')
+assert_eq "Has grafana-data volume" "true" "$HAS_GRAFANA_VOLUME"
 
 APISIX_ENV_FILE=$(echo "$JSON_DATA" | jq -r '.services.apisix.env_file[]')
 HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" || true)

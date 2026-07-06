@@ -67,14 +67,14 @@ local function scan_sse_tests()
 
     do
         local usage, model = sse_lib.scan_sse_for_usage(
-            'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15},"model":"big-pickle"}\n')
+            'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15},"model":"minimax-m3"}\n')
         check(usage ~= nil, "scan[2] usage found")
         if usage then
             assert_eq(usage.prompt_tokens, 10, "scan[2] prompt_tokens")
             assert_eq(usage.completion_tokens, 5, "scan[2] completion_tokens")
             assert_eq(usage.total_tokens, 15, "scan[2] total_tokens")
         end
-        assert_eq(model, "big-pickle", "scan[2] model")
+        assert_eq(model, "minimax-m3", "scan[2] model")
     end
 
     do
@@ -114,13 +114,13 @@ end
 local function parse_json_usage_tests()
     do
         local usage, model = sse_lib.parse_json_usage(
-            '{"model":"big-pickle","choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}')
+            '{"model":"minimax-m3","choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}')
         check(usage ~= nil, "json[1] usage found")
         if usage then
             assert_eq(usage.prompt_tokens, 5, "json[1] prompt_tokens")
             assert_eq(usage.total_tokens, 8, "json[1] total_tokens")
         end
-        assert_eq(model, "big-pickle", "json[1] model")
+        assert_eq(model, "minimax-m3", "json[1] model")
     end
 
     do

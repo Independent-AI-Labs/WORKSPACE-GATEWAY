@@ -1,3 +1,7 @@
+resolver:
+  - 10.89.0.1
+  - 10.89.1.1
+
 deployment:
   role: data_plane
   role_data_plane:
@@ -10,6 +14,7 @@ plugins:
   - key-resolver
   - ai-rate-limiting
   - proxy-buffering
+  - proxy-rewrite
   - http-logger
   - prometheus
   - redact
@@ -23,7 +28,7 @@ plugin_attr:
 
 nginx_config:
   envs:
-    - OPENCODE_ZEN_API_KEY
+    - OPENCODE_API_KEY
     - OPENBAO_TOKEN
   http:
     custom_lua_shared_dict:

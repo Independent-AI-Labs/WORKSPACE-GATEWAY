@@ -1,7 +1,7 @@
 # Test Plan: WORKSPACE-GATEWAY
 
 **Project:** WORKSPACE-GATEWAY
-**Platform:** Apache APISIX 3.17.0, OpenCode Zen
+**Platform:** Apache APISIX 3.17.0, OpenCode Go
 **Date:** 2026-07-06
 
 ---
@@ -10,14 +10,14 @@
 
 This document defines the end-to-end testing and verification plan
 for the WORKSPACE-GATEWAY project. The gateway uses Apache APISIX
-3.17.0 as a relay to OpenCode Zen, with PII redaction, rate
+3.17.0 as a relay to OpenCode Go, with PII redaction, rate
 limiting, telemetry logging, and billing-grade token accounting.
 
-- Upstream: OpenCode Zen (`https://opencode.ai/zen/v1`)
+- Upstream: OpenCode Go (`https://opencode.ai/zen/go/v1`)
 - Gateway port: 9080 (HTTP), 9443 (HTTPS)
-- Key models: `big-pickle`, `mimo-v2.5-free`,
-  `north-mini-code-free`, `nemotron-3-ultra-free`,
-  `deepseek-v4-flash-free`
+- Key models: `minimax-m3`, `mimo-v2.5`,
+  `glm-5`, `deepseek-v4-pro`,
+  `kimi-k2.6`
 
 ---
 
@@ -44,7 +44,7 @@ This enables three test layers:
 |-------|------|------|--------------|
 | Unit | Pure logic functions | `resty` CLI | No |
 | Integration | Plugin lifecycle | curl vs running APISIX | Yes |
-| E2E | Full request to Zen | curl vs running stack + Zen | Yes |
+| E2E | Full request to OpenCode Go (gated) | curl vs running stack + OpenCode Go key | Yes |
 
 ---
 
@@ -58,13 +58,15 @@ stage is independently runnable and produces a pass/fail exit code.
 | 1 | Lua unit tests (redact_lib.lua) | <5s | `resty` CLI in Podman | APISIX image |
 | 2 | Config validation | <2s | Shell + jq + Python | None |
 | 3 | Reconciler script | <1s | Shell | None |
-| 4 | Podman stack integration | <60s | podman-compose | APISIX, ClickHouse, Vector images |
+| 4 | Podman stack integration | <60s | podman-compose | APISIX, ClickHouse, Vector, OpenBao, Prometheus, Grafana images |
 | 5 | CI hook verification | <5s | Shell + git | CI repo |
-| 6 | End-to-end Zen API | <30s | Shell + curl | Running stack + Zen key |
+| 6 | End-to-end OpenCode Go API | <30s | Shell + curl | Running stack + OpenCode Go key |
 
 Stages 1 through 3 run without network access. Stage 4 requires
 Podman image pulls. Stage 6 requires outbound HTTPS to
-`opencode.ai`.
+`opencode.ai`. Stages 4 (data-flow) and 6 are **live API tests**
+gated behind `RUN_LIVE_API_TESTS=1`; they are skipped by default
+(`make test`) and only run with `make test-live`.
 
 ---
 
@@ -85,27 +87,43 @@ Podman image pulls. Stage 6 requires outbound HTTPS to
 
 | Variable | Required For | Source |
 |----------|-------------|--------|
-| `OPENCODE_ZEN_API_KEY` | Stage 6 | `.env` file |
-| `OPENCODE_ZEN_BASE_URL` | Stage 6 | `.env` file |
+| `OPENCODE_API_KEY` | Stage 6 | `.env` file |
+| `OPENCODE_BASE_URL` | Stage 6 | `.env` file |
+| `OPENBAO_TOKEN` | Stage 4, 6 | `.env` file |
+| `CONTEXT_LIMIT_PCT` | sync-models | `.env` file |
+| `CONTEXT_LIMIT_CEILING` | sync-models | `.env` file |
 | `GATEWAY_API_KEY` | Stage 4, 6 | `.env` file |
 
-`GATEWAY_API_KEY` is the APISIX `key-auth` consumer key. Its value
-is `opencode-gateway-key` (defined in `conf/apisix.yaml`).
+`GATEWAY_API_KEY` is the virtual gateway key `vgw-gateway-key`
+(provisioned in OpenBao, NOT a key-auth consumer key). The
+`key-resolver` plugin resolves it against keys stored in OpenBao.
 
 ### 4.3 Files Under Test
 
 | File | Stage |
 |------|-------|
 | `plugins/custom/redact_lib.lua` | 1 |
+| `plugins/custom/sse_usage_lib.lua` | 1 |
 | `plugins/custom/redact.lua` | 4 (integration) |
 | `conf/apisix.yaml` | 2, 4, 6 |
 | `conf/config.yaml` | 2 |
 | `conf/redact-patterns.json` | 1, 2 |
 | `conf/clickhouse-init.sql` | 2 |
 | `conf/vector.toml` | 2 |
+| `conf/openbao.hcl` | 2 |
+| `conf/prometheus.yml` | 2 |
+| `conf/grafana/dashboards/gateway-overview.json` | 2 |
 | `res/docker/docker-compose.yml` | 2, 4, 6 |
 | `res/docker/Dockerfile.apisix` | 2, 4 |
+| `res/docker/Dockerfile.openbao` | 2, 4 |
+| `res/docker/openbao-entrypoint.sh` | 2, 4 |
 | `res/scripts/reconciler.sh` | 3 |
+| `tests/config/test_grafana_provisioning.sh` | 2 |
+| `tests/integration/test_grafana.sh` | 4 |
+| `tests/integration/test_data_flow.sh` | 4 (live API) |
+| `tests/integration/test_reconciler_exec.sh` | 4 |
+| `tests/e2e/test_stream_redact.sh` | 6 (live API) |
+| `tests/e2e/test_invalid_model.sh` | 6 (live API) |
 
 ---
 
@@ -114,10 +132,12 @@ is `opencode-gateway-key` (defined in `conf/apisix.yaml`).
 ```
 plugins/custom/
   redact_lib.lua               Pure logic (requireable module)
+  sse_usage_lib.lua            SSE usage parsing (requireable module)
   redact.lua                   Thin adapter (APISIX lifecycle)
 tests/
   lua/
     test_redact_lib.lua        Lua unit tests for redact_lib
+    test_sse_usage_lib.lua     Lua unit tests for sse_usage_lib
     run.sh                     Podman-based resty CLI runner
   config/
     test_apisix_yaml.sh        Validate apisix.yaml
@@ -127,18 +147,24 @@ tests/
     test_patterns_json.sh      Validate redact-patterns.json
     test_clickhouse_sql.sh     Validate clickhouse-init.sql
     test_vector_toml.sh        Validate vector.toml
+    test_grafana_provisioning.sh  Validate Grafana datasources/dashboard/prometheus
     run.sh                     Run all config tests
   reconciler/
     test_reconciler.sh         Reconciler script tests
   integration/
     test_stack_up.sh           Podman stack bring-up and health
-    test_key_auth.sh           key-auth plugin black-box test
+    test_key_resolver.sh       key-resolver plugin black-box test
     test_route_relay.sh        Route relay to upstream test
+    test_grafana.sh            Grafana/Prometheus black-box test
+    test_data_flow.sh          APISIX-Vector-ClickHouse data flow test
+    test_reconciler_exec.sh    Reconciler execution test
     run.sh                     Run all integration tests
   e2e/
     test_zen_chat.sh           End-to-end chat completion
     test_zen_stream.sh         End-to-end SSE streaming
     test_redact_e2e.sh         End-to-end PII redaction header
+    test_stream_redact.sh      End-to-end SSE redaction + restore
+    test_invalid_model.sh      End-to-end invalid model handling
     run.sh                     Run all E2E tests
   ci/
     test_hooks.sh              CI hook verification
@@ -236,8 +262,13 @@ Lua module search path so `require("redact_lib")` resolves.
 
 ### 6.5 Files
 
-- `tests/lua/test_redact_lib.lua`
+- `tests/lua/test_redact_lib.lua` (44 assertions covering
+  `luhn_valid`, `load_patterns`, `redact_text`, `restore_with_key`)
+- `tests/lua/test_sse_usage_lib.lua` (45 assertions covering SSE
+  usage parsing across complete/truncated/chunked event streams)
 - `tests/lua/run.sh`
+
+Total Stage 1 assertions: 89 (44 + 45).
 
 ---
 
@@ -256,21 +287,27 @@ YAML, and `grep` for text-based assertions.
 | # | Assertion |
 |---|-----------|
 | 1 | Valid YAML (parseable) |
-| 2 | Exactly 1 route |
-| 3 | Route id is `relay-zen` |
-| 4 | Route uri is `/zen/*` |
-| 5 | Upstream scheme is `https` |
-| 6 | Upstream node is `opencode.ai:443` |
-| 7 | No `proxy-rewrite` plugin (path preserved) |
-| 8 | `key-auth` plugin present |
-| 9 | `ai-rate-limiting` plugin present |
-| 10 | `prometheus` plugin present |
-| 11 | `http-logger` plugin present |
-| 12 | `proxy-buffering` plugin present |
-| 13 | `redact` plugin present |
-| 14 | Consumer exists with key `opencode-gateway-key` |
-| 15 | `http-logger` uri is `http://vector:8080/ingest` |
-| 16 | `log_format` provider is `opencode-zen` |
+| 2 | Exactly 2 routes |
+| 3 | First route id is `relay-opencode` |
+| 4 | First route uri is `/opencode/*` |
+| 5 | Second route id is `relay-opencode-federated` |
+| 6 | Second route uri is `/opencode_federated/*` |
+| 7 | Upstream scheme is `https` |
+| 8 | Upstream node is `opencode.ai:443` |
+| 9 | `proxy-rewrite` present with regex_uri that strips prefix |
+| 10 | `proxy-rewrite` regex_uri replacement is `/zen/go/` |
+| 11 | `key-resolver` plugin present |
+| 12 | `ai-rate-limiting` plugin present |
+| 13 | `prometheus` plugin present |
+| 14 | `http-logger` plugin present |
+| 15 | `http-logger` has no `log_format` field |
+| 16 | `http-logger` `include_req_body` is true |
+| 17 | `http-logger` `include_resp_body` is true |
+| 18 | `http-logger` `max_req_body_bytes` and `max_resp_body_bytes` are 8192 |
+| 19 | `http-logger` uri is `http://vector:8080/ingest` |
+| 20 | `proxy-buffering` plugin present |
+| 21 | `redact` plugin present |
+| 22 | `sse-usage` plugin present |
 
 **config.yaml** (`test_config_yaml.sh`):
 
@@ -279,35 +316,55 @@ YAML, and `grep` for text-based assertions.
 | 1 | Valid YAML |
 | 2 | `deployment.role` is `data_plane` |
 | 3 | `deployment.config_provider` is `yaml` |
-| 4 | `extra_lua_path` includes custom plugins path |
-| 5 | `redact` in plugins list |
-| 6 | `key-auth` in plugins list |
-| 7 | `lua_shared_dict` has `redact_state` |
+| 4 | `redact` in plugins list |
+| 5 | `key-resolver` in plugins list |
+| 6 | `proxy-rewrite` in plugins list |
+| 7 | `resolver` is `no` (disables Nginx static resolver) |
+| 8 | `lua_shared_dict` has `redact_state` |
+| 9 | `lua_shared_dict` has `key_cache` |
+| 10 | `OPENCODE_API_KEY` referenced via env.var |
+| 11 | `OPENBAO_TOKEN` referenced for key-resolver OpenBao access |
 
 **docker-compose.yml** (`test_compose.sh`):
 
 | # | Assertion |
 |---|-----------|
 | 1 | Valid YAML |
-| 2 | Has `apisix` service |
-| 3 | Has `clickhouse` service |
-| 4 | Has `vector` service |
-| 5 | APISIX exposes port 9080 |
-| 6 | APISIX mounts `apisix.yaml` |
-| 7 | APISIX mounts `redact-patterns.json` |
-| 8 | ClickHouse mounts `clickhouse-init.sql` |
-| 9 | Vector mounts `vector.toml` |
-| 10 | Vector exposes port 8080 |
-| 11 | Networks: `gateway` and `dataops` |
+| 2 | Exactly 6 services |
+| 3 | Has `apisix` service |
+| 4 | Has `clickhouse` service |
+| 5 | Has `vector` service |
+| 6 | Has `openbao` service (custom build via `Dockerfile.openbao`) |
+| 7 | `openbao` service has persistent volume |
+| 8 | Has `prometheus` service |
+| 9 | Prometheus uses `prom/prometheus` image |
+| 10 | Prometheus exposes port 9092 |
+| 11 | Prometheus container name is `prometheus` |
+| 12 | Has `grafana` service |
+| 13 | Grafana uses `grafana/grafana` image |
+| 14 | Grafana exposes port 3030 |
+| 15 | Grafana container name is `grafana` |
+| 16 | Grafana installs clickhouse datasource plugin |
+| 17 | APISIX exposes port 9080 |
+| 18 | APISIX mounts `apisix.yaml` |
+| 19 | APISIX mounts `config.yaml` |
+| 20 | APISIX mounts `redact-patterns.json` |
+| 21 | APISIX `depends_on` includes `openbao` |
+| 22 | ClickHouse mounts `clickhouse-init.sql` |
+| 23 | Vector mounts `vector.toml` |
+| 24 | Vector exposes port 8080 |
+| 25 | Networks: `gateway` and `dataops` |
 
 **Dockerfile.apisix** (`test_dockerfile.sh`):
 
 | # | Assertion |
 |---|-----------|
 | 1 | Base image is `apache/apisix:3.17.0-debian` |
-| 2 | Copies `plugins/custom/` |
+| 2 | Copies `plugins/custom/` directory |
 | 3 | Copies `conf/config.yaml` |
 | 4 | Copies `conf/redact-patterns.json` |
+| 5 | Copies `sse-usage.lua` |
+| 6 | Copies `sse_usage_lib.lua` |
 
 **redact-patterns.json** (`test_patterns_json.sh`):
 
@@ -341,6 +398,42 @@ YAML, and `grep` for text-based assertions.
 | 4 | Sink type `clickhouse` |
 | 5 | Endpoint `http://clickhouse:8123` |
 | 6 | Table `request_log` |
+| 7 | Model extracted via `parse_json` (not `parse_regex`) |
+| 8 | `database` set to `llm_gateway` |
+| 9 | `skip_unknown_fields` is true |
+| 10 | Remap transform parses request/response body |
+| 11 | Token usage fields extracted (`prompt_tokens`, `completion_tokens`, `total_tokens`) |
+| 12 | Header fields extracted (`redact_active`, `redact_token_count`, `api_key_id`) |
+
+**Grafana provisioning** (`test_grafana_provisioning.sh`):
+
+| # | Assertion |
+|---|-----------|
+| 1 | `conf/grafana/datasources/` provisioning dir exists |
+| 2 | Datasource file for Prometheus exists |
+| 3 | Prometheus datasource `url` is `http://prometheus:9090` |
+| 4 | Prometheus datasource `access` is `proxy` |
+| 5 | Prometheus datasource `isDefault` is true |
+| 6 | ClickHouse datasource file exists |
+| 7 | ClickHouse datasource `host` points to `clickhouse:8123` |
+| 8 | ClickHouse datasource `protocol` is `http` |
+| 9 | ClickHouse datasource uses `llm_gateway` database |
+| 10 | `conf/grafana/dashboards/` provisioning dir exists |
+| 11 | `gateway-overview.json` is valid JSON |
+| 12 | Dashboard has `title` containing `gateway` |
+| 13 | Dashboard has `uid` set |
+| 14 | Dashboard has at least one panel |
+| 15 | Panel references Prometheus datasource |
+| 16 | Panel has a `targets` array with PromQL query |
+| 17 | Panel type is `timeseries` or `stat` |
+| 18 | Dashboard has `time` range picker |
+| 19 | Dashboard has `refresh` interval set |
+| 20 | `conf/prometheus.yml` is valid YAML |
+| 21 | `prometheus.yml` `scrape_interval` configured |
+| 22 | `prometheus.yml` scrape target includes `apisix` |
+| 23 | `prometheus.yml` scrape target includes `prometheus` (self) |
+| 24 | Grafana dashboard provisioning config points to `/etc/grafana/provisioning/dashboards` |
+| 25 | Datasource provisioning config points to `/etc/grafana/provisioning/datasources` |
 
 ### 7.3 Runner
 
@@ -348,7 +441,7 @@ YAML, and `grep` for text-based assertions.
 tests/config/run.sh
 ```
 
-Runs all 7 config test scripts sequentially. Exits 0 on all pass.
+Runs all 8 config test scripts sequentially. Exits 0 on all pass.
 
 ---
 
@@ -457,19 +550,25 @@ on every real commit, so functional testing is implicit.
 
 ---
 
-## 11. Stage 6: End-to-End Zen API Test
+## 11. Stage 6: End-to-End Live API Tests
 
 ### 11.1 Scope
 
 Send real chat completion requests through the APISIX gateway to
-OpenCode Zen using free models. Verify the full request/response
+the OpenCode Go upstream. Verify the full request/response
 lifecycle including SSE streaming and telemetry logging.
+
+These are **live API tests** gated behind `RUN_LIVE_API_TESTS=1`.
+They are skipped by default (`make test`) and only run with
+`make test-live`. They require upstream API credits and will
+fail if the upstream key is out of balance.
 
 ### 11.2 Prerequisites
 
 - Running APISIX stack (Stage 4)
-- `OPENCODE_ZEN_API_KEY` set in environment (from `.env`)
+- `OPENCODE_API_KEY` set in environment (from `.env`)
 - `GATEWAY_API_KEY` set in environment (from `.env`)
+- `RUN_LIVE_API_TESTS=1` (set by `make test-live`)
 - Outbound HTTPS to `opencode.ai`
 
 ### 11.3 Test Cases

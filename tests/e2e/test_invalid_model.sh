@@ -10,6 +10,11 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
+if [ -z "${RUN_LIVE_API_TESTS:-}" ]; then
+    echo "[SKIP] RUN_LIVE_API_TESTS not set, skipping live API invalid model tests"
+    exit 0
+fi
+
 GATEWAY_URL="http://localhost:9080"
 
 pass=0
@@ -27,8 +32,8 @@ check() {
     fi
 }
 
-if [ -z "${OPENCODE_ZEN_API_KEY:-}" ]; then
-    echo "[SKIP] OPENCODE_ZEN_API_KEY not set, skipping invalid model tests"
+if [ -z "${OPENCODE_API_KEY:-}" ]; then
+    echo "[SKIP] OPENCODE_API_KEY not set, skipping invalid model tests"
     exit 0
 fi
 if [ -z "${GATEWAY_API_KEY:-}" ]; then
@@ -39,7 +44,7 @@ fi
 body_file=$(mktemp)
 
 http_code=$(curl -s -o "$body_file" -w "%{http_code}" --max-time 30 \
-    -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
+    -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"model":"nonexistent-model-xyz-12345","messages":[{"role":"user","content":"hello"}],"stream":false}' \

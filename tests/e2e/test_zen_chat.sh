@@ -10,6 +10,11 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
+if [ -z "${RUN_LIVE_API_TESTS:-}" ]; then
+    echo "[SKIP] RUN_LIVE_API_TESTS not set, skipping live API chat tests"
+    exit 0
+fi
+
 GATEWAY_URL="http://localhost:9080"
 pass=0
 fail=0
@@ -26,8 +31,8 @@ check() {
     fi
 }
 
-if [ -z "${OPENCODE_ZEN_API_KEY:-}" ]; then
-    echo "[SKIP] OPENCODE_ZEN_API_KEY not set, skipping E2E chat tests"
+if [ -z "${OPENCODE_API_KEY:-}" ]; then
+    echo "[SKIP] OPENCODE_API_KEY not set, skipping E2E chat tests"
     exit 0
 fi
 if [ -z "${GATEWAY_API_KEY:-}" ]; then
@@ -42,7 +47,7 @@ send_chat() {
     tmpfile=$(mktemp)
     http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" \
         --max-time 60 \
-        -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
+        -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
         -H "Authorization: Bearer $GATEWAY_API_KEY" \
         -H "Content-Type: application/json" \
         -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"stream\":false}" || echo "000")
@@ -52,40 +57,40 @@ send_chat() {
     printf '%s' "$body" > /tmp/e2e_chat_body.json
 }
 
-# Test 1: Non-streaming chat with big-pickle
-http_code=$(send_chat "big-pickle" "Say hello in one word")
+# Test 1: Non-streaming chat with minimax-m3
+http_code=$(send_chat "minimax-m3" "Say hello in one word")
 body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 
 if [ "$http_code" = "200" ]; then
     content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null || echo "")
     if [ -n "$content" ]; then
-        check "Non-streaming chat with big-pickle returns 200 with content" "0"
+        check "Non-streaming chat with minimax-m3 returns 200 with content" "0"
     else
         echo "[DEBUG] body was: $body"
-        check "Non-streaming chat with big-pickle returns 200 with content" "1"
+        check "Non-streaming chat with minimax-m3 returns 200 with content" "1"
     fi
 else
     echo "[DEBUG] http_code=$http_code body=$body"
-    check "Non-streaming chat with big-pickle returns 200 with content (got $http_code)" "1"
+    check "Non-streaming chat with minimax-m3 returns 200 with content (got $http_code)" "1"
 fi
 
-# Test 2: Different model (mimo-v2.5-free)
-http_code=$(send_chat "mimo-v2.5-free" "Reply with the single word: ok")
+# Test 2: Different model (mimo-v2.5)
+http_code=$(send_chat "mimo-v2.5" "Reply with the single word: ok")
 body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 
 if [ "$http_code" = "200" ]; then
     content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null || echo "")
     if [ -n "$content" ]; then
-        check "Chat with mimo-v2.5-free returns 200 with content" "0"
+        check "Chat with mimo-v2.5 returns 200 with content" "0"
     else
         echo "[DEBUG] body was: $body"
-        check "Chat with mimo-v2.5-free returns 200 with content" "1"
+        check "Chat with mimo-v2.5 returns 200 with content" "1"
     fi
 else
     echo "[DEBUG] http_code=$http_code body=$body"
-    check "Chat with mimo-v2.5-free returns 200 with content (got $http_code)" "1"
+    check "Chat with mimo-v2.5 returns 200 with content (got $http_code)" "1"
 fi
 
 echo ""

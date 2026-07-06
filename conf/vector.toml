@@ -8,14 +8,12 @@ encoding = "json"
 type = "remap"
 inputs = ["apisix_http_logger"]
 source = """
-.provider = "opencode-zen"
+.provider = "opencode"
 
 req_body_str = to_string!(.request.body || "")
-model_match = parse_regex(req_body_str, r#"(?:"model"\\s*:\\s*")([^"]+)"#) ?? null
-.model = if model_match != null { to_string!(model_match[1] || "") } else { "" }
-
-stream_match = parse_regex(req_body_str, r#"(?:"stream"\\s*:\\s*)(true|false)"#) ?? null
-.stream = if stream_match != null { to_string!(stream_match[1] || "false") == "true" } else { false }
+req_parsed = parse_json(req_body_str) ?? {}
+.model = to_string!(req_parsed.model || "")
+.stream = to_string!(req_parsed.stream || false) == "true"
 
 .method = to_string!(.request.method || "")
 .uri = to_string!(.request.uri || "")
@@ -38,12 +36,12 @@ consumer_obj = .consumer || {}
 .api_key_id = to_string!(consumer_obj.username || "")
 
 req_headers = .request.headers || {}
-.key_id = to_string!(req_headers["x-gateway-key-id"] || "")
-.tenant_id = to_string!(req_headers["x-gateway-tenant-id"] || "")
-.user_id = to_string!(req_headers["x-gateway-user-id"] || "")
-.session_id = to_string!(req_headers["x-session-id"] || "")
-.parent_session_id = to_string!(req_headers["x-parent-session-id"] || "")
-.user_agent = to_string!(req_headers["user-agent"] || "")
+.key_id = to_string!(get!(req_headers, ["x-gateway-key-id"]) || "")
+.tenant_id = to_string!(get!(req_headers, ["x-gateway-tenant-id"]) || "")
+.user_id = to_string!(get!(req_headers, ["x-gateway-user-id"]) || "")
+.session_id = to_string!(get!(req_headers, ["x-session-id"]) || "")
+.parent_session_id = to_string!(get!(req_headers, ["x-parent-session-id"]) || "")
+.user_agent = to_string!(get!(req_headers, ["user-agent"]) || "")
 
 route_id_str = to_string!(.route_id || "")
 start_time_int = to_int(.start_time || 0) ?? 0

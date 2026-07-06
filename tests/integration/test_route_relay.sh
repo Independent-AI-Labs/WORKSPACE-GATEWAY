@@ -2,8 +2,9 @@
 set -euo pipefail
 
 GATEWAY="http://localhost:9080"
-CORRECT_KEY="opencode-gateway-key"
-EXISTING_ROUTE="/zen/v1/models"
+CORRECT_KEY="${GATEWAY_API_KEY:-vgw-gateway-key}"
+ZEN_ROUTE="/opencode/v1/models"
+FED_ROUTE="/opencode_federated/v1/models"
 NONEXIST_ROUTE="/nonexistent"
 
 pass=0
@@ -41,12 +42,23 @@ wait_for_apisix() {
 
 test_route_exists() {
     local code
-    code=$(http_code -H "Authorization: Bearer $CORRECT_KEY" "$GATEWAY$EXISTING_ROUTE")
+    code=$(http_code -H "Authorization: Bearer $CORRECT_KEY" "$GATEWAY$ZEN_ROUTE")
     if [ "$code" = "404" ]; then
-        record_fail "existing route $EXISTING_ROUTE returned 404"
+        record_fail "opencode route $ZEN_ROUTE returned 404"
         return 1
     fi
-    record_pass "Route exists ($EXISTING_ROUTE returned $code, not 404)"
+    record_pass "Opencode route exists ($ZEN_ROUTE returned $code, not 404)"
+    return 0
+}
+
+test_federated_route_exists() {
+    local code
+    code=$(http_code -H "Authorization: Bearer $CORRECT_KEY" "$GATEWAY$FED_ROUTE")
+    if [ "$code" = "404" ]; then
+        record_fail "federated route $FED_ROUTE returned 404"
+        return 1
+    fi
+    record_pass "Federated route exists ($FED_ROUTE returned $code, not 404)"
     return 0
 }
 
@@ -64,6 +76,7 @@ test_nonexistent_route() {
 main() {
     wait_for_apisix || exit 1
     test_route_exists
+    test_federated_route_exists
     test_nonexistent_route
     echo "test_route_relay: $pass passed, $fail failed"
 }

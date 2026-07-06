@@ -10,6 +10,11 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
+if [ -z "${RUN_LIVE_API_TESTS:-}" ]; then
+    echo "[SKIP] RUN_LIVE_API_TESTS not set, skipping live API data flow tests"
+    exit 0
+fi
+
 GATEWAY_URL="http://localhost:9080"
 CH_URL="http://localhost:8123"
 
@@ -33,8 +38,8 @@ if [ -z "${GATEWAY_API_KEY:-}" ]; then
     exit 0
 fi
 
-if [ -z "${OPENCODE_ZEN_API_KEY:-}" ]; then
-    echo "[SKIP] OPENCODE_ZEN_API_KEY not set, skipping data flow tests"
+if [ -z "${OPENCODE_API_KEY:-}" ]; then
+    echo "[SKIP] OPENCODE_API_KEY not set, skipping data flow tests"
     exit 0
 fi
 
@@ -45,12 +50,12 @@ if [ "$curl_code" = "000" ]; then
     exit 0
 fi
 
-echo "[INFO] Sending chat request through gateway..."
+echo "[INFO] Sending chat request through gateway (federated route)..."
 http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
-    -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
+    -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"model":"big-pickle","messages":[{"role":"user","content":"Say hello in one word"}],"stream":false}' \
+    -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello in one word"}],"stream":false}' \
     2>/dev/null || echo "000")
 
 if [ "$http_code" = "200" ]; then
@@ -72,12 +77,12 @@ else
 fi
 
 echo "[INFO] Querying for model-specific rows..."
-model_count=$(curl -sf "$CH_URL/?query=SELECT+count()+FROM+llm_gateway.request_log+WHERE+model='big-pickle'" 2>/dev/null || echo "0")
+model_count=$(curl -sf "$CH_URL/?query=SELECT+count()+FROM+llm_gateway.request_log+WHERE+model='minimax-m3'" 2>/dev/null || echo "0")
 
 if [ "$model_count" -gt 0 ] 2>/dev/null; then
-    check "ClickHouse has big-pickle model rows (count=$model_count)" "0"
+    check "ClickHouse has minimax-m3 model rows (count=$model_count)" "0"
 else
-    check "ClickHouse has big-pickle model rows (count=$model_count)" "1"
+    check "ClickHouse has minimax-m3 model rows (count=$model_count)" "1"
 fi
 
 echo "[INFO] Querying for token usage from usage_log..."

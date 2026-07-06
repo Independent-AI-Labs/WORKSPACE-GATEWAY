@@ -99,8 +99,8 @@ assert_eq "prometheus export_addr ip is 0.0.0.0" "0.0.0.0" "$PROM_EXPORT_IP"
 PROM_EXPORT_PORT=$(echo "$JSON_DATA" | jq -r '.plugin_attr.prometheus.export_addr.port')
 assert_eq "prometheus export_addr port is 9100" "9100" "$PROM_EXPORT_PORT"
 
-HAS_ENVS=$(echo "$JSON_DATA" | jq '.nginx_config.envs | index("OPENCODE_ZEN_API_KEY") != null')
-assert_eq "nginx_config.envs contains OPENCODE_ZEN_API_KEY" "true" "$HAS_ENVS"
+HAS_ENVS=$(echo "$JSON_DATA" | jq '.nginx_config.envs | index("OPENCODE_API_KEY") != null')
+assert_eq "nginx_config.envs contains OPENCODE_API_KEY" "true" "$HAS_ENVS"
 
 HAS_OPENBAO_ENV=$(echo "$JSON_DATA" | jq '.nginx_config.envs | index("OPENBAO_TOKEN") != null')
 assert_eq "nginx_config.envs contains OPENBAO_TOKEN" "true" "$HAS_OPENBAO_ENV"

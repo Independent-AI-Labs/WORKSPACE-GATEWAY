@@ -10,8 +10,8 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
-if [ -z "${OPENCODE_ZEN_API_KEY:-}" ]; then
-    echo "[SKIP] OPENCODE_ZEN_API_KEY not set, skipping all E2E tests"
+if [ -z "${OPENCODE_API_KEY:-}" ]; then
+    echo "[SKIP] OPENCODE_API_KEY not set, skipping all E2E tests"
     exit 0
 fi
 

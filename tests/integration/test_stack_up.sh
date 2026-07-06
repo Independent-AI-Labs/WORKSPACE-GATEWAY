@@ -130,6 +130,14 @@ step8_clickhouse() {
     wait_for_url "http://localhost:8123/ping" "ClickHouse on port 8123" 30
 }
 
+step8b_prometheus() {
+    wait_for_url "http://localhost:9092/-/healthy" "Gateway Prometheus on port 9092" 30
+}
+
+step8c_grafana() {
+    wait_for_url "http://localhost:3030/api/health" "Grafana on port 3030" 60
+}
+
 step9_tables() {
     local query="SELECT+count()+FROM+llm_gateway.request_log"
     local out
@@ -170,6 +178,8 @@ main() {
     step3_apisix
     step7_vector
     step8_clickhouse
+    step8b_prometheus
+    step8c_grafana
     step9_tables
     if [ "${EXTERNAL_STACK:-0}" != "1" ]; then
         step10_teardown

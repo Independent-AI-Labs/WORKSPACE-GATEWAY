@@ -49,7 +49,7 @@ run_stage 2 "Config Validation" "config/run.sh"
 
 run_stage 3 "Reconciler Tests" "reconciler/test_reconciler.sh"
 
-if [ -n "${OPENCODE_ZEN_API_KEY:-}" ]; then
+if [ -n "${OPENCODE_API_KEY:-}" ]; then
     export KEEP_STACK_UP_FOR_E2E=1
 fi
 
@@ -57,12 +57,12 @@ run_stage 4 "Integration Tests" "integration/run.sh"
 
 run_stage 5 "CI Hook Verification" "ci/test_hooks.sh"
 
-if [ -n "${OPENCODE_ZEN_API_KEY:-}" ]; then
-    run_stage 6 "E2E Zen API Tests" "e2e/run.sh"
+if [ -n "${OPENCODE_API_KEY:-}" ]; then
+    run_stage 6 "E2E Live API Tests" "e2e/run.sh"
 else
     echo ""
-    echo "========== Stage 6: E2E Zen API Tests =========="
-    echo "[SKIP] OPENCODE_ZEN_API_KEY not set"
+    echo "========== Stage 6: E2E Live API Tests =========="
+    echo "[SKIP] OPENCODE_API_KEY not set"
 fi
 
 if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ] && [ "${EXTERNAL_STACK:-0}" != "1" ]; then

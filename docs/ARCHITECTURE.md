@@ -9,14 +9,17 @@
 
 WORKSPACE-GATEWAY is a multi-tenant LLM gateway built on **Apache APISIX
 3.17.0** (standalone YAML mode, Apache 2.0). It relays all requests to a
-single upstream: **OpenCode Zen** (`https://opencode.ai/zen/v1`). The
-gateway provides three custom Lua plugins, four APISIX built-in plugins,
+single upstream: **OpenCode Go** (`https://opencode.ai/zen/go/v1`). The
+gateway provides three custom Lua plugins, five APISIX built-in plugins,
 OpenBao-backed virtual key management, PII redaction with re-hydration,
 billing-grade token accounting in ClickHouse, and Prometheus metrics.
+The upstream exposes 20+ Chinese model families (MiniMax, Kimi, GLM,
+DeepSeek, Qwen, MiMo, HY3).
 
-**Single route**: `/zen/*` proxied to `opencode.ai:443` with TLS. No
-proxy-rewrite. No per-provider routes. Zen handles all upstream provider
-routing.
+**Two routes**: `/opencode/*` (passthrough, no key-resolver) and
+`/opencode_federated/*` (virtual-key, key-resolver for `vgw-*` keys),
+both proxied to `opencode.ai:443` with TLS and proxy-rewrite on both
+routes. OpenCode Go handles all upstream provider routing.
 
 **Zero sidecars on the hot path.** All request-time logic runs in pure
 Lua inside the APISIX Nginx worker process.
@@ -32,6 +35,8 @@ graph TB
         VECTOR["Vector 0.40.0<br/>port 8080 (HTTP ingest)"]
         CLICKHOUSE["ClickHouse 24.8<br/>port 8123 (HTTP)<br/>port 9000 (native)"]
         OPENBAO["OpenBao 2.4.4<br/>port 8200 (internal)<br/>port 8201 (host)"]
+        PROM["Prometheus v3.11.3<br/>port 9090<br/>host 9092"]
+        GRAFANA["Grafana 12.0.0<br/>port 3000<br/>host 3030"]
     end
 
     subgraph "External Network"
@@ -39,12 +44,13 @@ graph TB
     end
 
     CLIENT["Inbound Clients<br/>opencode, curl, apps"] -->|HTTP :9080| APISIX
-    APISIX -->|"HTTPS :443"| ZEN["OpenCode Zen<br/>opencode.ai/zen/v1"]
+    APISIX -->|"HTTPS :443<br/>/opencode/* (passthrough)<br/>/opencode_federated/* (vkey)"| GO["OpenCode Go<br/>opencode.ai/zen/go/v1"]
     APISIX -->|"POST /ingest<br/>request + response bodies"| VECTOR
     APISIX -->|"GET /v1/secret/data/..."| OPENBAO
     APISIX -->|"POST INSERT<br/>(via timer)"| CLICKHOUSE
     VECTOR -->|"INSERT request_log"| CLICKHOUSE
-    APISIX -.->|"metrics :9100"| PROM["Prometheus scrape"]
+    APISIX -.->|"metrics :9100"| PROM
+    PROM -.->|"metrics query"| GRAFANA
     APISIX --> DATAOPS
 ```
 
@@ -55,13 +61,20 @@ graph TB
 | APISIX | `apache/apisix:3.17.0-debian` (custom) | 9080, 9443, 9100 | 9080, 9443, 9100 | Data plane: routing, plugins, proxy |
 | ClickHouse | `clickhouse/clickhouse-server:24.8-alpine` | 8123, 9000 | 8123, 9000 | Billing-grade token accounting |
 | Vector | `timberio/vector:0.40.0-debian` | 8080 | 8080 | Telemetry ingest and transform |
-| OpenBao | `docker.io/openbao/openbao:2.4.4` | 8200 | 8201 | Virtual key storage (dev mode) |
+| OpenBao | custom build from `res/docker/Dockerfile.openbao` | 8200 | 8201 | Virtual key storage (production file-storage, persistent volume) |
+| Prometheus | `prom/prometheus:v3.11.3` | 9090 | 9092 | Metrics scraper (APISIX metrics endpoint) |
+| Grafana | `grafana/grafana-oss:12.0.0` | 3000 | 3030 | Metrics dashboards (Prometheus data source) |
 
 ### Networks
 
-- **gateway** (bridge): APISIX, ClickHouse, Vector, OpenBao communicate
-  over this internal network. Container DNS resolves service names
-  (`http://clickhouse:8123`, `http://vector:8080`, `http://openbao:8200`).
+- **gateway** (bridge): APISIX, ClickHouse, Vector, OpenBao, Prometheus,
+  Grafana communicate over this internal network. Container DNS resolves
+  service names (`http://clickhouse:8123`, `http://vector:8080`,
+  `http://openbao:8200`, `http://prometheus:9090`, `http://grafana:3000`).
+  APISIX requires a DNS resolver config (`resolver:
+  [10.89.0.1, 10.89.1.1]` in `config.yaml` under `nginx_config` or
+  `apisix`) so that Lua cosockets can resolve container hostnames at
+  request time.
 - **dataops_default** (external): Shared network for cross-project
   services. APISIX is connected to both networks.
 
@@ -69,6 +82,15 @@ graph TB
 
 - **clickhouse-data**: Persistent storage for ClickHouse data. Survives
   container restarts. Destroyed only by `make dev-clean`.
+- **openbao-data**: OpenBao persistent file storage at `/openbao/data`.
+  Survives container restarts; preserves initialized cluster state and
+  bootstrap keys. Destroyed only by `make dev-clean`.
+- **prometheus-data**: Persistent storage for Prometheus time-series
+  metrics. Survives container restarts. Destroyed only by
+  `make dev-clean`.
+- **grafana-data**: Persistent storage for Grafana dashboards and
+  configuration. Survives container restarts. Destroyed only by
+  `make dev-clean`.
 
 ---
 
@@ -84,11 +106,12 @@ sequenceDiagram
     participant SU as sse-usage<br/>(priority 2400)
     participant HL as http-logger<br/>(priority 410)
     participant PB as proxy-buffering<br/>(priority 300)
-    participant Z as OpenCode Zen
+    participant PRW as proxy-rewrite<br/>(rewrite phase)
+    participant Z as OpenCode Go
     participant V as Vector
     participant CH as ClickHouse
 
-    C->>A: POST /zen/v1/chat/completions<br/>Authorization: Bearer <key>
+    C->>A: POST /opencode_federated/v1/chat/completions<br/>Authorization: Bearer <key>
 
     Note over A,KR: Phase: access (priority descending)
     KR->>KR: Extract bearer token
@@ -100,7 +123,7 @@ sequenceDiagram
             KR->>KR: Cache in key_cache (TTL 5s)
         end
         KR->>KR: Validate active != false
-        KR->>KR: Resolve upstream_key<br/>(from OpenBao or OPENCODE_ZEN_API_KEY env)
+        KR->>KR: Resolve upstream_key<br/>(from OpenBao or OPENCODE_API_KEY env)
         KR->>A: set_header Authorization: Bearer <upstream_key>
         KR->>A: set_header X-Gateway-Key-Id, Tenant-Id, User-Id
     else token is direct (sk-*, etc.)
@@ -117,9 +140,12 @@ sequenceDiagram
 
     RL->>RL: Check rate limit for model
 
+    Note over A,Z: Phase: rewrite (proxy-rewrite)
+    PRW->>PRW: Rewrite path<br/>/opencode_federated/v1/... -> /zen/go/v1/...
+
     Note over A,Z: Phase: proxy (upstream)
     PB->>PB: Disable buffering for SSE
-    A->>Z: HTTPS POST opencode.ai:443<br/>(redacted body, real Zen key)
+    A->>Z: HTTPS POST opencode.ai:443<br/>(redacted body, real Go key)
     Z-->>A: SSE stream or JSON response
 
     Note over A,SU: Phase: header_filter
@@ -147,7 +173,9 @@ sequenceDiagram
 ## 4. Plugin Pipeline
 
 Plugins execute in **priority order** (highest first) during each Nginx
-phase. The route `/zen/*` has seven plugins configured:
+phase. The routes `/opencode/*` and `/opencode_federated/*` have eight
+plugins configured (the federated route additionally enables
+key-resolver):
 
 ```mermaid
 graph LR
@@ -176,7 +204,11 @@ graph LR
         PB["proxy-buffering<br/>priority: 300<br/>Disable for SSE"]
     end
 
-    KR --> RD --> RL --> PB
+    subgraph "rewrite phase"
+        PRW["proxy-rewrite<br/>path: /opencode_federated/* -> /zen/go/*"]
+    end
+
+    KR --> RD --> RL --> PRW --> PB
 ```
 
 ### Plugin Priority Table
@@ -189,6 +221,7 @@ graph LR
 | `sse-usage` | 2400 | Custom Lua | header_filter, body_filter, log | Extract token usage from SSE/JSON responses |
 | `http-logger` | 410 | Built-in | log | Send request/response metadata to Vector |
 | `proxy-buffering` | 300 | Built-in | filter | Disable Nginx buffering for SSE streaming |
+| `proxy-rewrite` | N/A | Built-in | rewrite | Rewrite `/opencode_federated/*` to `/zen/go/*` (and `/opencode/*` to `/zen/go/*`) |
 | `prometheus` | N/A | Built-in | log | Export metrics at `/apisix/prometheus/metrics` |
 
 ---
@@ -221,7 +254,7 @@ flowchart TD
     VALIDATE_ACTIVE -->|"NO: revoked"| REJECT_REVOKED["401: key revoked"]
 
     RESOLVE_UPSTREAM -->|"YES"| INJECT["Set Authorization:<br/>Bearer <upstream_key>"]
-    RESOLVE_UPSTREAM -->|"NO: empty"| ENV_KEY["Read OPENCODE_ZEN_API_KEY<br/>env var"]
+    RESOLVE_UPSTREAM -->|"NO: empty"| ENV_KEY["Read OPENCODE_API_KEY<br/>env var"]
     ENV_KEY -->|"present"| INJECT
     ENV_KEY -->|"missing"| REJECT_500["500: upstream key not configured"]
 
@@ -238,15 +271,18 @@ flowchart TD
 1. **Virtual keys** (`vgw-*` prefix): Looked up in OpenBao KVv2 secret
    store. The OpenBao record contains `virtual_key`, `upstream_key`,
    `tenant_id`, `user_id`, `active`, `created_at`. If `upstream_key` is
-   empty, the resolver reads `OPENCODE_ZEN_API_KEY` from the Nginx
+   empty, the resolver reads `OPENCODE_API_KEY` from the Nginx
    worker environment. Cached in `key_cache` shared dict with
    configurable TTL (5 seconds in dev for fast revocation propagation,
-   300 seconds in production).
+   300 seconds in production). OpenBao runs in production file-storage
+   mode with persistent volumes (not dev mode).
 
 2. **Direct pass-through keys** (any non-`vgw-` prefix, e.g. `sk-*`):
    Forwarded directly to the upstream as the Authorization header. No
    OpenBao lookup. Identity headers set to `passthrough` / `direct`.
-   This allows users to bring their own Zen API keys.
+   This allows users to bring their own OpenCode Go API keys. Proxy to
+   OpenCode Go via the `/opencode/*` passthrough route (which does not
+   enable key-resolver).
 
 #### Error Handling (No Suppressed Errors)
 
@@ -449,7 +485,7 @@ plugin exists because:
    provides a second independent source for cross-validation.
 
 3. **Model capture**: The model in the response may differ from the
-   requested model (Zen may route to a different provider). sse-usage
+   requested model (OpenCode Go may route to a different provider). sse-usage
    captures the actual model from the response.
 
 #### Extract-Testable-Core Pattern
@@ -636,7 +672,7 @@ before sending anything to the client, breaking real-time streaming.
 
 ```mermaid
 graph TB
-    subgraph "OpenBao 2.4.4 (dev mode, in-memory)"
+    subgraph "OpenBao 2.4.4 (production file-storage, persistent volume)"
         KV["KV v2 Secret Engine<br/>secret/data/gateway/keys/"]
     end
 
@@ -652,7 +688,7 @@ graph TB
     end
 
     subgraph "Gateway Key (provisioned on start)"
-        GK["vgw-gateway-key<br/>tenant: default<br/>user: agent<br/>upstream_key: empty<br/>(uses OPENCODE_ZEN_API_KEY env)"]
+        GK["vgw-gateway-key<br/>tenant: default<br/>user: agent<br/>upstream_key: empty<br/>(uses OPENCODE_API_KEY env)"]
     end
 
     ISSUE --> KV
@@ -692,9 +728,9 @@ stateDiagram-v2
 ```
 
 When `upstream_key` is empty, the key-resolver reads the
-`OPENCODE_ZEN_API_KEY` environment variable. This allows issuing keys
-that all use the same upstream Zen key without duplicating it in each
-OpenBao record.
+`OPENCODE_API_KEY` environment variable. This allows issuing keys
+that all use the same upstream OpenCode Go key without duplicating it
+in each OpenBao record.
 
 ### 7.4 Management Scripts
 
@@ -735,6 +771,34 @@ vgw-test-1234567890                     test-tenant  test-user    true     2026-
 vgw-revoked-1234567890                  test         test         false    2026-07-06T11:05:00Z
 ```
 
+### 7.5 Auto-Init / Auto-Unseal Entrypoint
+
+OpenBao runs in **production file-storage mode** (not `-dev`). Storage
+lives at `/openbao/data` on the persistent `openbao-data` named volume.
+The custom image built from `res/docker/Dockerfile.openbao` ships an
+entrypoint at `res/docker/openbao-entrypoint.sh` that is fully
+idempotent:
+
+**First start** (no existing storage):
+1. Initialize OpenBao with 1 unseal key and threshold = 1.
+2. Save bootstrap unseal key + root token to
+   `/openbao/data/.bootstrap/`.
+3. Create a fixed-ID service token matching `OPENBAO_TOKEN` from
+   `.env`, so APISIX can authenticate without discovering a random
+   root token.
+4. Provision the gateway virtual key `vgw-gateway-key` from
+   `OPENCODE_API_KEY` in `.env`.
+
+**Restart** (storage already initialized):
+1. Auto-unseal using the saved bootstrap key(s).
+2. Ensure the fixed-ID service token matches `OPENBAO_TOKEN`.
+3. Ensure the gateway virtual key is present.
+
+All steps detect prior state and skip if already done (idempotent). The
+OpenBao server config is loaded from `conf/openbao.hcl` (bind-mounted
+into the container). The custom Dockerfile is
+`res/docker/Dockerfile.openbao`.
+
 ---
 
 ## 8. Telemetry Pipeline
@@ -768,11 +832,15 @@ graph LR
 
     SU -->|"ngx.timer.at(0)"<br/>POST INSERT| UL
 
-    subgraph "Prometheus"
+    subgraph "Prometheus + Grafana"
         PROM["Metrics endpoint<br/>:9100/apisix/prometheus/metrics"]
+        PROMSVC["Prometheus scraper<br/>port 9090"]
+        GRAF["Grafana dashboards<br/>port 3000"]
     end
 
     APISIX2["APISIX prometheus plugin"] --> PROM
+    PROMSVC -->|"scrape :9100"| APISIX2
+    GRAF -->|"query"| PROMSVC
 ```
 
 ### 8.2 Vector VRL Transform
@@ -782,9 +850,9 @@ the APISIX default log format:
 
 | Field | Source | Extraction Method |
 |-------|--------|-------------------|
-| `provider` | Static | `"opencode-zen"` |
-| `model` | `request.body` | `parse_regex` for `"model":"<value>"` |
-| `stream` | `request.body` | `parse_regex` for `"stream":true\|false` |
+| `provider` | Static | `"opencode"` |
+| `model` | `request.body` | `parse_json` then `.model` field |
+| `stream` | `request.body` | `parse_json` then `.stream` field |
 | `prompt_tokens` | `response.body` | `parse_json` then `.usage.prompt_tokens` |
 | `completion_tokens` | `response.body` | `parse_json` then `.usage.completion_tokens` |
 | `total_tokens` | `response.body` | `parse_json` then `.usage.total_tokens` |
@@ -798,10 +866,12 @@ the APISIX default log format:
 | `event_id` | `route_id` + `start_time` | Concatenated string |
 | `timestamp` | `start_time` | `from_unix_timestamp` + `format_timestamp` |
 
-**Why regex for model extraction?** The request body is truncated at
-8192 bytes by http-logger. For large requests, `parse_json` fails
-because the JSON is incomplete. `parse_regex` with a targeted pattern
-extracts the model field even from truncated JSON.
+**Why parse_json for model extraction?** `parse_json` is used because
+the request body is typically small enough for the `.model` field to be
+parsed successfully (the model field appears near the start of the JSON
+structure). For truncated bodies, the model field is still extracted
+because it appears early in the JSON structure, before any large message
+content that would push the body past the 8192-byte limit.
 
 **Why are tokens 0 in request_log for streaming?** Vector's
 `parse_json` on the response body fails for SSE streams (truncated at
@@ -824,7 +894,8 @@ FORMAT TabSeparated
 ```
 
 The reconciler logs per-model totals. Upstream provider API comparison
-(against Zen's usage API) is v2 scope. Divergences are never discarded.
+(against OpenCode Go's usage API) is v2 scope. Divergences are never
+discarded.
 
 ---
 
@@ -853,9 +924,9 @@ The primary telemetry table. Written by Vector from http-logger output.
 | Column | Type | Default | Source |
 |--------|------|---------|--------|
 | `event_id` | String | `''` | route_id + start_time |
-| `provider` | LowCardinality(String) | | Static "opencode-zen" |
-| `model` | LowCardinality(String) | `''` | Vector regex from request body |
-| `stream` | Bool | false | Vector regex from request body |
+| `provider` | LowCardinality(String) | | Static "opencode" |
+| `model` | LowCardinality(String) | `''` | Vector parse_json from request body |
+| `stream` | Bool | false | Vector parse_json from request body |
 | `method` | LowCardinality(String) | | HTTP method |
 | `uri` | String | | Request URI |
 | `status` | UInt16 | | HTTP response status |
@@ -948,8 +1019,11 @@ runs on first volume creation. The Ansible task ensures schema changes
 ### 10.1 conf/config.yaml
 
 APISIX standalone YAML mode configuration. Defines the data plane role,
-plugin list, shared dicts, Nginx environment variables, and Prometheus
-export address.
+plugin list, shared dicts, Nginx environment variables, DNS resolver
+(for Lua cosocket hostname resolution), and Prometheus export address.
+The file is bind-mounted into the APISIX container by docker-compose.yml
+(not only baked into the Docker image), so edits take effect on
+container restart without rebuilding.
 
 ```yaml
 deployment:
@@ -959,11 +1033,13 @@ deployment:
 
 apisix:
   admin_key: ""
+  resolver: ["10.89.0.1", "10.89.1.1"]
 
 plugins:
   - key-resolver
   - ai-rate-limiting
   - proxy-buffering
+  - proxy-rewrite
   - http-logger
   - prometheus
   - redact
@@ -977,7 +1053,7 @@ plugin_attr:
 
 nginx_config:
   envs:
-    - OPENCODE_ZEN_API_KEY
+    - OPENCODE_API_KEY
     - OPENBAO_TOKEN
   http:
     custom_lua_shared_dict:
@@ -991,6 +1067,11 @@ nginx_config:
   schema has `envs` at the `nginx_config` root level. This passes env
   vars from the container environment into Nginx worker processes so
   Lua code can read them via `os.getenv()`.
+- `apisix.resolver`: Lua cosockets (used by key-resolver to reach
+  `openbao` by container hostname) cannot use Nginx's built-in DNS in
+  standalone YAML mode. The resolver list points Nginx at the
+  container-runtime DNS so hostnames like `openbao`, `clickhouse`,
+  `vector`, `prometheus`, `grafana` resolve at request time.
 - `custom_lua_shared_dict`: APISIX 3.17 uses this key (not
   `lua_shared_dict`) for user-defined shared dicts.
 - `proxy_buffering: "on"` at the global level, overridden per-route by
@@ -998,12 +1079,19 @@ nginx_config:
 
 ### 10.2 conf/apisix.yaml
 
-Route and plugin configuration. Single route, seven plugins.
+Route and plugin configuration. Two routes, eight plugins (the
+federated route additionally enables key-resolver). Both routes share
+the same upstream (`opencode.ai:443`) and a `proxy-rewrite` plugin that
+rewrites the inbound path to the `/zen/go/*` upstream path. http-logger
+uses the APISIX default log format (no custom `log_format`). The
+`sse-usage` plugin is enabled on both routes. There is no `key-auth`
+plugin or `consumers` section; authentication is handled by the custom
+`key-resolver` plugin on the federated route only.
 
 ```yaml
 routes:
-  - id: relay-zen
-    uri: /zen/*
+  - id: relay-opencode
+    uri: /opencode/*
     upstream:
       type: roundrobin
       scheme: https
@@ -1011,10 +1099,46 @@ routes:
       nodes:
         "opencode.ai:443": 1
     plugins:
+      proxy-rewrite:
+        regex_uri: ["^/opencode/(.*)$", "/zen/go/$1"]
+      ai-rate-limiting:
+        model: "$request_body.model"
+        limit: 1000
+        time_window: 60
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 8192
+        max_resp_body_bytes: 8192
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
+  - id: relay-opencode-federated
+    uri: /opencode_federated/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "opencode.ai:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/opencode_federated/(.*)$", "/zen/go/$1"]
       key-resolver:
         openbao_addr: "http://openbao:8200"
         openbao_token_env: "OPENBAO_TOKEN"
-        upstream_key_env: "OPENCODE_ZEN_API_KEY"
+        upstream_key_env: "OPENCODE_API_KEY"
         key_prefix: "secret/data/gateway/keys/"
         cache_ttl: 5
         virtual_key_prefix: "vgw-"
@@ -1049,8 +1173,15 @@ the end of the configuration file. Without it, APISIX may not parse the
 file correctly.
 
 **`pass_host: node`**: Preserves the upstream Host header
-(`opencode.ai`), which is required for TLS SNI and Zen to route
+(`opencode.ai`), which is required for TLS SNI and OpenCode Go to route
 correctly.
+
+**`proxy-rewrite.regex_uri`**: Rewrites the inbound URI so that
+`/opencode/<rest>` and `/opencode_federated/<rest>` both reach the
+upstream at `/zen/go/<rest>`. The passthrough route (`relay-opencode`)
+does not enable `key-resolver`; the federated route
+(`relay-opencode-federated`) does, resolving `vgw-*` virtual keys
+against OpenBao.
 
 ### 10.3 conf/redact-patterns.json
 
@@ -1060,7 +1191,9 @@ PII detection patterns. Six regex patterns, two dictionary categories.
 
 Vector pipeline: HTTP source on :8080, VRL remap transform, ClickHouse
 sink to `request_log` table. `skip_unknown_fields = true` allows
-ClickHouse to ignore fields not in the table schema.
+ClickHouse to ignore fields not in the table schema. The remap
+transform uses `parse_json` to extract the `.model` and `.stream`
+fields from the request body (not `parse_regex`).
 
 ### 10.5 conf/clickhouse-init.sql
 
@@ -1090,10 +1223,21 @@ APISIX Lua module path.
 
 ### 10.7 res/docker/docker-compose.yml
 
-Four services: apisix, clickhouse, vector, openbao. APISIX has
-`env_file: ../../.env` to pass environment variables into the container.
-APISIX `depends_on: [vector, openbao]`. OpenBao runs in dev mode
-(`-dev` flag) with a fixed root token.
+Six services: apisix, clickhouse, vector, openbao, prometheus,
+grafana. APISIX has `env_file: ../../.env` to pass environment variables
+into the container and bind-mounts `conf/config.yaml` (so config edits
+take effect on restart without rebuilding the image). APISIX
+`depends_on: [vector, openbao]`. OpenBao runs in production file-storage
+mode: built from a custom Dockerfile
+(`res/docker/Dockerfile.openbao`), launched via the auto-init/auto-unseal
+entrypoint (`res/docker/openbao-entrypoint.sh`), and backed by the
+persistent `openbao-data` named volume (no `-dev` flag, no fixed root
+token; the entrypoint creates a fixed-ID service token matching
+`OPENBAO_TOKEN`). Prometheus (`prom/prometheus:v3.11.3`, host port 9092)
+scrapes the APISIX metrics endpoint and is backed by the
+`prometheus-data` volume. Grafana (`grafana/grafana-oss:12.0.0`, host
+port 3030) queries Prometheus and is backed by the `grafana-data`
+volume.
 
 ---
 
@@ -1191,9 +1335,10 @@ sequenceDiagram
 | `make revoke-key` | Revoke a virtual key |
 | `make lint` | Shell syntax + YAML validation |
 | `make type-check` | Lua syntax check via `resty` in Podman |
-| `make test` | Run all test stages |
+| `make test` | Run all test stages (excludes live upstream API) |
+| `make test-live` | Run all stages including live upstream API tests |
 | `make check` | lint + type-check + test |
-| `make check-push` | check + E2E tests |
+| `make check-push` | check + E2E tests (if Go key set) |
 
 ---
 
@@ -1223,7 +1368,7 @@ graph TB
         S5["tests/ci/test_hooks.sh<br/>9 assertions<br/>Pre-commit + pre-push hook presence<br/>and content verification"]
     end
 
-    subgraph "Stage 6: E2E Zen API Tests"
+    subgraph "Stage 6: E2E Live API Tests"
         S6["tests/e2e/run.sh<br/>5 test scripts<br/>chat, stream, redact, stream redact,<br/>invalid model"]
     end
 
@@ -1285,7 +1430,7 @@ developer is actively using.
 | 3 | 1 | 7 | Reconciler static analysis |
 | 4 | 6 | 20 | Integration (black-box HTTP) |
 | 5 | 1 | 9 | CI hook verification |
-| 6 | 5 | 17 | E2E Zen API (real upstream) |
+| 6 | 5 | 17 | E2E live API (gated, real upstream) |
 | **Total** | **22** | **254** | |
 
 ---
@@ -1326,16 +1471,28 @@ is untouched.
 ### 13.2 Model Discovery
 
 The `sync-opencode-models.sh` script fetches the model list from the
-gateway's `/zen/v1/models` endpoint and writes all model IDs into the
-opencode config:
+gateway's `/zen_federated/v1/models` endpoint using the virtual gateway
+key, then enriches each model with canonical metadata (name, context
+limit, capabilities, cost, modalities) from
+[models.dev](https://models.dev/api.json), and writes all enriched model
+entries into the opencode config under TWO providers:
 
 ```bash
 make sync-models
 ```
 
 This is necessary because opencode drops custom providers that have zero
-models configured. The script ensures all 50 Zen models are listed so
-the provider remains active.
+models configured, and because the Zen `/v1/models` endpoint only returns
+bare model IDs (no names, no context limits, no capabilities). The script
+cross-references models.dev to produce a complete provider entry. The
+script runs automatically on every `make dev-start` and `make dev-restart`
+via the Ansible playbook (`res/ansible/dev.yml`, `start` tag).
+
+Context limits are scaled by `CONTEXT_LIMIT_PCT` (default 100) from `.env`,
+so e.g. `CONTEXT_LIMIT_PCT=80` reduces a 200000-token context to 160000.
+An absolute ceiling `CONTEXT_LIMIT_CEILING` (default 128000) is then
+applied: any scaled value exceeding the ceiling is clamped to it. Set to
+0 to disable.
 
 ### 13.3 Identity Headers
 
@@ -1360,9 +1517,13 @@ opencode config. A future opencode plugin could dynamically set
 ### 13.4 Dynamic Model List (models.dev)
 
 opencode's built-in `opencode` provider auto-refreshes models from
-`models.dev` every 5 minutes. The `workspace-gateway` custom provider
-does not use models.dev; it relies on the `sync-models` script for
-model list updates.
+`models.dev` every 5 minutes. The `zen` and `zen_federated` custom
+providers do not auto-refresh; the `sync-models` script fetches
+models.dev at stack start time, enriches the gateway model list with
+canonical names, context limits (scaled by `CONTEXT_LIMIT_PCT`,
+capped by `CONTEXT_LIMIT_CEILING`),
+capabilities, and costs, then writes the merged result into the opencode
+config.
 
 ---
 
@@ -1471,6 +1632,5 @@ WORKSPACE-GATEWAY/
 
 ---
 
-**Maintained by**: AMI-Agents Engineering
 **Last updated**: 2026-07-06
 **Document version**: v4.0 (complete architecture reference)

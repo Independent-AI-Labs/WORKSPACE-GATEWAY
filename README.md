@@ -2,14 +2,14 @@
 
 Multi-tenant LLM gateway on Apache APISIX 3.17.0. Routes traffic to any
 OpenAI-compatible LLM provider, with PII redaction, virtual key
-management, and billing-grade token accounting. Three custom Lua
-plugins, four built-in plugins, zero sidecars on the hot path.
+management, billing-grade token accounting, and a Grafana dashboard.
+Three custom Lua plugins, five built-in plugins, zero sidecars on the
+hot path.
 
-Currently configured with **OpenCode Zen** as the upstream. APISIX's
+Currently configured with **OpenCode Go** as the upstream. APISIX's
 built-in `ai-proxy` / `ai-proxy-multi` plugins support 10 provider
 backends out of the box (see [Supported Providers](#supported-providers)).
 
-> Part of the `Independent-Ai-Labs/WORKSPACE-VM` monorepo.
 > Full technical reference: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ---
@@ -25,7 +25,6 @@ backends out of the box (see [Supported Providers](#supported-providers)).
 - [Configuration](#configuration)
 - [opencode Integration](#opencode-integration)
 - [Testing](#testing)
-- [Repository Layout](#repository-layout)
 - [Make Targets](#make-targets)
 - [Documentation](#documentation)
 - [License](#license)
@@ -38,25 +37,25 @@ backends out of the box (see [Supported Providers](#supported-providers)).
 # 1. Install podman-compose and build images
 make install
 
-# 2. Start the gateway stack (APISIX + ClickHouse + Vector + OpenBao)
+# 2. Start the gateway stack (APISIX + ClickHouse + Vector + OpenBao + Prometheus + Grafana)
 make dev-start
 
 # 3. Send a request through the gateway
-KEY="$GATEWAY_API_KEY"  # from .env (provisioned in OpenBao on start)
-curl -s http://localhost:9080/zen/v1/chat/completions \
+KEY="$GATEWAY_API_KEY"  # vgw-gateway-key from .env (provisioned in OpenBao on start)
+curl -s http://localhost:9080/opencode_federated/v1/chat/completions \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"big-pickle","messages":[{"role":"user","content":"Say hello"}]}'
+  -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}]}'
 ```
 
-Ports: 9080 (gateway), 8123 (ClickHouse), 9100 (Prometheus), 8201 (OpenBao).
+Ports: 9080 (gateway), 8123 (ClickHouse), 9100 (Prometheus metrics), 8201 (OpenBao), 3030 (Grafana), 9092 (Prometheus).
 
 ### Prerequisites
 
 - [Podman](https://podman.io/) 5.x
 - [Ansible](https://docs.ansible.com/) 2.21+
 - `uv` (for `.venv` setup)
-- A `.env` file with `OPENCODE_ZEN_API_KEY`, `GATEWAY_API_KEY`,
+- A `.env` file with `OPENCODE_API_KEY`, `GATEWAY_API_KEY`,
   `OPENBAO_TOKEN` (see `.env` example in repo, gitignored)
 
 ---
@@ -75,13 +74,14 @@ graph TB
             RD["redact<br/>2500"]
         end
         subgraph "Proxy"
+            PRW["proxy-rewrite<br/>rewrite"]
             RL["ai-rate-limiting<br/>990"]
             PB["proxy-buffering<br/>300"]
         end
         subgraph "Telemetry"
             SU["sse-usage<br/>2400"]
             HL["http-logger<br/>410"]
-            PROM["prometheus"]
+            PROMP["prometheus<br/>:9100"]
         end
     end
 
@@ -91,25 +91,35 @@ graph TB
         CH["ClickHouse<br/>request_log + usage_log"]
     end
 
-    subgraph "Upstream"
-        ZEN["OpenCode Zen<br/>or any OpenAI-compatible API"]
+    subgraph "Monitoring"
+        PROM["Prometheus<br/>metrics"]
+        GW["Grafana<br/>dashboard"]
     end
 
-    C -->|"POST /zen/*"| KR
-    KR --> RD --> RL --> PB -->|"HTTPS"| ZEN
-    ZEN -->|"response"| SU
+    subgraph "Upstream"
+        GO["OpenCode Go<br/>or any OpenAI-compatible API"]
+    end
+
+    C -->|"POST /opencode_federated/*"| KR
+    C -->|"POST /opencode/*"| KR
+    KR --> RD --> PRW --> RL --> PB -->|"HTTPS /zen/go/*"| GO
+    GO -->|"response"| SU
 
     KR -.->|"GET key"| OB
     HL -.->|"POST log"| V --> CH
     SU -.->|"INSERT usage"| CH
-    PROM -.->|":9100"| METRICS["Prometheus"]
+    PROMP -.->|"export :9100"| PROM
+    GW -.->|"query"| PROM
 ```
 
 Standalone YAML mode: file-driven configuration, hot reload.
 
-**Current upstream**: OpenCode Zen (`opencode.ai:443`), which itself
-routes to 50+ models across OpenAI, Anthropic, Google, DeepSeek, and
-others. The gateway can be reconfigured to point at any
+**Current upstream**: OpenCode Go (`opencode.ai:443`), reached via the
+`/zen/go/` path rewrite applied by `proxy-rewrite`. The gateway exposes
+two routes: `/opencode/*` (passthrough) and `/opencode_federated/*`
+(virtual-key), both rewritten to `/zen/go/*`. The Go endpoint serves
+20+ models across Chinese model families: MiniMax, Kimi, GLM, DeepSeek,
+Qwen, MiMo, HY3. The gateway can be reconfigured to point at any
 OpenAI-compatible API by editing `conf/apisix.yaml`.
 
 ---
@@ -141,42 +151,38 @@ retries on failure, health checks, and provider-level routing rules.
 
 ## Features
 
-| Feature | How | Custom Code |
-|---------|-----|-------------|
-| PII redaction + re-hydration | `redact` plugin: regex + dictionary + Luhn, pure Lua | Yes |
-| Virtual key management | `key-resolver` plugin: OpenBao KVv2, shared dict cache | Yes |
-| Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Yes |
-| SSE token extraction | `sse-usage` plugin: buffers SSE, extracts usage, writes ClickHouse | Yes |
-| Per-model rate limiting | `ai-rate-limiting` built-in | No |
-| Request/response logging | `http-logger` built-in, to Vector to ClickHouse | No |
-| Prometheus metrics | `prometheus` built-in at `:9100` | No |
-| SSE streaming support | `proxy-buffering` disabled per-route | No |
-| Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL only |
+- **PII redaction + re-hydration** : `redact` plugin: regex + dictionary + Luhn, pure Lua (custom)
+- **Virtual key management** : `key-resolver` plugin: OpenBao KVv2 (persistent file-storage), shared dict cache (custom)
+- **Direct key pass-through** : `key-resolver`: non-`vgw-` keys forwarded as-is (custom)
+- **SSE token extraction** : `sse-usage` plugin: buffers SSE, extracts usage, writes ClickHouse (custom)
+- **Per-model rate limiting** : `ai-rate-limiting` built-in (built-in)
+- **Request/response logging** : `http-logger` built-in, to Vector to ClickHouse (built-in)
+- **Prometheus metrics** : `prometheus` built-in at `:9100` (built-in)
+- **SSE streaming support** : `proxy-buffering` disabled per-route (config)
+- **Grafana dashboard** : pre-provisioned datasources + dashboards for gateway observability (config)
+- **Billing-grade schema** : ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys (SQL only)
 
 ---
 
 ## Plugins
 
-Seven plugins on a single route, ordered by Nginx phase priority:
+Eight plugins on two routes, ordered by Nginx phase priority:
 
-| Plugin | Priority | Type | Phase(s) | Purpose |
-|--------|----------|------|----------|---------|
-| `key-resolver` | 2555 | Custom Lua | access | Resolve `vgw-*` keys via OpenBao; pass through others |
-| `redact` | 2500 | Custom Lua | access, header_filter, body_filter, log | PII anonymization + re-hydration |
-| `sse-usage` | 2400 | Custom Lua | header_filter, body_filter, log | Extract token usage from SSE/JSON responses |
-| `ai-rate-limiting` | 990 | Built-in | access | Per-model rate limit (1000 req / 60s) |
-| `http-logger` | 410 | Built-in | log | Send req/resp metadata to Vector |
-| `proxy-buffering` | 300 | Built-in | filter | Disable buffering for SSE |
-| `prometheus` | N/A | Built-in | log | Export metrics at `:9100` |
+- **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Rewrites `/opencode_federated/*` → `/zen/go/*` (or `/opencode/*` → `/zen/go/*`)
+- **`key-resolver`** (2555, Custom Lua, `access`) : Resolve `vgw-*` keys via OpenBao; pass through others
+- **`redact`** (2500, Custom Lua, `access`/`header_filter`/`body_filter`/`log`) : PII anonymization + re-hydration
+- **`sse-usage`** (2400, Custom Lua, `header_filter`/`body_filter`/`log`) : Extract token usage from SSE/JSON responses
+- **`ai-rate-limiting`** (990, Built-in, `access`) : Per-model rate limit (1000 req / 60s)
+- **`http-logger`** (410, Built-in, `log`) : Send req/resp metadata to Vector
+- **`proxy-buffering`** (300, Built-in, `filter`) : Disable buffering for SSE
+- **`prometheus`** (N/A, Built-in, `log`) : Export metrics at `:9100`
 
 ### Extract-Testable-Core Pattern
 
 Each custom plugin is split into two files:
 
-| File | Role | Nginx Dependency |
-|------|------|------------------|
-| `*_lib.lua` | Pure logic module, requireable, unit-testable | `cjson`, `ngx.re` only |
-| `*.lua` | APISIX adapter: lifecycle phases, ctx, shared dict | Full APISIX API |
+- **`*_lib.lua`** : Pure logic module, requireable, unit-testable (deps: `cjson`, `ngx.re` only)
+- **`*.lua`** : APISIX adapter: lifecycle phases, ctx, shared dict (deps: Full APISIX API)
 
 ---
 
@@ -191,19 +197,21 @@ flowchart TD
     OPENBAO -->|"Revoked"| R401R["401: key revoked"]
     OPENBAO -->|"Unreachable"| R503["503: key store unreachable"]
     CHECK -->|"NO"| PASS["Pass through as-is<br/>X-Gateway-Key-Id: passthrough"]
-    INJECT --> UPSTREAM["Proxy to Zen"]
-    PASS --> UPSTREAM
+    INJECT -->|"POST /opencode_federated/*"| UPSTREAM["Proxy to OpenCode Go"]
+    PASS -->|"POST /opencode/*"| UPSTREAM
 ```
 
 ### Two Key Modes
 
-1. **Virtual keys** (`vgw-*`): Stored in OpenBao. Resolved to an
-   upstream Zen key. Can be revoked, rate-limited per tenant, audited.
-   Cached in `key_cache` shared dict (5s TTL in dev, 300s in prod).
+1. **Virtual keys** (`vgw-*`): Used on the `/opencode_federated/*`
+   route. Stored in OpenBao (production file-storage mode with
+   persistent volumes). Resolved to an upstream Go key. Can be
+   revoked, rate-limited per tenant, audited. Cached in `key_cache`
+   shared dict (5s TTL in dev, 300s in prod).
 
-2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): Passed through
-   to upstream as-is. No OpenBao lookup. Users can bring their own
-   Zen API keys.
+2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): Used on the
+   `/opencode/*` route. Passed through to upstream as-is. No OpenBao
+   lookup. Users bring their own Go API keys.
 
 ### Commands
 
@@ -223,21 +231,29 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 | File | Purpose |
 |------|---------|
 | `conf/config.yaml` | APISIX standalone mode: plugin list, shared dicts, env vars, Prometheus port |
-| `conf/apisix.yaml` | Route + plugin configs (single `/zen/*` route, 7 plugins) |
+| `conf/apisix.yaml` | Two routes: `/opencode/*` + `/opencode_federated/*`, 8 plugins each |
+| `conf/openbao.hcl` | OpenBao production config (file-storage backend) |
+| `conf/prometheus.yml` | Prometheus scrape config (APISIX `:9100`) |
+| `conf/grafana/` | Grafana datasources + dashboards (provisioned on start) |
 | `conf/redact-patterns.json` | PII detection: 6 regex patterns + 2 dictionary categories |
 | `conf/clickhouse-init.sql` | 4 tables: `request_log`, `usage_log`, `billing_ledger`, `billing_discrepancies` |
-| `conf/vector.toml` | Vector pipeline: HTTP source, VRL remap, ClickHouse sink |
-| `res/docker/docker-compose.yml` | 4 services: apisix, clickhouse, vector, openbao |
+| `conf/vector.toml` | Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink |
+| `res/docker/docker-compose.yml` | 6 services: apisix, clickhouse, vector, openbao, prometheus, grafana |
 | `res/docker/Dockerfile.apisix` | Custom APISIX image: 5 Lua files + config copied in |
-| `.env` | Secrets: `OPENCODE_ZEN_API_KEY`, `GATEWAY_API_KEY`, `OPENBAO_TOKEN` |
+| `res/docker/Dockerfile.openbao` | Custom OpenBao image (production file-storage) |
+| `res/docker/openbao-entrypoint.sh` | OpenBao auto-init, auto-unseal, gateway key provisioning (data persists via `openbao-data` named volume) |
+| `.env` | Secrets: `OPENCODE_API_KEY`, `GATEWAY_API_KEY`, `OPENBAO_TOKEN` |
 
 ### Environment Variables
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
-| `OPENCODE_ZEN_API_KEY` | Upstream Zen key (injected into proxied requests) | `sk-C0kL...` |
+| `OPENCODE_API_KEY` | Upstream Go key (injected into proxied requests) | `sk-HiEr...` |
+| `OPENCODE_BASE_URL` | Upstream Go base URL | `https://opencode.ai/zen/go/v1` |
 | `GATEWAY_API_KEY` | Default virtual key for opencode integration | `vgw-gateway-key` |
 | `OPENBAO_TOKEN` | Root token for OpenBao KVv2 API | `2e22c6e...` |
+| `CONTEXT_LIMIT_PCT` | Context limit scaling percentage | `80` |
+| `CONTEXT_LIMIT_CEILING` | Absolute max context tokens after scaling | `128000` |
 
 ### ClickHouse Tables
 
@@ -252,31 +268,70 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 
 ## opencode Integration
 
-The gateway registers as a `workspace-gateway` custom provider in
-opencode.
+The gateway registers as `workspace-gw-private` (virtual key) and
+`workspace-gw-own` (own key) custom providers in opencode.
 
 ```bash
 # Sync all models from gateway into opencode config
 make sync-models
 ```
 
-This fetches `/zen/v1/models` from the gateway and writes the
-`workspace-gateway` provider entry into `~/.config/opencode/opencode.jsonc`
-with all model IDs, the gateway URL, and the virtual key.
+This fetches `/opencode_federated/v1/models` from the gateway using the
+virtual gateway key, enriches each model with canonical metadata (name,
+context limit, capabilities, cost, modalities) from [models.dev](https://models.dev),
+and writes TWO provider entries into `~/.config/opencode/opencode.jsonc`:
+
+- `workspace-gw-private`: virtual-key mode (apiKey = `vgw-gateway-key`)
+- `workspace-gw-own`: own-key passthrough (no apiKey, client provides key)
+
+Both providers receive the full enriched model catalog so opencode does not
+drop them (opencode deletes providers with zero models). The script runs
+automatically on `make dev-start` and `make dev-restart` via the Ansible
+playbook.
+
+Context limits are scaled by `CONTEXT_LIMIT_PCT` (default 80) from `.env`,
+so e.g. `CONTEXT_LIMIT_PCT=80` reduces a 200000-token context to 160000.
+An absolute ceiling `CONTEXT_LIMIT_CEILING` (default 128000) is then
+applied: any scaled value exceeding the ceiling is clamped to it. Set to
+0 to disable.
 
 Result in opencode config:
 
 ```json
 {
   "provider": {
-    "workspace-gateway": {
-      "api": "http://localhost:9080/zen/v1",
+    "workspace-gw-private": {
+      "api": "http://localhost:9080/opencode_federated/v1",
+      "npm": "@ai-sdk/openai-compatible",
       "options": {
-        "baseURL": "http://localhost:9080/zen/v1",
+        "baseURL": "http://localhost:9080/opencode_federated/v1",
         "apiKey": "vgw-gateway-key",
         "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
       },
-      "models": { "big-pickle": {}, "gpt-5": {}, "...": {} }
+      "models": {
+        "minimax-m3": {
+          "name": "MiniMax M3",
+          "family": "minimax",
+          "release_date": "2026-06-01",
+          "attachment": true,
+          "reasoning": true,
+          "temperature": true,
+          "tool_call": true,
+          "cost": { "input": 15, "output": 75, "cache_read": 1.5, "cache_write": 18.75 },
+          "limit": { "context": 160000, "output": 24000 },
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "status": "active"
+        }
+      }
+    },
+    "workspace-gw-own": {
+      "api": "http://localhost:9080/opencode/v1",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://localhost:9080/opencode/v1",
+        "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
+      },
+      "models": { "...": "same enriched models as workspace-gw-private" }
     }
   }
 }
@@ -287,8 +342,9 @@ Result in opencode config:
 ## Testing
 
 ```bash
-make test          # Run all stages
-make dev-test      # Same, via Ansible
+make test          # Run all stages (excludes live upstream API tests)
+make test-live     # Run all stages including live upstream API tests
+make dev-test      # Same as test, via Ansible
 ```
 
 | Stage | What |
@@ -298,66 +354,9 @@ make dev-test      # Same, via Ansible
 | 3 | Reconciler static analysis: syntax, strict mode, error handling |
 | 4 | Integration: black-box HTTP against the running stack |
 | 5 | CI hook verification: pre-commit and pre-push hooks present and wired |
-| 6 | E2E: real Zen API calls (streaming, non-streaming, redaction, errors) |
+| 6 | E2E: real Go API calls (gated behind `RUN_LIVE_API_TESTS=1`) |
 
 See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
-
----
-
-## Repository Layout
-
-```
-WORKSPACE-GATEWAY/
-├── README.md
-├── Makefile                        # Dev lifecycle + quality gates
-├── pyproject.toml
-├── .env                            # Secrets (gitignored)
-├── docs/
-│   ├── ARCHITECTURE.md             # Complete technical reference
-│   ├── TEST-PLAN.md                # Test plan
-│   ├── PROPOSAL-LLM-GATEWAY-v3.md  # Umbrella architecture
-│   ├── PLUGIN-FOUNDATION.md        # APISIX Lua plugin dev guide
-│   ├── BUILTIN-PLUGINS.md          # Built-in plugin config
-│   ├── PLUGIN-REDACT-LUA.md        # Redact plugin spec
-│   ├── PLUGIN-REDACT-ENGINE.md     # NER sidecar spec (v2)
-│   ├── PLUGIN-SEMANTIC-CACHE.md    # Semantic cache spec (v2)
-│   ├── DEPLOYMENT.md               # Deployment guide
-│   └── OPENCODE-INTEGRATION.md     # Zen integration specifics
-├── plugins/custom/
-│   ├── key-resolver.lua            # priority 2555: virtual key + pass-through
-│   ├── redact.lua                  # priority 2500: PII redaction adapter
-│   ├── redact_lib.lua              # pure logic: luhn, load, redact, restore
-│   ├── sse-usage.lua               # priority 2400: SSE usage extraction adapter
-│   └── sse_usage_lib.lua           # pure logic: buffer, scan, parse, extract
-├── conf/
-│   ├── config.yaml                 # APISIX standalone config
-│   ├── apisix.yaml                 # route + 7 plugin configs
-│   ├── redact-patterns.json        # 6 regex + 2 dictionary PII patterns
-│   ├── clickhouse-init.sql         # 4 tables with idempotent ALTERs
-│   └── vector.toml                 # HTTP source + VRL remap + ClickHouse sink
-├── res/
-│   ├── docker/
-│   │   ├── docker-compose.yml      # 4 services, 2 networks
-│   │   └── Dockerfile.apisix       # APISIX 3.17 + 5 Lua files
-│   ├── ansible/
-│   │   └── dev.yml                 # Lifecycle playbook (start/stop/clean/test/smoke)
-│   └── scripts/
-│       ├── issue-key.sh            # Create virtual key in OpenBao
-│       ├── list-keys.sh            # List all keys
-│       ├── revoke-key.sh           # Revoke key (preserve record)
-│       ├── reconciler.sh           # Daily billing reconciliation
-│       └── sync-opencode-models.sh # Sync models to opencode config
-├── tests/
-│   ├── run_all.sh                  # Master runner
-│   ├── lua/                        # Lua unit tests (resty CLI)
-│   ├── config/                     # Config validation (7 scripts)
-│   ├── reconciler/                 # Reconciler static analysis
-│   ├── integration/                # Black-box HTTP tests
-│   ├── ci/                         # CI hook verification
-│   └── e2e/                        # End-to-end Zen API tests
-└── config/
-    └── coverage_thresholds.yaml
-```
 
 ---
 
@@ -394,31 +393,28 @@ WORKSPACE-GATEWAY/
 |--------|-------------|
 | `make lint` | Shell syntax + YAML validation |
 | `make type-check` | Lua syntax check via `resty` in Podman |
-| `make test` | Run all test stages |
+| `make test` | Run all test stages (excludes live upstream API) |
+| `make test-live` | Run all stages including live upstream API tests |
 | `make check` | lint + type-check + test |
-| `make check-push` | check + E2E tests (if Zen key set) |
+| `make check-push` | check + E2E tests (if Go key set) |
 
 ---
 
 ## Documentation
 
-| Document | Content |
-|----------|---------|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete technical reference: every component, plugin, data flow, schema, script, test |
-| [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) | Testing strategy with extract-testable-core pattern |
-| [`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md) | Architecture rationale, Kong-to-APISIX pivot, billing contract |
-| [`docs/PLUGIN-FOUNDATION.md`](docs/PLUGIN-FOUNDATION.md) | APISIX custom Lua plugin development foundation |
-| [`docs/PLUGIN-REDACT-LUA.md`](docs/PLUGIN-REDACT-LUA.md) | Redact plugin specification |
-| [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md) | Built-in plugin configuration guide |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deployment and operations guide |
-| [`docs/OPENCODE-INTEGRATION.md`](docs/OPENCODE-INTEGRATION.md) | OpenCode Zen integration specifics |
+- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** : Complete technical reference: every component, plugin, data flow, schema, script, test
+- **[`docs/TEST-PLAN.md`](docs/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
+- **[`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md)** : Architecture rationale, Kong-to-APISIX pivot, billing contract
+- **[`docs/PLUGIN-FOUNDATION.md`](docs/PLUGIN-FOUNDATION.md)** : APISIX custom Lua plugin development foundation
+- **[`docs/PLUGIN-REDACT-LUA.md`](docs/PLUGIN-REDACT-LUA.md)** : Redact plugin specification
+- **[`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)** : Built-in plugin configuration guide
+- **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** : Deployment and operations guide
+- **[`docs/OPENCODE-INTEGRATION.md`](docs/OPENCODE-INTEGRATION.md)** : OpenCode Go integration specifics
 
 ### v2 Specs (Deferred)
 
-| Document | Feature |
-|----------|---------|
-| [`docs/PLUGIN-SEMANTIC-CACHE.md`](docs/PLUGIN-SEMANTIC-CACHE.md) | Redis VSS semantic cache |
-| [`docs/PLUGIN-REDACT-ENGINE.md`](docs/PLUGIN-REDACT-ENGINE.md) | Rust NER sidecar (ONNX BERT-tiny) |
+- **[`docs/PLUGIN-SEMANTIC-CACHE.md`](docs/PLUGIN-SEMANTIC-CACHE.md)** : Redis VSS semantic cache
+- **[`docs/PLUGIN-REDACT-ENGINE.md`](docs/PLUGIN-REDACT-ENGINE.md)** : Rust NER sidecar (ONNX BERT-tiny)
 
 ---
 
@@ -428,8 +424,6 @@ WORKSPACE-GATEWAY/
 - **OpenBao 2.4.4**: MPL 2.0
 - **ClickHouse 24.8**: Apache 2.0
 - **Vector 0.40**: MPL 2.0
-- **Custom Lua plugins**: bespoke, written for this project
+- **Prometheus v3.11.3**: Apache 2.0
+- **Grafana 12.0.0**: AGPLv3
 
----
-
-**Maintained by:** AMI-Agents Engineering

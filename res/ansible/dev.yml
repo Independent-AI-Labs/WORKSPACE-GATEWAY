@@ -72,34 +72,16 @@
       changed_when: true
       tags: [start]
 
-    - name: Wait for OpenBao to be ready
+    - name: Wait for OpenBao to be ready (unsealed)
       ansible.builtin.uri:
         url: http://localhost:8201/v1/sys/health
         method: GET
-        status_code: [200, 429, 472, 473, 501, 503]
+        status_code: [200]
         timeout: 5
       register: bao_health
-      until: bao_health.status in [200, 429, 472, 473, 501, 503]
-      retries: 15
+      until: bao_health.status == 200
+      retries: 30
       delay: 2
-      tags: [start]
-
-    - name: Provision default gateway key in OpenBao
-      ansible.builtin.shell: |
-        if [ -f {{ project_root }}/.env ]; then
-          set -a; . {{ project_root }}/.env; set +a
-        fi
-        curl -sf -o /dev/null -w "%{http_code}" \
-          -X POST \
-          -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
-          -H "Content-Type: application/json" \
-          -d '{"data":{"virtual_key":"vgw-gateway-key","upstream_key":"","tenant_id":"default","user_id":"agent","active":true,"created_at":"2026-01-01T00:00:00Z"}}' \
-          "http://localhost:8201/v1/secret/data/gateway/keys/vgw-gateway-key"
-      args:
-        chdir: "{{ project_root }}"
-      register: bao_provision
-      changed_when: true
-      failed_when: bao_provision.stdout not in ["200", "204"]
       tags: [start]
 
     - name: Wait for APISIX to be ready
@@ -147,15 +129,59 @@
       delay: 2
       tags: [start]
 
+    - name: Wait for gateway Prometheus to be ready
+      ansible.builtin.uri:
+        url: http://localhost:9092/-/healthy
+        method: GET
+        status_code: [200]
+        timeout: 5
+      register: gw_prom_health
+      until: gw_prom_health.status == 200
+      retries: 15
+      delay: 2
+      tags: [start]
+
+    - name: Wait for Grafana to be ready
+      ansible.builtin.uri:
+        url: http://localhost:3000/api/health
+        method: GET
+        status_code: [200]
+        timeout: 5
+      register: grafana_health
+      until: grafana_health.status == 200
+      retries: 30
+      delay: 3
+      tags: [start]
+
     - name: Display stack endpoints
       ansible.builtin.debug:
         msg: |
           Stack is ready.
-            APISIX:     http://localhost:9080
-            Prometheus: http://localhost:9100/apisix/prometheus/metrics
-            ClickHouse: http://localhost:8123
-            Vector:     http://localhost:8080/ingest
-            OpenBao:    http://localhost:8201
+            APISIX:           http://localhost:9080
+            Grafana:          http://localhost:3000
+            Prometheus:       http://localhost:9092
+            APISIX metrics:   http://localhost:9100/apisix/prometheus/metrics
+            ClickHouse:       http://localhost:8123
+            Vector:           http://localhost:8080/ingest
+            OpenBao:          http://localhost:8201
+      tags: [start]
+
+    - name: Sync models from gateway into opencode config
+      ansible.builtin.shell: |
+        if [ -f {{ project_root }}/.env ]; then
+          set -a; . {{ project_root }}/.env; set +a
+        fi
+        bash {{ project_root }}/res/scripts/sync-opencode-models.sh
+      args:
+        chdir: "{{ project_root }}"
+      register: sync_result
+      changed_when: true
+      failed_when: false
+      tags: [start]
+
+    - name: Show sync result
+      ansible.builtin.debug:
+        var: sync_result.stdout_lines
       tags: [start]
 
 
@@ -211,12 +237,34 @@
       failed_when: false
       tags: [status, never]
 
+    - name: Check Grafana health
+      ansible.builtin.uri:
+        url: http://localhost:3000/api/health
+        method: GET
+        status_code: [200]
+        timeout: 5
+      register: grafana_status
+      failed_when: false
+      tags: [status, never]
+
+    - name: Check gateway Prometheus health
+      ansible.builtin.uri:
+        url: http://localhost:9092/-/healthy
+        method: GET
+        status_code: [200]
+        timeout: 5
+      register: gw_prom_status
+      failed_when: false
+      tags: [status, never]
+
     - name: Display health status
       ansible.builtin.debug:
         msg:
-          - "APISIX:     {{ 'UP' if apisix_status.status in [200, 404] else 'DOWN' }}"
-          - "ClickHouse: {{ 'UP' if ch_status.status == 200 else 'DOWN' }}"
-          - "Prometheus: {{ 'UP' if prom_status.status == 200 else 'DOWN' }}"
+          - "APISIX:           {{ 'UP' if apisix_status.status in [200, 404] else 'DOWN' }}"
+          - "ClickHouse:       {{ 'UP' if ch_status.status == 200 else 'DOWN' }}"
+          - "APISIX metrics:   {{ 'UP' if prom_status.status == 200 else 'DOWN' }}"
+          - "Grafana:          {{ 'UP' if grafana_status.status == 200 else 'DOWN' }}"
+          - "Prometheus:       {{ 'UP' if gw_prom_status.status == 200 else 'DOWN' }}"
       tags: [status, never]
 
 
@@ -260,10 +308,10 @@
           set -a; . {{ project_root }}/.env; set +a
         fi
         curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
-          -X POST http://localhost:9080/zen/v1/chat/completions \
-          -H "Authorization: Bearer $GATEWAY_API_KEY" \
+          -X POST http://localhost:9080/opencode/v1/chat/completions \
+          -H "Authorization: Bearer $OPENCODE_API_KEY" \
           -H "Content-Type: application/json" \
-          -d '{"model":"big-pickle","messages":[{"role":"user","content":"Say hello"}],"stream":false}'
+          -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}],"stream":false}'
       args:
         chdir: "{{ project_root }}"
       register: smoke_code

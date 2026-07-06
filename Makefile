@@ -130,7 +130,7 @@ revoke-key: ## Revoke a virtual gateway key (KEY_ID=vgw-xxx required)
 # =============================================================================
 # Quality Gates
 # =============================================================================
-.PHONY: check lint type-check test check-push
+.PHONY: check lint type-check test test-live check-push
 
 lint: ## Lint shell scripts and validate YAML
 	@echo "=== Linting shell scripts ==="
@@ -158,19 +158,23 @@ type-check: ## Lua syntax check via resty in Podman
 			|| { echo "FAIL: $$f"; exit 1; }; \
 	done
 
-test: ## Run all test stages (1-5; 6 if Zen key set)
+test: ## Run all test stages (excludes live upstream API tests)
 	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	bash tests/run_all.sh
+
+test-live: ## Run all tests including live upstream API tests (RUN_LIVE_API_TESTS=1)
+	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	RUN_LIVE_API_TESTS=1 bash tests/run_all.sh
 
 check: lint type-check test ## Run all quality gates
 	@echo "=== All checks passed ==="
 
-check-push: check ## Pre-push gate: check + E2E if Zen key available
-	@if [ -n "$$OPENCODE_ZEN_API_KEY" ]; then \
+check-push: check ## Pre-push gate: check + E2E if API key available
+	@if [ -n "$$OPENCODE_API_KEY" ]; then \
 		echo "=== Running E2E tests ==="; \
 		bash tests/e2e/run.sh; \
 	else \
-		echo "=== OPENCODE_ZEN_API_KEY not set, skipping E2E ==="; \
+		echo "=== OPENCODE_API_KEY not set, skipping E2E ==="; \
 	fi
 
 # =============================================================================

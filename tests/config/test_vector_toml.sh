@@ -57,8 +57,8 @@ assert_eq "skip_unknown_fields is true" "1" "$HAS_SKIP_UNKNOWN"
 HAS_REMAP=$(grep -c 'type = "remap"' "$VECTOR_TOML" || true)
 assert_eq "Has remap transform" "1" "$HAS_REMAP"
 
-HAS_REQ_BODY_PARSE=$(grep -c 'parse_regex' "$VECTOR_TOML" || true)
-assert_eq "Remap uses parse_regex for model extraction" "true" "$([ "$HAS_REQ_BODY_PARSE" -ge 1 ] && echo true || echo false)"
+HAS_REQ_BODY_PARSE=$(grep -c 'parse_json' "$VECTOR_TOML" || true)
+assert_eq "Remap uses parse_json for model extraction" "true" "$([ "$HAS_REQ_BODY_PARSE" -ge 1 ] && echo true || echo false)"
 
 HAS_TOKEN_EXTRACT=$(grep -c 'prompt_tokens' "$VECTOR_TOML" || true)
 assert_eq "Remap extracts prompt_tokens" "1" "$HAS_TOKEN_EXTRACT"

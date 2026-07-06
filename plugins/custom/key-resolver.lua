@@ -23,7 +23,7 @@ plugin.schema = {
         },
         upstream_key_env = {
             type = "string",
-            default = "OPENCODE_ZEN_API_KEY",
+            default = "OPENCODE_API_KEY",
         },
         key_prefix = {
             type = "string",

@@ -10,6 +10,11 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
+if [ -z "${RUN_LIVE_API_TESTS:-}" ]; then
+    echo "[SKIP] RUN_LIVE_API_TESTS not set, skipping live API stream tests"
+    exit 0
+fi
+
 GATEWAY_URL="http://localhost:9080"
 pass=0
 fail=0
@@ -26,8 +31,8 @@ check() {
     fi
 }
 
-if [ -z "${OPENCODE_ZEN_API_KEY:-}" ]; then
-    echo "[SKIP] OPENCODE_ZEN_API_KEY not set, skipping E2E stream tests"
+if [ -z "${OPENCODE_API_KEY:-}" ]; then
+    echo "[SKIP] OPENCODE_API_KEY not set, skipping E2E stream tests"
     exit 0
 fi
 if [ -z "${GATEWAY_API_KEY:-}" ]; then
@@ -40,20 +45,20 @@ body_file=$(mktemp)
 
 http_code=$(curl -s -D "$headers_file" -o "$body_file" -w "%{http_code}" \
     --max-time 90 \
-    -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
+    -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"model":"big-pickle","messages":[{"role":"user","content":"Stream the words one two three"}],"stream":true}' || echo "000")
+    -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Stream the words one two three"}],"stream":true}' || echo "000")
 
-# Test 2: Streaming chat with big-pickle
+# Test 2: Streaming chat with minimax-m3
 
 if [ "$http_code" = "200" ]; then
-    check "Streaming chat with big-pickle returns 200" "0"
+    check "Streaming chat with minimax-m3 returns 200" "0"
 else
     echo "[DEBUG] http_code=$http_code"
     body_debug=$(cat "$body_file" 2>/dev/null || echo "")
     echo "[DEBUG] body=$body_debug"
-    check "Streaming chat with big-pickle returns 200 (got $http_code)" "1"
+    check "Streaming chat with minimax-m3 returns 200 (got $http_code)" "1"
     rm -f "$headers_file" "$body_file"
     echo ""
     echo "E2E stream tests: $pass passed, $fail failed"

@@ -10,6 +10,11 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
+if [ -z "${RUN_LIVE_API_TESTS:-}" ]; then
+    echo "[SKIP] RUN_LIVE_API_TESTS not set, skipping live API streaming redaction tests"
+    exit 0
+fi
+
 GATEWAY_URL="http://localhost:9080"
 PII_EMAIL="stream.test.pi@example.com"
 
@@ -28,8 +33,8 @@ check() {
     fi
 }
 
-if [ -z "${OPENCODE_ZEN_API_KEY:-}" ]; then
-    echo "[SKIP] OPENCODE_ZEN_API_KEY not set, skipping streaming redaction tests"
+if [ -z "${OPENCODE_API_KEY:-}" ]; then
+    echo "[SKIP] OPENCODE_API_KEY not set, skipping streaming redaction tests"
     exit 0
 fi
 if [ -z "${GATEWAY_API_KEY:-}" ]; then
@@ -42,10 +47,10 @@ body_file=$(mktemp)
 
 http_code=$(curl -s -D "$headers_file" -o "$body_file" -w "%{http_code}" \
     --max-time 60 \
-    -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
+    -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "{\"model\":\"big-pickle\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":true}" || echo "000")
+    -d "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":true}" || echo "000")
 
 body=$(cat "$body_file")
 

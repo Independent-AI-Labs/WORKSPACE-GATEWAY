@@ -1,6 +1,6 @@
 routes:
-  - id: relay-zen
-    uri: /zen/*
+  - id: relay-opencode
+    uri: /opencode/*
     upstream:
       type: roundrobin
       scheme: https
@@ -8,10 +8,46 @@ routes:
       nodes:
         "opencode.ai:443": 1
     plugins:
+      proxy-rewrite:
+        regex_uri: ["^/opencode/(.*)", "/zen/go/$1"]
+      ai-rate-limiting:
+        model: "$request_body.model"
+        limit: 1000
+        time_window: 60
+        rejected_code: 429
+      prometheus:
+        prefer_name: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 8192
+        max_resp_body_bytes: 8192
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
+  - id: relay-opencode-federated
+    uri: /opencode_federated/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "opencode.ai:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/opencode_federated/(.*)", "/zen/go/$1"]
       key-resolver:
         openbao_addr: "http://openbao:8200"
         openbao_token_env: "OPENBAO_TOKEN"
-        upstream_key_env: "OPENCODE_ZEN_API_KEY"
+        upstream_key_env: "OPENCODE_API_KEY"
         key_prefix: "secret/data/gateway/keys/"
         cache_ttl: 5
         virtual_key_prefix: "vgw-"

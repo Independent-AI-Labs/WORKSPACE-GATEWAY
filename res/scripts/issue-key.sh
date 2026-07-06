@@ -13,7 +13,7 @@ set -euo pipefail
 #   --key-id ID         Key identifier (default: vgw-<random hex>)
 #   --tenant ID         Tenant ID (default: default)
 #   --user ID           User ID (default: agent)
-#   --upstream-key KEY  Upstream API key (default: empty = use OPENCODE_ZEN_API_KEY env)
+#   --upstream-key KEY  Upstream API key (default: empty = use OPENCODE_API_KEY env)
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"

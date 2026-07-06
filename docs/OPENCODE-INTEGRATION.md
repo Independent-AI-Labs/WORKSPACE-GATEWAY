@@ -2,20 +2,19 @@
 
 **Project:** WORKSPACE-GATEWAY
 **Platform:** Apache APISIX 3.17.0, opencode v1.17.13+
-**Upstream:** OpenCode Zen (`https://opencode.ai/zen/v1`)
+**Upstream:** OpenCode Go (`https://opencode.ai/zen/go/v1`)
 **Status:** Integration specification (revised)
 **Date:** 2026-07-06
 
 ---
 
-## 1. Architecture: APISIX as Relay to OpenCode Zen
+## 1. Architecture: APISIX as Relay to OpenCode Go
 
-OpenCode Zen is an AI gateway operated by the OpenCode team at
-`https://opencode.ai/zen/v1`. It hosts a curated catalog of models
-(GPT, Claude, Gemini, DeepSeek, MiniMax, GLM, Kimi, Qwen, and free
-stealth/trial models) behind a single set of OpenAI-compatible and
-provider-native endpoints. Zen handles all routing to underlying
-providers -- the gateway never talks to `api.openai.com`,
+OpenCode Go is an AI gateway operated by the OpenCode team at
+`https://opencode.ai/zen/go/v1`. It hosts a curated catalog of models
+(MiniMax, Kimi, GLM, DeepSeek, Qwen, MiMo, HY3) behind a single set of
+OpenAI-compatible endpoints. OpenCode Go handles all routing to
+underlying providers -- the gateway never talks to `api.openai.com`,
 `api.anthropic.com`, or any other provider directly.
 
 ```
@@ -23,146 +22,138 @@ opencode CLI (Bun/TypeScript)
   |
   |  AI SDK v5 serializes to OpenAI Chat Completions JSON
   |  fetch() sends to baseURL (APISIX)
-  |  Authorization: Bearer <zen-api-key>
+  |  Authorization: Bearer vgw-gateway-key
   v
 APISIX (port 9080)
-  |  Plugins: key-auth, ai-rate-limiting, prometheus, http-logger,
-  |           proxy-buffering(off), redact
-  |  Single route: /zen/* -> opencode.ai:443
-  |  Relays to Zen, passes SSE back unchanged
+  |  Plugins: key-resolver, redact, sse-usage, ai-rate-limiting,
+  |           proxy-rewrite, http-logger, proxy-buffering, prometheus
+  |  Two routes: /opencode/* -> opencode.ai:443 (passthrough)
+  |              /opencode_federated/* -> opencode.ai:443 (virtual key)
+  |  Both use proxy-rewrite to rewrite path to /zen/go/*
+  |  Relays to OpenCode Go, passes SSE back unchanged
   v
-OpenCode Zen (https://opencode.ai/zen/v1)
-  |  /v1/chat/completions  (OpenAI-compatible: DeepSeek, MiniMax,
-  |                          GLM, Kimi, Grok, free models)
-  |  /v1/responses         (OpenAI Responses: GPT 5.x)
-  |  /v1/messages          (Anthropic Messages: Claude, Qwen)
-  |  /v1/models/gemini-*   (Google native: Gemini)
+OpenCode Go (https://opencode.ai/zen/go/v1)
+  |  /v1/chat/completions  (OpenAI Chat Completions: MiniMax, Kimi,
+  |                          GLM, DeepSeek, Qwen, MiMo, HY3)
   |  /v1/models            (model catalog)
   v
-Underlying LLM Providers (OpenAI, Anthropic, Google, etc.)
+Underlying LLM Providers (MiniMax, Moonshot/Kimi, Zhipu/GLM, etc.)
 ```
 
-**What APISIX touches:** HTTP headers (gateway key validation via
-key-auth), JSON body (rate-limiting reads `model` field, redact scans
-`messages[].content`), SSE pass-through (buffering disabled), response
-logging (status, latency, model, stream flag).
+**What APISIX touches:** HTTP headers (gateway key resolution via
+key-resolver, proxy-rewrite rewrites path prefix), JSON body
+(rate-limiting reads `model` field, redact scans `messages[].content`),
+SSE pass-through (buffering disabled), response logging (status,
+latency, model, stream flag).
 
 **What APISIX does NOT touch:** Request body format (Chat Completions,
-Anthropic Messages, Gemini, whatever Zen expects), SSE event structure
+whatever OpenCode Go expects), SSE event structure
 (beyond text-field redaction), tool call schemas, reasoning/thinking
-fields, provider-specific headers. Zen handles all provider-specific
-wire format negotiation.
+fields, provider-specific headers. OpenCode Go handles all
+provider-specific wire format negotiation.
 
 ---
 
-## 2. OpenCode Zen: The Upstream
+## 2. OpenCode Go: The Upstream
 
-### 2.1 What Is Zen?
+### 2.1 What Is OpenCode Go?
 
-Zen is an AI gateway operated by the OpenCode team. It benchmarks,
-verifies, and serves a curated list of models that work well as coding
-agents. The gateway never needs to talk to individual providers -- Zen
-handles that.
+OpenCode Go is an AI gateway operated by the OpenCode team. It
+benchmarks, verifies, and serves a curated list of models that work well
+as coding agents. The gateway never needs to talk to individual
+providers -- OpenCode Go handles that.
 
 Source: `packages/web/src/content/docs/zen.mdx` in the opencode repo.
 
 ### 2.2 Endpoints
 
-Zen exposes multiple API formats under `https://opencode.ai/zen/v1/`:
+OpenCode Go exposes the OpenAI Chat Completions API under
+`https://opencode.ai/zen/go/v1/`:
 
 | Endpoint | Format | AI SDK Package | Models |
 |----------|--------|----------------|--------|
-| `/v1/chat/completions` | OpenAI Chat Completions | `@ai-sdk/openai-compatible` | DeepSeek, MiniMax, GLM, Kimi, Grok, Big Pickle, all free models |
-| `/v1/responses` | OpenAI Responses API | `@ai-sdk/openai` | GPT 5.x, GPT 5.x Codex |
-| `/v1/messages` | Anthropic Messages API | `@ai-sdk/anthropic` | Claude, Qwen |
-| `/v1/models/{id}` | Google native | `@ai-sdk/google` | Gemini |
+| `/v1/chat/completions` | OpenAI Chat Completions | `@ai-sdk/openai-compatible` | minimax-m3, kimi-k2.6, glm-5, deepseek-v4-pro, mimo-v2.5, Qwen, HY3 |
 | `/v1/models` | OpenAI Models list | any | Catalog endpoint |
 
 The `/v1/models` endpoint returns the full model catalog:
 
 ```
-GET https://opencode.ai/zen/v1/models
-Authorization: Bearer <zen-api-key>
+GET https://opencode.ai/zen/go/v1/models
+Authorization: Bearer <upstream-api-key>
 ```
 
-### 2.3 Free Models
+### 2.3 Available Models on the Go Endpoint
 
-The following models are free for a limited time:
+The following models are available on the Go endpoint (not "free"
+models -- these are the standard catalog):
 
 | Display Name | Model ID | Endpoint |
 |--------------|----------|----------|
-| Big Pickle | `big-pickle` | `/v1/chat/completions` |
-| MiMo-V2.5 Free | `mimo-v2.5-free` | `/v1/chat/completions` |
-| North Mini Code Free | `north-mini-code-free` | `/v1/chat/completions` |
-| Nemotron 3 Ultra Free | `nemotron-3-ultra-free` | `/v1/chat/completions` |
-| DeepSeek V4 Flash Free | `deepseek-v4-flash-free` | `/v1/chat/completions` |
+| MiniMax M3 | `minimax-m3` | `/v1/chat/completions` |
+| MiMo V2.5 | `mimo-v2.5` | `/v1/chat/completions` |
+| GLM 5 | `glm-5` | `/v1/chat/completions` |
+| DeepSeek V4 Pro | `deepseek-v4-pro` | `/v1/chat/completions` |
+| Kimi K2.6 | `kimi-k2.6` | `/v1/chat/completions` |
 
-All free models use the OpenAI Chat Completions format.
+All models on the Go endpoint use the OpenAI Chat Completions format.
 
-### 2.4 Zen "Go" Sub-endpoint
+### 2.4 OpenCode Go: The Primary Upstream
 
-Zen also exposes a "Go" sub-endpoint at `https://opencode.ai/zen/go/v1/`
-with a different model catalog (Chinese model families: MiniMax, Kimi,
-GLM, DeepSeek, Qwen, MiMo, HY3). This is a separate tier from the main
-Zen catalog. The main `/zen/v1/` endpoint is the primary upstream.
+The Go endpoint at `https://opencode.ai/zen/go/v1/` is the PRIMARY
+upstream. The main `/zen/v1/` endpoint returns `401 insufficient
+balance` on our keys and is NOT used. The Go endpoint works and is the
+current upstream. It serves Chinese model families (MiniMax, Kimi, GLM,
+DeepSeek, Qwen, MiMo, HY3) via OpenAI Chat Completions format at
+`/v1/chat/completions`.
 
 ### 2.5 Privacy Notes
 
-- Big Pickle: Data may be used to improve the model during free period.
-- North Mini Code Free: Data may be retained and used. Do not submit
-  personal or confidential data.
-- Nemotron 3 Ultra Free: NVIDIA trial terms apply. Usage logged.
-- OpenAI APIs: 30-day retention per OpenAI data policies.
-- Anthropic APIs: 30-day retention per Anthropic data policies.
+- MiniMax: Provider-specific data policies apply.
+- Kimi (Moonshot): Provider-specific data policies apply.
+- GLM (Zhipu): Provider-specific data policies apply.
+- DeepSeek: Provider-specific data policies apply.
 
 ---
 
 ## 3. opencode CLI Configuration
 
-### 3.1 Single Provider: Gateway to Zen
+### 3.1 Two Providers: Virtual Key and Own Key
 
-opencode is configured with a single custom provider whose `baseURL`
-points at APISIX. APISIX relays to Zen. The AI SDK package is
-`@ai-sdk/openai-compatible` because all free models use Chat Completions.
+opencode is configured with two custom providers whose `baseURL` values
+point at APISIX. The AI SDK package is `@ai-sdk/openai-compatible`
+because all models on the Go endpoint use Chat Completions.
 
 ```jsonc
 // opencode.json
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "gateway": {
+    "workspace-gw-private": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Gateway (via APISIX to Zen)",
+      "name": "Workspace GW (Virtual Key)",
       "options": {
-        "baseURL": "http://apisix:9080/zen/v1",
-        "apiKey": "{env:OPENCODE_ZEN_API_KEY}"
+        "baseURL": "http://localhost:9080/opencode_federated/v1",
+        "apiKey": "vgw-gateway-key",
+        "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
       },
       "models": {
-        "big-pickle": {
-          "name": "Big Pickle",
-          "limit": { "context": 128000, "output": 65536 }
-        },
-        "mimo-v2.5-free": {
-          "name": "MiMo V2.5 Free",
-          "limit": { "context": 128000, "output": 65536 }
-        },
-        "north-mini-code-free": {
-          "name": "North Mini Code Free",
-          "limit": { "context": 128000, "output": 65536 }
-        },
-        "nemotron-3-ultra-free": {
-          "name": "Nemotron 3 Ultra Free",
-          "limit": { "context": 128000, "output": 65536 }
-        },
-        "deepseek-v4-flash-free": {
-          "name": "DeepSeek V4 Flash Free",
-          "limit": { "context": 128000, "output": 65536 }
-        }
+        "minimax-m3": { "name": "MiniMax M3", "limit": { "context": 160000, "output": 24000 } },
+        "glm-5": { "name": "GLM 5", "limit": { "context": 160000, "output": 24000 } },
+        "...": {}
       }
+    },
+    "workspace-gw-own": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Workspace GW (Own Key)",
+      "options": {
+        "baseURL": "http://localhost:9080/opencode/v1",
+        "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
+      },
+      "models": { "...": "same models as workspace-gw-private" }
     }
   },
-  "model": "gateway/big-pickle",
-  "small_model": "gateway/mimo-v2.5-free",
+  "model": "workspace-gw-private/minimax-m3",
+  "small_model": "workspace-gw-private/glm-5",
   "share": "disabled"
 }
 ```
@@ -174,8 +165,8 @@ points at APISIX. APISIX relays to Zen. The AI SDK package is
 ```jsonc
 {
   "options": {
-    "baseURL": "http://${APISIX_HOST}:${APISIX_PORT}/zen/v1",
-    "apiKey": "{env:OPENCODE_ZEN_API_KEY}"
+    "baseURL": "http://${APISIX_HOST}:${APISIX_PORT}/opencode_federated/v1",
+    "apiKey": "vgw-gateway-key"
   }
 }
 ```
@@ -186,12 +177,14 @@ When opencode uses `@ai-sdk/openai-compatible`, it sends standard OpenAI
 Chat Completions to the `baseURL`:
 
 ```
-POST /zen/v1/chat/completions
-Authorization: Bearer <zen-api-key>
+POST /opencode_federated/v1/chat/completions
+Authorization: Bearer vgw-gateway-key
 Content-Type: application/json
+X-Tenant-ID: default
+X-User-ID: agent
 
 {
-  "model": "big-pickle",
+  "model": "minimax-m3",
   "messages": [
     { "role": "system", "content": "..." },
     { "role": "user", "content": "..." }
@@ -213,25 +206,66 @@ command are stored in `~/.local/share/opencode/auth.json`.
 
 ## 4. APISIX Route Configuration
 
-### 4.1 Single Route to Zen
+### 4.1 Two Routes to OpenCode Go
 
-One APISIX route covers all Zen endpoints. The route matches `/zen/*`
-and proxies to `opencode.ai:443` with TLS. No path rewriting is needed
--- the `/zen/` prefix is part of Zen's URL structure.
+Two APISIX routes cover the OpenCode Go endpoints. Both proxy to
+`opencode.ai:443` with TLS and use `proxy-rewrite` to rewrite the path
+prefix to `/zen/go/` before forwarding upstream.
+
+- `/opencode/*` (passthrough): client supplies the real upstream key
+  directly via `Authorization: Bearer <key>`. No key resolution.
+- `/opencode_federated/*` (virtual key): client sends a `vgw-` prefixed
+  virtual gateway key. The `key-resolver` plugin resolves it to the
+  real upstream key (from OpenBao or env) and substitutes the
+  `Authorization` header before forwarding.
 
 ```yaml
 # conf/apisix.yaml -- APISIX standalone YAML mode
 
 routes:
-  - id: relay-zen
-    uri: /zen/*
+  # --- Federated route (virtual key via key-resolver) ---
+  - id: relay-opencode-federated
+    uri: /opencode_federated/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      nodes:
+        "opencode.ai:443": 1
+    plugin_config_id: pc-relay-common
+    plugins:
+      key-resolver:
+        token_prefix: "vgw-"
+        kv_store: "openbao"
+        kv_path: "secret/workspace-gateway/keys"
+        upstream_key_env: "OPENCODE_API_KEY"
+        fail_closed: true
+      proxy-rewrite:
+        regex_uri: ["^/opencode_federated/(.*)$", "/zen/go/$1"]
+      sse-usage:
+        extract_from: "stream"
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+
+  # --- Passthrough route (own key, no resolution) ---
+  - id: relay-opencode
+    uri: /opencode/*
     upstream:
       type: roundrobin
       scheme: https
       nodes:
         "opencode.ai:443": 1
     plugins:
-      key-auth: {}
+      proxy-rewrite:
+        regex_uri: ["^/opencode/(.*)$", "/zen/go/$1"]
+      sse-usage:
+        extract_from: "stream"
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+
+# --- Shared plugin config (applied to both routes) ---
+plugin_configs:
+  - id: pc-relay-common
+    plugins:
       ai-rate-limiting:
         model: "$request_body.model"
         limit: 1000
@@ -244,73 +278,68 @@ routes:
         method: POST
         content_type: "application/json"
         batch_max_size: 1
-        include_req_body: false
-        include_resp_body: false
-        log_format:
-          provider: "opencode-zen"
-          model: "$request_body.model"
-          stream: "$request_body.stream"
-          method: "$request_method"
-          uri: "$uri"
-          status: "$status"
-          latency: "$upstream_latency_ms"
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 8192
+        max_resp_body_bytes: 8192
       proxy-buffering:
         disable: true
-      redact:
-        patterns_file: "/etc/apisix/redact-patterns.json"
-
-consumers:
-  - id: opencode
-    key_auth_credentials:
-      - key: "opencode-gateway-key"
 ```
 
 ### 4.2 What Each Plugin Does on the Relay Path
 
 | Plugin | Phase | What It Does |
 |--------|-------|--------------|
-| `key-auth` | `access` | Validates the gateway consumer key (`opencode-gateway-key`). This is the gateway auth key, NOT the Zen API key. Two different keys. |
-| `ai-rate-limiting` | `access` | Reads `model` from request body. Enforces per-model RPM. Returns `429` on exceed. |
-| `proxy-buffering` | `access` | Disables NGINX proxy buffering. Critical for SSE streaming. Without this, SSE chunks queue in NGINX buffer and streaming breaks. |
-| `redact` | `access` + `body_filter` | Scans request body JSON for PII before relay. Stores token map in `ctx`. Restores originals in response body (re-hydration). |
-| `prometheus` | `log` | Exports HTTP metrics: request count, latency histogram, status code distribution. Scraped at `/apisix/prometheus/metrics`. |
-| `http-logger` | `log` | Sends structured JSON log to Vector at `http://vector:8080/ingest`. Vector inserts into ClickHouse for billing/analytics. |
+| `key-resolver` (federated) | `access` | Resolves `vgw-` prefixed virtual gateway keys via OpenBao. If the token starts with `vgw-`, looks it up and substitutes the real upstream key. If the token does not start with `vgw-` (direct key on `/opencode/*` route), passes through as-is. |
+| `proxy-rewrite` (both) | `access` | Rewrites the path prefix: `/opencode_federated/v1/...` or `/opencode/v1/...` becomes `/zen/go/v1/...` before forwarding upstream. |
+| `sse-usage` (both) | `log` | Extracts token usage from SSE/JSON responses. Distinguishes streaming vs non-streaming and parses `usage` blocks so token counts are available for telemetry. |
+| `ai-rate-limiting` (both) | `access` | Reads `model` from request body. Enforces per-model RPM. Returns `429` on exceed. |
+| `proxy-buffering` (both) | `access` | Disables NGINX proxy buffering. Critical for SSE streaming. Without this, SSE chunks queue in NGINX buffer and streaming breaks. |
+| `redact` (both) | `access` + `body_filter` | Scans request body JSON for PII before relay. Stores token map in `ctx`. Restores originals in response body (re-hydration). |
+| `prometheus` (both) | `log` | Exports HTTP metrics: request count, latency histogram, status code distribution. Scraped at `/apisix/prometheus/metrics`. |
+| `http-logger` (both) | `log` | Sends default APISIX JSON log (with request body, response body capped at 8192 bytes, client_ip, upstream_latency, route_id, start_time, consumer, and all request headers) to Vector at `http://vector:8080/ingest`. Vector inserts into ClickHouse for billing/analytics. |
 
 ### 4.3 API Key Flow
 
 ```
 opencode config:
-  options.apiKey = "{env:OPENCODE_ZEN_API_KEY}"  (real Zen key)
+  options.apiKey = "vgw-gateway-key"  (virtual gateway key)
 
 opencode sends:
-  Authorization: Bearer sk-C0kL...   (Zen API key)
-  POST http://apisix:9080/zen/v1/chat/completions
+  Authorization: Bearer vgw-gateway-key
+  POST http://apisix:9080/opencode_federated/v1/chat/completions
 
-APISIX key-auth plugin:
-  Validates "opencode-gateway-key" (the gateway consumer key)
-  NOT the Zen key. Two different keys.
+APISIX key-resolver plugin:
+  Checks if token starts with "vgw-".
+  If yes: looks up in OpenBao, resolves to upstream OPENCODE_API_KEY
+          (the real Go key).
+  If no (direct key on /opencode/* route): passes through as-is.
+
+APISIX proxy-rewrite plugin:
+  Rewrites /opencode_federated/v1/chat/completions
+       -> /zen/go/v1/chat/completions
 
 APISIX upstream:
-  Forwards to https://opencode.ai/zen/v1/chat/completions
-  with the original Authorization header (which contains the
-  real Zen API key that opencode put there)
+  Forwards to https://opencode.ai/zen/go/v1/chat/completions
+  with the resolved upstream key (real Go key from OpenBao or env).
 
 Result:
-  - Client auth: APISIX key-auth (gateway key)
-  - Upstream auth: Zen API key (from opencode config)
+  - Client auth: APISIX key-resolver (vgw- virtual key)
+  - Upstream auth: real Go key (from OpenBao or OPENCODE_API_KEY env)
 ```
 
 ### 4.4 SSE Streaming Path
 
 When `stream: true` is in the request body:
 
-1. opencode sends `POST /zen/v1/chat/completions` with `"stream": true`
+1. opencode sends `POST /opencode_federated/v1/chat/completions` with `"stream": true`
 2. APISIX `proxy-buffering` plugin disables NGINX buffering for this route
-3. Zen responds with `Content-Type: text/event-stream`
+3. OpenCode Go responds with `Content-Type: text/event-stream`
 4. APISIX passes SSE chunks through in real-time via `body_filter`
 5. `redact` plugin scans SSE chunks for PII in `delta.content` fields
-6. `http-logger` captures the final response metadata
-7. opencode's AI SDK parses the SSE stream
+6. `sse-usage` plugin extracts token usage from the SSE tail frame
+7. `http-logger` captures the final response metadata
+8. opencode's AI SDK parses the SSE stream
 
 ---
 
@@ -319,27 +348,45 @@ When `stream: true` is in the request body:
 ### 5.1 Metrics (Prometheus)
 
 The `prometheus` plugin exports metrics per route. Scrape endpoint:
-`http://apisix:9099/apisix/prometheus/metrics`.
+`http://apisix:9100/apisix/prometheus/metrics`.
 
 ### 5.2 Telemetry Logging (http-logger to Vector to ClickHouse)
 
 The `http-logger` plugin sends a JSON log entry to Vector for every
-request/response. Vector parses and inserts into ClickHouse.
+request/response. The http-logger now uses the default APISIX log
+format (no custom `log_format`). The log includes `request.body`,
+`response.body`, `client_ip`, `upstream_latency`, `route_id`,
+`start_time`, `consumer`, and all request headers. Vector parses and
+inserts into ClickHouse.
 
-Log entry format (sent to Vector):
+Log entry format (sent to Vector, default APISIX format):
 ```json
 {
-  "provider": "opencode-zen",
-  "model": "big-pickle",
-  "stream": true,
-  "method": "POST",
-  "uri": "/zen/v1/chat/completions",
-  "status": 200,
-  "latency": 1234
+  "request": {
+    "uri": "/opencode_federated/v1/chat/completions",
+    "method": "POST",
+    "body": "{\"model\":\"minimax-m3\",\"stream\":true,...}",
+    "headers": {
+      "authorization": "Bearer vgw-gateway-key",
+      "x-tenant-id": "default",
+      "x-user-id": "agent"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": "{\"id\":\"chatcmpl-...\",\"usage\":{...}}"
+  },
+  "client_ip": "10.0.0.42",
+  "upstream_latency": 1234,
+  "route_id": "relay-opencode-federated",
+  "start_time": 1751808000,
+  "consumer": {}
 }
 ```
 
-Vector pipeline (`conf/vector.toml`):
+Vector pipeline (`conf/vector.toml`) parses the JSON, extracts `model`
+and `stream` from the request body via `parse_json`, and reads headers
+with `get!`:
 ```toml
 [sources.apisix_http_logger]
 type = "http_server"
@@ -353,6 +400,16 @@ inputs = ["apisix_http_logger"]
 source = """
 . = parse_json!(.message)
 .timestamp = now()
+.req_body = parse_json!(get!(., ["request", "body"]))
+.model = get!(.req_body, ["model"])
+.stream = get!(.req_body, ["stream"], false)
+.provider = "opencode"
+.route_id = get!(., ["route_id"])
+.status = get!(.["response"], ["status"])
+.client_ip = get!(., ["client_ip"])
+.upstream_latency = get!(., ["upstream_latency"])
+.tenant_id = get!(.["request", "headers"], ["x-tenant-id"])
+.user_id = get!(.["request", "headers"], ["x-user-id"])
 """
 
 [sinks.clickhouse_request_log]
@@ -364,12 +421,21 @@ table = "request_log"
 skip_unknown_fields = true
 ```
 
-### 5.3 Rate Limiting (ai-rate-limiting)
+### 5.3 Grafana: Gateway Overview Dashboard
+
+The Gateway Overview dashboard is available at:
+`http://localhost:3030/d/gateway-overview/gateway-overview`
+
+It has 12 panels mixing Prometheus and ClickHouse datasources, covering
+request rate, latency percentiles, error rate, per-model usage, token
+consumption, active consumers, and queue depth.
+
+### 5.4 Rate Limiting (ai-rate-limiting)
 
 The `ai-rate-limiting` plugin reads the `model` field from the request
 body and enforces per-model limits.
 
-### 5.4 PII Redaction (redact plugin)
+### 5.5 PII Redaction (redact plugin)
 
 Custom Lua plugin. Runs in `access` phase (request body) and
 `body_filter` phase (response body, including SSE chunks).
@@ -382,24 +448,33 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
 
 ### What We Build
 
-1. **APISIX route**: single route `/zen/*` to `opencode.ai:443` with
-   the full plugin stack (key-auth, ai-rate-limiting, prometheus,
-   http-logger, proxy-buffering, redact).
-2. **opencode config**: single custom provider with `baseURL` pointing
-   to APISIX. `npm` is `@ai-sdk/openai-compatible`. `apiKey` is the
-   real Zen key.
+1. **APISIX routes**: two routes `/opencode/*` (passthrough) and
+   `/opencode_federated/*` (virtual key) to `opencode.ai:443` with the
+   full plugin stack (key-resolver on federated only, proxy-rewrite on
+   both, sse-usage, ai-rate-limiting, prometheus, http-logger,
+   proxy-buffering, redact).
+2. **opencode config**: two custom providers --
+   `workspace-gw-private` (virtual key, baseURL
+   `http://localhost:9080/opencode_federated/v1`) and
+   `workspace-gw-own` (own key, baseURL
+   `http://localhost:9080/opencode/v1`). `npm` is
+   `@ai-sdk/openai-compatible`.
 3. **Telemetry pipeline**: APISIX `http-logger` to Vector to ClickHouse.
-   Prometheus scrapes APISIX metrics endpoint.
-4. **PII redaction**: custom Lua `redact` plugin on the Zen route.
+   Prometheus scrapes APISIX metrics endpoint at `apisix:9100`. Grafana
+   Gateway Overview dashboard at `localhost:3030`.
+4. **PII redaction**: custom Lua `redact` plugin on both OpenCode Go
+   routes.
 5. **Rate limiting**: `ai-rate-limiting` plugin, per-model RPM.
 6. **SSE pass-through**: `proxy-buffering` plugin with `disable: true`.
+7. **Path rewriting**: `proxy-rewrite` rewrites both route prefixes to
+   `/zen/go/` before forwarding upstream.
 
 ### What We Do NOT Build
 
-- No format conversion in APISIX (Zen handles all provider-specific
-  wire format negotiation).
+- No format conversion in APISIX (OpenCode Go handles all
+  provider-specific wire format negotiation).
 - No direct connections to individual LLM providers (OpenAI, Anthropic,
-  Google, etc.). Zen is the only upstream.
+  Google, etc.). OpenCode Go is the only upstream.
 - No OAuth flows in APISIX (opencode handles OAuth natively).
 - No tool execution in APISIX (opencode's agent loop handles it).
 - No session management in APISIX (opencode's server handles it).
@@ -412,19 +487,23 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
  3. Agent loop calls AI SDK streamText()
  4. AI SDK serializes ModelMessage[] to OpenAI Chat Completions JSON
  5. AI SDK fetch() sends HTTP to APISIX (baseURL in opencode config)
- 6. APISIX key-auth validates gateway key
- 7. APISIX ai-rate-limiting checks model RPM
- 8. APISIX redact scans request body for PII
- 9. APISIX relays to OpenCode Zen (https://opencode.ai/zen/v1/...)
-10. Zen routes to the underlying LLM provider
-11. Provider responds (JSON or SSE stream)
-12. APISIX proxy-buffering passes SSE through unbuffered
-13. APISIX redact scans response for PII (re-hydrate tokens)
-14. APISIX prometheus records metrics
-15. APISIX http-logger sends log to Vector -> ClickHouse
-16. opencode AI SDK parses response/SSE
-17. opencode SessionProcessor builds message parts
-18. Client receives response
+ 6. APISIX key-resolver resolves vgw- key via OpenBao (federated route)
+    or passes the direct key through (passthrough route)
+ 7. APISIX proxy-rewrite rewrites path (/opencode_federated/... or
+    /opencode/...) to /zen/go/...
+ 8. APISIX ai-rate-limiting checks model RPM
+ 9. APISIX redact scans request body for PII
+10. APISIX relays to OpenCode Go (https://opencode.ai/zen/go/v1/...)
+11. OpenCode Go routes to the underlying LLM provider
+12. Provider responds (JSON or SSE stream)
+13. APISIX proxy-buffering passes SSE through unbuffered
+14. APISIX sse-usage extracts token usage from the SSE tail
+15. APISIX redact scans response for PII (re-hydrate tokens)
+16. APISIX prometheus records metrics
+17. APISIX http-logger sends log to Vector -> ClickHouse
+18. opencode AI SDK parses response/SSE
+19. opencode SessionProcessor builds message parts
+20. Client receives response
 ```
 
 ---
@@ -434,7 +513,7 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
 The `opencode serve` command runs an HTTP server (default `:4096`) with
 an OpenAPI 3.1 spec at `GET /doc`. All endpoints below are from the
 v1.17.13 server docs. This is the opencode CLI's own server API, NOT
-the Zen upstream API.
+the OpenCode Go upstream API.
 
 ### 7.1 Authentication
 
@@ -532,8 +611,8 @@ Username defaults to `opencode`. Override with
 {
   "messageID": "string (optional, for replies)",
   "model": {
-    "providerID": "string (e.g. \"gateway\")",
-    "modelID": "string (e.g. \"big-pickle\")"
+    "providerID": "string (e.g. \"workspace-gw-private\")",
+    "modelID": "string (e.g. \"minimax-m3\")"
   },
   "agent": "string (optional, e.g. \"build\" or \"plan\")",
   "noReply": false,
@@ -562,8 +641,8 @@ Username defaults to `opencode`. Override with
     "role": "assistant",
     "time": 1720195200,
     "model": {
-      "providerID": "gateway",
-      "modelID": "big-pickle"
+      "providerID": "workspace-gw-private",
+      "modelID": "minimax-m3"
     },
     "cost": {
       "input": 0.003,
@@ -707,13 +786,13 @@ Three-tier provider loading:
 ### 8.2 Model ID Format
 
 Models are identified as `providerID/modelID`. Examples:
-- `gateway/big-pickle` (our custom provider via APISIX to Zen)
+- `workspace-gw-private/minimax-m3` (virtual-key custom provider via APISIX to OpenCode Go)
 - `anthropic/claude-sonnet-4-5` (direct Anthropic)
-- `opencode/gpt-5.1-codex` (OpenCode Zen direct)
+- `workspace-gw-own/glm-5` (own-key custom provider via APISIX to OpenCode Go)
 
 ### 8.3 Model Resolution Priority
 
-1. `--model` CLI flag (e.g., `-m gateway/big-pickle`)
+1. `--model` CLI flag (e.g., `-m workspace-gw-private/minimax-m3`)
 2. `model` key in `opencode.json` config
 3. Last used model (persisted)
 4. First model by internal priority
@@ -724,25 +803,39 @@ Models are identified as `providerID/modelID`. Examples:
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "<provider-id>": {
+    "workspace-gw-private": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Display Name",
+      "name": "Workspace GW (Virtual Key)",
       "options": {
-        "baseURL": "http://apisix:9080/zen/v1",
-        "apiKey": "gateway-api-key",
-        "headers": { "X-Custom-Header": "value" }
+        "baseURL": "http://localhost:9080/opencode_federated/v1",
+        "apiKey": "vgw-gateway-key",
+        "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
       },
       "models": {
-        "<model-id>": {
-          "name": "Display Name",
-          "limit": { "context": 128000, "output": 65536 },
+        "minimax-m3": {
+          "name": "MiniMax M3",
+          "limit": { "context": 160000, "output": 24000 },
           "cost": { "input": 0, "output": 0 },
           "options": { "temperature": 0.7 }
         }
       }
+    },
+    "workspace-gw-own": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Workspace GW (Own Key)",
+      "options": {
+        "baseURL": "http://localhost:9080/opencode/v1",
+        "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
+      },
+      "models": {
+        "glm-5": {
+          "name": "GLM 5",
+          "limit": { "context": 160000, "output": 24000 }
+        }
+      }
     }
   },
-  "model": "<provider-id>/<model-id>"
+  "model": "workspace-gw-private/minimax-m3"
 }
 ```
 
@@ -783,12 +876,12 @@ When opencode uses `@ai-sdk/openai-compatible`, it sends standard OpenAI
 Chat Completions to the `baseURL`:
 
 ```
-POST /zen/v1/chat/completions
-Authorization: Bearer <zen-api-key>
+POST /opencode_federated/v1/chat/completions
+Authorization: Bearer vgw-gateway-key
 Content-Type: application/json
 
 {
-  "model": "big-pickle",
+  "model": "minimax-m3",
   "messages": [
     { "role": "system", "content": "..." },
     { "role": "user", "content": "..." }
@@ -800,27 +893,34 @@ Content-Type: application/json
 }
 ```
 
-APISIX sees this format. It does not parse or convert it. It relays the
-HTTP request as-is to Zen. The only body parsing APISIX does is:
+APISIX sees this format. It does not parse or convert it. The
+`key-resolver` plugin resolves the `vgw-` bearer token to the real
+upstream key, the `proxy-rewrite` plugin rewrites the path prefix, and
+then APISIX relays the HTTP request to OpenCode Go. The only body
+parsing APISIX does is:
 - `ai-rate-limiting`: reads `model` field
 - `redact`: reads `messages[].content` text fields
 - `http-logger`: reads `model` and `stream` fields for log metadata
 
-### 9.3 Zen Provider Compatibility Matrix
+### 9.3 OpenCode Go Provider Compatibility Matrix
 
-All models on Zen are accessible through the gateway. The endpoint
-depends on the model's native format:
+All models on OpenCode Go are accessible through the gateway. Every
+model family uses the OpenAI Chat Completions format at
+`/v1/chat/completions`:
 
-| Model Family | Native Format | Zen Endpoint | AI SDK Package |
+| Model Family | Native Format | Go Endpoint | AI SDK Package |
 |--------------|--------------|--------------|----------------|
-| GPT 5.x | OpenAI Responses | `/v1/responses` | `@ai-sdk/openai` |
-| Claude | Anthropic Messages | `/v1/messages` | `@ai-sdk/anthropic` |
-| Gemini | Google native | `/v1/models/{id}` | `@ai-sdk/google` |
-| DeepSeek, MiniMax, GLM, Kimi, Grok | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
-| Free models (Big Pickle, MiMo, Nemotron, North Mini, DeepSeek Flash) | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| MiniMax | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Kimi | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| GLM | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| DeepSeek | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| Qwen | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| MiMo | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
+| HY3 | OpenAI Chat Completions | `/v1/chat/completions` | `@ai-sdk/openai-compatible` |
 
-For the gateway, all free models use `/v1/chat/completions` and
-`@ai-sdk/openai-compatible`. A single APISIX route covers them all.
+For the gateway, all models use `/v1/chat/completions` and
+`@ai-sdk/openai-compatible`. The two APISIX routes
+(`/opencode/*` and `/opencode_federated/*`) cover them all.
 
 ---
 

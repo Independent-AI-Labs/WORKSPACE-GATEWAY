@@ -33,7 +33,6 @@
 - **Apache APISIX 3.17.0**, Apache 2.0. ALL plugins OSS, no license enforcement,
   no tier split, no "free mode" cliff. Source code public. Docker images for every
   version.
-- **Custom Lua plugins** are bespoke, written for this project.
 - **Rust sidecars** (v2): `ort` (ONNX Runtime, MIT), `axum` (MIT), `tokenizers`
   (Apache 2.0). All dependencies MIT or Apache-2.0.
 - No Kong, no Wasm, no Proxy-Wasm, no Enterprise licensing concerns.

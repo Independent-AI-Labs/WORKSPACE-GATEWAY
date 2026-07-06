@@ -9,6 +9,7 @@ services:
       - "9100:9100"
     volumes:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+      - ../../conf/config.yaml:/usr/local/apisix/conf/config.yaml:ro
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
     env_file:
       - ../../.env
@@ -48,13 +49,15 @@ services:
       - gateway
 
   openbao:
-    image: docker.io/openbao/openbao:2.4.4
+    build:
+      context: ../..
+      dockerfile: res/docker/Dockerfile.openbao
     container_name: gw-openbao
-    command:
-      - server
-      - -dev
-      - -dev-root-token-id=${OPENBAO_TOKEN:-2e22c6e00b0815bcada90dfecb03f3c0}
-      - -dev-listen-address=0.0.0.0:8200
+    volumes:
+      - ../../conf/openbao.hcl:/openbao/config/openbao.hcl:ro
+      - openbao-data:/openbao/data
+    env_file:
+      - ../../.env
     environment:
       BAO_LOG_LEVEL: info
     ports:
@@ -63,8 +66,50 @@ services:
     networks:
       - gateway
 
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    container_name: gw-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ../../conf/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9092:9090"
+    restart: unless-stopped
+    networks:
+      - gateway
+
+  grafana:
+    image: grafana/grafana-oss:12.0.0
+    container_name: gw-grafana
+    environment:
+      GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/gateway-overview.json
+    volumes:
+      - ../../conf/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../conf/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3030:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - gateway
+
 volumes:
   clickhouse-data:
+  prometheus-data:
+  grafana-data:
+  openbao-data:
 
 networks:
   gateway:
