@@ -7,7 +7,7 @@ COMPOSE_FILE="$REPO_ROOT/res/docker/docker-compose.yml"
 DOCKERFILE="$REPO_ROOT/res/docker/Dockerfile.apisix"
 IMAGE_TAG="workspace-gateway-apisix:local"
 
-export PATH="$PATH:$HOME/.venv/bin"
+export PATH="$PATH:$REPO_ROOT/.venv/bin"
 
 KEEP_STACK_UP="${KEEP_STACK_UP:-0}"
 
@@ -101,7 +101,20 @@ step2_start() {
 }
 
 step3_apisix() {
-    wait_for_url "http://localhost:9080/" "APISIX on port 9080" 30
+    local max_attempts=30
+    local attempt=0
+    while [ "$attempt" -lt "$max_attempts" ]; do
+        local code
+        code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:9080/" 2>/dev/null || echo "000")
+        if [ "$code" != "000" ]; then
+            record_pass "APISIX on port 9080 is ready (HTTP $code)"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+    done
+    record_fail "APISIX on port 9080 not ready after $max_attempts attempts (http://localhost:9080/)"
+    return 1
 }
 
 step7_vector() {
@@ -115,10 +128,16 @@ step8_clickhouse() {
 step9_tables() {
     local query="SELECT+count()+FROM+llm_gateway.request_log"
     local out
-    if out=$(curl -sf "http://localhost:8123/?query=$query" 2>&1); then
-        record_pass "ClickHouse request_log table exists (count=$out)"
-        return 0
-    fi
+    local max_attempts=15
+    local attempt=0
+    while [ "$attempt" -lt "$max_attempts" ]; do
+        if out=$(curl -sf "http://localhost:8123/?query=$query" 2>&1); then
+            record_pass "ClickHouse request_log table exists (count=$out)"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+    done
     record_fail "ClickHouse request_log table query failed: $out"
     return 1
 }

@@ -5,12 +5,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE_FILE="$REPO_ROOT/res/docker/docker-compose.yml"
 
-export PATH="$PATH:$HOME/.venv/bin"
+export PATH="$PATH:$REPO_ROOT/.venv/bin"
 
 pass=0
 fail=0
 
 teardown() {
+    if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ]; then
+        echo "[INFO] Keeping stack up for E2E tests (KEEP_STACK_UP_FOR_E2E=1)"
+        echo ""
+        echo "Integration tests: $pass passed, $fail failed"
+        if [ "$fail" -gt 0 ]; then
+            exit 1
+        fi
+        exit 0
+    fi
     echo "[INFO] Runner tearing down stack..."
     podman-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
     echo ""

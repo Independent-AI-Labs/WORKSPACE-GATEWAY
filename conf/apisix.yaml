@@ -4,6 +4,7 @@ routes:
     upstream:
       type: roundrobin
       scheme: https
+      pass_host: node
       nodes:
         "opencode.ai:443": 1
     plugins:
@@ -36,6 +37,9 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
 
 consumers:
-  - id: opencode
-    key_auth_credentials:
-      - key: "opencode-gateway-key"
+  - username: opencode
+    plugins:
+      key-auth:
+        key: "opencode-gateway-key"
+
+#END

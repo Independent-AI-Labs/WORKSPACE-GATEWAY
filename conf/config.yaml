@@ -1,7 +1,7 @@
 deployment:
   role: data_plane
-  role_trust_by_default: false
-  config_provider: yaml
+  role_data_plane:
+    config_provider: yaml
 
 apisix:
   admin_key: ""

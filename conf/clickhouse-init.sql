@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.request_log (
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (provider, model, timestamp)
-TTL timestamp + INTERVAL 13 MONTH
+TTL toDateTime(timestamp) + INTERVAL 13 MONTH
 SETTINGS index_granularity = 8192;
 
 CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger (
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger (
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (tenant_id, user_id, timestamp)
-TTL timestamp + INTERVAL 13 MONTH
+TTL toDateTime(timestamp) + INTERVAL 13 MONTH
 SETTINGS index_granularity = 8192;
 
 CREATE TABLE IF NOT EXISTS llm_gateway.billing_discrepancies (

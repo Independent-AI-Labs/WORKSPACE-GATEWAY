@@ -10,7 +10,7 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
-export PATH="$PATH:$HOME/.venv/bin"
+export PATH="$PATH:$REPO_ROOT/.venv/bin"
 
 pass=0
 fail=0
@@ -37,6 +37,10 @@ run_stage 2 "Config Validation" "config/run.sh"
 
 run_stage 3 "Reconciler Tests" "reconciler/test_reconciler.sh"
 
+if [ -n "${OPENCODE_ZEN_API_KEY:-}" ]; then
+    export KEEP_STACK_UP_FOR_E2E=1
+fi
+
 run_stage 4 "Integration Tests" "integration/run.sh"
 
 run_stage 5 "CI Hook Verification" "ci/test_hooks.sh"
@@ -47,6 +51,12 @@ else
     echo ""
     echo "========== Stage 6: E2E Zen API Tests =========="
     echo "[SKIP] OPENCODE_ZEN_API_KEY not set"
+fi
+
+if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ]; then
+    echo ""
+    echo "[INFO] Tearing down stack after all tests..."
+    podman-compose -f "$REPO_ROOT/res/docker/docker-compose.yml" down 2>/dev/null || true
 fi
 
 echo ""

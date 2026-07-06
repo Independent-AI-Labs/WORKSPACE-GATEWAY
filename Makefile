@@ -21,29 +21,35 @@ help: ## Show this help
 # =============================================================================
 # Setup
 # =============================================================================
-.PHONY: preflight init install install-ci install-deps install-hooks sync
+.PHONY: preflight init install install-ci install-deps install-hooks sync setup bootstrap-podman
 preflight: ## Verify environment
 	@test -d "$(CI_DIR)" || { echo "ERROR: CI directory not found at $(CI_DIR)" >&2; exit 1; }
 	@test -f "$(CI_DIR)/scripts/generate-hooks" || { echo "ERROR: generate-hooks missing" >&2; exit 1; }
 	@echo "Preflight OK"
 
-init: ## Install system-level dependencies
-	@:
+setup: bootstrap-podman ## Install podman + create .venv with podman-compose
+	@echo "=== Creating .venv ==="
+	@if [ ! -d .venv ]; then uv venv .venv; else echo "  .venv already exists"; fi
+	@uv pip install --python .venv podman-compose
+	@echo "=== Setup complete ==="
+	@_podman="$$(command -v podman)" || _podman="NOT FOUND"; echo "  podman: $$_podman"
+	@echo "  podman-compose: .venv/bin/podman-compose"
 
-install: install-deps install-hooks ## Full install: deps + hooks
-	@:
+bootstrap-podman: ## Install podman binaries if not on PATH
+	@command -v podman >/dev/null 2>&1 || { \
+		echo "=== Bootstrapping podman ==="; \
+		bash $(CI_DIR)/scripts/bootstrap-podman; \
+	}
 
+init: setup ## Install system-level dependencies
+install: setup install-hooks ## Full install: podman + .venv + hooks
 install-ci: install-deps ## CI install: deps only, no hooks
-	@:
-
-install-deps: ## Install project dependencies
-	@:
+install-deps: setup ## Install project dependencies
 
 install-hooks: ## (Re)generate native git hooks
 	bash $(CI_DIR)/scripts/generate-hooks
 
 sync: install-deps install-hooks ## Sync deps + reinstall hooks
-	@:
 
 # =============================================================================
 # Quality Gates

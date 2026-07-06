@@ -5,7 +5,8 @@ local redact_lib = require("redact_lib")
 local plugin_name = "redact"
 
 local plugin = {
-    PRIORITY = 2500,
+    version = 0.1,
+    priority = 2500,
     name = plugin_name,
 }
 
@@ -96,7 +97,7 @@ end
 function plugin.header_filter(conf, ctx)
     if not ctx.redact_active then return end
     ngx.header.content_length = nil
-    core.response.set_header(ctx, "X-Redact-Active", "1")
+    core.response.set_header("X-Redact-Active", "1")
 end
 
 function plugin.body_filter(conf, ctx)

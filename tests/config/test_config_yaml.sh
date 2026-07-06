@@ -48,8 +48,8 @@ assert_eq "Valid YAML" "ok" "ok"
 DEPLOY_ROLE=$(echo "$JSON_DATA" | jq -r '.deployment.role')
 assert_eq "deployment.role is data_plane" "data_plane" "$DEPLOY_ROLE"
 
-DEPLOY_PROVIDER=$(echo "$JSON_DATA" | jq -r '.deployment.config_provider')
-assert_eq "deployment.config_provider is yaml" "yaml" "$DEPLOY_PROVIDER"
+DEPLOY_PROVIDER=$(echo "$JSON_DATA" | jq -r '.deployment.role_data_plane.config_provider')
+assert_eq "deployment.role_data_plane.config_provider is yaml" "yaml" "$DEPLOY_PROVIDER"
 
 EXTRA_LUA_PATH=$(echo "$JSON_DATA" | jq -r '.apisix.extra_lua_path')
 HAS_CUSTOM=$(echo "$EXTRA_LUA_PATH" | grep -c "plugins/custom" || true)

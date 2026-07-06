@@ -81,7 +81,7 @@ assert_eq "proxy-buffering plugin present" "true" "$HAS_PROXY_BUFFERING"
 HAS_REDACT=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("redact")')
 assert_eq "redact plugin present" "true" "$HAS_REDACT"
 
-CONSUMER_KEY=$(echo "$JSON_DATA" | jq -r '.consumers[0].key_auth_credentials[0].key')
+CONSUMER_KEY=$(echo "$JSON_DATA" | jq -r '.consumers[0].plugins["key-auth"].key')
 assert_eq "Consumer exists with key opencode-gateway-key" "opencode-gateway-key" "$CONSUMER_KEY"
 
 HTTP_LOGGER_URI=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].uri')
