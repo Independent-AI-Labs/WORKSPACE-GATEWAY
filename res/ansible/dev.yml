@@ -221,8 +221,7 @@
         fi
         curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
           -X POST http://localhost:9080/zen/v1/chat/completions \
-          -H "apikey: $GATEWAY_API_KEY" \
-          -H "Authorization: Bearer $OPENCODE_ZEN_API_KEY" \
+          -H "Authorization: Bearer $GATEWAY_API_KEY" \
           -H "Content-Type: application/json" \
           -d '{"model":"big-pickle","messages":[{"role":"user","content":"Say hello"}],"stream":false}'
       args:

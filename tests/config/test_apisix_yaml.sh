@@ -63,8 +63,14 @@ assert_eq "Upstream node is opencode.ai:443" "opencode.ai:443" "$UPSTREAM_NODE"
 HAS_PROXY_REWRITE=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("proxy-rewrite")')
 assert_eq "No proxy-rewrite plugin" "false" "$HAS_PROXY_REWRITE"
 
-HAS_KEY_AUTH=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("key-auth")')
-assert_eq "key-auth plugin present" "true" "$HAS_KEY_AUTH"
+HAS_KEY_AUTH=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("gateway-auth")')
+assert_eq "gateway-auth plugin present" "true" "$HAS_KEY_AUTH"
+
+GATEWAY_AUTH_MODE=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["gateway-auth"].mode')
+assert_eq "gateway-auth mode is inject" "inject" "$GATEWAY_AUTH_MODE"
+
+GATEWAY_AUTH_KEY=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["gateway-auth"].gateway_key')
+assert_eq "gateway-auth gateway_key is opencode-gateway-key" "opencode-gateway-key" "$GATEWAY_AUTH_KEY"
 
 HAS_AI_RATE=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("ai-rate-limiting")')
 assert_eq "ai-rate-limiting plugin present" "true" "$HAS_AI_RATE"
@@ -81,8 +87,11 @@ assert_eq "proxy-buffering plugin present" "true" "$HAS_PROXY_BUFFERING"
 HAS_REDACT=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("redact")')
 assert_eq "redact plugin present" "true" "$HAS_REDACT"
 
-CONSUMER_KEY=$(echo "$JSON_DATA" | jq -r '.consumers[0].plugins["key-auth"].key')
-assert_eq "Consumer exists with key opencode-gateway-key" "opencode-gateway-key" "$CONSUMER_KEY"
+HAS_NO_KEY_AUTH=$(echo "$JSON_DATA" | jq '.routes[0].plugins | has("key-auth")')
+assert_eq "key-auth plugin removed" "false" "$HAS_NO_KEY_AUTH"
+
+NO_CONSUMERS=$(echo "$JSON_DATA" | jq 'has("consumers")')
+assert_eq "No consumers section (gateway-auth replaces key-auth)" "false" "$NO_CONSUMERS"
 
 HTTP_LOGGER_URI=$(echo "$JSON_DATA" | jq -r '.routes[0].plugins["http-logger"].uri')
 assert_eq "http-logger uri is http://vector:8080/ingest" "http://vector:8080/ingest" "$HTTP_LOGGER_URI"

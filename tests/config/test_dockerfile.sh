@@ -34,7 +34,7 @@ HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" || tru
 assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" || true)
-assert_eq "Copies plugins/custom/ (redact.lua + redact_lib.lua)" "2" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (gateway-auth + redact + redact_lib)" "3" "$HAS_CUSTOM_PLUGINS"
 
 HAS_CONFIG_YAML=$(grep -c 'config.yaml' "$DOCKERFILE" || true)
 assert_eq "Copies conf/config.yaml" "1" "$HAS_CONFIG_YAML"

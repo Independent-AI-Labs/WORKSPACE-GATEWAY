@@ -41,7 +41,7 @@ wait_for_apisix() {
 
 test_route_exists() {
     local code
-    code=$(http_code -H "apikey: $CORRECT_KEY" "$GATEWAY$EXISTING_ROUTE")
+    code=$(http_code -H "Authorization: Bearer $CORRECT_KEY" "$GATEWAY$EXISTING_ROUTE")
     if [ "$code" = "404" ]; then
         record_fail "existing route $EXISTING_ROUTE returned 404"
         return 1
@@ -52,7 +52,7 @@ test_route_exists() {
 
 test_nonexistent_route() {
     local code
-    code=$(http_code -H "apikey: $CORRECT_KEY" "$GATEWAY$NONEXIST_ROUTE")
+    code=$(http_code -H "Authorization: Bearer $CORRECT_KEY" "$GATEWAY$NONEXIST_ROUTE")
     if [ "$code" = "404" ]; then
         record_pass "Nonexistent route returned 404 as expected"
         return 0

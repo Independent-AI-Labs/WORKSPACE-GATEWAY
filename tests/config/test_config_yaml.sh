@@ -54,8 +54,11 @@ assert_eq "deployment.role_data_plane.config_provider is yaml" "yaml" "$DEPLOY_P
 PLUGINS_REDACT=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "redact")] | length')
 assert_eq "redact in plugins list" "1" "$PLUGINS_REDACT"
 
+PLUGINS_GATEWAY_AUTH=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "gateway-auth")] | length')
+assert_eq "gateway-auth in plugins list" "1" "$PLUGINS_GATEWAY_AUTH"
+
 PLUGINS_KEYAUTH=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "key-auth")] | length')
-assert_eq "key-auth in plugins list" "1" "$PLUGINS_KEYAUTH"
+assert_eq "key-auth removed from plugins list" "0" "$PLUGINS_KEYAUTH"
 
 HAS_REDACT_DICT=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("redact_state")')
 assert_eq "custom_lua_shared_dict has redact_state" "true" "$HAS_REDACT_DICT"
@@ -86,5 +89,8 @@ assert_eq "prometheus export_addr ip is 0.0.0.0" "0.0.0.0" "$PROM_EXPORT_IP"
 
 PROM_EXPORT_PORT=$(echo "$JSON_DATA" | jq -r '.plugin_attr.prometheus.export_addr.port')
 assert_eq "prometheus export_addr port is 9100" "9100" "$PROM_EXPORT_PORT"
+
+HAS_ENVS=$(echo "$JSON_DATA" | jq '.nginx_config.envs | index("OPENCODE_ZEN_API_KEY") != null')
+assert_eq "nginx_config.envs contains OPENCODE_ZEN_API_KEY" "true" "$HAS_ENVS"
 
 summary

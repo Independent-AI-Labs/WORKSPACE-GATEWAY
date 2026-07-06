@@ -47,7 +47,7 @@ fi
 unset KEEP_STACK_UP
 
 if stack_is_up; then
-    for test_script in test_key_auth.sh test_route_relay.sh test_prometheus.sh; do
+    for test_script in test_gateway_auth.sh test_route_relay.sh test_prometheus.sh; do
         echo ""
         echo "--- $test_script ---"
         if bash "$SCRIPT_DIR/$test_script"; then

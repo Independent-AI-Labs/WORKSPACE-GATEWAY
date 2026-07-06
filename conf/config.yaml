@@ -7,7 +7,7 @@ apisix:
   admin_key: ""
 
 plugins:
-  - key-auth
+  - gateway-auth
   - ai-rate-limiting
   - proxy-buffering
   - http-logger
@@ -21,6 +21,8 @@ plugin_attr:
       port: 9100
 
 nginx_config:
+  envs:
+    - OPENCODE_ZEN_API_KEY
   http:
     custom_lua_shared_dict:
       redact_state: 1m

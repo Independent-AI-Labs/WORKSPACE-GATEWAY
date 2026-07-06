@@ -43,8 +43,7 @@ send_chat() {
     http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" \
         --max-time 60 \
         -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
-        -H "apikey: $GATEWAY_API_KEY" \
-        -H "Authorization: Bearer $OPENCODE_ZEN_API_KEY" \
+        -H "Authorization: Bearer $GATEWAY_API_KEY" \
         -H "Content-Type: application/json" \
         -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"stream\":false}" || echo "000")
     body=$(cat "$tmpfile")

@@ -48,8 +48,7 @@ fi
 echo "[INFO] Sending chat request through gateway..."
 http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
     -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
-    -H "apikey: $GATEWAY_API_KEY" \
-    -H "Authorization: Bearer $OPENCODE_ZEN_API_KEY" \
+    -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"model":"big-pickle","messages":[{"role":"user","content":"Say hello in one word"}],"stream":false}' \
     2>/dev/null || echo "000")

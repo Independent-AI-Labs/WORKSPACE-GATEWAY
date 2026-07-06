@@ -8,7 +8,9 @@ routes:
       nodes:
         "opencode.ai:443": 1
     plugins:
-      key-auth: {}
+      gateway-auth:
+        mode: inject
+        gateway_key: "opencode-gateway-key"
       ai-rate-limiting:
         model: "$request_body.model"
         limit: 1000
@@ -29,11 +31,5 @@ routes:
         disable: true
       redact:
         patterns_file: "/etc/apisix/redact-patterns.json"
-
-consumers:
-  - username: opencode
-    plugins:
-      key-auth:
-        key: "opencode-gateway-key"
 
 #END

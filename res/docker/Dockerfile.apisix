@@ -1,5 +1,6 @@
 FROM apache/apisix:3.17.0-debian
 
+COPY plugins/custom/gateway-auth.lua /usr/local/apisix/apisix/plugins/gateway-auth.lua
 COPY plugins/custom/redact.lua /usr/local/apisix/apisix/plugins/redact.lua
 COPY plugins/custom/redact_lib.lua /usr/local/apisix/apisix/plugins/redact_lib.lua
 COPY conf/config.yaml /usr/local/apisix/conf/config.yaml

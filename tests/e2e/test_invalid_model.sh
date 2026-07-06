@@ -40,8 +40,7 @@ body_file=$(mktemp)
 
 http_code=$(curl -s -o "$body_file" -w "%{http_code}" --max-time 30 \
     -X POST "$GATEWAY_URL/zen/v1/chat/completions" \
-    -H "apikey: $GATEWAY_API_KEY" \
-    -H "Authorization: Bearer $OPENCODE_ZEN_API_KEY" \
+    -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"model":"nonexistent-model-xyz-12345","messages":[{"role":"user","content":"hello"}],"stream":false}' \
     2>/dev/null || echo "000")

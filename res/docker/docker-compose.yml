@@ -10,6 +10,8 @@ services:
     volumes:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
+    env_file:
+      - ../../.env
     depends_on:
       - vector
     restart: unless-stopped

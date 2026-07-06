@@ -87,4 +87,8 @@ assert_eq "Networks has gateway" "true" "$HAS_GATEWAY"
 HAS_DATAOPS=$(echo "$JSON_DATA" | jq '.networks | has("dataops")')
 assert_eq "Networks has dataops" "true" "$HAS_DATAOPS"
 
+APISIX_ENV_FILE=$(echo "$JSON_DATA" | jq -r '.services.apisix.env_file[]')
+HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" || true)
+assert_eq "APISIX has env_file pointing to .env" "1" "$HAS_ENV_FILE"
+
 summary
