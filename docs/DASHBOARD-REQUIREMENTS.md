@@ -23,8 +23,8 @@ five operational questions:
 
 | Source | UID | Used For | Why |
 |--------|-----|----------|-----|
-| ClickHouse | `clickhouse` | Token usage, cost, model distribution, avg latency, stream stats, error rate | Long-term storage with `$__timeFilter` macro that respects the dashboard time range selector. Authoritative for billing, usage, and request-level analytics. |
-| Prometheus | `prometheus` | Total requests, active connections, request rate, status codes, latency percentiles, bandwidth, shared dict memory | Real-time counters and histograms from APISIX. Ideal for instantaneous rates and percentiles via `rate()` and `histogram_quantile()`. |
+| ClickHouse | `clickhouse` | Token usage, cost, model distribution, avg latency, stream stats, error rate, total requests, status code breakdown | Long-term storage with `$__timeFilter` macro that respects the dashboard time range selector. Authoritative for billing, usage, and request-level analytics. |
+| Prometheus | `prometheus` | Active connections, request rate, latency percentiles, bandwidth, shared dict memory | Real-time counters and histograms from APISIX. Ideal for instantaneous rates and percentiles via `rate()` and `histogram_quantile()`. |
 
 ### Why Error Rate uses ClickHouse, not Prometheus
 
@@ -34,6 +34,19 @@ If no 5xx occurred in the last 5 minutes, the panel shows 0% even when the
 24h window contains 4 server errors. ClickHouse `request_log` with
 `$__timeFilter(timestamp)` respects the dashboard time range and provides the
 authoritative error count.
+
+### Why Total Requests uses ClickHouse, not Prometheus
+
+Prometheus `apisix_http_status` is a per-process counter that resets to 0
+on container restart. A stack redeploy would erase the cumulative total.
+ClickHouse `request_log` is persistent and provides the authoritative
+lifetime request count for the selected key filter.
+
+### Why Status Code Breakdown uses ClickHouse, not Prometheus
+
+Prometheus `sum by (code) (apisix_http_status)` only counts requests since
+the last APISIX restart. ClickHouse `request_log` contains the complete
+history and respects the dashboard time range selector.
 
 ## 3. Global Filters
 
@@ -142,25 +155,36 @@ bottom showing `sum` per series.
 |-------|-------|
 | ID | 1 |
 | Type | stat |
-| Datasource | Prometheus |
+| Datasource | ClickHouse |
 | Grid | x:0 y:8 w:8 h:4 |
 | Unit | req |
 
 **Purpose:** Show the total number of HTTP requests processed by the gateway
-for the selected key filter.
+for the selected key filter over the dashboard time range.
 
 **Theory:** A single large number gives an instant sense of traffic volume.
-The Prometheus counter `apisix_http_status` is a cumulative counter, so
-`sum()` gives the total count across all status codes and key hashes
-matching the filter. Thresholds provide visual cues: under 1000 is normal
+ClickHouse `request_log` with `$__timeFilter` provides a persistent count
+that survives container restarts (unlike Prometheus counters, which reset
+on redeploy). Thresholds provide visual cues: under 1000 is normal
 (teal), 1000-10000 is elevated (gold), over 10000 is high (bronze).
 
-**Query:** `sum(apisix_http_status{key_hash=~"$api_key"})`
+**Query:** `SELECT count() as total_requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})`
+
+**Why ClickHouse, not Prometheus:** The Prometheus counter
+`apisix_http_status` resets to 0 on container restart. A stack redeploy
+would erase the cumulative total, making the panel show 0 after every
+restart. ClickHouse `request_log` is persistent and respects the
+dashboard time range selector.
+
+**Thresholds:** null/teal, 1000/gold, 10000/bronze
 
 **Correctness criteria:**
 - Value >= 0
 - Single-valued stat (no multi-series)
 - Thresholds: null/teal, 1000/gold, 10000/bronze
+- Datasource is ClickHouse (NOT Prometheus)
+- Uses `$__timeFilter` and `format: "table"`, `queryType: "table"`
+- NO `meta`, `editorType`, or `pluginVersion` keys
 
 ---
 
@@ -174,18 +198,19 @@ matching the filter. Thresholds provide visual cues: under 1000 is normal
 | Grid | x:8 y:8 w:8 h:4 |
 | Unit | percent |
 
-**Purpose:** Show the percentage of requests that resulted in 5xx server
-errors over the dashboard time range.
+**Purpose:** Show the percentage of requests that resulted in HTTP errors
+(4xx + 5xx) over the dashboard time range.
 
 **Theory:** Error rate is the single most important health metric. A
-non-zero error rate means the gateway or upstream providers are failing.
-5xx errors (500-599) are server-side failures: the gateway or provider
-returned an error, timed out, or was unavailable. 4xx errors are client
-errors (bad request, unauthorized, rate limited) and do NOT count as
-gateway failures. The threshold at 1% (gold) warns the operator; at 5%
-(coral) the gateway is in trouble.
+non-zero error rate means something is wrong -- either client-side (4xx:
+bad request, unauthorized, rate limited, not found) or server-side (5xx:
+gateway or provider failure, timeout, unavailable). All `status >= 400`
+are errors from the operator's perspective: 401 means a key is expired,
+404 means a bad route, 429 means rate limiting is triggering, 500+ means
+the gateway or upstream is broken. The threshold at 1% (gold) warns the
+operator; at 5% (coral) the gateway is in trouble.
 
-**Query:** `SELECT round(countIf(status >= 500) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})`
+**Query:** `SELECT round(countIf(status >= 400) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})`
 
 **Why ClickHouse, not Prometheus:** The old Prometheus query
 `rate(apisix_http_status{code=~"5.."}[5m])` used a hardcoded 5-minute window
@@ -200,9 +225,9 @@ giving the operator the true error rate for their chosen window.
 - Value in [0, 100]
 - `format: "table"`, `queryType: "table"`
 - Datasource is ClickHouse (NOT Prometheus)
-- Uses `$__timeFilter` and `countIf(status >= 500)`
+- Uses `$__timeFilter` and `countIf(status >= 400)` (all 4xx + 5xx errors)
 - NO `meta`, `editorType`, or `pluginVersion` keys
-- If there are 5xx errors in the time range, value > 0
+- If there are errors (status >= 400) in the time range, value > 0
 
 ---
 
@@ -265,12 +290,12 @@ gateway-level view (per-key breakdown would be too noisy).
 |-------|-------|
 | ID | 7 |
 | Type | piechart |
-| Datasource | Prometheus |
+| Datasource | ClickHouse |
 | Grid | x:12 y:12 w:12 h:8 |
 | Unit | short |
 
 **Purpose:** Show the distribution of HTTP response status codes as a donut
-chart.
+chart for the dashboard time range.
 
 **Theory:** The status code breakdown reveals the health composition of
 responses. A healthy gateway shows mostly 200 (teal) with small slices of
@@ -278,7 +303,19 @@ responses. A healthy gateway shows mostly 200 (teal) with small slices of
 (cerulean, client closed) suggests slow responses. A 504 slice (coral,
 gateway timeout) indicates upstream provider issues.
 
-**Query:** `sum by (code) (apisix_http_status{key_hash=~"$api_key"})`
+**Query:** `SELECT toString(status) as status, count() as count FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY status ORDER BY status`
+
+**Why ClickHouse, not Prometheus:** Prometheus `sum by (code)
+(apisix_http_status)` only counts requests since the last APISIX restart.
+ClickHouse `request_log` contains the complete history and respects the
+dashboard time range selector via `$__timeFilter`.
+
+**reduceOptions:** `values: true` is required so the piechart treats each
+row as a separate slice. Without it, Grafana reduces all rows to a single
+value and the piechart shows one slice instead of one per status code.
+
+**Legend:** Table on the right side, displaying both `value` and `percent`
+for each status code so percentages are visible without hovering.
 
 **Color mode:** `palette-classic` base with 5 `byName` color overrides for
 expected status codes. Categorical data (status codes) needs per-value
@@ -427,7 +464,11 @@ model or investigate why a specific model is slow. Only requests with
 `upstream_response_time_s > 0` are counted (zero-latency requests are
 typically cached responses or errors, not real upstream calls).
 
-**Query:** `SELECT model, avg(upstream_response_time_s) as avg_latency FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND upstream_response_time_s > 0 AND coalesce(...) IN (...) AND model IN (...) GROUP BY model ORDER BY avg_latency DESC LIMIT 20`
+**Query:** `SELECT u.model, avg(r.upstream_response_time_s) as avg_latency FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.key_id = u.key_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND r.upstream_response_time_s > 0 AND u.model != '' AND coalesce(...) IN (...) AND u.model IN (...) GROUP BY u.model ORDER BY avg_latency DESC LIMIT 20`
+
+**ASOF LEFT JOIN:** Same as Panel 8: `request_log.model` is empty for most
+rows, so the model name is attached via an ASOF LEFT JOIN to `usage_log`
+on `key_id + timestamp`.
 
 **Rendering:** Horizontal gradient bars, `palette-classic` colors,
 `showUnfilled: true` to show the scale.
@@ -501,7 +542,14 @@ dominating may indicate a routing configuration issue or user preference.
 The operator can compare this with Panel 15 (Cost Over Time) to see if the
 most-used model is also the most expensive.
 
-**Query:** `SELECT model, count() as requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(...) IN (...) AND model IN (...) GROUP BY model ORDER BY requests DESC LIMIT 20`
+**Query:** `SELECT u.model, count() as requests FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.key_id = u.key_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND u.model != '' AND coalesce(...) IN (...) AND u.model IN (...) GROUP BY u.model ORDER BY requests DESC LIMIT 20`
+
+**ASOF LEFT JOIN:** The `request_log.model` column is empty for most rows
+(model metadata is written to `usage_log`, not `request_log`). The ASOF
+LEFT JOIN on `key_id + timestamp` matches each request_log row to the
+nearest preceding usage_log row, attaching the model name. The join
+condition `r.timestamp >= u.timestamp` ensures the usage_log entry was
+written before the request (the model is known at request time).
 
 **Rendering:** Horizontal gradient bars, `palette-classic` colors,
 `showUnfilled: true`.
@@ -509,7 +557,6 @@ most-used model is also the most expensive.
 **Correctness criteria:**
 - `format: "table"`, `queryType: "table"`
 - Each model count > 0
-- Sum of all model counts = total request count (cross-query consistency)
 - Model names non-empty
 - NO `meta`, `editorType`, or `pluginVersion` keys (same builder-mode bug
   as Panel 10)
@@ -560,7 +607,7 @@ These invariants must hold across panels:
 | Stream partition | p14 | completed + client_aborted + provider_aborted = total_streams |
 | Cost sum = total cost | p15 | sum(per-minute cost) = total cost (tolerance 0.01) |
 | Model dist sum = total requests | p8 | sum(per-model count) = total request count |
-| Single key <= all keys | p1, p3 | filtered total <= unfiltered total |
+| Single key <= all keys | p1, p3, p4 | filtered total <= unfiltered total |
 
 ## 6. Structural Requirements (All Panels)
 
@@ -587,4 +634,4 @@ These apply to every panel regardless of type:
    coral `#f25f5c`, celadon `#a5d0a8`, dark `#50514f`, cream `#f2f4cb`,
    ink `#110b11`.
 10. **Dashboard time range:** `now-24h` to `now`, refresh `15s`.
-11. **Panel count:** 14 panels total (6 ClickHouse, 8 Prometheus).
+11. **Panel count:** 14 panels total (9 ClickHouse, 5 Prometheus).
