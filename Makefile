@@ -1,8 +1,11 @@
 # Makefile for WORKSPACE-GATEWAY
 #
 # Quality gates: lint, type-check, test, check, check-push.
-# Dev lifecycle: fully automated via Ansible (res/ansible/dev.yml).
-# Pattern follows WORKSPACE-PORTAL: Makefile delegates to ansible-playbook.
+# Dev lifecycle: compose ops run directly from Makefile (INCIDENT-2026-07-07:
+#   nesting podman-compose build/up inside ansible.builtin.command swallowed
+#   all stdout, making builds + health-probe loops look like an indefinite
+#   freeze). Ansible handles health checks, init SQL, and model sync only.
+# Pattern follows WORKSPACE-PORTAL (INCIDENT-2026-05-08).
 
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
@@ -11,8 +14,20 @@ REPO_ROOT := $(shell git rev-parse --show-toplevel || pwd)
 CI_DIR := $(abspath $(REPO_ROOT)/../CI)
 COMPOSE_FILE := $(REPO_ROOT)/res/docker/docker-compose.yml
 VENV_BIN := $(REPO_ROOT)/.venv/bin
+COMPOSE_CMD := $(VENV_BIN)/podman-compose -f $(COMPOSE_FILE)
+# Fail fast: cap podman-compose's internal HTTP timeout at 10s (default 60s
+# causes indefinite hangs when containers fail to start - see podman #10922).
+export COMPOSE_HTTP_TIMEOUT := 10
 ANSIBLE_PLAYBOOK := ansible-playbook
 ANSIBLE_DEV := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/dev.yml
+
+# Node.js / Playwright for browser-based Grafana panel rendering tests.
+# Override NODE_BIN or NODE_PATH via environment if your node is elsewhere.
+WORKSPACE_ROOT := $(abspath $(REPO_ROOT)/../..)
+NODE_BIN ?= $(WORKSPACE_ROOT)/.boot-linux/bin/node
+NODE_PATH ?= $(WORKSPACE_ROOT)/node_modules
+export NODE_BIN
+export NODE_PATH
 
 export PATH := $(PATH):$(VENV_BIN)
 
@@ -55,8 +70,7 @@ setup: bootstrap-podman ## Create .venv with podman-compose
 	@_ansible="$$(command -v ansible-playbook)" || _ansible="NOT FOUND"; echo "  ansible: $$_ansible"
 
 install: setup install-hooks ## Full install: podman + .venv + hooks + images
-	@echo "=== Building container images ==="
-	@$(VENV_BIN)/podman-compose -f $(COMPOSE_FILE) build
+	@$(MAKE) _compose-build
 	@echo "=== Install complete ==="
 	@echo "Run 'make dev-start' to start the gateway stack."
 
@@ -69,39 +83,79 @@ install-hooks: ## (Re)generate native git hooks
 sync: install-deps install-hooks ## Sync deps + reinstall hooks
 
 init: ## Check system dependencies and print install instructions if missing
-	@bash $(REPO_ROOT)/res/scripts/install-deps.sh --install
+	@bash $(CI_DIR)/scripts/install-system-deps --print
 
 init-check: ## Check system dependencies (report only, fail if any missing)
-	@bash $(REPO_ROOT)/res/scripts/install-deps.sh --check
+	@bash $(CI_DIR)/scripts/install-system-deps --check
 
 # =============================================================================
-# Dev Lifecycle (via Ansible)
+# Dev Lifecycle
 # =============================================================================
+# Compose operations (build/up/down) run directly from Makefile targets so
+# output streams live to the terminal. Ansible handles only health checks,
+# ClickHouse init SQL, and model sync.
+# =============================================================================
+
+.PHONY: _compose-build _compose-up _compose-down _compose-clean
+
+_compose-build:
+	@echo "=== Building container images ==="
+	$(COMPOSE_CMD) build
+
+_compose-up:
+	@echo "=== Starting gateway stack ==="
+	@timeout 120 $(COMPOSE_CMD) up -d; \
+	rc=$$?; \
+	if [ $$rc -ne 0 ]; then \
+		echo "=== ERROR: podman-compose up failed (rc=$$rc) ===" >&2; \
+		podman ps -a --format "table {{.Names}}\t{{.Status}}" | grep -E "docker_|gw-"; \
+		exit 1; \
+	fi
+	@echo "=== Verifying containers started ==="
+	@expected="docker_apisix_1 docker_clickhouse_1 docker_vector_1 gw-grafana gw-prometheus gw-openbao"; \
+	missing=""; \
+	for c in $$expected; do \
+		if ! podman inspect -f '{{.State.Running}}' $$c | grep -q true; then \
+			missing="$$missing $$c"; \
+		fi; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "=== ERROR: containers not running:$$missing ===" >&2; \
+		podman ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "docker_|gw-"; \
+		exit 1; \
+	fi
+	@echo "=== All containers running ==="
+
+_compose-down:
+	@echo "=== Stopping gateway stack ==="
+	-$(COMPOSE_CMD) down
+
+_compose-clean:
+	@echo "=== Destroying volumes (data loss!) ==="
+	-$(COMPOSE_CMD) down -v
+
 .PHONY: dev-start dev-stop dev-restart dev-rebuild dev-logs dev-status \
         dev-clean dev-shell dev-reset-db dev-test dev-smoke
 
-dev-start: ## Start the gateway stack (Ansible-managed)
+dev-start: _compose-build _compose-up ## Start the gateway stack (build + up + health checks)
+	@echo "=== Waiting for services to become healthy ==="
 	$(ANSIBLE_DEV) --tags start
 
-dev-stop: ## Stop the gateway stack (keep volumes)
-	$(ANSIBLE_DEV) --tags stop
+dev-stop: _compose-down ## Stop the gateway stack (keep volumes)
 
-dev-restart: ## Restart the gateway stack (stop + start)
-	$(ANSIBLE_DEV) --tags stop
-	$(ANSIBLE_DEV) --tags start
+dev-restart: dev-stop dev-start ## Restart the gateway stack (stop + start)
 
-dev-rebuild: ## Rebuild images and restart
-	$(ANSIBLE_DEV) --tags stop
+dev-rebuild: dev-stop _compose-build _compose-up ## Rebuild images and restart
+	@echo "=== Waiting for services to become healthy ==="
 	$(ANSIBLE_DEV) --tags start
 
 dev-logs: ## Tail container logs (Ctrl-C to stop)
-	$(ANSIBLE_DEV) --tags logs
+	$(COMPOSE_CMD) logs -f
 
 dev-status: ## Show running containers and health status
 	$(ANSIBLE_DEV) --tags status
 
-dev-clean: ## Stop stack and remove all volumes (data loss!)
-	$(ANSIBLE_DEV) --tags clean
+dev-clean: _compose-clean ## Stop stack and remove all volumes (data loss!)
 
 dev-shell: ## Exec into APISIX container shell
 	@podman exec -it docker_apisix_1 /bin/bash
@@ -110,7 +164,8 @@ dev-reset-db: ## Reset ClickHouse (drop + recreate tables)
 	$(ANSIBLE_DEV) --tags reset-db
 
 dev-test: ## Run full test suite against running stack
-	$(ANSIBLE_DEV) --tags test
+	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	bash tests/run_all.sh
 
 dev-smoke: ## Quick smoke test: one request through the gateway
 	$(ANSIBLE_DEV) --tags smoke

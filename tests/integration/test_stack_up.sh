@@ -34,7 +34,7 @@ teardown() {
         return 0
     fi
     echo "[INFO] Tearing down stack..."
-    podman-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+    podman-compose -f "$COMPOSE_FILE" down || echo "[WARN] teardown: podman-compose down failed (rc=$?)"
     if [ "$fail" -gt 0 ]; then
         echo "test_stack_up: $pass passed, $fail failed"
         exit 1
@@ -49,11 +49,12 @@ wait_for_url() {
     local max_attempts="${3:-30}"
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
-        if curl -sf -o /dev/null "$url" 2>/dev/null; then
+        if curl -sf -o /dev/null "$url"; then
             record_pass "$name is ready ($url)"
             return 0
         fi
         attempt=$((attempt + 1))
+        echo "  [$attempt/$max_attempts] $name not ready yet, retrying in 2s..."
         sleep 2
     done
     record_fail "$name not ready after $max_attempts attempts ($url)"
@@ -68,11 +69,12 @@ wait_for_port() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         if (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null; then
-            exec 3>&- 3<&- 2>/dev/null || true
+            exec 3>&- 3<&-
             record_pass "$name is listening on $host:$port"
             return 0
         fi
         attempt=$((attempt + 1))
+        echo "  [$attempt/$max_attempts] $name not listening on $host:$port yet, retrying in 2s..."
         sleep 2
     done
     record_fail "$name not listening on $host:$port after $max_attempts attempts"
@@ -80,7 +82,7 @@ wait_for_port() {
 }
 
 step1_build() {
-    if podman image exists "$IMAGE_TAG" 2>/dev/null; then
+    if podman image exists "$IMAGE_TAG"; then
         record_pass "APISIX image already built ($IMAGE_TAG)"
         return 0
     fi
@@ -95,7 +97,7 @@ step1_build() {
 
 step2_start() {
     echo "[INFO] Creating external network if needed..."
-    podman network create dataops_default 2>/dev/null || true
+    podman network create dataops_default 2>&1 || echo "  (network may already exist)"
     echo "[INFO] Starting stack..."
     if podman-compose -f "$COMPOSE_FILE" up -d; then
         record_pass "Start stack"
@@ -110,12 +112,13 @@ step3_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:9080/" 2>/dev/null || echo "000")
+        code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:9080/" || echo "000")
         if [ "$code" != "000" ]; then
             record_pass "APISIX on port 9080 is ready (HTTP $code)"
             return 0
         fi
         attempt=$((attempt + 1))
+        echo "  [$attempt/$max_attempts] APISIX not ready yet (curl returned 000), retrying in 2s..."
         sleep 2
     done
     record_fail "APISIX on port 9080 not ready after $max_attempts attempts (http://localhost:9080/)"
@@ -149,6 +152,7 @@ step9_tables() {
             return 0
         fi
         attempt=$((attempt + 1))
+        echo "  [$attempt/$max_attempts] ClickHouse table query failed: $out, retrying in 2s..."
         sleep 2
     done
     record_fail "ClickHouse request_log table query failed: $out"
@@ -160,7 +164,7 @@ step10_teardown() {
         record_pass "Tear down deferred (KEEP_STACK_UP=1)"
         return 0
     fi
-    if podman-compose -f "$COMPOSE_FILE" down 2>/dev/null; then
+    if podman-compose -f "$COMPOSE_FILE" down; then
         record_pass "Tear down stack"
         return 0
     fi

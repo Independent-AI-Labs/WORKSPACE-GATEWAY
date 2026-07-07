@@ -30,7 +30,7 @@ teardown() {
         exit 0
     fi
     echo "[INFO] Runner tearing down stack..."
-    podman-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+    podman-compose -f "$COMPOSE_FILE" down || echo "[WARN] teardown failed (rc=$?)"
     echo ""
     echo "Integration tests: $pass passed, $fail failed"
     if [ "$fail" -gt 0 ]; then
@@ -41,7 +41,7 @@ teardown() {
 trap teardown EXIT
 
 stack_is_up() {
-    podman ps --format '{{.Names}}' 2>/dev/null | grep -q apisix
+    podman ps --format '{{.Names}}' | grep -q apisix
 }
 
 # Auto-detect: if the stack is already running, treat it as external and
@@ -73,7 +73,7 @@ else
 fi
 
 if stack_is_up; then
-    for test_script in test_key_resolver.sh test_route_relay.sh test_prometheus.sh test_grafana.sh test_dashboard_queries.sh; do
+    for test_script in test_key_resolver.sh test_route_relay.sh test_prometheus.sh test_grafana.sh test_dashboard_queries.sh test_grafana_ds_proxy.sh test_grafana_panels.sh; do
         echo ""
         echo "--- $test_script ---"
         if bash "$SCRIPT_DIR/$test_script"; then

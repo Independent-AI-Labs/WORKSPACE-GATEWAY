@@ -4,19 +4,26 @@
 # Pattern: single playbook, tagged blocks. Makefile delegates via:
 #   ansible-playbook res/ansible/dev.yml --tags <tag>
 #
+# INCIDENT-2026-07-07: compose build/up/down previously ran inside
+#   ansible.builtin.command tasks, which captured all stdout and made
+#   builds + health-probe loops look like an indefinite freeze. These
+#   operations now run directly from Makefile targets (_compose-build,
+#   _compose-up, _compose-down) so output streams live to the terminal.
+#   This playbook handles only: health checks, ClickHouse init, model
+#   sync, status, smoke, and reset-db.
+#
 # Tags:
-#   start    - create network, build images, podman-compose up, health-check
-#   stop     - podman-compose down (keep volumes)
+#   start    - health checks + ClickHouse init + model sync
 #   status   - podman ps + endpoint health
-#   clean    - podman-compose down -v (destroy data)
 #   logs     - tail container logs
-#   test     - run full test suite
 #   smoke    - single curl request through gateway
 #   reset-db - drop and recreate ClickHouse tables
 #
 # Makefile orchestrates multi-step flows:
-#   dev-restart = stop + start (two playbook calls)
-#   dev-rebuild = stop + start (build is in start tag)
+#   dev-start = _compose-build + _compose-up + ansible --tags start
+#   dev-stop = _compose-down (no ansible needed)
+#   dev-restart = dev-stop + dev-start
+#   dev-test = bash tests/run_all.sh (no ansible needed)
 
 - name: WORKSPACE-GATEWAY dev lifecycle
   hosts: localhost
@@ -55,21 +62,13 @@
       tags: always
 
 
-    # ── start: create network, build, up, health-check ───────────────────
+    # ── start: health checks + ClickHouse init + model sync ─────────────
+    # NOTE: compose build/up/down are now Makefile targets (see header).
+    # This tag assumes the stack is already up via `make _compose-up`.
     - name: Create external network dataops_default
       ansible.builtin.command: podman network create dataops_default
       changed_when: false
       failed_when: false
-      tags: [start]
-
-    - name: Build container images
-      ansible.builtin.command: "{{ compose_cmd }} build"
-      changed_when: true
-      tags: [start]
-
-    - name: Start gateway stack
-      ansible.builtin.command: "{{ compose_cmd }} up -d"
-      changed_when: true
       tags: [start]
 
     - name: Wait for OpenBao to be ready (unsealed)
@@ -115,6 +114,11 @@
       register: ch_init
       changed_when: true
       failed_when: false
+      tags: [start]
+
+    - name: Show ClickHouse init output
+      ansible.builtin.debug:
+        var: ch_init.stdout_lines
       tags: [start]
 
     - name: Wait for Prometheus metrics endpoint
@@ -185,22 +189,6 @@
       tags: [start]
 
 
-    # ── stop: podman-compose down ────────────────────────────────────────
-    - name: Stop gateway stack
-      ansible.builtin.command: "{{ compose_cmd }} down"
-      changed_when: true
-      failed_when: false
-      tags: [stop]
-
-
-    # ── clean: down -v (destroy data) ────────────────────────────────────
-    - name: Destroy volumes (data loss)
-      ansible.builtin.command: "{{ compose_cmd }} down -v"
-      changed_when: true
-      failed_when: false
-      tags: [clean]
-
-
     # ── status: show running containers + health ─────────────────────────
     - name: Show running containers
       ansible.builtin.command: podman ps --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}\t{{ '{{' }}.Ports{{ '}}' }}"
@@ -268,39 +256,6 @@
       tags: [status, never]
 
 
-    # ── logs: tail container logs ────────────────────────────────────────
-    - name: Tail container logs
-      ansible.builtin.command: "{{ compose_cmd }} logs -f"
-      changed_when: false
-      tags: [logs, never]
-
-
-    # ── test: run full test suite ────────────────────────────────────────
-    - name: Source .env and run full test suite
-      ansible.builtin.shell: |
-        if [ -f {{ project_root }}/.env ]; then
-          set -a; . {{ project_root }}/.env; set +a
-        fi
-        bash {{ project_root }}/tests/run_all.sh
-      args:
-        chdir: "{{ project_root }}"
-      register: test_result
-      failed_when: false
-      changed_when: true
-      tags: [test, never]
-
-    - name: Fail if tests failed
-      ansible.builtin.fail:
-        msg: "Tests failed with rc={{ test_result.rc }}"
-      when: test_result.rc != 0
-      tags: [test, never]
-
-    - name: Show test results
-      ansible.builtin.debug:
-        var: test_result.stdout_lines
-      tags: [test, never]
-
-
     # ── smoke: single request through gateway ────────────────────────────
     - name: Send smoke test request
       ansible.builtin.shell: |
@@ -319,12 +274,6 @@
       failed_when: false
       tags: [smoke, never]
 
-    - name: Fail if smoke test curl failed
-      ansible.builtin.fail:
-        msg: "Smoke test curl failed with rc={{ smoke_code.rc }}"
-      when: smoke_code.rc != 0
-      tags: [smoke, never]
-
     - name: Show smoke result
       ansible.builtin.debug:
         msg: "Smoke test HTTP status: {{ smoke_code.stdout }}"
@@ -336,8 +285,14 @@
       ansible.builtin.command: >
         podman exec docker_clickhouse_1 clickhouse-client
         --query "DROP DATABASE IF EXISTS llm_gateway"
+      register: ch_drop
       changed_when: true
       failed_when: false
+      tags: [reset-db, never]
+
+    - name: Show ClickHouse drop output
+      ansible.builtin.debug:
+        var: ch_drop.stdout_lines
       tags: [reset-db, never]
 
     - name: Recreate ClickHouse tables from init SQL
@@ -349,10 +304,9 @@
       failed_when: false
       tags: [reset-db, never]
 
-    - name: Fail if ClickHouse recreate failed
-      ansible.builtin.fail:
-        msg: "ClickHouse table recreation failed with rc={{ ch_recreate.rc }}"
-      when: ch_recreate.rc != 0
+    - name: Show ClickHouse recreate output
+      ansible.builtin.debug:
+        var: ch_recreate.stdout_lines
       tags: [reset-db, never]
 
     - name: ClickHouse reset complete

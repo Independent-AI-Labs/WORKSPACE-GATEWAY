@@ -1,1 +1,0 @@
-SELECT round(sum(cost), 6) as total_cost FROM llm_gateway.usage_log WHERE timestamp >= toDateTime(__FROM__) AND timestamp <= toDateTime(__TO__) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (__API_KEYS__) AND model IN (__MODELS__)

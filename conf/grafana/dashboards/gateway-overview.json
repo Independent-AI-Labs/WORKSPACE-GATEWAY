@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 34,
+  "version": 44,
   "refresh": "15s",
   "time": {
     "from": "now-24h",
@@ -98,17 +98,6 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "#247ba0"
-              }
-            ]
-          },
           "color": {
             "mode": "fixed",
             "fixedColor": "#247ba0"
@@ -220,10 +209,10 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/Total|Input|Cached|Output|Reasoning/",
           "values": false
         },
-        "textMode": "auto"
+        "textMode": "value_and_name"
       }
     },
     {
@@ -288,8 +277,8 @@
       "title": "Total Requests",
       "type": "stat",
       "datasource": {
-        "uid": "prometheus",
-        "type": "prometheus"
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
         "h": 4,
@@ -299,8 +288,10 @@
       },
       "targets": [
         {
-          "expr": "sum(apisix_http_status{key_hash=~\"$api_key\"})",
-          "refId": "A"
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "SELECT count() as total_requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})"
         }
       ],
       "fieldConfig": {
@@ -357,7 +348,7 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "SELECT round(countIf(status >= 500) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})"
+          "rawSql": "SELECT round(countIf(status >= 400) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})"
         }
       ],
       "fieldConfig": {
@@ -500,8 +491,8 @@
       "title": "Status Code Breakdown",
       "type": "piechart",
       "datasource": {
-        "uid": "prometheus",
-        "type": "prometheus"
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
         "h": 8,
@@ -511,9 +502,10 @@
       },
       "targets": [
         {
-          "expr": "sum by (code) (apisix_http_status{key_hash=~\"$api_key\"})",
-          "legendFormat": "{{code}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "SELECT toString(status) as status, count() as count FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY status ORDER BY status"
         }
       ],
       "fieldConfig": {
@@ -627,7 +619,22 @@
         "displayLabels": [
           "name",
           "percent"
-        ]
+        ],
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
       }
     },
     {
@@ -949,9 +956,8 @@
         {
           "queryType": "table",
           "refId": "A",
-          "rawSql": "SELECT model, avg(upstream_response_time_s) as avg_latency FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND upstream_response_time_s > 0 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY avg_latency DESC LIMIT 20",
-          "format": "table",
-          "queryType": "table"
+          "rawSql": "SELECT u.model, avg(r.upstream_response_time_s) as avg_latency FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.key_id = u.key_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND r.upstream_response_time_s > 0 AND u.model != '' AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND u.model IN (${model:singlequote}) GROUP BY u.model ORDER BY avg_latency DESC LIMIT 20",
+          "format": "table"
         }
       ],
       "fieldConfig": {
@@ -965,9 +971,16 @@
         "overrides": []
       },
       "options": {
-        "orientation": "horizontal",
         "displayMode": "gradient",
-        "showUnfilled": true
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
       }
     },
     {
@@ -1068,9 +1081,8 @@
         {
           "queryType": "table",
           "refId": "A",
-          "rawSql": "SELECT model, count() as requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY requests DESC LIMIT 20",
-          "format": "table",
-          "queryType": "table"
+          "rawSql": "SELECT u.model, count() as requests FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.key_id = u.key_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND u.model != '' AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND u.model IN (${model:singlequote}) GROUP BY u.model ORDER BY requests DESC LIMIT 20",
+          "format": "table"
         }
       ],
       "fieldConfig": {
@@ -1083,9 +1095,16 @@
         "overrides": []
       },
       "options": {
-        "orientation": "horizontal",
         "displayMode": "gradient",
-        "showUnfilled": true
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
       }
     },
     {

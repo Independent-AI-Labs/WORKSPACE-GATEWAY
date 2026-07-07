@@ -1,5 +1,5 @@
 # System dependencies for WORKSPACE-GATEWAY host-side tools.
-# Checked and installed by: make init (via res/scripts/install-deps.sh)
+# Checked and installed by: make init (via CI's scripts/install-system-deps)
 #
 # Format mirrors WORKSPACE-VM/workspace/config/bootstrap-components.yaml
 # requires: section. Each entry has:
@@ -8,7 +8,7 @@
 #                   (omit if tool is bootstrapped via script, not apt)
 #   description   - human-readable description shown in check output
 #
-# install-deps.sh skips any tool already present on the system.
+# install-system-deps skips any tool already present on the system.
 
 requires:
   - check_cmd: podman

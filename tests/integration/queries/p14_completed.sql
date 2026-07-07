@@ -1,1 +1,0 @@
-SELECT toStartOfMinute(timestamp) as time, 'Completed' as label, sum(if(aborted = 0, 1, 0)) as count FROM llm_gateway.usage_log WHERE is_stream = 1 AND timestamp >= toDateTime(__FROM__) AND timestamp <= toDateTime(__TO__) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (__API_KEYS__) AND model IN (__MODELS__) GROUP BY time ORDER BY time

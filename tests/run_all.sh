@@ -16,7 +16,7 @@ pass=0
 fail=0
 
 stack_is_up() {
-    podman ps --format '{{.Names}}' 2>/dev/null | grep -q apisix
+    podman ps --format '{{.Names}}' | grep -q apisix
 }
 
 if stack_is_up; then
@@ -68,7 +68,7 @@ fi
 if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ] && [ "${EXTERNAL_STACK:-0}" != "1" ]; then
     echo ""
     echo "[INFO] Tearing down test stack after all tests..."
-    podman-compose -f "$REPO_ROOT/res/docker/docker-compose.yml" down 2>/dev/null || true
+    podman-compose -f "$REPO_ROOT/res/docker/docker-compose.yml" down || echo "[WARN] teardown failed (rc=$?)"
 elif [ "${EXTERNAL_STACK:-0}" = "1" ]; then
     echo ""
     echo "[INFO] Stack was already running: leaving it up."
