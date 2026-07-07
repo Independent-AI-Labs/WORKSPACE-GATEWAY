@@ -1261,7 +1261,7 @@ graph TB
         SHELL["make dev-shell"]
         RESETDB["make dev-reset-db"]
         TEST["make dev-test"]
-        SMOKE["make dev-smoke"]
+        SANITY["make dev-sanity"]
     end
 
     subgraph "Ansible playbook (res/ansible/dev.yml)"
@@ -1271,7 +1271,7 @@ graph TB
         T_STATUS["tag: status<br/>podman ps + health checks"]
         T_LOGS["tag: logs<br/>podman-compose logs -f"]
         T_TEST["tag: test<br/>run tests/run_all.sh"]
-        T_SMOKE["tag: smoke<br/>single curl request"]
+        T_SANITY["tag: sanity<br/>single curl request"]
         T_RESET["tag: reset-db<br/>DROP + CREATE tables"]
     end
 
@@ -1331,7 +1331,7 @@ sequenceDiagram
 | `make dev-shell` | Exec into APISIX container |
 | `make dev-reset-db` | Drop + recreate ClickHouse tables |
 | `make dev-test` | Run full test suite |
-| `make dev-smoke` | Single curl request through gateway |
+| `make dev-sanity` | Single curl request through gateway |
 | `make sync-models` | Sync models from gateway to opencode config |
 | `make issue-key` | Issue new virtual key in OpenBao |
 | `make list-keys` | List all virtual keys |

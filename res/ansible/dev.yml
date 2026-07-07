@@ -10,13 +10,13 @@
 #   operations now run directly from Makefile targets (_compose-build,
 #   _compose-up, _compose-down) so output streams live to the terminal.
 #   This playbook handles only: health checks, ClickHouse init, model
-#   sync, status, smoke, and reset-db.
+#   sync, status, sanity, and reset-db.
 #
 # Tags:
 #   start    - health checks + ClickHouse init + model sync
 #   status   - podman ps + endpoint health
 #   logs     - tail container logs
-#   smoke    - single curl request through gateway
+#   sanity   - single curl request through gateway
 #   reset-db - drop and recreate ClickHouse tables
 #
 # Makefile orchestrates multi-step flows:
@@ -51,7 +51,13 @@
 
     - name: Verify podman is available
       ansible.builtin.shell: command -v podman
+      register: podman_check
       changed_when: false
+      tags: always
+
+    - name: Show podman path
+      ansible.builtin.debug:
+        msg: "podman: {{ podman_check.stdout }}"
       tags: always
 
     - name: Verify podman-compose is available
@@ -67,8 +73,14 @@
     # This tag assumes the stack is already up via `make _compose-up`.
     - name: Create external network dataops_default
       ansible.builtin.command: podman network create dataops_default
-      changed_when: false
-      failed_when: false
+      register: net_create
+      changed_when: net_create.rc == 0
+      failed_when: net_create.rc != 0 and 'exists' not in (net_create.stderr | default(''))
+      tags: [start]
+
+    - name: Show network create result
+      ansible.builtin.debug:
+        msg: "{{ net_create.stdout_lines | default([]) + (net_create.stderr_lines | default([])) }}"
       tags: [start]
 
     - name: Wait for OpenBao to be ready (unsealed)
@@ -113,7 +125,6 @@
         < {{ project_root }}/conf/clickhouse-init.sql
       register: ch_init
       changed_when: true
-      failed_when: false
       tags: [start]
 
     - name: Show ClickHouse init output
@@ -180,7 +191,6 @@
         chdir: "{{ project_root }}"
       register: sync_result
       changed_when: true
-      failed_when: false
       tags: [start]
 
     - name: Show sync result
@@ -192,7 +202,13 @@
     # ── status: show running containers + health ─────────────────────────
     - name: Show running containers
       ansible.builtin.command: podman ps --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}\t{{ '{{' }}.Ports{{ '}}' }}"
+      register: ps_output
       changed_when: false
+      tags: [status, never]
+
+    - name: Display running containers
+      ansible.builtin.debug:
+        var: ps_output.stdout_lines
       tags: [status, never]
 
     - name: Check APISIX health
@@ -202,7 +218,7 @@
         status_code: [200, 404]
         timeout: 5
       register: apisix_status
-      failed_when: false
+      failed_when: apisix_status.status | default(0) < 0
       tags: [status, never]
 
     - name: Check ClickHouse health
@@ -212,7 +228,7 @@
         status_code: [200]
         timeout: 5
       register: ch_status
-      failed_when: false
+      failed_when: ch_status.status | default(0) < 0
       tags: [status, never]
 
     - name: Check Prometheus metrics
@@ -222,7 +238,7 @@
         status_code: [200]
         timeout: 5
       register: prom_status
-      failed_when: false
+      failed_when: prom_status.status | default(0) < 0
       tags: [status, never]
 
     - name: Check Grafana health
@@ -232,7 +248,7 @@
         status_code: [200]
         timeout: 5
       register: grafana_status
-      failed_when: false
+      failed_when: grafana_status.status | default(0) < 0
       tags: [status, never]
 
     - name: Check gateway Prometheus health
@@ -242,7 +258,7 @@
         status_code: [200]
         timeout: 5
       register: gw_prom_status
-      failed_when: false
+      failed_when: gw_prom_status.status | default(0) < 0
       tags: [status, never]
 
     - name: Display health status
@@ -256,8 +272,8 @@
       tags: [status, never]
 
 
-    # ── smoke: single request through gateway ────────────────────────────
-    - name: Send smoke test request
+    # ── sanity: single request through gateway ───────────────────────────
+    - name: Send sanity check request
       ansible.builtin.shell: |
         if [ -f {{ project_root }}/.env ]; then
           set -a; . {{ project_root }}/.env; set +a
@@ -269,15 +285,15 @@
           -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}],"stream":false}'
       args:
         chdir: "{{ project_root }}"
-      register: smoke_code
+      register: sanity_code
       changed_when: false
-      failed_when: false
-      tags: [smoke, never]
+      failed_when: sanity_code.rc != 0
+      tags: [sanity, never]
 
-    - name: Show smoke result
+    - name: Show sanity result
       ansible.builtin.debug:
-        msg: "Smoke test HTTP status: {{ smoke_code.stdout }}"
-      tags: [smoke, never]
+        msg: "Sanity check HTTP status: {{ sanity_code.stdout }}"
+      tags: [sanity, never]
 
 
     # ── reset-db: drop and recreate ClickHouse tables ────────────────────
@@ -287,7 +303,6 @@
         --query "DROP DATABASE IF EXISTS llm_gateway"
       register: ch_drop
       changed_when: true
-      failed_when: false
       tags: [reset-db, never]
 
     - name: Show ClickHouse drop output
@@ -301,7 +316,6 @@
         < {{ project_root }}/conf/clickhouse-init.sql
       register: ch_recreate
       changed_when: true
-      failed_when: false
       tags: [reset-db, never]
 
     - name: Show ClickHouse recreate output

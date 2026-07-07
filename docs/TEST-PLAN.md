@@ -650,7 +650,7 @@ Commit B2 is already pushed as `77e2649`.
 | Commit | Content | Type |
 |--------|---------|------|
 | A+B (done) | `apisix.yaml`, `OPENCODE-INTEGRATION.md`, `TEST-PLAN.md` | fix |
-| B2 (done) | Revised `TEST-PLAN.md` (agentic gaps closed) | docs |
+| B2 (done) | Revised `TEST-PLAN.md` (agent-driven gaps closed) | docs |
 | C | `redact_lib.lua` + refactored `redact.lua` | refactor |
 | D | Lua unit tests + runner (Stage 1) | test |
 | E | Config validation tests (Stage 2) | test |
@@ -792,7 +792,7 @@ E2E tests are black-box (no coverage measurement).
 
 ## 14. Audit Findings and Remediation Plan
 
-A comprehensive three-agent audit was conducted on 2026-07-06
+A complete three-agent audit was conducted on 2026-07-06
 covering configuration, plugin implementation, test suite
 comprehensiveness, and documentation completeness.
 

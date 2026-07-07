@@ -1,0 +1,10 @@
+# WORKSPACE-GATEWAY banned words exceptions.
+#
+# Per-project exemptions for the banned-words checker.
+# Loaded by lib/check_banned_words.py alongside the CI-wide config.
+exceptions:
+  # "realm" is a legitimate APISIX openid-connect plugin config field
+  # and a standard HTTP WWW-Authenticate header parameter (RFC 6750).
+  # Not AI slop -- it is the actual config key name and header value.
+  - pattern: '\brealm\b'
+    paths: ['docs/']

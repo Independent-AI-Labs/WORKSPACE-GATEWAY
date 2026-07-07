@@ -22,12 +22,15 @@ ANSIBLE_PLAYBOOK := ansible-playbook
 ANSIBLE_DEV := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/dev.yml
 
 # Node.js / Playwright for browser-based Grafana panel rendering tests.
-# Override NODE_BIN or NODE_PATH via environment if your node is elsewhere.
+# Force-set (not ?=) so git hooks / CI get correct paths even when the
+# calling environment has different values (e.g. Tabby's NODE_PATH).
 WORKSPACE_ROOT := $(abspath $(REPO_ROOT)/../..)
-NODE_BIN ?= $(WORKSPACE_ROOT)/.boot-linux/bin/node
-NODE_PATH ?= $(WORKSPACE_ROOT)/node_modules
+NODE_BIN := $(WORKSPACE_ROOT)/.boot-linux/bin/node
+NODE_PATH := $(WORKSPACE_ROOT)/node_modules
+PLAYWRIGHT_BROWSERS_PATH := $(WORKSPACE_ROOT)/.boot-linux/playwright-browsers
 export NODE_BIN
 export NODE_PATH
+export PLAYWRIGHT_BROWSERS_PATH
 
 export PATH := $(PATH):$(VENV_BIN)
 
@@ -135,7 +138,7 @@ _compose-clean:
 	-$(COMPOSE_CMD) down -v
 
 .PHONY: dev-start dev-stop dev-restart dev-rebuild dev-logs dev-status \
-        dev-clean dev-shell dev-reset-db dev-test dev-smoke
+        dev-clean dev-shell dev-reset-db dev-test dev-sanity
 
 dev-start: _compose-build _compose-up ## Start the gateway stack (build + up + health checks)
 	@echo "=== Waiting for services to become healthy ==="
@@ -167,8 +170,8 @@ dev-test: ## Run full test suite against running stack
 	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	bash tests/run_all.sh
 
-dev-smoke: ## Quick smoke test: one request through the gateway
-	$(ANSIBLE_DEV) --tags smoke
+dev-sanity: ## Quick sanity check: one request through the gateway
+	$(ANSIBLE_DEV) --tags sanity
 
 sync-models: ## Sync models from gateway into opencode config
 	bash $(REPO_ROOT)/res/scripts/sync-opencode-models.sh

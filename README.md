@@ -380,7 +380,7 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 | `make dev-clean` | Stop + destroy volumes (data loss) |
 | `make dev-shell` | Exec into APISIX container |
 | `make dev-reset-db` | Drop + recreate ClickHouse tables |
-| `make dev-smoke` | Single curl request through gateway |
+| `make dev-sanity` | Single curl request through gateway |
 | `make dev-test` | Run full test suite via Ansible |
 
 ### Key Management
