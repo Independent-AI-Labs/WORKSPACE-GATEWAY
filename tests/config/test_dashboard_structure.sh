@@ -207,14 +207,16 @@ MODEL_QUERY=$(jq -r '
 assert_eq "S9: model variable UNIONs both tables" "union" "$MODEL_QUERY"
 
 # S10: Panel count and datasource split
+# p4 Error Rate moved from Prometheus to ClickHouse in v34
+# (see docs/DASHBOARD-REQUIREMENTS.md section "Why Error Rate uses ClickHouse")
 PANEL_COUNT=$(jq '.panels | length' "$DASHBOARD_FILE")
 assert_eq "Panel count is 14" "14" "$PANEL_COUNT"
 
 PROM_PANELS=$(jq '[.panels[] | select(.datasource.uid == "prometheus")] | length' "$DASHBOARD_FILE")
-assert_eq "Panels using Prometheus datasource" "8" "$PROM_PANELS"
+assert_eq "Panels using Prometheus datasource" "7" "$PROM_PANELS"
 
 CH_PANELS=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$DASHBOARD_FILE")
-assert_eq "Panels using ClickHouse datasource" "6" "$CH_PANELS"
+assert_eq "Panels using ClickHouse datasource" "7" "$CH_PANELS"
 
 # S11: p7 status code overrides cover expected codes
 P7_CODES=$(jq -r '
@@ -230,6 +232,69 @@ P11_EXPRS=$(jq -r '
   | map(.expr | test("sum\\(") | if . then "yes" else "no" end) | join(",")
 ' "$DASHBOARD_FILE")
 assert_eq "S12: p11 bandwidth targets both use sum()" "yes,yes" "$P11_EXPRS"
+
+# S13: No ClickHouse target has meta/editorType/pluginVersion keys
+# These trigger the grafana-clickhouse-datasource builder mode with empty
+# columns: [], which produces an empty query and renders nothing.
+# See docs/DASHBOARD-REQUIREMENTS.md section 6, requirement 5.
+CH_HAS_META=$(jq -r '
+  [.panels[] | select(.datasource.uid == "clickhouse")
+    | .targets[]
+    | select(has("meta") or has("editorType") or has("pluginVersion"))
+  ] | length
+' "$DASHBOARD_FILE")
+assert_eq "S13: No ClickHouse target has meta/editorType/pluginVersion" "0" "$CH_HAS_META"
+
+# S14: p4 Error Rate uses ClickHouse datasource (not Prometheus)
+# See docs/DASHBOARD-REQUIREMENTS.md: "Why Error Rate uses ClickHouse, not Prometheus"
+P4_DS=$(jq -r '[.panels[] | select(.id == 4)][0].datasource.uid' "$DASHBOARD_FILE")
+assert_eq "S14: p4 Error Rate datasource is clickhouse" "clickhouse" "$P4_DS"
+
+# S15: p4 Error Rate query uses countIf(status >= 500) and $__timeFilter
+P4_SQL=$(jq -r '[.panels[] | select(.id == 4)][0].targets[0].rawSql' "$DASHBOARD_FILE")
+echo "$P4_SQL" | grep -q 'countIf(status >= 500)' && { echo "[PASS] S15: p4 uses countIf(status >= 500)"; pass=$((pass+1)); } || { echo "[FAIL] S15: p4 missing countIf(status >= 500)"; fail=$((fail+1)); }
+echo "$P4_SQL" | grep -q '\$__timeFilter' && { echo "[PASS] S15: p4 uses \$__timeFilter"; pass=$((pass+1)); } || { echo "[FAIL] S15: p4 missing \$__timeFilter"; fail=$((fail+1)); }
+echo "$P4_SQL" | grep -q 'request_log' && { echo "[PASS] S15: p4 queries request_log"; pass=$((pass+1)); } || { echo "[FAIL] S15: p4 not querying request_log"; fail=$((fail+1)); }
+
+# S16: ClickHouse table panels (bargauge, stat) use format "table"
+# ClickHouse timeseries panels use format "timeseries" (covered by S2)
+# This catches any panel that uses a numeric format value like 1
+CH_TABLE_BAD=$(jq -r '
+  [.panels[] | select(.datasource.uid == "clickhouse" and (.type == "bargauge" or .type == "stat"))
+    | .targets[] | select(.format != "table")
+  ] | length
+' "$DASHBOARD_FILE")
+assert_eq "S16: ClickHouse bargauge/stat panels use format table" "0" "$CH_TABLE_BAD"
+
+# S17: p4 Error Rate has correct thresholds (0/teal, 1/gold, 5/coral)
+P4_THRESHOLDS=$(jq -r '
+  [.panels[] | select(.id == 4)][0].fieldConfig.defaults.thresholds.steps
+  | map(.value | if . == null then "null" else tostring end) | join(",")
+' "$DASHBOARD_FILE")
+assert_eq "S17: p4 thresholds are null,1,5" "null,1,5" "$P4_THRESHOLDS"
+
+# S18: p4 has no allValue (shared with S9 but explicit per-panel check)
+P4_FORMAT=$(jq -r '[.panels[] | select(.id == 4)][0].targets[0].format' "$DASHBOARD_FILE")
+assert_eq "S18: p4 target format is table" "table" "$P4_FORMAT"
+
+P4_QUERYTYPE=$(jq -r '[.panels[] | select(.id == 4)][0].targets[0].queryType' "$DASHBOARD_FILE")
+assert_eq "S18: p4 target queryType is table" "table" "$P4_QUERYTYPE"
+
+# S19: Prometheus expression count in dashboard matches prometheus.yaml test file
+# This catches stale test data where the dashboard was updated but the yaml was not
+PROM_YAML="$REPO_ROOT/tests/integration/queries/prometheus.yaml"
+if [ -f "$PROM_YAML" ]; then
+    source "$REPO_ROOT/tests/config/yaml_helpers.sh"
+    PROM_YAML_COUNT=$(yaml_to_json "$PROM_YAML" | jq 'length' 2>/dev/null || echo "0")
+    PROM_DASH_COUNT=$(jq '[.panels[] | select(.datasource.uid == "prometheus") | .targets[]] | length' "$DASHBOARD_FILE")
+    assert_eq "S19: prometheus.yaml entries match dashboard Prometheus targets" "$PROM_DASH_COUNT" "$PROM_YAML_COUNT"
+else
+    rf "S19: prometheus.yaml missing"
+fi
+
+# S20: Dashboard version is 34
+DASH_VERSION=$(jq -r '.version' "$DASHBOARD_FILE")
+assert_eq "S20: Dashboard version is 34" "34" "$DASH_VERSION"
 
 echo ""
 echo "test_dashboard_structure.sh: $pass passed, $fail failed"

@@ -8,12 +8,6 @@
   expr: |-
     sum(apisix_http_status{key_hash=~"__API_KEY_REGEX__"})
 
-- panel: 4
-  refId: "A"
-  title: "Error Rate %"
-  expr: |-
-    (sum(rate(apisix_http_status{key_hash=~"__API_KEY_REGEX__",code=~"5.."}[5m])) or vector(0)) / sum(rate(apisix_http_status{key_hash=~"__API_KEY_REGEX__"}[5m])) * 100
-
 - panel: 2
   refId: "A"
   title: "Active Connections"
@@ -54,13 +48,13 @@
   refId: "A"
   title: "Bandwidth In / Out (bytes/s)"
   expr: |-
-    rate(apisix_bandwidth{key_hash=~"__API_KEY_REGEX__",type="ingress"}[5m])
+    sum(rate(apisix_bandwidth{key_hash=~"__API_KEY_REGEX__",type="ingress"}[5m]))
 
 - panel: 11
   refId: "B"
   title: "Bandwidth In / Out (bytes/s)"
   expr: |-
-    rate(apisix_bandwidth{key_hash=~"__API_KEY_REGEX__",type="egress"}[5m])
+    sum(rate(apisix_bandwidth{key_hash=~"__API_KEY_REGEX__",type="egress"}[5m]))
 
 - panel: 12
   refId: "A"

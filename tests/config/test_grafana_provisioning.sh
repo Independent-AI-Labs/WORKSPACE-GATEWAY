@@ -121,10 +121,10 @@ assert_eq "Dashboard has 14 panels" "14" "$PANEL_COUNT"
 
 # Verify panels reference correct datasources
 PROM_PANELS=$(jq '[.panels[] | select(.datasource.uid == "prometheus")] | length' "$DASHBOARD_FILE")
-assert_eq "Panels using Prometheus datasource" "8" "$PROM_PANELS"
+assert_eq "Panels using Prometheus datasource" "7" "$PROM_PANELS"
 
 CH_PANELS=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$DASHBOARD_FILE")
-assert_eq "Panels using ClickHouse datasource" "6" "$CH_PANELS"
+assert_eq "Panels using ClickHouse datasource" "7" "$CH_PANELS"
 
 # ── p3 Token Usage stat: 5 field overrides, 5 targets (one per category) ─────
 
@@ -184,7 +184,7 @@ assert_eq "No \$__conditionalAll macros in dashboard" "0" "$COND_ALL_COUNT"
 # ── ClickHouse panels use \${api_key:singlequote} directly ────────────
 
 CH_APIKEY_PANELS=$(jq '[.panels[] | select(.datasource.uid == "clickhouse") | select([.targets[].rawSql? | select(. != null) | select(test("\\$\\{api_key:singlequote\\}"))] | length > 0)] | length' "$DASHBOARD_FILE")
-assert_eq "ClickHouse panels with \${api_key:singlequote}" "6" "$CH_APIKEY_PANELS"
+assert_eq "ClickHouse panels with \${api_key:singlequote}" "7" "$CH_APIKEY_PANELS"
 
 # ── p3 Token Usage stat: 5 tiles, one per category ───────────────────
 
@@ -225,10 +225,10 @@ assert_eq "p15 filters by \${api_key:singlequote}" "true" "$P15_HAS_APIKEY"
 P3_GRID_TOP=$(jq -r '[.panels[] | select(.id == 3)][0].gridPos | "y=\(.y),x=\(.x)"' "$DASHBOARD_FILE")
 assert_eq "p3 is positioned top-left (y=0,x=0)" "y=0,x=0" "$P3_GRID_TOP"
 
-# ── Prom panels: key_hash filter (6 of 8; p2/p12 are global) ──────────
+# ── Prom panels: key_hash filter (5 of 7; p2/p12 are global) ──────────
 
 PROM_KEYHASH_PANELS=$(jq '[.panels[] | select(.datasource.uid == "prometheus") | select([.targets[].expr? | select(. != null) | select(test("key_hash"))] | length > 0)] | length' "$DASHBOARD_FILE")
-assert_eq "Prometheus panels with key_hash filter" "6" "$PROM_KEYHASH_PANELS"
+assert_eq "Prometheus panels with key_hash filter" "5" "$PROM_KEYHASH_PANELS"
 
 # ── p13 Stream Abort Rate: 2 targets (client + provider) ─────────────
 

@@ -74,6 +74,7 @@ in_range() { awk "BEGIN{exit !($1 >= $2 && $1 <= $3)}" 2>/dev/null; }
 # Q1: All ClickHouse panel queries return HTTP 200
 echo "--- Q1: ClickHouse Query Execution ---"
 for sf in p3_total.sql p3_input.sql p3_cached.sql p3_output.sql p3_reasoning.sql p3_raw_tokens.sql \
+    p4_error_rate.sql \
     p8_model_dist.sql p8_total_requests.sql p10_avg_latency.sql \
     p13_abort_client.sql p13_abort_provider.sql \
     p14_completed.sql p14_client_aborted.sql p14_provider_aborted.sql p14_total_streams.sql \
@@ -183,10 +184,21 @@ else
 fi
 echo ""
 
-# Q11: p4 error rate in [0, 100]
-echo "--- Q11: p4 Error Rate Range [0,100] ---"
-P4V=$(prom_val "$(exec_prom "(sum(rate(apisix_http_status{key_hash=~\"$PROM_KEY_REGEX\",code=~\"5..\"}[5m])) or vector(0)) / sum(rate(apisix_http_status{key_hash=~\"$PROM_KEY_REGEX\"}[5m])) * 100")")
-[ -z "$P4V" ] && rs "Q11: no data" || { in_range "$P4V" 0 100 && rp "Q11: error_rate=$P4V in [0,100]" || rf "Q11: error_rate=$P4V out of range"; }
+# Q11: p4 Error Rate from ClickHouse in [0, 100], and > 0 if 5xx exist
+# See docs/DASHBOARD-REQUIREMENTS.md: "Why Error Rate uses ClickHouse, not Prometheus"
+echo "--- Q11: p4 Error Rate (ClickHouse) ---"
+P4V=$(exec_ch "p4_error_rate.sql" | head -1); P4V=${P4V:-0}
+in_range "$P4V" 0 100 && rp "Q11: error_rate=$P4V in [0,100]" || rf "Q11: error_rate=$P4V out of range"
+# Cross-check: count 5xx errors directly and verify error_rate matches
+P4ERR=$(curl -sf --max-time 30 -X POST "$CH_URL/" --data-binary \
+    "SELECT countIf(status >= 500) FROM llm_gateway.request_log WHERE timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS') AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ($CH_KEY_LIST) AND model IN ($CH_MODEL_LIST)" \
+    2>/dev/null | head -1); P4ERR=${P4ERR:-0}
+if [ "$P4ERR" -gt 0 ] 2>/dev/null; then
+    awk "BEGIN{exit !($P4V > 0)}" 2>/dev/null && rp "Q11: 5xx errors=$P4ERR, error_rate=$P4V (>0)" \
+        || rf "Q11: 5xx errors=$P4ERR but error_rate=$P4V (should be >0)"
+else
+    rp "Q11: no 5xx errors in range, error_rate=$P4V (0 is correct)"
+fi
 echo ""
 
 # Q12: p9 latency ordering: p50 <= p95 <= p99
