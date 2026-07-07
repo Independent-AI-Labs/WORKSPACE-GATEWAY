@@ -1,0 +1,1 @@
+SELECT model, avg(upstream_response_time_s) as avg_latency FROM llm_gateway.request_log WHERE timestamp >= toDateTime(__FROM__) AND timestamp <= toDateTime(__TO__) AND model != '' AND upstream_response_time_s > 0 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (__API_KEYS__) AND model IN (__MODELS__) GROUP BY model ORDER BY avg_latency DESC LIMIT 20

@@ -7,10 +7,10 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 32,
   "refresh": "15s",
   "time": {
-    "from": "now-6h",
+    "from": "now-24h",
     "to": "now"
   },
   "templating": {
@@ -22,9 +22,26 @@
           "uid": "clickhouse",
           "type": "grafana-clickhouse-datasource"
         },
-        "query": "SELECT DISTINCT model FROM llm_gateway.request_log WHERE model != '' ORDER BY model",
+        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
         "includeAll": true,
         "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "api_key",
+        "label": "Client API Key",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "multi": true,
+        "includeAll": true,
+        "allValue": null,
         "current": {
           "text": "All",
           "value": "$__all"
@@ -33,6 +50,239 @@
     ]
   },
   "panels": [
+    {
+      "id": 3,
+      "title": "Token Usage by Category",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(total_tok >= 1000000, concat(toString(round(total_tok / 1000000)), ' Mil'), total_tok >= 1000, concat(toString(round(total_tok / 1000)), ' K'), toString(total_tok)), ' ($', toString(round(total_cost, 2)), ')') as val FROM totals"
+        },
+        {
+          "refId": "B",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(input_tok >= 1000000, concat(toString(round(input_tok / 1000000)), ' Mil'), input_tok >= 1000, concat(toString(round(input_tok / 1000)), ' K'), toString(input_tok)), ' ($', toString(round(total_cost * input_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+        },
+        {
+          "refId": "C",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000)), ' Mil'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000)), ' K'), toString(cached_tok)), ' ($', toString(round(total_cost * cached_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+        },
+        {
+          "refId": "D",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(output_tok >= 1000000, concat(toString(round(output_tok / 1000000)), ' Mil'), output_tok >= 1000, concat(toString(round(output_tok / 1000)), ' K'), toString(output_tok)), ' ($', toString(round(total_cost * output_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+        },
+        {
+          "refId": "E",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000)), ' Mil'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000)), ' K'), toString(reasoning_tok)), ' ($', toString(round(total_cost * reasoning_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#247ba0"
+              }
+            ]
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "val"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#70c1b3",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "val"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Input (uncached)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#247ba0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "val"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cached"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8cada7",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "val"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Output (non-reasoning)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#ffe066",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "val"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Reasoning"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#f25f5c",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 15,
+      "title": "Cost Over Time by Model ($)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, model as label, round(sum(cost), 6) as cost FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time, model ORDER BY time, label"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
     {
       "id": 1,
       "title": "Total Requests",
@@ -43,13 +293,13 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 8,
         "x": 0,
-        "y": 0
+        "y": 8
       },
       "targets": [
         {
-          "expr": "apisix_http_requests_total",
+          "expr": "sum(apisix_http_status{key_hash=~\"$api_key\"})",
           "refId": "A"
         }
       ],
@@ -61,127 +311,15 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "#70c1b3"
               },
               {
                 "value": 1000,
-                "color": "yellow"
+                "color": "#ffe066"
               },
               {
                 "value": 10000,
-                "color": "orange"
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      }
-    },
-    {
-      "id": 2,
-      "title": "Active Connections",
-      "type": "stat",
-      "datasource": {
-        "uid": "prometheus",
-        "type": "prometheus"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 0
-      },
-      "targets": [
-        {
-          "expr": "apisix_nginx_http_current_connections{state=\"active\"}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "green"
-              },
-              {
-                "value": 50,
-                "color": "yellow"
-              },
-              {
-                "value": 100,
-                "color": "red"
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      }
-    },
-    {
-      "id": 3,
-      "title": "Total Tokens",
-      "type": "stat",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 0
-      },
-      "targets": [
-        {
-          "queryType": "table",
-          "refId": "A",
-          "rawSql": "SELECT sum(total_tokens) as total_tokens FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp)",
-          "format": "table"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "value": null,
-                "color": "blue"
-              },
-              {
-                "value": 10000,
-                "color": "green"
-              },
-              {
-                "value": 100000,
-                "color": "yellow"
+                "color": "#b7990d"
               }
             ]
           }
@@ -210,13 +348,13 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 0
+        "w": 8,
+        "x": 8,
+        "y": 8
       },
       "targets": [
         {
-          "expr": "(sum(rate(apisix_http_status{code=~\"5..\"}[5m])) or vector(0)) / sum(rate(apisix_http_status[5m])) * 100",
+          "expr": "(sum(rate(apisix_http_status{key_hash=~\"$api_key\",code=~\"5..\"}[5m])) or vector(0)) / sum(rate(apisix_http_status{key_hash=~\"$api_key\"}[5m])) * 100",
           "refId": "A"
         }
       ],
@@ -229,15 +367,15 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "#70c1b3"
               },
               {
                 "value": 1,
-                "color": "yellow"
+                "color": "#ffe066"
               },
               {
                 "value": 5,
-                "color": "red"
+                "color": "#f25f5c"
               }
             ]
           }
@@ -246,6 +384,61 @@
       },
       "options": {
         "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Active Connections",
+      "type": "stat",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "apisix_nginx_http_current_connections{state=\"active\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#70c1b3"
+              },
+              {
+                "value": 50,
+                "color": "#ffe066"
+              },
+              {
+                "value": 100,
+                "color": "#f25f5c"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
         "graphMode": "area",
         "reduceOptions": {
           "calcs": [
@@ -268,11 +461,11 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 4
+        "y": 12
       },
       "targets": [
         {
-          "expr": "rate(apisix_http_requests_total[5m])",
+          "expr": "sum(rate(apisix_http_status{key_hash=~\"$api_key\"}[5m]))",
           "legendFormat": "requests/s",
           "refId": "A"
         }
@@ -301,60 +494,6 @@
       }
     },
     {
-      "id": 6,
-      "title": "Token Usage Over Time (by model)",
-      "type": "timeseries",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 4
-      },
-      "targets": [
-        {
-          "queryType": "timeseries",
-          "refId": "A",
-          "format": "timeseries",
-          "timeColumn": "time",
-          "rawSql": "SELECT toStartOfMinute(timestamp) as time, model, sum(total_tokens) as tokens FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) GROUP BY time, model ORDER BY time"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            },
-            "fillOpacity": 30,
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "sum",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
       "id": 7,
       "title": "Status Code Breakdown",
       "type": "piechart",
@@ -365,12 +504,12 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
+        "x": 12,
         "y": 12
       },
       "targets": [
         {
-          "expr": "sum by (code) (apisix_http_status{route=\"relay-opencode-federated\"})",
+          "expr": "sum by (code) (apisix_http_status{key_hash=~\"$api_key\"})",
           "legendFormat": "{{code}}",
           "refId": "A"
         }
@@ -385,19 +524,19 @@
             "steps": [
               {
                 "value": null,
-                "color": "green"
+                "color": "#70c1b3"
               },
               {
                 "value": 200,
-                "color": "green"
+                "color": "#70c1b3"
               },
               {
                 "value": 401,
-                "color": "orange"
+                "color": "#b7990d"
               },
               {
                 "value": 500,
-                "color": "red"
+                "color": "#f25f5c"
               }
             ]
           }
@@ -414,9 +553,99 @@
       }
     },
     {
-      "id": 8,
-      "title": "Model Distribution",
-      "type": "bargauge",
+      "id": 13,
+      "title": "Stream Abort Rate by Direction (%)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Client aborted' as label, sum(if(aborted = 1, 1, 0)) * 100.0 / count() as abort_rate FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Provider aborted' as label, sum(if(aborted = 2, 1, 0)) * 100.0 / count() as abort_rate FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none"
+            },
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f25f5c"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Provider aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#ffe066"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Stream Status (completed / client-aborted / provider-aborted)",
+      "type": "timeseries",
       "datasource": {
         "uid": "clickhouse",
         "type": "grafana-clickhouse-datasource"
@@ -425,29 +654,103 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 20
       },
       "targets": [
         {
-          "queryType": "table",
+          "queryType": "timeseries",
           "refId": "A",
-          "rawSql": "SELECT model, count() as requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model ORDER BY requests DESC LIMIT 20",
-          "format": "table"
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Completed' as label, sum(if(aborted = 0, 1, 0)) as count FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Client aborted' as label, sum(if(aborted = 1, 1, 0)) as count FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "C",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Provider aborted' as label, sum(if(aborted = 2, 1, 0)) as count FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "req",
-          "color": {
-            "mode": "continuous-blues"
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "fillOpacity": 80,
+            "showPoints": "never"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Completed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#70c1b3"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f25f5c"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Provider aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#ffe066"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "orientation": "horizontal",
-        "displayMode": "gradient",
-        "showUnfilled": true
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       }
     },
     {
@@ -462,21 +765,21 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 20
+        "y": 28
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(apisix_http_latency_bucket{type=\"apisix\"}[5m]))) * 1000",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{type=\"apisix\"}[5m]))) * 1000",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(apisix_http_latency_bucket{type=\"apisix\"}[5m]))) * 1000",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -502,7 +805,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "green"
+                  "fixedColor": "#70c1b3"
                 }
               }
             ]
@@ -517,7 +820,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "yellow"
+                  "fixedColor": "#ffe066"
                 }
               }
             ]
@@ -532,7 +835,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "red"
+                  "fixedColor": "#f25f5c"
                 }
               }
             ]
@@ -562,14 +865,45 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 20
+        "y": 28
       },
       "targets": [
         {
           "queryType": "table",
           "refId": "A",
-          "rawSql": "SELECT model, avg(upstream_response_time_s) as avg_latency FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND upstream_response_time_s > 0 GROUP BY model ORDER BY avg_latency DESC LIMIT 20",
-          "format": "table"
+          "rawSql": "SELECT model, avg(upstream_response_time_s) as avg_latency FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND upstream_response_time_s > 0 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY avg_latency DESC LIMIT 20",
+          "format": 1,
+          "editorType": "sql",
+          "pluginVersion": "4.18.0",
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "llm_gateway",
+              "filters": [
+                {
+                  "condition": "AND",
+                  "filterType": "custom",
+                  "hint": "time",
+                  "key": "timestamp",
+                  "operator": "WITH IN DASHBOARD TIME RANGE",
+                  "restrictToFields": [
+                    {
+                      "label": "timestamp",
+                      "name": "timestamp",
+                      "picklistValues": [],
+                      "type": "DateTime"
+                    }
+                  ],
+                  "type": "datetime"
+                }
+              ],
+              "limit": 20,
+              "mode": "list",
+              "orderBy": [],
+              "queryType": "table",
+              "table": "request_log"
+            }
+          }
         }
       ],
       "fieldConfig": {
@@ -577,7 +911,7 @@
           "unit": "s",
           "decimals": 2,
           "color": {
-            "mode": "continuous-GrYlRd"
+            "mode": "palette-classic"
           }
         },
         "overrides": []
@@ -600,16 +934,16 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 36
       },
       "targets": [
         {
-          "expr": "rate(apisix_bandwidth{type=\"ingress\",route=\"relay-opencode-federated\"}[5m])",
+          "expr": "rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"ingress\"}[5m])",
           "legendFormat": "ingress",
           "refId": "A"
         },
         {
-          "expr": "rate(apisix_bandwidth{type=\"egress\",route=\"relay-opencode-federated\"}[5m])",
+          "expr": "rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"egress\"}[5m])",
           "legendFormat": "egress",
           "refId": "B"
         }
@@ -635,7 +969,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "blue"
+                  "fixedColor": "#247ba0"
                 }
               }
             ]
@@ -650,7 +984,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "purple"
+                  "fixedColor": "#a5d0a8"
                 }
               }
             ]
@@ -669,6 +1003,74 @@
       }
     },
     {
+      "id": 8,
+      "title": "Model Distribution",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "rawSql": "SELECT model, count() as requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY requests DESC LIMIT 20",
+          "format": 1,
+          "editorType": "sql",
+          "pluginVersion": "4.18.0",
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "llm_gateway",
+              "filters": [
+                {
+                  "condition": "AND",
+                  "filterType": "custom",
+                  "hint": "time",
+                  "key": "timestamp",
+                  "operator": "WITH IN DASHBOARD TIME RANGE",
+                  "restrictToFields": [
+                    {
+                      "label": "timestamp",
+                      "name": "timestamp",
+                      "picklistValues": [],
+                      "type": "DateTime"
+                    }
+                  ],
+                  "type": "datetime"
+                }
+              ],
+              "limit": 20,
+              "mode": "list",
+              "orderBy": [],
+              "queryType": "table",
+              "table": "request_log"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "req",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+    {
       "id": 12,
       "title": "Shared Dict Memory Usage",
       "type": "timeseries",
@@ -678,9 +1080,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 28
+        "w": 24,
+        "x": 0,
+        "y": 44
       },
       "targets": [
         {
@@ -717,7 +1119,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "green"
+                  "fixedColor": "#70c1b3"
                 }
               }
             ]
@@ -732,7 +1134,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "orange"
+                  "fixedColor": "#b7990d"
                 }
               }
             ]

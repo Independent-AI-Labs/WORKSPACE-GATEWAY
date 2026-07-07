@@ -10,6 +10,7 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/opencode/(.*)", "/zen/go/$1"]
+      key-meta: {}
       ai-rate-limiting:
         model: "$request_body.model"
         limit: 1000
@@ -44,6 +45,7 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/opencode_federated/(.*)", "/zen/go/$1"]
+      key-meta: {}
       key-resolver:
         openbao_addr: "http://openbao:8200"
         openbao_token_env: "OPENBAO_TOKEN"

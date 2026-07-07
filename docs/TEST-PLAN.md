@@ -104,7 +104,10 @@ gated behind `RUN_LIVE_API_TESTS=1`; they are skipped by default
 |------|-------|
 | `plugins/custom/redact_lib.lua` | 1 |
 | `plugins/custom/sse_usage_lib.lua` | 1 |
+| `plugins/custom/cost_calc.lua` | 2 (config test in container `luajit`) |
 | `plugins/custom/redact.lua` | 4 (integration) |
+| `plugins/custom/sse-usage.lua` | 4 (integration) |
+| `plugins/custom/key-meta.lua` | 4 (integration) |
 | `conf/apisix.yaml` | 2, 4, 6 |
 | `conf/config.yaml` | 2 |
 | `conf/redact-patterns.json` | 1, 2 |
@@ -119,6 +122,7 @@ gated behind `RUN_LIVE_API_TESTS=1`; they are skipped by default
 | `res/docker/openbao-entrypoint.sh` | 2, 4 |
 | `res/scripts/reconciler.sh` | 3 |
 | `tests/config/test_grafana_provisioning.sh` | 2 |
+| `tests/config/test_cost_calc.sh` | 2 |
 | `tests/integration/test_grafana.sh` | 4 |
 | `tests/integration/test_data_flow.sh` | 4 (live API) |
 | `tests/integration/test_reconciler_exec.sh` | 4 |
@@ -133,7 +137,10 @@ gated behind `RUN_LIVE_API_TESTS=1`; they are skipped by default
 plugins/custom/
   redact_lib.lua               Pure logic (requireable module)
   sse_usage_lib.lua            SSE usage parsing (requireable module)
+  cost_calc.lua                Cost computation module (lazy requires, testable in plain LuaJIT)
   redact.lua                   Thin adapter (APISIX lifecycle)
+  sse-usage.lua                SSE usage + cost tracking plugin (APISIX lifecycle)
+  key-meta.lua                 Key metadata + hashing plugin (APISIX lifecycle)
 tests/
   lua/
     test_redact_lib.lua        Lua unit tests for redact_lib
@@ -148,6 +155,7 @@ tests/
     test_clickhouse_sql.sh     Validate clickhouse-init.sql
     test_vector_toml.sh        Validate vector.toml
     test_grafana_provisioning.sh  Validate Grafana datasources/dashboard/prometheus
+    test_cost_calc.sh          Validate cost_calc.lua module (21 tests, runs in container luajit)
     run.sh                     Run all config tests
   reconciler/
     test_reconciler.sh         Reconciler script tests
@@ -196,7 +204,7 @@ It provides:
 - `cjson.safe` (JSON encoding/decoding)
 - Standard Lua module system (`require`)
 
-No shims needed. The test file does `require("redact_lib")` and
+No dependency injection needed. The test file does `require("redact_lib")` and
 calls each function with assert-based checks. A pass/fail counter
 is maintained and the script exits non-zero on any failure.
 
@@ -322,8 +330,9 @@ YAML, and `grep` for text-based assertions.
 | 7 | `resolver` is `no` (disables Nginx static resolver) |
 | 8 | `lua_shared_dict` has `redact_state` |
 | 9 | `lua_shared_dict` has `key_cache` |
-| 10 | `OPENCODE_API_KEY` referenced via env.var |
-| 11 | `OPENBAO_TOKEN` referenced for key-resolver OpenBao access |
+| 10 | `lua_shared_dict` has `gateway-cache` (cost_calc pricing cache, 2m) |
+| 11 | `OPENCODE_API_KEY` referenced via env.var |
+| 12 | `OPENBAO_TOKEN` referenced for key-resolver OpenBao access |
 
 **docker-compose.yml** (`test_compose.sh`):
 
@@ -365,6 +374,12 @@ YAML, and `grep` for text-based assertions.
 | 4 | Copies `conf/redact-patterns.json` |
 | 5 | Copies `sse-usage.lua` |
 | 6 | Copies `sse_usage_lib.lua` |
+
+**GAP (2026-07-07):** `cost_calc.lua` and `key-meta.lua` are NOT in the
+Dockerfile COPY directives. See §14.7 R-32. The `test_dockerfile.sh` test
+passes because it only checks for the files listed above - it does not
+assert the absence of other custom plugins. A new assertion should be added
+once the COPY directives are fixed.
 
 **redact-patterns.json** (`test_patterns_json.sh`):
 
@@ -1025,3 +1040,26 @@ Priority-ordered list of work items to close the audit gaps:
 | R-29 | P2 | Add health checks (Docker, APISIX, upstream) | feat |
 | R-30 | P2 | Add concurrent requests test | test |
 | R-31 | P2 | Add large request body test | test |
+
+### 14.7 Cost Calculator Deployment Gaps (2026-07-07) - ALL RESOLVED
+
+Live verification of `cost_calc.lua` revealed 9 deployment-infrastructure
+and correctness issues. The core logic (cost computation, two-pathway
+resolution, shared-dict caching) is verified correct - both Pathway A
+(upstream cost) and Pathway B (computed via models.dev pricing) produce
+correct results in ClickHouse. All 9 issues below have been fixed and
+verified with 250 static tests passing.
+
+Full details: `docs/COST-CALC-LUA.md` §18.
+
+| ID | Priority | Title | Type | Spec Ref | Status |
+|----|----------|-------|------|----------|--------|
+| R-32 | P0 | Add `cost_calc.lua` and `key-meta.lua` COPY to `Dockerfile.apisix` | fix | §18.1 | RESOLVED |
+| R-33 | P0 | Add volume mount for all 7 plugins in `docker-compose.yml` | fix | §18.2 | RESOLVED |
+| R-34 | P0 | Fix pricing key collision - array storage + cheapest-first sort | fix | §18.3 | RESOLVED |
+| R-35 | P1 | Add error handling for `cost_calc.warmup()` return value in `plugin.init()` | fix | §18.4 | RESOLVED |
+| R-36 | P1 | Restart Grafana container to deploy dashboard v28 | fix | §18.5 | RESOLVED |
+| R-37 | P2 | Remove `0 * cache_write_rate` dead code in `compute_cost` | chore | §18.6 | RESOLVED |
+| R-38 | P2 | Add comment explaining `cost_calc` absent from `config.yaml` plugins list | docs | §18.7 | RESOLVED |
+| R-39 | P1 | Add end-to-end integration test `tests/integration/test_cost_e2e.sh` | test | §18.8 | RESOLVED |
+| R-40 | P1 | Add ClickHouse migration script `conf/clickhouse-migration-cost-source.sql` | fix | §18.9 | RESOLVED |

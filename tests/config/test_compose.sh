@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/yaml_helpers.sh"
 
 pass=0
 fail=0
@@ -30,12 +31,7 @@ summary() {
 
 COMPOSE_YAML="$REPO_ROOT/res/docker/docker-compose.yml"
 
-JSON_DATA=$(python3 -c "
-import yaml, json
-with open('$COMPOSE_YAML') as f:
-    data = yaml.safe_load(f)
-print(json.dumps(data))
-")
+JSON_DATA=$(yaml_to_json "$COMPOSE_YAML")
 ret=$?
 if [ "$ret" -ne 0 ]; then
     echo "[FAIL] Valid YAML"
@@ -117,6 +113,18 @@ assert_eq "APISIX mounts apisix.yaml" "1" "$HAS_APISIX_YAML"
 
 HAS_REDACT_PATTERNS=$(echo "$APISIX_MOUNTS" | grep -c "redact-patterns.json" || true)
 assert_eq "APISIX mounts redact-patterns.json" "1" "$HAS_REDACT_PATTERNS"
+
+HAS_COST_CALC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "cost_calc.lua" || true)
+assert_eq "APISIX mounts cost_calc.lua" "1" "$HAS_COST_CALC_MOUNT"
+
+HAS_KEY_META_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "key-meta.lua" || true)
+assert_eq "APISIX mounts key-meta.lua" "1" "$HAS_KEY_META_MOUNT"
+
+HAS_SSE_USAGE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "sse-usage.lua" || true)
+assert_eq "APISIX mounts sse-usage.lua" "1" "$HAS_SSE_USAGE_MOUNT"
+
+APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
+assert_eq "APISIX has 10 volume mounts (3 config + 7 plugins)" "10" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || true)

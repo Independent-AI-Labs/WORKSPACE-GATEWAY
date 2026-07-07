@@ -57,9 +57,13 @@ Ports: 9080 (gateway), 8123 (ClickHouse), 9100 (Prometheus metrics), 8201 (OpenB
 
 - [Podman](https://podman.io/) 5.x
 - [Ansible](https://docs.ansible.com/) 2.21+
+- `curl`, `jq`, `openssl`, `xxd` (used by tests and key scripts)
 - `uv` (for `.venv` setup)
 - A `.env` file with `OPENCODE_API_KEY`, `GATEWAY_API_KEY`,
   `OPENBAO_TOKEN` (see `.env` example in repo, gitignored)
+
+Run `make init` to check all system dependencies and print install
+instructions for any that are missing.
 
 ---
 

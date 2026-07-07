@@ -8,7 +8,7 @@
 
 This document specifies the **pure Lua APISIX plugin** that implements a semantic
 cache for LLM chat completions using Redis Vector Similarity Search (VSS). The
-plugin queries Redis VSS directly via `lua-resty-redis` cosocket (no cache-shim
+plugin queries Redis VSS directly via `lua-resty-redis` cosocket (no cache-adapter
 sidecar). Embedding computation is delegated to a **Rust embedding sidecar**
 (torch/llama.cpp local model, not OpenAI API) via `lua-resty-http` cosocket.
 
@@ -44,7 +44,7 @@ APISIX custom Lua plugin (semantic-cache)           Embedding Sidecar (Rust)
                                           +----------------------+
 ```
 
-**No cache-shim sidecar.** Redis VSS queries (`FT.SEARCH` with KNN + TAG
+**No cache-adapter sidecar.** Redis VSS queries (`FT.SEARCH` with KNN + TAG
 pre-filter) are plain Redis commands executed via `lua-resty-redis` cosocket.
 The only sidecar is the Rust embedding service.
 

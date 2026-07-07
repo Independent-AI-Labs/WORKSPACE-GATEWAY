@@ -44,10 +44,22 @@ stack_is_up() {
     podman ps --format '{{.Names}}' 2>/dev/null | grep -q apisix
 }
 
+# Auto-detect: if the stack is already running, treat it as external and
+# NEVER tear it down.  Only start/teardown our own stack if nothing is running.
+if [ "${EXTERNAL_STACK:-0}" != "1" ]; then
+    if stack_is_up; then
+        export EXTERNAL_STACK=1
+        echo "[INFO] Stack is already running: tests will NOT tear it down."
+    else
+        export EXTERNAL_STACK=0
+        echo "[INFO] Stack is not running: tests will start and tear down their own."
+    fi
+fi
+
 echo "=== Stage 4: Podman Stack Integration Tests ==="
 echo ""
 
-if [ "${EXTERNAL_STACK:-0}" = "1" ]; then
+if [ "$EXTERNAL_STACK" = "1" ]; then
     echo "[INFO] Stack already running: skipping stack startup test."
     pass=$((pass + 1))
 else
@@ -61,7 +73,7 @@ else
 fi
 
 if stack_is_up; then
-    for test_script in test_key_resolver.sh test_route_relay.sh test_prometheus.sh test_grafana.sh; do
+    for test_script in test_key_resolver.sh test_route_relay.sh test_prometheus.sh test_grafana.sh test_dashboard_queries.sh; do
         echo ""
         echo "--- $test_script ---"
         if bash "$SCRIPT_DIR/$test_script"; then

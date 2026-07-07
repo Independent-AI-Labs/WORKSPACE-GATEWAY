@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/yaml_helpers.sh"
 
 pass=0
 fail=0
@@ -30,12 +31,7 @@ summary() {
 
 APISIX_YAML="$REPO_ROOT/conf/apisix.yaml"
 
-JSON_DATA=$(python3 -c "
-import yaml, json
-with open('$APISIX_YAML') as f:
-    data = yaml.safe_load(f)
-print(json.dumps(data))
-")
+JSON_DATA=$(yaml_to_json "$APISIX_YAML")
 ret=$?
 if [ "$ret" -ne 0 ]; then
     echo "[FAIL] Valid YAML (parseable)"

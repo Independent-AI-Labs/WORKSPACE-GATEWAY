@@ -1,0 +1,40 @@
+# System dependencies for WORKSPACE-GATEWAY host-side tools.
+# Checked and installed by: make init (via res/scripts/install-deps.sh)
+#
+# Format mirrors WORKSPACE-VM/workspace/config/bootstrap-components.yaml
+# requires: section. Each entry has:
+#   check_cmd     - command name to verify presence (command -v $check_cmd)
+#   apt_package   - Debian/Ubuntu package name for apt-get install
+#                   (omit if tool is bootstrapped via script, not apt)
+#   description   - human-readable description shown in check output
+#
+# install-deps.sh skips any tool already present on the system.
+
+requires:
+  - check_cmd: podman
+    apt_package: podman
+    description: Podman 5.x (container runtime)
+
+  - check_cmd: ansible-playbook
+    apt_package: ansible
+    description: Ansible 2.21+ (dev lifecycle orchestration)
+
+  - check_cmd: curl
+    apt_package: curl
+    description: curl (HTTP client for tests and key scripts)
+
+  - check_cmd: jq
+    apt_package: jq
+    description: jq (JSON parsing in config and integration tests)
+
+  - check_cmd: openssl
+    apt_package: openssl
+    description: openssl (key generation in issue-key.sh)
+
+  - check_cmd: xxd
+    apt_package: xxd
+    description: xxd (fallback hex generation in issue-key.sh)
+
+  # uv is bootstrapped via script, not apt. Check presence only.
+  - check_cmd: uv
+    description: uv (Python venv manager, bootstrapped separately)

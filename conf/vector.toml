@@ -36,7 +36,25 @@ consumer_obj = .consumer || {}
 .api_key_id = to_string!(consumer_obj.username || "")
 
 req_headers = .request.headers || {}
-.key_id = to_string!(get!(req_headers, ["x-gateway-key-id"]) || "")
+resolved_key_id = to_string!(get!(req_headers, ["x-gateway-key-id"]) || "")
+
+auth_hdr = to_string!(get!(req_headers, ["authorization"]) || "")
+client_token = ""
+if auth_hdr != "" {
+  captured = parse_regex(auth_hdr, r'^\\s*[Bb]earer\\s+(?P<tok>.+)$') ?? null
+  if captured != null { client_token = to_string(captured.tok) }
+}
+
+final_key = if (resolved_key_id == "" || resolved_key_id == "passthrough") && client_token != "" { client_token } else { resolved_key_id }
+
+hashed = if final_key != "" {
+  full = sha2(final_key, variant: "SHA-256")
+  slice(full, 0, 16) ?? ""
+} else {
+  ""
+}
+.key_id = hashed
+
 .tenant_id = to_string!(get!(req_headers, ["x-gateway-tenant-id"]) || "")
 .user_id = to_string!(get!(req_headers, ["x-gateway-user-id"]) || "")
 .session_id = to_string!(get!(req_headers, ["x-session-id"]) || "")

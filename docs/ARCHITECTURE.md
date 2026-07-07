@@ -1206,8 +1206,10 @@ EXISTS` for idempotent execution.
 FROM apache/apisix:3.17.0-debian
 
 COPY plugins/custom/key-resolver.lua /usr/local/apisix/apisix/plugins/key-resolver.lua
+COPY plugins/custom/key-meta.lua /usr/local/apisix/apisix/plugins/key-meta.lua
 COPY plugins/custom/sse-usage.lua /usr/local/apisix/apisix/plugins/sse-usage.lua
 COPY plugins/custom/sse_usage_lib.lua /usr/local/apisix/apisix/plugins/sse_usage_lib.lua
+COPY plugins/custom/cost_calc.lua /usr/local/apisix/apisix/plugins/cost_calc.lua
 COPY plugins/custom/redact.lua /usr/local/apisix/apisix/plugins/redact.lua
 COPY plugins/custom/redact_lib.lua /usr/local/apisix/apisix/plugins/redact_lib.lua
 COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
@@ -1218,8 +1220,9 @@ EXPOSE 9080 9443 9100
 
 Plugin files are copied directly to `/usr/local/apisix/apisix/plugins/`
 (not a `custom/` subdirectory) so `require("apisix.plugins.redact_lib")`
-and `require("apisix.plugins.sse_usage_lib")` resolve correctly in the
-APISIX Lua module path.
+and `require("apisix.plugins.cost_calc")` resolve correctly in the
+APISIX Lua module path. All 7 plugins are also volume-mounted `:ro`
+in docker-compose.yml for live development.
 
 ### 10.7 res/docker/docker-compose.yml
 

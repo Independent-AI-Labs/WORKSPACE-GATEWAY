@@ -25,7 +25,7 @@ set -euo pipefail
 #   make sync-models
 #   bash res/scripts/sync-opencode-models.sh
 #
-# Requires: curl, jq, python3
+# Requires: curl, jq, podman (for Lua execution via APISIX container)
 # Requires: gateway stack running (make dev-start)
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -56,8 +56,11 @@ CONTEXT_LIMIT_CEILING="${CONTEXT_LIMIT_CEILING:-128000}"
 
 FEDERATED_MODELS_URL="$GATEWAY_URL/opencode_federated/v1/models"
 TMPDIR_SYNC="$(mktemp -d)"
+chmod 755 "$TMPDIR_SYNC"
 GW_MODELS_FILE="$TMPDIR_SYNC/gateway_models.json"
 MD_RESPONSE_FILE="$TMPDIR_SYNC/models_dev.json"
+CONFIG_COPY="$TMPDIR_SYNC/opencode_config.jsonc"
+LUA_STDERR="$TMPDIR_SYNC/lua_stderr.txt"
 
 echo "=== Fetching models from gateway (federated route) ==="
 echo "  URL: $FEDERATED_MODELS_URL"
@@ -95,202 +98,48 @@ else
   echo '{}' > "$MD_RESPONSE_FILE"
 fi
 
+# Copy existing opencode config into temp dir for container access
+if [ -f "$OPENCODE_CONFIG" ]; then
+  cp "$OPENCODE_CONFIG" "$CONFIG_COPY"
+else
+  echo "" > "$CONFIG_COPY"
+fi
+
 echo "=== Updating opencode config ==="
 echo "  Config: $OPENCODE_CONFIG"
 echo "  Providers: workspace-gw-private (virtual key), workspace-gw-own (own key)"
 echo "  Context limit: ${CONTEXT_LIMIT_PCT}% (ceiling: ${CONTEXT_LIMIT_CEILING})"
 
-python3 - "$OPENCODE_CONFIG" "$GATEWAY_URL" "$GATEWAY_API_KEY" "$GW_MODELS_FILE" "$MD_RESPONSE_FILE" "$CONTEXT_LIMIT_PCT" "$CONTEXT_LIMIT_CEILING" <<'PYEOF'
-import json
-import os
-import re
-import sys
+# Run Lua enrichment script inside APISIX container (has cjson.safe).
+# Lua reads temp files, outputs compact JSON to stdout, status to stderr.
+# Shell captures stdout, pipes through jq for pretty-print, writes to config.
+mkdir -p "$(dirname "$OPENCODE_CONFIG")"
 
-config_path = sys.argv[1]
-gateway_url = sys.argv[2]
-gateway_api_key = sys.argv[3]
-gateway_models_file = sys.argv[4]
-models_dev_file = sys.argv[5]
-context_limit_pct = int(sys.argv[6])
-context_limit_ceiling = int(sys.argv[7])
-
-def strip_jsonc_comments(text):
-    result = []
-    in_string = False
-    escape = False
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        if escape:
-            result.append(ch)
-            escape = False
-            i += 1
-            continue
-        if ch == '\\':
-            result.append(ch)
-            escape = True
-            i += 1
-            continue
-        if ch == '"':
-            in_string = not in_string
-            result.append(ch)
-            i += 1
-            continue
-        if not in_string and ch == '/' and i + 1 < len(text):
-            if text[i + 1] == '/':
-                while i < len(text) and text[i] != '\n':
-                    i += 1
-                continue
-            if text[i + 1] == '*':
-                i += 2
-                while i + 1 < len(text) and not (text[i] == '*' and text[i + 1] == '/'):
-                    i += 1
-                i += 2
-                continue
-        result.append(ch)
-        i += 1
-    return ''.join(result)
-
-with open(gateway_models_file, 'r') as f:
-    gateway_model_ids = json.load(f)
-with open(models_dev_file, 'r') as f:
-    models_dev_raw = json.load(f)
-
-opencode_provider = models_dev_raw.get("opencode", {})
-md_models = opencode_provider.get("models", {})
-
-def scale_limit(val):
-    if val is None:
-        return None
-    scaled = int(val * context_limit_pct / 100)
-    if context_limit_ceiling > 0 and scaled > context_limit_ceiling:
-        scaled = context_limit_ceiling
-    return scaled
-
-def build_model_entry(model_id, md):
-    entry = {}
-    if md:
-        if "name" in md:
-            entry["name"] = md["name"]
-        if "family" in md:
-            entry["family"] = md["family"]
-        if "release_date" in md:
-            entry["release_date"] = md["release_date"]
-        if "attachment" in md:
-            entry["attachment"] = md["attachment"]
-        if "reasoning" in md:
-            entry["reasoning"] = md["reasoning"]
-        if "temperature" in md:
-            entry["temperature"] = md["temperature"]
-        if "tool_call" in md:
-            entry["tool_call"] = md["tool_call"]
-        if "interleaved" in md:
-            entry["interleaved"] = md["interleaved"]
-        if "status" in md:
-            entry["status"] = md["status"]
-
-        cost = md.get("cost")
-        if cost:
-            cost_entry = {
-                "input": cost.get("input", 0),
-                "output": cost.get("output", 0),
-            }
-            if "cache_read" in cost:
-                cost_entry["cache_read"] = cost["cache_read"]
-            if "cache_write" in cost:
-                cost_entry["cache_write"] = cost["cache_write"]
-            entry["cost"] = cost_entry
-
-        limit = md.get("limit")
-        if limit:
-            limit_entry = {}
-            if "context" in limit:
-                limit_entry["context"] = scale_limit(limit["context"])
-            if "input" in limit:
-                limit_entry["input"] = scale_limit(limit["input"])
-            if "output" in limit:
-                limit_entry["output"] = limit["output"]
-            entry["limit"] = limit_entry
-
-        modalities = md.get("modalities")
-        if modalities:
-            mod_entry = {}
-            if "input" in modalities:
-                mod_entry["input"] = modalities["input"]
-            if "output" in modalities:
-                mod_entry["output"] = modalities["output"]
-            entry["modalities"] = mod_entry
-    else:
-        entry["name"] = model_id
-        entry["limit"] = {"context": 0, "output": 0}
-    return entry
-
-enriched_count = 0
-bare_count = 0
-models_dict = {}
-for mid in sorted(gateway_model_ids):
-    md = md_models.get(mid)
-    if md:
-        enriched_count += 1
-    else:
-        bare_count += 1
-    models_dict[mid] = build_model_entry(mid, md)
-
-if os.path.exists(config_path):
-    with open(config_path, 'r') as f:
-        raw = f.read()
-    stripped = strip_jsonc_comments(raw)
-    stripped = re.sub(r',\s*([}\]])', r'\1', stripped)
-    config = json.loads(stripped)
-else:
-    config = {}
-
-if 'provider' not in config or not isinstance(config['provider'], dict):
-    config['provider'] = {}
-
-for stale in ('zen_federated', 'zen', 'workspace-gateway', 'opencode_federated', 'opencode'):
-    config['provider'].pop(stale, None)
-
-config['provider']['workspace-gw-private'] = {
-    'name': 'Workspace GW (Virtual Key)',
-    'api': gateway_url + '/opencode_federated/v1',
-    'npm': '@ai-sdk/openai-compatible',
-    'options': {
-        'baseURL': gateway_url + '/opencode_federated/v1',
-        'apiKey': gateway_api_key,
-        'headers': {
-            'X-Tenant-ID': 'default',
-            'X-User-ID': 'agent',
-        },
-    },
-    'models': models_dict,
+LUA_JSON=$(podman run --rm \
+  -e 'LUA_PATH=/usr/local/apisix/deps/share/lua/5.1/?.lua;/usr/local/apisix/deps/share/lua/5.1/?/init.lua;;' \
+  -e 'LUA_CPATH=/usr/local/apisix/deps/lib/lua/5.1/?.so;;' \
+  -v "$TMPDIR_SYNC:/sync-tmp:ro" \
+  -v "$REPO_ROOT/res/scripts/sync-opencode-models.lua:/sync.lua:ro" \
+  --entrypoint /usr/local/openresty/luajit/bin/luajit \
+  apache/apisix:3.17.0-debian \
+  /sync.lua \
+  /sync-tmp/opencode_config.jsonc \
+  "$GATEWAY_URL" \
+  "$GATEWAY_API_KEY" \
+  /sync-tmp/gateway_models.json \
+  /sync-tmp/models_dev.json \
+  "$CONTEXT_LIMIT_PCT" \
+  "$CONTEXT_LIMIT_CEILING" \
+  2>"$LUA_STDERR") || {
+  echo "ERROR: Lua enrichment script failed" >&2
+  cat "$LUA_STDERR" >&2
+  exit 1
 }
 
-config['provider']['workspace-gw-own'] = {
-    'name': 'Workspace GW (Own Key)',
-    'api': gateway_url + '/opencode/v1',
-    'npm': '@ai-sdk/openai-compatible',
-    'options': {
-        'baseURL': gateway_url + '/opencode/v1',
-        'headers': {
-            'X-Tenant-ID': 'default',
-            'X-User-ID': 'agent',
-        },
-    },
-    'models': {k: dict(v) for k, v in models_dict.items()},
-}
+# Show Lua status messages (from stderr)
+cat "$LUA_STDERR" >&2
 
-os.makedirs(os.path.dirname(config_path), exist_ok=True)
-with open(config_path, 'w') as f:
-    json.dump(config, f, indent=2)
-    f.write('\n')
-
-print('  Wrote ' + str(len(models_dict)) + ' models to ' + config_path)
-print('    Enriched from models.dev: ' + str(enriched_count))
-print('    Bare (no models.dev match): ' + str(bare_count))
-print('    Context limit: ' + str(context_limit_pct) + '% (ceiling: ' + str(context_limit_ceiling) + ')')
-print('    workspace-gw-private: ' + str(len(models_dict)) + ' models (virtual key)')
-print('    workspace-gw-own:     ' + str(len(models_dict)) + ' models (own key)')
-PYEOF
+# Pretty-print JSON and write to config
+echo "$LUA_JSON" | jq . > "$OPENCODE_CONFIG"
 
 echo "=== Done ==="

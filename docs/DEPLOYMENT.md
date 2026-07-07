@@ -94,8 +94,14 @@ by default. Verify with `FT._LIST` after startup.
 # res/docker/Dockerfile.apisix
 FROM apache/apisix:3.17.0-debian
 
-# Copy custom Lua plugins
-COPY plugins/custom/ /usr/local/apisix/apisix/plugins/custom/
+# Copy custom Lua plugins (flat - NO custom/ subdir in deployed tree)
+COPY plugins/custom/key-resolver.lua /usr/local/apisix/apisix/plugins/key-resolver.lua
+COPY plugins/custom/key-meta.lua /usr/local/apisix/apisix/plugins/key-meta.lua
+COPY plugins/custom/sse-usage.lua /usr/local/apisix/apisix/plugins/sse-usage.lua
+COPY plugins/custom/sse_usage_lib.lua /usr/local/apisix/apisix/plugins/sse_usage_lib.lua
+COPY plugins/custom/cost_calc.lua /usr/local/apisix/apisix/plugins/cost_calc.lua
+COPY plugins/custom/redact.lua /usr/local/apisix/apisix/plugins/redact.lua
+COPY plugins/custom/redact_lib.lua /usr/local/apisix/apisix/plugins/redact_lib.lua
 
 # Copy APISIX configuration
 COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
@@ -104,10 +110,18 @@ COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
 COPY conf/redact-patterns.json /etc/apisix/redact-patterns.json
 
 # Expose ports
-EXPOSE 9080 9443
+EXPOSE 9080 9443 9100
 
 # APISIX default entrypoint works; no override needed
 ```
+
+**NOTE:** Plugin files are copied directly to
+`/usr/local/apisix/apisix/plugins/` (not a `custom/` subdirectory) so
+`require("apisix.plugins.cost_calc")` resolves correctly. The
+`plugins/custom/` path in the repo is source organization only.
+
+**Volume mounts** (docker-compose.yml): All 7 plugin files are also
+volume-mounted `:ro` for live development without image rebuilds.
 
 ---
 

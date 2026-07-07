@@ -1,7 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
+# Portable "yesterday" via platform detection (no stderr suppression needed)
+case "$(uname -s)" in
+    Linux*)
+        YESTERDAY=$(date -d "yesterday" +%Y-%m-%d) ;;
+    Darwin*)
+        YESTERDAY=$(date -v-1d +%Y-%m-%d) ;;
+    *)
+        YESTERDAY=$(date -u -d "@$(( $(date +%s) - 86400 ))" +%Y-%m-%d \
+          || date -u -r $(( $(date +%s) - 86400 )) +%Y-%m-%d) ;;
+esac
 
 CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
 CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"

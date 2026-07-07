@@ -10,8 +10,10 @@ deployment:
 apisix:
   admin_key: ""
 
+# cost_calc is a library (require'd by sse-usage), not a route-bound plugin - not listed here.
 plugins:
   - key-resolver
+  - key-meta
   - ai-rate-limiting
   - proxy-buffering
   - proxy-rewrite
@@ -19,12 +21,33 @@ plugins:
   - prometheus
   - redact
   - sse-usage
-
 plugin_attr:
   prometheus:
     export_addr:
       ip: "0.0.0.0"
       port: 9100
+    metrics:
+      http_status:
+        extra_labels:
+          - key_hash: $http_x_key_hash
+      http_latency:
+        extra_labels:
+          - key_hash: $http_x_key_hash
+      bandwidth:
+        extra_labels:
+          - key_hash: $http_x_key_hash
+      llm_latency:
+        extra_labels:
+          - key_hash: $http_x_key_hash
+      llm_prompt_tokens:
+        extra_labels:
+          - key_hash: $http_x_key_hash
+      llm_completion_tokens:
+        extra_labels:
+          - key_hash: $http_x_key_hash
+      llm_active_connections:
+        extra_labels:
+          - key_hash: $http_x_key_hash
 
 nginx_config:
   envs:
@@ -34,4 +57,5 @@ nginx_config:
     custom_lua_shared_dict:
       redact_state: 1m
       key_cache: 5m
+      gateway-cache: 2m
     proxy_buffering: "on"

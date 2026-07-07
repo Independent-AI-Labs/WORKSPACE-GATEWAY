@@ -47,16 +47,7 @@ PROM_TARGETS=$(curl -s http://localhost:9092/api/v1/targets 2>/dev/null || echo 
 if [ -z "$PROM_TARGETS" ]; then
     record_fail "Prometheus targets API returned empty"
 else
-    APISIX_HEALTH=$(echo "$PROM_TARGETS" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-for t in d['data']['activeTargets']:
-    if t['scrapePool'] == 'gateway-apisix':
-        print(t['health'])
-        break
-else:
-    print('not_found')
-" 2>/dev/null || echo "parse_error")
+    APISIX_HEALTH=$(echo "$PROM_TARGETS" | jq -r '[.data.activeTargets[] | select(.scrapePool == "gateway-apisix")][0].health // "not_found"' 2>/dev/null || echo "parse_error")
 
     if [ "$APISIX_HEALTH" = "up" ]; then
         record_pass "Prometheus is scraping APISIX (target up)"
@@ -69,7 +60,7 @@ fi
 
 wait_for_url "http://localhost:3030/api/health" "Grafana on port 3030" 60
 
-GRAFANA_VERSION=$(curl -s http://localhost:3030/api/health 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "unknown")
+GRAFANA_VERSION=$(curl -s http://localhost:3030/api/health 2>/dev/null | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
 if [ "$GRAFANA_VERSION" = "12.0.0" ]; then
     record_pass "Grafana version is 12.0.0"
 else
@@ -79,7 +70,7 @@ fi
 # ── 4. Grafana datasources provisioned ────────────────────────────────
 
 DATASOURCES=$(curl -s http://admin:admin@localhost:3030/api/datasources 2>/dev/null || echo "[]")
-DS_COUNT=$(echo "$DATASOURCES" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+DS_COUNT=$(echo "$DATASOURCES" | jq 'length' 2>/dev/null || echo "0")
 
 if [ "$DS_COUNT" = "2" ]; then
     record_pass "Grafana has 2 datasources provisioned"
@@ -87,12 +78,7 @@ else
     record_fail "Grafana datasource count: expected 2, got $DS_COUNT"
 fi
 
-DS_NAMES=$(echo "$DATASOURCES" | python3 -c "
-import json,sys
-d = json.load(sys.stdin)
-names = sorted([ds['name'] for ds in d])
-print(','.join(names))
-" 2>/dev/null || echo "")
+DS_NAMES=$(echo "$DATASOURCES" | jq -r '[.[].name] | sort | join(",")' 2>/dev/null || echo "")
 
 if [ "$DS_NAMES" = "ClickHouse,Prometheus" ]; then
     record_pass "Grafana has Prometheus and ClickHouse datasources"
@@ -103,12 +89,7 @@ fi
 # ── 5. Dashboard provisioned ──────────────────────────────────────────
 
 DASHBOARDS=$(curl -s http://admin:admin@localhost:3030/api/search 2>/dev/null || echo "[]")
-HAS_OVERVIEW=$(echo "$DASHBOARDS" | python3 -c "
-import json,sys
-d = json.load(sys.stdin)
-found = any(item.get('title') == 'Gateway Overview' for item in d)
-print('true' if found else 'false')
-" 2>/dev/null || echo "false")
+HAS_OVERVIEW=$(echo "$DASHBOARDS" | jq '[.[] | select(.title == "Gateway Overview")] | length > 0' 2>/dev/null || echo "false")
 
 if [ "$HAS_OVERVIEW" = "true" ]; then
     record_pass "Gateway Overview dashboard is provisioned"

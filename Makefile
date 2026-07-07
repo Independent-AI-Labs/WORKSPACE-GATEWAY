@@ -29,7 +29,7 @@ help: ## Show this help
 # =============================================================================
 # Setup / Install
 # =============================================================================
-.PHONY: preflight bootstrap-podman setup install install-ci install-deps install-hooks sync
+.PHONY: preflight bootstrap-podman setup install install-ci install-deps install-hooks sync init init-check
 
 preflight: ## Verify environment
 	@test -d "$(CI_DIR)" || { echo "ERROR: CI directory not found at $(CI_DIR)" >&2; exit 1; }
@@ -67,6 +67,12 @@ install-hooks: ## (Re)generate native git hooks
 	bash $(CI_DIR)/scripts/generate-hooks
 
 sync: install-deps install-hooks ## Sync deps + reinstall hooks
+
+init: ## Check system dependencies and print install instructions if missing
+	@bash $(REPO_ROOT)/res/scripts/install-deps.sh --install
+
+init-check: ## Check system dependencies (report only, fail if any missing)
+	@bash $(REPO_ROOT)/res/scripts/install-deps.sh --check
 
 # =============================================================================
 # Dev Lifecycle (via Ansible)
@@ -139,11 +145,20 @@ lint: ## Lint shell scripts and validate YAML
 		bash -n "$$f" || { echo "FAIL: $$f"; exit 1; }; \
 	done
 	@echo "=== Validating YAML ==="
-	@for f in conf/*.yaml res/docker/*.yml res/ansible/*.yml; do \
+	@tmpfile=$$(mktemp); trap 'rm -f $$tmpfile' EXIT; \
+	for f in conf/*.yaml res/docker/*.yml res/ansible/*.yml; do \
 		[ -f "$$f" ] || continue; \
 		echo "  checking $$f"; \
-		python3 -c "import yaml; yaml.safe_load(open('$$f'))" || { echo "FAIL: $$f"; exit 1; }; \
-	done
+		podman run --rm \
+			-e 'LUA_PATH=/usr/local/apisix/deps/share/lua/5.1/?.lua;/usr/local/apisix/deps/share/lua/5.1/?/init.lua;;' \
+			-e 'LUA_CPATH=/usr/local/apisix/deps/lib/lua/5.1/?.so;;' \
+			-v "$(PWD)/$$f:/check.yaml:ro" \
+			--entrypoint /usr/local/openresty/luajit/bin/luajit \
+			apache/apisix:3.17.0-debian \
+			-e 'local y=require("lyaml"); local f=io.open("/check.yaml"); if not f then io.stderr:write("cannot open\n"); os.exit(1) end; y.load(f:read("*a")); f:close()' \
+			2>$$tmpfile || { echo "FAIL: $$f"; cat $$tmpfile 1>&2; exit 1; }; \
+	done; \
+	rm -f $$tmpfile
 
 type-check: ## Lua syntax check via resty in Podman
 	@echo "=== Lua syntax check ==="

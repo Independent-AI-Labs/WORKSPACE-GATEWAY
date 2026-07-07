@@ -88,4 +88,31 @@ assert_eq "Has user_agent column" "true" "$([ "$HAS_USER_AGENT" -ge 1 ] && echo 
 HAS_USAGE_LOG=$(grep -c 'usage_log' "$SQL_FILE" || true)
 assert_eq "Has usage_log table" "true" "$([ "$HAS_USAGE_LOG" -ge 1 ] && echo true || echo false)"
 
+HAS_ABORTED=$(grep -c 'aborted.*UInt8' "$SQL_FILE" || true)
+assert_eq "Has aborted UInt8 column in usage_log" "true" "$([ "$HAS_ABORTED" -ge 1 ] && echo true || echo false)"
+
+HAS_ABORTED_ALTER=$(grep -c 'ADD COLUMN IF NOT EXISTS aborted' "$SQL_FILE" || true)
+assert_eq "Has idempotent ALTER for aborted column" "1" "$HAS_ABORTED_ALTER"
+
+HAS_IS_STREAM=$(grep -c 'is_stream.*UInt8' "$SQL_FILE" || true)
+assert_eq "Has is_stream UInt8 column in usage_log" "true" "$([ "$HAS_IS_STREAM" -ge 1 ] && echo true || echo false)"
+
+HAS_IS_STREAM_ALTER=$(grep -c 'ADD COLUMN IF NOT EXISTS is_stream' "$SQL_FILE" || true)
+assert_eq "Has idempotent ALTER for is_stream column" "1" "$HAS_IS_STREAM_ALTER"
+
+HAS_COST=$(grep -c 'cost.*Float64' "$SQL_FILE" || true)
+assert_eq "Has cost Float64 column in usage_log" "true" "$([ "$HAS_COST" -ge 1 ] && echo true || echo false)"
+
+HAS_COST_ALTER=$(grep -c 'ADD COLUMN IF NOT EXISTS cost ' "$SQL_FILE" || true)
+assert_eq "Has idempotent ALTER for cost column" "1" "$HAS_COST_ALTER"
+
+HAS_COST_SOURCE=$(grep -c "cost_source.*Enum8" "$SQL_FILE" || true)
+assert_eq "Has cost_source Enum8 column in usage_log" "true" "$([ "$HAS_COST_SOURCE" -ge 1 ] && echo true || echo false)"
+
+HAS_COST_SOURCE_ALTER=$(grep -c 'ADD COLUMN IF NOT EXISTS cost_source' "$SQL_FILE" || true)
+assert_eq "Has idempotent ALTER for cost_source column" "1" "$HAS_COST_SOURCE_ALTER"
+
+HAS_ENUM_VALUES=$(grep -c "Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2)" "$SQL_FILE" || true)
+assert_eq "cost_source enum has upstream=0, computed=1, unknown=2" "true" "$([ "$HAS_ENUM_VALUES" -ge 1 ] && echo true || echo false)"
+
 summary

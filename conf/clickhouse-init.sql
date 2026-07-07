@@ -45,6 +45,14 @@ CREATE TABLE IF NOT EXISTS llm_gateway.usage_log (
     prompt_tokens             UInt32 DEFAULT 0,
     completion_tokens         UInt32 DEFAULT 0,
     total_tokens              UInt32 DEFAULT 0,
+    cached_tokens             UInt32 DEFAULT 0,
+    reasoning_tokens          UInt32 DEFAULT 0,
+    key_id                    String DEFAULT '',
+    api_key_id                String DEFAULT '',
+    aborted                   UInt8 DEFAULT 0,
+    is_stream                 UInt8 DEFAULT 0,
+    cost                      Float64 DEFAULT 0,
+    cost_source               Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2) DEFAULT 2,
     timestamp                 DateTime64(3) DEFAULT now()
 )
 ENGINE = MergeTree()
@@ -134,3 +142,27 @@ ALTER TABLE llm_gateway.request_log
 
 ALTER TABLE llm_gateway.request_log
     ADD COLUMN IF NOT EXISTS user_agent        String DEFAULT '' AFTER opencode_version;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cached_tokens    UInt32 DEFAULT 0 AFTER total_tokens;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS reasoning_tokens UInt32 DEFAULT 0 AFTER cached_tokens;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS key_id           String DEFAULT '' AFTER reasoning_tokens;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS api_key_id       String DEFAULT '' AFTER key_id;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS aborted          UInt8 DEFAULT 0 AFTER api_key_id;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS is_stream        UInt8 DEFAULT 0 AFTER aborted;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cost             Float64 DEFAULT 0 AFTER is_stream;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cost_source      Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2) DEFAULT 2 AFTER cost;

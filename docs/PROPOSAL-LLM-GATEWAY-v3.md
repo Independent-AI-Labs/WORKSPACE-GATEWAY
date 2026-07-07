@@ -21,7 +21,7 @@ research revealed structural problems with this approach:
 | Free mode deprecated since 3.10, **removed in 3.15**; Admin API becomes read-only; DB-less breaks on restart | Apache 2.0, no license enforcement, no tier split, no "free mode" cliff |
 | `openid-connect`, `ldap-auth-advanced`, `ai-proxy-advanced`, `ai-semantic-cache` all Enterprise-only | ALL plugins are OSS in APISIX, `openid-connect`, `ldap-auth`, `ai-proxy`, `ai-proxy-multi`, `ai-rate-limiting`, `proxy-cache` |
 | Custom Rust Wasm filters require `wasm32-wasip1` toolchain, `dispatch_http_call` async state machines, `meta.json` Draft-4 schemas, no socket access | Pure Lua plugins: synchronous cosockets, `lua-resty-http`/`lua-resty-redis`, same OpenResty phase model |
-| 4 Rust sidecar binaries (redact-engine, ldap-bridge, cache-shim, failover-translator) | 0 sidecars in v1; 2 optional in v2 (NER + embedding) |
+| 4 Rust sidecar binaries (redact-engine, ldap-bridge, cache-adapter, failover-translator) | 0 sidecars in v1; 2 optional in v2 (NER + embedding) |
 | decK + Admin API + PostgreSQL for GitOps | Standalone YAML mode (file-driven hot reload) or ADC (`adc sync`) for GitOps |
 
 **Net architectural shift:** 5 custom plugin implementations (2 Rust Wasm + 1 Lua + 2
@@ -298,7 +298,7 @@ never leaves the gateway data plane.
   ledger (no upstream token charge).
 - Miss -> forward to upstream; on success cache the response keyed by embedding.
 - Redis VSS query via `lua-resty-redis` cosocket (`FT.SEARCH` with KNN + TAG
-  pre-filter). No cache-shim sidecar needed.
+  pre-filter). No cache-adapter sidecar needed.
 - Tenant- and tier-scoped: `X-Tenant-ID` and `X-Routing-Tier` are TAG fields in
   the Redis index; a hit in one tenant never leaks to another.
 

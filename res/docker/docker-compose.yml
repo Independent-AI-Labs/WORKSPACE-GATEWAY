@@ -11,6 +11,13 @@ services:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
       - ../../conf/config.yaml:/usr/local/apisix/conf/config.yaml:ro
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
+      - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
+      - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
+      - ../../plugins/custom/sse-usage.lua:/usr/local/apisix/apisix/plugins/sse-usage.lua:ro
+      - ../../plugins/custom/sse_usage_lib.lua:/usr/local/apisix/apisix/plugins/sse_usage_lib.lua:ro
+      - ../../plugins/custom/cost_calc.lua:/usr/local/apisix/apisix/plugins/cost_calc.lua:ro
+      - ../../plugins/custom/redact.lua:/usr/local/apisix/apisix/plugins/redact.lua:ro
+      - ../../plugins/custom/redact_lib.lua:/usr/local/apisix/apisix/plugins/redact_lib.lua:ro
     env_file:
       - ../../.env
     depends_on:

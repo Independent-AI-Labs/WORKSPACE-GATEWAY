@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/yaml_helpers.sh"
 
 pass=0
 fail=0
@@ -30,12 +31,7 @@ summary() {
 
 CONFIG_YAML="$REPO_ROOT/conf/config.yaml"
 
-JSON_DATA=$(python3 -c "
-import yaml, json
-with open('$CONFIG_YAML') as f:
-    data = yaml.safe_load(f)
-print(json.dumps(data))
-")
+JSON_DATA=$(yaml_to_json "$CONFIG_YAML")
 ret=$?
 if [ "$ret" -ne 0 ]; then
     echo "[FAIL] Valid YAML"
@@ -57,6 +53,12 @@ assert_eq "redact in plugins list" "1" "$PLUGINS_REDACT"
 PLUGINS_KEY_RESOLVER=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "key-resolver")] | length')
 assert_eq "key-resolver in plugins list" "1" "$PLUGINS_KEY_RESOLVER"
 
+PLUGINS_KEY_META=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "key-meta")] | length')
+assert_eq "key-meta in plugins list" "1" "$PLUGINS_KEY_META"
+
+PLUGINS_COST_CALC=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "cost_calc")] | length')
+assert_eq "cost_calc intentionally NOT in plugins list (library, not plugin)" "0" "$PLUGINS_COST_CALC"
+
 PLUGINS_SSE_USAGE=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "sse-usage")] | length')
 assert_eq "sse-usage in plugins list" "1" "$PLUGINS_SSE_USAGE"
 
@@ -71,6 +73,12 @@ assert_eq "custom_lua_shared_dict has redact_state" "true" "$HAS_REDACT_DICT"
 
 HAS_KEY_CACHE=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("key_cache")')
 assert_eq "custom_lua_shared_dict has key_cache" "true" "$HAS_KEY_CACHE"
+
+HAS_GATEWAY_CACHE=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("gateway-cache")')
+assert_eq "custom_lua_shared_dict has gateway-cache" "true" "$HAS_GATEWAY_CACHE"
+
+GATEWAY_CACHE_SIZE=$(echo "$JSON_DATA" | jq -r '.nginx_config.http.custom_lua_shared_dict["gateway-cache"]')
+assert_eq "gateway-cache shared dict size is 2m" "2m" "$GATEWAY_CACHE_SIZE"
 
 PLUGINS_RATE=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "ai-rate-limiting")] | length')
 assert_eq "ai-rate-limiting in plugins list" "1" "$PLUGINS_RATE"
