@@ -1,0 +1,1 @@
+SELECT count() as total_requests FROM llm_gateway.request_log WHERE timestamp >= toDateTime(__FROM__) AND timestamp <= toDateTime(__TO__) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (__API_KEYS__) AND model IN (__MODELS__)

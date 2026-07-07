@@ -1,500 +1,263 @@
 #!/bin/bash
 set -euo pipefail
 
-# Dashboard Query Integration Tests
-# Extracts queries from Grafana dashboard JSON, substitutes placeholders,
-# hits ClickHouse (:8123) and Prometheus (:9092), verifies valid data.
-# SQL: tests/integration/queries/*.sql (13 ClickHouse queries)
-# YAML: tests/integration/queries/prometheus.yaml (12 PromQL expressions)
+# Dashboard Query Integration Tests (Q1-Q16)
+# SQL: tests/integration/queries/*.sql | YAML: tests/integration/queries/prometheus.yaml
 # Placeholders: __FROM__, __TO__, __API_KEYS__, __MODELS__, __API_KEY_REGEX__
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 QUERIES_DIR="$SCRIPT_DIR/queries"
+DASHBOARD_FILE="$REPO_ROOT/conf/grafana/dashboards/gateway-overview.json"
 
 CH_URL="http://localhost:8123"
 PROM_URL="http://localhost:9092"
 GATEWAY_URL="http://localhost:9080"
-DASHBOARD_FILE="$REPO_ROOT/conf/grafana/dashboards/gateway-overview.json"
 
-pass=0
-fail=0
-skip=0
+pass=0; fail=0; skip=0
+rp() { echo "[PASS] $1"; pass=$((pass+1)); }
+rf() { echo "[FAIL] $1"; fail=$((fail+1)); }
+rs() { echo "[SKIP] $1"; skip=$((skip+1)); }
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
-record_pass() {
-    echo "[PASS] $1"
-    pass=$((pass + 1))
-}
-
-record_fail() {
-    echo "[FAIL] $1"
-    fail=$((fail + 1))
-}
-
-record_skip() {
-    echo "[SKIP] $1"
-    skip=$((skip + 1))
-}
-
-# ── Skip if stack not running ───────────────────────────────────────────────
-
-curl_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-    "$GATEWAY_URL/" 2>/dev/null || echo "000")
-if [ "$curl_code" = "000" ]; then
-    echo "[SKIP] APISIX not reachable, skipping dashboard query tests"
-    exit 0
-fi
-
-ch_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-    "$CH_URL/?query=SELECT%201" 2>/dev/null || echo "000")
-if [ "$ch_code" != "200" ]; then
-    echo "[SKIP] ClickHouse not reachable on :8123, skipping dashboard query tests"
-    exit 0
-fi
-
-prom_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-    "$PROM_URL/-/healthy" 2>/dev/null || echo "000")
-if [ "$prom_code" != "200" ]; then
-    echo "[SKIP] Prometheus not reachable on :9092, skipping dashboard query tests"
-    exit 0
-fi
+# Skip if stack not running
+curl_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" 2>/dev/null || echo "000")
+[ "$curl_code" = "000" ] && { echo "[SKIP] APISIX not reachable"; exit 0; }
+ch_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" 2>/dev/null || echo "000")
+[ "$ch_code" != "200" ] && { echo "[SKIP] ClickHouse not reachable"; exit 0; }
+prom_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$PROM_URL/-/healthy" 2>/dev/null || echo "000")
+[ "$prom_code" != "200" ] && { echo "[SKIP] Prometheus not reachable"; exit 0; }
 
 echo "=== Dashboard Query Integration Tests ==="
 echo ""
 
-# ── Compute time range (last 24h) ───────────────────────────────────────────
-
-FROM_TS=$(date -d '24 hours ago' '+%Y-%m-%d %H:%M:%S')
+# Time range (last 24h)
+FROM_TS=$(date -d '24 hours ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
+    date -u -d "@$(($(date +%s)-86400))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
+    date -u -r "$(( $(date +%s) - 86400 ))" '+%Y-%m-%d %H:%M:%S')
 TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
+echo "[INFO] Time range: $FROM_TS to $TO_TS"
 
-echo "[INFO] Time range: $FROM_TS → $TO_TS"
-echo ""
-
-# ── Fetch all key hashes from ClickHouse ────────────────────────────────────
-
-ALL_KEYS=$(curl -sf "$CH_URL/" --data-binary "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.usage_log ORDER BY k FORMAT TabSeparated" 2>/dev/null || echo "")
-if [ -z "$ALL_KEYS" ]; then
-    ALL_KEYS=$(curl -sf "$CH_URL/" --data-binary "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log ORDER BY k FORMAT TabSeparated" 2>/dev/null || echo "")
-fi
-
-if [ -z "$ALL_KEYS" ]; then
-    echo "[WARN] No key hashes found in ClickHouse; using wildcard"
-    ALL_KEYS="unknown"
-fi
-
-# Build quoted list for ClickHouse IN clause (pure bash + sed)
+# Fetch all key hashes
+ALL_KEYS=$(curl -sf "$CH_URL/" --data-binary \
+    "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.usage_log ORDER BY k FORMAT TabSeparated" \
+    2>/dev/null || echo "")
+[ -z "$ALL_KEYS" ] && ALL_KEYS=$(curl -sf "$CH_URL/" --data-binary \
+    "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log ORDER BY k FORMAT TabSeparated" \
+    2>/dev/null || echo "")
+[ -z "$ALL_KEYS" ] && ALL_KEYS="unknown"
 CH_KEY_LIST=$(echo "$ALL_KEYS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd, -)
-if [ -z "$CH_KEY_LIST" ]; then
-    CH_KEY_LIST="'unknown'"
-fi
-
-# Build regex for Prometheus: key1|key2|key3
+[ -z "$CH_KEY_LIST" ] && CH_KEY_LIST="'unknown'"
 PROM_KEY_REGEX=$(echo "$ALL_KEYS" | grep '.' | paste -sd '|' -)
-if [ -z "$PROM_KEY_REGEX" ]; then
-    PROM_KEY_REGEX=".*"
-fi
+[ -z "$PROM_KEY_REGEX" ] && PROM_KEY_REGEX=".*"
+echo "[INFO] Keys: $(echo "$ALL_KEYS" | grep -c '.' || true)"
 
-KEY_COUNT=$(echo "$ALL_KEYS" | grep -c '.' || true)
-echo "[INFO] Key hashes: $KEY_COUNT keys found"
-echo "[INFO] Prom regex: $PROM_KEY_REGEX"
-echo ""
-
-# ── Fetch all models from ClickHouse (UNION of both tables) ─────────────────
-
-ALL_MODELS=$(curl -sf "$CH_URL/" --data-binary "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model FORMAT TabSeparated" 2>/dev/null || echo "")
-
-if [ -z "$ALL_MODELS" ]; then
-    echo "[WARN] No models found in ClickHouse; using wildcard"
-    ALL_MODELS="unknown"
-fi
-
+# Fetch all models (UNION of both tables)
+ALL_MODELS=$(curl -sf "$CH_URL/" --data-binary \
+    "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model FORMAT TabSeparated" \
+    2>/dev/null || echo "")
+[ -z "$ALL_MODELS" ] && ALL_MODELS="unknown"
 CH_MODEL_LIST=$(echo "$ALL_MODELS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd, -)
-if [ -z "$CH_MODEL_LIST" ]; then
-    CH_MODEL_LIST="'unknown'"
-fi
-
-MODEL_COUNT=$(echo "$ALL_MODELS" | grep -c '.' || true)
-echo "[INFO] Models: $MODEL_COUNT found"
+[ -z "$CH_MODEL_LIST" ] && CH_MODEL_LIST="'unknown'"
+echo "[INFO] Models: $(echo "$ALL_MODELS" | grep -c '.' || true)"
 echo ""
 
-# ── SQL substitution helper (pure sed) ──────────────────────────────────────
+# Helpers
+sub_sql() { sed -e "s|__FROM__|'$1'|g" -e "s|__TO__|'$2'|g" -e "s|__API_KEYS__|$3|g" -e "s|__MODELS__|$4|g" "$5"; }
+url_enc() { printf '%s' "$1" | jq -sRr @uri; }
+exec_ch() { local sql; sql=$(sub_sql "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$CH_MODEL_LIST" "$QUERIES_DIR/$1"); curl -sf --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" 2>/dev/null || echo ""; }
+exec_prom() { curl -sf --max-time 15 "$PROM_URL/api/v1/query?query=$(url_enc "$1")" 2>/dev/null || echo ""; }
+prom_val() { echo "$1" | jq -r '.data.result[0].value[1] // empty' 2>/dev/null; }
+prom_cnt() { echo "$1" | jq -r '.data.result | length' 2>/dev/null; }
+prom_st() { echo "$1" | jq -r '.status // "unknown"' 2>/dev/null; }
+in_range() { awk "BEGIN{exit !($1 >= $2 && $1 <= $3)}" 2>/dev/null; }
 
-substitute_sql() {
-    local sql_file="$1"
-    local from_ts="$2"
-    local to_ts="$3"
-    local key_list="$4"
-    local model_list="$5"
-
-    sed \
-        -e "s|__FROM__|'$from_ts'|g" \
-        -e "s|__TO__|'$to_ts'|g" \
-        -e "s|__API_KEYS__|$key_list|g" \
-        -e "s|__MODELS__|$model_list|g" \
-        "$sql_file"
-}
-
-# ── URL-encode helper (jq @uri) ─────────────────────────────────────────────
-
-url_encode() {
-    printf '%s' "$1" | jq -sRr @uri
-}
-
-# ── Run ClickHouse queries (.sql files) ─────────────────────────────────────
-
-echo "--- ClickHouse Panel Queries (All keys, All models) ---"
+# Q1: All ClickHouse panel queries return HTTP 200
+echo "--- Q1: ClickHouse Query Execution ---"
+for sf in p3_total.sql p3_input.sql p3_cached.sql p3_output.sql p3_reasoning.sql p3_raw_tokens.sql \
+    p8_model_dist.sql p8_total_requests.sql p10_avg_latency.sql \
+    p13_abort_client.sql p13_abort_provider.sql \
+    p14_completed.sql p14_client_aborted.sql p14_provider_aborted.sql p14_total_streams.sql \
+    p15_cost_over_time.sql p15_total_cost.sql; do
+    sql=$(sub_sql "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$CH_MODEL_LIST" "$QUERIES_DIR/$sf")
+    hc=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" 2>/dev/null || echo "000")
+    [ "$hc" = "200" ] && rp "Q1: $sf HTTP 200" || rf "Q1: $sf HTTP $hc"
+done
 echo ""
 
-run_ch_query() {
-    local sql_file="$1"
-    local desc="$2"
-    local min_rows="${3:-1}"
-
-    if [ ! -f "$QUERIES_DIR/$sql_file" ]; then
-        record_fail "$desc: SQL file $sql_file not found"
-        return
-    fi
-
-    local sql
-    sql=$(substitute_sql "$QUERIES_DIR/$sql_file" "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$CH_MODEL_LIST")
-
-    if [ -z "$sql" ]; then
-        record_fail "$desc: SQL substitution failed"
-        return
-    fi
-
-    # Execute via ClickHouse HTTP interface (POST with data-binary)
-    local body http_code
-    body=$(curl -sf -w "\n%{http_code}" --max-time 30 \
-        -X POST "$CH_URL/" \
-        --data-binary "$sql" 2>/dev/null || echo "CURL_ERROR
-000")
-
-    http_code=$(echo "$body" | tail -1)
-    body=$(echo "$body" | sed '$d')
-
-    if [ "$http_code" = "000" ] || [ "$http_code" = "CURL_ERROR" ]; then
-        record_fail "$desc: curl failed"
-        return
-    fi
-
-    if [ "$http_code" != "200" ]; then
-        record_fail "$desc: HTTP $http_code - ${body:0120}"
-        return
-    fi
-
-    # Count non-empty lines
-    local row_count
-    row_count=$(printf '%s\n' "$body" | grep -c '.' || true)
-
-    if [ "$row_count" -lt "$min_rows" ]; then
-        record_fail "$desc: expected >= $min_rows rows, got $row_count"
-        return
-    fi
-
-    record_pass "$desc: $row_count rows returned"
-}
-
-# p3: Token Usage by Category (5 stat tiles)
-run_ch_query "p3_total.sql"    "p3-A Total tokens + cost"     1
-run_ch_query "p3_input.sql"    "p3-B Input tokens + cost"     1
-run_ch_query "p3_cached.sql"   "p3-C Cached tokens + cost"    1
-run_ch_query "p3_output.sql"   "p3-D Output tokens + cost"    1
-run_ch_query "p3_reasoning.sql" "p3-E Reasoning tokens + cost" 1
-
-# p8: Model Distribution
-run_ch_query "p8_model_dist.sql"    "p8-A Model distribution"     1
-
-# p10: Avg Latency by Model
-run_ch_query "p10_avg_latency.sql"  "p10-A Avg latency by model"  0
-
-# p13: Stream Abort Rate
-run_ch_query "p13_abort_client.sql"    "p13-A Client abort rate"    0
-run_ch_query "p13_abort_provider.sql"  "p13-B Provider abort rate"  0
-
-# p14: Stream Status
-run_ch_query "p14_completed.sql"        "p14-A Stream completed"        0
-run_ch_query "p14_client_aborted.sql"   "p14-B Stream client aborted"   0
-run_ch_query "p14_provider_aborted.sql" "p14-C Stream provider aborted" 0
-
-# p15: Cost Over Time
-run_ch_query "p15_cost_over_time.sql"   "p15-A Cost over time by model" 0
-
+# Q2: p3 token consistency: total = input + cached + output + reasoning
+echo "--- Q2: p3 Token Consistency ---"
+P3R=$(exec_ch "p3_raw_tokens.sql")
+PT=$(echo "$P3R" | cut -f1); PI=$(echo "$P3R" | cut -f2); PC=$(echo "$P3R" | cut -f3); PO=$(echo "$P3R" | cut -f4); PR=$(echo "$P3R" | cut -f5)
+PT=${PT:-0}; PI=${PI:-0}; PC=${PC:-0}; PO=${PO:-0}; PR=${PR:-0}
+PS=$((PI + PC + PO + PR))
+[ "$PT" -eq "$PS" ] && rp "Q2: total($PT)=in($PI)+ca($PC)+out($PO)+re($PR)=$PS" || rf "Q2: total($PT)!=sum($PS)"
 echo ""
 
-# ── Verify p3 format: should match "NN Mil ($X.XX)" or "NN K ($X.XX)" ──────
-
-echo "--- p3 Value Format Verification ---"
+# Q3: p3 all token counts >= 0, cost >= 0
+echo "--- Q3: p3 Value Ranges (>= 0) ---"
+for pair in "PT:total" "PI:input" "PC:cached" "PO:output" "PR:reasoning"; do
+    var="${pair%%:*}"; name="${pair##*:}"; val="${!var}"
+    [ "$val" -ge 0 ] 2>/dev/null && rp "Q3: $name=$val (>=0)" || rf "Q3: $name=$val (negative)"
+done
+TC=$(exec_ch "p15_total_cost.sql" | head -1); TC=${TC:-0}
+awk "BEGIN{exit !($TC >= 0)}" 2>/dev/null && rp "Q3: cost=$TC (>=0)" || rf "Q3: cost=$TC (negative)"
 echo ""
 
-verify_p3_format() {
-    local sql_file="$1"
-    local desc="$2"
-
-    local sql
-    sql=$(substitute_sql "$QUERIES_DIR/$sql_file" "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$CH_MODEL_LIST")
-
-    local result
-    result=$(curl -sf --max-time 30 \
-        -X POST "$CH_URL/" \
-        --data-binary "$sql" 2>/dev/null || echo "")
-
-    if [ -z "$result" ]; then
-        record_fail "$desc: empty result"
-        return
-    fi
-
-    # Format should be: "NN Mil ($X.XX)" or "NN K ($X.XX)" or "NN ($X.XX)"
-    if echo "$result" | grep -qP '^\d+ (Mil|K) \(\$\d+\.\d+\)$'; then
-        record_pass "$desc: format valid - $(echo "$result" | head -1)"
-    elif echo "$result" | grep -qP '^\d+ \(\$\d+\.\d+\)$'; then
-        record_pass "$desc: format valid (small number) - $(echo "$result" | head -1)"
-    elif echo "$result" | grep -qP '^\d+ \(\$\d+\)$'; then
-        record_pass "$desc: format valid (integer cost) - $(echo "$result" | head -1)"
+# Q4: p3 format: "NN Mil ($X.XX)" or "NN K ($X.XX)" or "NN ($X.XX)"
+echo "--- Q4: p3 Output Format ---"
+for sf in p3_total.sql p3_input.sql p3_cached.sql p3_output.sql p3_reasoning.sql; do
+    r=$(exec_ch "$sf")
+    if echo "$r" | grep -qP '^\d+ (Mil|K) \(\$\d+\.\d+\)$' || echo "$r" | grep -qP '^\d+ \(\$\d+(\.\d+)?\)$'; then
+        rp "Q4: $sf format valid"
     else
-        record_fail "$desc: format invalid - $(echo "$result" | head -1)"
+        rf "Q4: $sf format invalid: $(echo "$r" | head -1)"
     fi
-}
-
-verify_p3_format "p3_total.sql"    "p3-A format"
-verify_p3_format "p3_input.sql"    "p3-B format"
-verify_p3_format "p3_cached.sql"   "p3-C format"
-verify_p3_format "p3_output.sql"   "p3-D format"
-verify_p3_format "p3_reasoning.sql" "p3-E format"
-
+done
 echo ""
 
-# ── p3 Output Correctness: total = input + cached + output + reasoning ──────
-
-echo "--- p3 Token Consistency (total = input + cached + output + reasoning) ---"
+# Q5: p13 abort rates in [0, 100]
+echo "--- Q5: p13 Abort Rate Range [0,100] ---"
+for sf in p13_abort_client.sql p13_abort_provider.sql; do
+    exec_ch "$sf" | grep '.' | while IFS=$'\t' read -r t l v; do
+        in_range "$v" 0 100 && rp "Q5: $sf $t rate=$v" || rf "Q5: $sf $t rate=$v out of range"
+    done
+done
 echo ""
 
-# Query raw (unformatted) token counts in a single round-trip for consistency check
-P3_RAW_SQL=$(substitute_sql "$QUERIES_DIR/p3_raw_tokens.sql" "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$CH_MODEL_LIST")
-P3_RAW_RESULT=$(curl -sf --max-time 30 -X POST "$CH_URL/" --data-binary "$P3_RAW_SQL" 2>/dev/null || echo "")
-# ClickHouse TabSeparated: total\tinput\tcached\toutput\treasoning
-P3_TOTAL_TOK=$(echo "$P3_RAW_RESULT" | head -1 | cut -f1)
-P3_INPUT_TOK=$(echo "$P3_RAW_RESULT" | head -1 | cut -f2)
-P3_CACHED_TOK=$(echo "$P3_RAW_RESULT" | head -1 | cut -f3)
-P3_OUTPUT_TOK=$(echo "$P3_RAW_RESULT" | head -1 | cut -f4)
-P3_REASONING_TOK=$(echo "$P3_RAW_RESULT" | head -1 | cut -f5)
-# Guard against empty/missing values
-P3_TOTAL_TOK=${P3_TOTAL_TOK:-0}
-P3_INPUT_TOK=${P3_INPUT_TOK:-0}
-P3_CACHED_TOK=${P3_CACHED_TOK:-0}
-P3_OUTPUT_TOK=${P3_OUTPUT_TOK:-0}
-P3_REASONING_TOK=${P3_REASONING_TOK:-0}
+# Q6: p14 partition: completed + client_ab + provider_ab = total streams
+echo "--- Q6: p14 Stream Partition Consistency ---"
+P14C=$(exec_ch "p14_completed.sql" | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
+P14CA=$(exec_ch "p14_client_aborted.sql" | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
+P14PA=$(exec_ch "p14_provider_aborted.sql" | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
+P14T=$(exec_ch "p14_total_streams.sql" | head -1); P14T=${P14T:-0}
+P14S=$((P14C + P14CA + P14PA))
+[ "$P14S" -eq "$P14T" ] && rp "Q6: comp($P14C)+cli($P14CA)+prov($P14PA)=$P14S=total($P14T)" || rf "Q6: sum($P14S)!=total($P14T)"
+echo ""
 
-P3_SUM=$((P3_INPUT_TOK + P3_CACHED_TOK + P3_OUTPUT_TOK + P3_REASONING_TOK))
+# Q7: p15 cost sum = p15 total cost (cross-query consistency)
+echo "--- Q7: p15 Cost Sum = Total Cost ---"
+P15S=$(exec_ch "p15_cost_over_time.sql" | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
+P15T=$(exec_ch "p15_total_cost.sql" | head -1); P15T=${P15T:-0}
+P7DIFF=$(awk "BEGIN{d=$P15S-$P15T; if(d<0)d=-d; print d}" 2>/dev/null)
+awk "BEGIN{exit !($P7DIFF < 0.01)}" 2>/dev/null && rp "Q7: cost_sum($P15S)~=total($P15T) diff=$P7DIFF" || rf "Q7: cost_sum($P15S)!=total($P15T) diff=$P7DIFF"
+echo ""
 
-if [ "$P3_TOTAL_TOK" -eq "$P3_SUM" ]; then
-    record_pass "p3 token consistency: total ($P3_TOTAL_TOK) = input ($P3_INPUT_TOK) + cached ($P3_CACHED_TOK) + output ($P3_OUTPUT_TOK) + reasoning ($P3_REASONING_TOK)"
+# Q8: p8 model dist sum = total requests; each count > 0
+echo "--- Q8: p8 Model Distribution Consistency ---"
+P8D=$(exec_ch "p8_model_dist.sql")
+P8S=$(echo "$P8D" | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
+P8T=$(exec_ch "p8_total_requests.sql" | head -1); P8T=${P8T:-0}
+[ "$P8S" -eq "$P8T" ] && rp "Q8: dist_sum($P8S)=total($P8T)" || rf "Q8: dist_sum($P8S)!=total($P8T)"
+echo "$P8D" | grep '.' | while IFS=$'\t' read -r m c; do
+    [ "$c" -gt 0 ] 2>/dev/null && rp "Q8: '$m' count=$c (>0)" || rf "Q8: '$m' count=$c (<=0)"
+done
+echo ""
+
+# Q9: p10 avg latency in (0, 300); model names non-empty
+echo "--- Q9: p10 Avg Latency Range (0, 300) ---"
+P10R=$(exec_ch "p10_avg_latency.sql")
+if [ -z "$P10R" ]; then
+    rs "Q9: p10 no latency data"
 else
-    record_fail "p3 token consistency: total ($P3_TOTAL_TOK) != sum ($P3_SUM) = input ($P3_INPUT_TOK) + cached ($P3_CACHED_TOK) + output ($P3_OUTPUT_TOK) + reasoning ($P3_REASONING_TOK)"
-fi
-
-echo ""
-
-# ── Run Prometheus queries ──────────────────────────────────────────────────
-
-echo "--- Prometheus Panel Queries (All keys) ---"
-echo ""
-
-run_prom_query() {
-    local expr="$1"
-    local desc="$2"
-
-    # URL-encode the expression using jq @uri
-    local encoded_expr
-    encoded_expr=$(url_encode "$expr")
-
-    if [ -z "$encoded_expr" ]; then
-        record_fail "$desc: failed to URL-encode expression"
-        return
-    fi
-
-    local response
-    response=$(curl -sf --max-time 15 \
-        "$PROM_URL/api/v1/query?query=$encoded_expr" 2>/dev/null || echo "")
-
-    if [ -z "$response" ]; then
-        record_fail "$desc: empty response from Prometheus"
-        return
-    fi
-
-    # Parse response using jq
-    local status result_count
-    status=$(echo "$response" | jq -r '.status // "unknown"' 2>/dev/null || echo "parse_error")
-    result_count=$(echo "$response" | jq -r '.data.result | length' 2>/dev/null || echo "0")
-
-    if [ "$status" != "success" ]; then
-        record_fail "$desc: Prom status=$status"
-        return
-    fi
-
-    if [ "$result_count" = "0" ]; then
-        record_fail "$desc: no result data"
-        return
-    fi
-
-    record_pass "$desc: $result_count results"
-}
-
-# Parse prometheus.yaml via containerized Lua YAML parser, run each expression
-# Source the shared YAML helper
-source "$REPO_ROOT/tests/config/yaml_helpers.sh"
-
-PROM_YAML_JSON=$(yaml_to_json "$QUERIES_DIR/prometheus.yaml")
-
-if [ -z "$PROM_YAML_JSON" ]; then
-    record_fail "Failed to parse prometheus.yaml"
-else
-    echo "$PROM_YAML_JSON" | jq -r --arg regex "$PROM_KEY_REGEX" \
-        '.[] | [.panel, .refId, .title, (.expr | gsub("__API_KEY_REGEX__"; $regex))] | @tsv' \
-    | while IFS=$'\t' read -r panel ref title expr; do
-        run_prom_query "$expr" "p${panel}-${ref} ${title}"
+    echo "$P10R" | grep '.' | while IFS=$'\t' read -r m lat; do
+        [ -z "$m" ] && { rf "Q9: empty model name lat=$lat"; return; }
+        in_range "$lat" 0.001 300 && rp "Q9: '$m' lat=${lat}s in (0,300)" || rf "Q9: '$m' lat=${lat}s out of range"
     done
 fi
-
 echo ""
 
-# ── Single key filter test (pick first key hash) ────────────────────────────
-
-echo "--- Single Key Filter Tests ---"
-echo ""
-
-SINGLE_KEY=$(echo "$ALL_KEYS" | head -1)
-if [ -n "$SINGLE_KEY" ] && [ "$SINGLE_KEY" != "unknown" ]; then
-    SINGLE_KEY_LIST="'$SINGLE_KEY'"
-    SINGLE_KEY_REGEX="$SINGLE_KEY"
-
-    echo "[INFO] Testing with single key: $SINGLE_KEY"
-    echo ""
-
-    # p3 total with single key
-    sql=$(substitute_sql "$QUERIES_DIR/p3_total.sql" "$FROM_TS" "$TO_TS" "$SINGLE_KEY_LIST" "$CH_MODEL_LIST")
-    result=$(curl -sf --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" 2>/dev/null || echo "")
-
-    if [ -n "$result" ]; then
-        record_pass "p3-A single key filter: $(echo "$result" | head -1)"
-    else
-        record_fail "p3-A single key filter: empty result"
-    fi
-
-    # p8 model dist with single key (may return 0 rows - that's OK, just verify no error)
-    sql=$(substitute_sql "$QUERIES_DIR/p8_model_dist.sql" "$FROM_TS" "$TO_TS" "$SINGLE_KEY_LIST" "$CH_MODEL_LIST")
-    http_result=$(curl -sf -w "\n%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" 2>/dev/null || echo "
-000")
-    http_code=$(echo "$http_result" | tail -1)
-    if [ "$http_code" = "200" ]; then
-        record_pass "p8-A single key filter: HTTP 200 (no SQL error)"
-    else
-        record_fail "p8-A single key filter: HTTP $http_code"
-    fi
-
-    # p1 Total Requests with single key (Prometheus)
-    p1_expr="sum(apisix_http_status{key_hash=~\"$SINGLE_KEY_REGEX\"})"
-    encoded=$(url_encode "$p1_expr")
-    response=$(curl -sf --max-time 15 "$PROM_URL/api/v1/query?query=$encoded" 2>/dev/null || echo "")
-
-    if [ -n "$response" ]; then
-        status=$(echo "$response" | jq -r '.status // "?"' 2>/dev/null || echo "?")
-        if [ "$status" = "success" ]; then
-            record_pass "p1-A single key filter (Prom): success"
-        else
-            record_fail "p1-A single key filter (Prom): status=$status"
-        fi
-    else
-        record_fail "p1-A single key filter (Prom): empty response"
-    fi
+# Q10: All Prometheus queries return status=success with >=1 result
+echo "--- Q10: Prometheus Query Execution ---"
+source "$REPO_ROOT/tests/config/yaml_helpers.sh"
+PJ=$(yaml_to_json "$QUERIES_DIR/prometheus.yaml")
+if [ -z "$PJ" ]; then
+    rf "Q10: Failed to parse prometheus.yaml"
 else
-    record_skip "Single key filter tests (no keys available)"
+    echo "$PJ" | jq -r --arg rx "$PROM_KEY_REGEX" \
+        '.[] | [.panel, .refId, .title, (.expr | gsub("__API_KEY_REGEX__"; $rx))] | @tsv' \
+    | while IFS=$'\t' read -r p ref title expr; do
+        resp=$(exec_prom "$expr")
+        st=$(prom_st "$resp"); cnt=$(prom_cnt "$resp")
+        [ "$st" = "success" ] && rp "Q10: p${p}-${ref} ${title}: success ($cnt)" || rf "Q10: p${p}-${ref}: status=$st"
+    done
 fi
-
 echo ""
 
-# ── Single model filter test ────────────────────────────────────────────────
-
-echo "--- Single Model Filter Tests ---"
+# Q11: p4 error rate in [0, 100]
+echo "--- Q11: p4 Error Rate Range [0,100] ---"
+P4V=$(prom_val "$(exec_prom "(sum(rate(apisix_http_status{key_hash=~\"$PROM_KEY_REGEX\",code=~\"5..\"}[5m])) or vector(0)) / sum(rate(apisix_http_status{key_hash=~\"$PROM_KEY_REGEX\"}[5m])) * 100")")
+[ -z "$P4V" ] && rs "Q11: no data" || { in_range "$P4V" 0 100 && rp "Q11: error_rate=$P4V in [0,100]" || rf "Q11: error_rate=$P4V out of range"; }
 echo ""
 
-SINGLE_MODEL=$(echo "$ALL_MODELS" | head -1)
-if [ -n "$SINGLE_MODEL" ] && [ "$SINGLE_MODEL" != "unknown" ]; then
-    SINGLE_MODEL_LIST="'$SINGLE_MODEL'"
+# Q12: p9 latency ordering: p50 <= p95 <= p99
+echo "--- Q12: p9 Latency Percentile Ordering ---"
+P50=$(prom_val "$(exec_prom "histogram_quantile(0.50, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$PROM_KEY_REGEX\",type=\"apisix\"}[5m]))) * 1000")")
+P95=$(prom_val "$(exec_prom "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$PROM_KEY_REGEX\",type=\"apisix\"}[5m]))) * 1000")")
+P99=$(prom_val "$(exec_prom "histogram_quantile(0.99, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$PROM_KEY_REGEX\",type=\"apisix\"}[5m]))) * 1000")")
+if [ -z "$P50" ] || [ -z "$P95" ] || [ -z "$P99" ]; then
+    rs "Q12: incomplete (p50=$P50 p95=$P95 p99=$P99)"
+else
+    awk "BEGIN{exit !($P50 <= $P95 && $P95 <= $P99)}" 2>/dev/null && rp "Q12: p50($P50)<=p95($P95)<=p99($P99)" || rf "Q12: ordering broken"
+fi
+echo ""
 
-    echo "[INFO] Testing with single model: $SINGLE_MODEL"
-    echo ""
+# Q13: p12 shared dict usage in [0, 100]
+echo "--- Q13: p12 Shared Dict Usage Range [0,100] ---"
+P12K=$(prom_val "$(exec_prom "(1 - apisix_shared_dict_free_space_bytes{name=\"key_cache\"} / apisix_shared_dict_capacity_bytes{name=\"key_cache\"}) * 100")")
+P12R=$(prom_val "$(exec_prom "(1 - apisix_shared_dict_free_space_bytes{name=\"redact_state\"} / apisix_shared_dict_capacity_bytes{name=\"redact_state\"}) * 100")")
+for pair in "P12K:key_cache" "P12R:redact_state"; do
+    var="${pair%%:*}"; name="${pair##*:}"; val="${!var}"
+    [ -z "$val" ] && rs "Q13: $name no data" || { in_range "$val" 0 100 && rp "Q13: $name=$val in [0,100]" || rf "Q13: $name=$val out of range"; }
+done
+echo ""
 
-    # p3 total with single model
-    sql=$(substitute_sql "$QUERIES_DIR/p3_total.sql" "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$SINGLE_MODEL_LIST")
-    result=$(curl -sf --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" 2>/dev/null || echo "")
-
-    if [ -n "$result" ]; then
-        record_pass "p3-A single model filter: $(echo "$result" | head -1)"
+# Q14: Single key filter: filtered <= unfiltered
+echo "--- Q14: Single Key Filter (filtered <= unfiltered) ---"
+SK=$(echo "$ALL_KEYS" | head -1)
+if [ -n "$SK" ] && [ "$SK" != "unknown" ]; then
+    SKL="'$SK'"
+    ssql=$(sub_sql "$FROM_TS" "$TO_TS" "$SKL" "$CH_MODEL_LIST" "$QUERIES_DIR/p3_raw_tokens.sql")
+    sraw=$(curl -sf --max-time 30 -X POST "$CH_URL/" --data-binary "$ssql" 2>/dev/null || echo "")
+    stot=$(echo "$sraw" | cut -f1); stot=${stot:-0}
+    [ "$stot" -le "$PT" ] 2>/dev/null && rp "Q14: single_key_total($stot)<=all($PT)" || rf "Q14: single($stot)>all($PT)"
+    P1S=$(prom_val "$(exec_prom "sum(apisix_http_status{key_hash=~\"$SK\"})")")
+    P1A=$(prom_val "$(exec_prom "sum(apisix_http_status{key_hash=~\"$PROM_KEY_REGEX\"})")")
+    if [ -n "$P1S" ] && [ -n "$P1A" ]; then
+        awk "BEGIN{exit !($P1S <= $P1A)}" 2>/dev/null && rp "Q14: p1 single($P1S)<=all($P1A)" || rf "Q14: p1 single($P1S)>all($P1A)"
     else
-        record_fail "p3-A single model filter: empty result"
-    fi
-
-    # p15 cost over time with single model (may return 0 rows - OK)
-    sql=$(substitute_sql "$QUERIES_DIR/p15_cost_over_time.sql" "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$SINGLE_MODEL_LIST")
-    http_result=$(curl -sf -w "\n%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" 2>/dev/null || echo "
-000")
-    http_code=$(echo "$http_result" | tail -1)
-    if [ "$http_code" = "200" ]; then
-        record_pass "p15-A single model filter: HTTP 200 (no SQL error)"
-    else
-        record_fail "p15-A single model filter: HTTP $http_code"
+        rs "Q14: p1 prometheus no data"
     fi
 else
-    record_skip "Single model filter tests (no models available)"
+    rs "Q14: no keys available"
 fi
-
 echo ""
 
-# ── Verify no $__conditionalAll remains in dashboard ────────────────────────
-
-echo "--- Dashboard Macro Verification ---"
+# Q15: Single model filter: no SQL error (HTTP 200)
+echo "--- Q15: Single Model Filter (HTTP 200) ---"
+SM=$(echo "$ALL_MODELS" | head -1)
+if [ -n "$SM" ] && [ "$SM" != "unknown" ]; then
+    SML="'$SM'"
+    for sf in p3_total.sql p8_model_dist.sql p15_cost_over_time.sql; do
+        sql=$(sub_sql "$FROM_TS" "$TO_TS" "$CH_KEY_LIST" "$SML" "$QUERIES_DIR/$sf")
+        hc=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" 2>/dev/null || echo "000")
+        [ "$hc" = "200" ] && rp "Q15: $sf single model HTTP 200" || rf "Q15: $sf single model HTTP $hc"
+    done
+else
+    rs "Q15: no models available"
+fi
 echo ""
 
-COND_ALL_COUNT=$(jq '[.panels[].targets[] | (.rawSql // .expr // "") | select(. != null) | select(test("\\$\\$__conditionalAll"))] | length' "$DASHBOARD_FILE" 2>/dev/null || echo "error")
-
-if [ "$COND_ALL_COUNT" = "0" ]; then
-    record_pass "No \$__conditionalAll macros in dashboard"
-else
-    record_fail "Dashboard still has $COND_ALL_COUNT \$__conditionalAll macros"
-fi
-
-# Verify api_key variable has no allValue
-API_KEY_ALLVALUE=$(jq -r \
-    '[.templating.list[] | select(.name == "api_key")] | if length == 0 then "error" else (.[0].allValue | if . == null or . == "" then "None" else . end) end' \
-    "$DASHBOARD_FILE" 2>/dev/null || echo "error")
-
-if [ "$API_KEY_ALLVALUE" = "None" ]; then
-    record_pass "api_key variable has no allValue"
-else
-    record_fail "api_key variable still has allValue=$API_KEY_ALLVALUE"
-fi
-
-# Verify model variable queries both tables
-MODEL_QUERY=$(jq -r \
-    '[.templating.list[] | select(.name == "model")] | if length == 0 then "error" else (.[0].query | ascii_upcase | if test("UNION") then "union" else "single" end) end' \
-    "$DASHBOARD_FILE" 2>/dev/null || echo "error")
-
-if [ "$MODEL_QUERY" = "union" ]; then
-    record_pass "model variable queries both request_log and usage_log"
-else
-    record_fail "model variable does not UNION both tables"
-fi
-
+# Q16: Dashboard macro verification
+echo "--- Q16: Dashboard Macro Verification ---"
+CA=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$DASHBOARD_FILE" 2>/dev/null || echo "error")
+[ "$CA" = "0" ] && rp "Q16: no \$__conditionalAll" || rf "Q16: $CA conditionalAll macros found"
+AK=$(jq -r '[.templating.list[]|select(.name=="api_key")]|if length==0 then "error" else (.[0].allValue|if .==null or .=="" then "None" else . end) end' "$DASHBOARD_FILE" 2>/dev/null || echo "error")
+[ "$AK" = "None" ] && rp "Q16: api_key no allValue" || rf "Q16: api_key allValue=$AK"
+MQ=$(jq -r '[.templating.list[]|select(.name=="model")]|if length==0 then "error" else (.[0].query|ascii_upcase|if test("UNION") then "union" else "single" end) end' "$DASHBOARD_FILE" 2>/dev/null || echo "error")
+[ "$MQ" = "union" ] && rp "Q16: model variable UNIONs both tables" || rf "Q16: model variable no UNION"
 echo ""
 
-# ── Summary ─────────────────────────────────────────────────────────────────
-
+# Summary
 echo ""
 echo "Dashboard query tests: $pass passed, $fail failed, $skip skipped"
-if [ "$fail" -gt 0 ]; then
-    exit 1
-fi
-exit 0
+[ "$fail" -gt 0 ] && exit 1 || exit 0

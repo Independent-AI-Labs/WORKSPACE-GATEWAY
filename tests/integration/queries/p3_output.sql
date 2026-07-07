@@ -9,4 +9,4 @@ WITH totals AS (
     FROM llm_gateway.usage_log
     WHERE timestamp >= toDateTime(__FROM__) AND timestamp <= toDateTime(__TO__) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (__API_KEYS__) AND model IN (__MODELS__)
 )
-SELECT concat(multiIf(output_tok >= 1000000, concat(toString(round(output_tok / 1000000)), ' Mil'), output_tok >= 1000, concat(toString(round(output_tok / 1000)), ' K'), toString(output_tok)), ' ($', toString(round(total_cost * output_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals
+SELECT concat(multiIf(output_tok >= 1000000, concat(toString(round(output_tok / 1000000)), ' Mil'), output_tok >= 1000, concat(toString(round(output_tok / 1000)), ' K'), toString(output_tok)), ' ($', toString(round(total_cost * output_tok / nullIf(total_tok, 0), 2)), ')') as Output FROM totals

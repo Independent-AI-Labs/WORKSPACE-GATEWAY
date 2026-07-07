@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 32,
+  "version": 33,
   "refresh": "15s",
   "time": {
     "from": "now-24h",
@@ -69,31 +69,31 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(total_tok >= 1000000, concat(toString(round(total_tok / 1000000)), ' Mil'), total_tok >= 1000, concat(toString(round(total_tok / 1000)), ' K'), toString(total_tok)), ' ($', toString(round(total_cost, 2)), ')') as val FROM totals"
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(total_tok >= 1000000, concat(toString(round(total_tok / 1000000)), ' Mil'), total_tok >= 1000, concat(toString(round(total_tok / 1000)), ' K'), toString(total_tok)), ' ($', toString(round(total_cost, 2)), ')') as Total FROM totals"
         },
         {
           "refId": "B",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(input_tok >= 1000000, concat(toString(round(input_tok / 1000000)), ' Mil'), input_tok >= 1000, concat(toString(round(input_tok / 1000)), ' K'), toString(input_tok)), ' ($', toString(round(total_cost * input_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(input_tok >= 1000000, concat(toString(round(input_tok / 1000000)), ' Mil'), input_tok >= 1000, concat(toString(round(input_tok / 1000)), ' K'), toString(input_tok)), ' ($', toString(round(total_cost * input_tok / nullIf(total_tok, 0), 2)), ')') as Input FROM totals"
         },
         {
           "refId": "C",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000)), ' Mil'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000)), ' K'), toString(cached_tok)), ' ($', toString(round(total_cost * cached_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000)), ' Mil'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000)), ' K'), toString(cached_tok)), ' ($', toString(round(total_cost * cached_tok / nullIf(total_tok, 0), 2)), ')') as Cached FROM totals"
         },
         {
           "refId": "D",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(output_tok >= 1000000, concat(toString(round(output_tok / 1000000)), ' Mil'), output_tok >= 1000, concat(toString(round(output_tok / 1000)), ' K'), toString(output_tok)), ' ($', toString(round(total_cost * output_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(output_tok >= 1000000, concat(toString(round(output_tok / 1000000)), ' Mil'), output_tok >= 1000, concat(toString(round(output_tok / 1000)), ' K'), toString(output_tok)), ' ($', toString(round(total_cost * output_tok / nullIf(total_tok, 0), 2)), ')') as Output FROM totals"
         },
         {
           "refId": "E",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000)), ' Mil'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000)), ' K'), toString(reasoning_tok)), ' ($', toString(round(total_cost * reasoning_tok / nullIf(total_tok, 0), 2)), ')') as val FROM totals"
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000)), ' Mil'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000)), ' K'), toString(reasoning_tok)), ' ($', toString(round(total_cost * reasoning_tok / nullIf(total_tok, 0), 2)), ')') as Reasoning FROM totals"
         }
       ],
       "fieldConfig": {
@@ -118,7 +118,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "val"
+              "options": "Total"
             },
             "properties": [
               {
@@ -137,7 +137,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "val"
+              "options": "Input"
             },
             "properties": [
               {
@@ -156,7 +156,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "val"
+              "options": "Cached"
             },
             "properties": [
               {
@@ -175,7 +175,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "val"
+              "options": "Output"
             },
             "properties": [
               {
@@ -194,7 +194,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "val"
+              "options": "Reasoning"
             },
             "properties": [
               {
@@ -517,7 +517,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
           "thresholds": {
             "mode": "absolute",
@@ -541,7 +541,83 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "200"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#70c1b3",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "401"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#ffe066",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "429"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#b7990d",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "499"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#247ba0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "504"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#f25f5c",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "pieType": "donut",
@@ -872,7 +948,7 @@
           "queryType": "table",
           "refId": "A",
           "rawSql": "SELECT model, avg(upstream_response_time_s) as avg_latency FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND upstream_response_time_s > 0 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY avg_latency DESC LIMIT 20",
-          "format": 1,
+          "format": "table",
           "editorType": "sql",
           "pluginVersion": "4.18.0",
           "meta": {
@@ -938,12 +1014,12 @@
       },
       "targets": [
         {
-          "expr": "rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"ingress\"}[5m])",
+          "expr": "sum(rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"ingress\"}[5m]))",
           "legendFormat": "ingress",
           "refId": "A"
         },
         {
-          "expr": "rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"egress\"}[5m])",
+          "expr": "sum(rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"egress\"}[5m]))",
           "legendFormat": "egress",
           "refId": "B"
         }
@@ -1021,7 +1097,7 @@
           "queryType": "table",
           "refId": "A",
           "rawSql": "SELECT model, count() as requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY requests DESC LIMIT 20",
-          "format": 1,
+          "format": "table",
           "editorType": "sql",
           "pluginVersion": "4.18.0",
           "meta": {
