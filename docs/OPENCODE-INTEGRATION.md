@@ -25,7 +25,7 @@ opencode CLI (Bun/TypeScript)
   |  Authorization: Bearer vgw-gateway-key
   v
 APISIX (port 9080)
-  |  Plugins: key-resolver, redact, sse-usage, ai-rate-limiting,
+  |  Plugins: key-resolver, key-meta, redact, sse-usage, limit-count,
   |           proxy-rewrite, http-logger, proxy-buffering, prometheus
   |  Two routes: /opencode/* -> opencode.ai:443 (passthrough)
   |              /opencode_federated/* -> opencode.ai:443 (virtual key)
@@ -42,7 +42,7 @@ Underlying LLM Providers (MiniMax, Moonshot/Kimi, Zhipu/GLM, etc.)
 
 **What APISIX touches:** HTTP headers (gateway key resolution via
 key-resolver, proxy-rewrite rewrites path prefix), JSON body
-(rate-limiting reads `model` field, redact scans `messages[].content`),
+(redact scans `messages[].content`),
 SSE pass-through (buffering disabled), response logging (status,
 latency, model, stream flag).
 
@@ -266,11 +266,13 @@ routes:
 plugin_configs:
   - id: pc-relay-common
     plugins:
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
+      limit-count:
+        count: 100
         time_window: 60
         rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
       prometheus:
         prefer_name: true
       http-logger:
@@ -293,7 +295,8 @@ plugin_configs:
 | `key-resolver` (federated) | `access` | Resolves `vgw-` prefixed virtual gateway keys via OpenBao. If the token starts with `vgw-`, looks it up and substitutes the real upstream key. If the token does not start with `vgw-` (direct key on `/opencode/*` route), passes through as-is. |
 | `proxy-rewrite` (both) | `access` | Rewrites the path prefix: `/opencode_federated/v1/...` or `/opencode/v1/...` becomes `/zen/go/v1/...` before forwarding upstream. |
 | `sse-usage` (both) | `log` | Extracts token usage from SSE/JSON responses. Distinguishes streaming vs non-streaming and parses `usage` blocks so token counts are available for telemetry. |
-| `ai-rate-limiting` (both) | `access` | Reads `model` from request body. Enforces per-model RPM. Returns `429` on exceed. |
+| `key-meta` (both) | `access` | Computes truncated SHA-256 hash of the resolved key id (or raw Bearer token for passthrough) and sets `X-Key-Hash` header. Used by `limit-count` for per-key scoping and Prometheus for metric labels. |
+| `limit-count` (both) | `access` | Per-key request rate limiting via fixed window. Scoped by `X-Key-Hash` on both routes; federated route uses variable `count`/`time_window` from `X-Gateway-Rate-Limit-*` headers. Returns `429` on exceed. |
 | `proxy-buffering` (both) | `access` | Disables NGINX proxy buffering. Critical for SSE streaming. Without this, SSE chunks queue in NGINX buffer and streaming breaks. |
 | `redact` (both) | `access` + `body_filter` | Scans request body JSON for PII before relay. Stores token map in `ctx`. Restores originals in response body (re-hydration). |
 | `prometheus` (both) | `log` | Exports HTTP metrics: request count, latency histogram, status code distribution. Scraped at `/apisix/prometheus/metrics`. |
@@ -438,10 +441,19 @@ The gateway observability stack provides 3 separate Grafana dashboards:
 All 3 dashboards share identical `templating` (api_key + model variables) and
 the same time range / refresh settings.
 
-### 5.4 Rate Limiting (ai-rate-limiting)
+### 5.4 Rate Limiting (limit-count + Tier 3 budget)
 
-The `ai-rate-limiting` plugin reads the `model` field from the request
-body and enforces per-model limits.
+Request RPM is enforced by APISIX built-in `limit-count` plugin (fixed
+window). It is scoped by `X-Key-Hash` (set by `key-meta`) so every unique
+client key gets its own counter. The federated route uses variable
+`count`/`time_window` read from OpenBao by `key-resolver` and injected as
+`X-Gateway-Rate-Limit-RPM` / `X-Gateway-Rate-Limit-Window` headers.
+
+Per-key token/cost budgets are enforced in custom Lua: `key-resolver`
+reads budget fields from the OpenBao key record and checks a shared dict
+counter at access phase; `sse-usage` increments the counter at log phase.
+`ai-rate-limiting` is NOT used (it requires `ai-proxy`/`ai-proxy-multi`
+to populate token usage context, which our route chain lacks).
 
 ### 5.5 PII Redaction (redact plugin)
 
@@ -459,7 +471,7 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
 1. **APISIX routes**: two routes `/opencode/*` (passthrough) and
    `/opencode_federated/*` (virtual key) to `opencode.ai:443` with the
    full plugin stack (key-resolver on federated only, proxy-rewrite on
-   both, sse-usage, ai-rate-limiting, prometheus, http-logger,
+    both, key-meta, sse-usage, limit-count, prometheus, http-logger,
    proxy-buffering, redact).
 2. **opencode config**: two custom providers --
    `workspace-gw-private` (virtual key, baseURL
@@ -473,7 +485,7 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
    Cost Leaderboard).
 4. **PII redaction**: custom Lua `redact` plugin on both OpenCode Go
    routes.
-5. **Rate limiting**: `ai-rate-limiting` plugin, per-model RPM.
+5. **Rate limiting**: `limit-count` plugin, per-key RPM (federated route: variable limits from OpenBao). Tier 3 token/cost budget in custom Lua via shared dict.
 6. **SSE pass-through**: `proxy-buffering` plugin with `disable: true`.
 7. **Path rewriting**: `proxy-rewrite` rewrites both route prefixes to
    `/zen/go/` before forwarding upstream.
@@ -500,7 +512,7 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
     or passes the direct key through (passthrough route)
  7. APISIX proxy-rewrite rewrites path (/opencode_federated/... or
     /opencode/...) to /zen/go/...
- 8. APISIX ai-rate-limiting checks model RPM
+ 8. APISIX limit-count checks per-key request count (federated: variable window from OpenBao headers)
  9. APISIX redact scans request body for PII
 10. APISIX relays to OpenCode Go (https://opencode.ai/zen/go/v1/...)
 11. OpenCode Go routes to the underlying LLM provider
@@ -907,7 +919,7 @@ APISIX sees this format. It does not parse or convert it. The
 upstream key, the `proxy-rewrite` plugin rewrites the path prefix, and
 then APISIX relays the HTTP request to OpenCode Go. The only body
 parsing APISIX does is:
-- `ai-rate-limiting`: reads `model` field
+- `limit-count`: scoped by `X-Key-Hash` header; federated route reads dynamic limits from `X-Gateway-Rate-Limit-*` headers
 - `redact`: reads `messages[].content` text fields
 - `http-logger`: reads `model` and `stream` fields for log metadata
 

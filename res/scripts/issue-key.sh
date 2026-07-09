@@ -10,10 +10,16 @@ set -euo pipefail
 #   bash res/scripts/issue-key.sh [--key-id ID] [--tenant ID] [--user ID] [--upstream-key KEY]
 #
 # Options:
-#   --key-id ID         Key identifier (default: vgw-<random hex>)
-#   --tenant ID         Tenant ID (default: default)
-#   --user ID           User ID (default: agent)
-#   --upstream-key KEY  Upstream API key (default: empty = use OPENCODE_API_KEY env)
+#   --key-id ID               Key identifier (default: vgw-<random hex>)
+#   --tenant ID               Tenant ID (default: default)
+#   --user ID                 User ID (default: agent)
+#   --upstream-key KEY        Upstream API key (default: empty = use OPENCODE_API_KEY env)
+#   --rate-limit-rpm N        Per-key request RPM (default: 100)
+#   --rate-limit-window S     RPM time window in seconds (default: 60)
+#   --token-budget N          Per-key token budget per window (default: 0 = unlimited)
+#   --cost-budget N           Per-key cost budget in cents per window (default: 0 = unlimited)
+#   --budget-window S         Budget time window in seconds (default: 86400 = 24h)
+#   --budget-type TYPE        Budget type: tokens or cost (default: tokens)
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
@@ -31,13 +37,25 @@ KEY_ID=""
 TENANT_ID="default"
 USER_ID="agent"
 UPSTREAM_KEY=""
+RATE_LIMIT_RPM=""
+RATE_LIMIT_WINDOW=""
+TOKEN_BUDGET=""
+COST_BUDGET=""
+BUDGET_WINDOW=""
+BUDGET_TYPE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --key-id)       KEY_ID="$2"; shift 2 ;;
-    --tenant)       TENANT_ID="$2"; shift 2 ;;
-    --user)         USER_ID="$2"; shift 2 ;;
-    --upstream-key) UPSTREAM_KEY="$2"; shift 2 ;;
+    --key-id)              KEY_ID="$2"; shift 2 ;;
+    --tenant)              TENANT_ID="$2"; shift 2 ;;
+    --user)                USER_ID="$2"; shift 2 ;;
+    --upstream-key)        UPSTREAM_KEY="$2"; shift 2 ;;
+    --rate-limit-rpm)      RATE_LIMIT_RPM="$2"; shift 2 ;;
+    --rate-limit-window)   RATE_LIMIT_WINDOW="$2"; shift 2 ;;
+    --token-budget)        TOKEN_BUDGET="$2"; shift 2 ;;
+    --cost-budget)         COST_BUDGET="$2"; shift 2 ;;
+    --budget-window)       BUDGET_WINDOW="$2"; shift 2 ;;
+    --budget-type)         BUDGET_TYPE="$2"; shift 2 ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -54,8 +72,15 @@ fi
 
 CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+RATE_LIMIT_RPM="${RATE_LIMIT_RPM:-100}"
+RATE_LIMIT_WINDOW="${RATE_LIMIT_WINDOW:-60}"
+TOKEN_BUDGET="${TOKEN_BUDGET:-0}"
+COST_BUDGET="${COST_BUDGET:-0}"
+BUDGET_WINDOW="${BUDGET_WINDOW:-86400}"
+BUDGET_TYPE="${BUDGET_TYPE:-tokens}"
+
 JSON_PAYLOAD=$(cat <<EOF
-{"data":{"virtual_key":"${KEY_ID}","upstream_key":"${UPSTREAM_KEY}","tenant_id":"${TENANT_ID}","user_id":"${USER_ID}","active":true,"created_at":"${CREATED_AT}"}}
+{"data":{"virtual_key":"${KEY_ID}","upstream_key":"${UPSTREAM_KEY}","tenant_id":"${TENANT_ID}","user_id":"${USER_ID}","active":true,"created_at":"${CREATED_AT}","rate_limit_rpm":${RATE_LIMIT_RPM},"rate_limit_window":${RATE_LIMIT_WINDOW},"token_budget":${TOKEN_BUDGET},"cost_budget":${COST_BUDGET},"budget_window":${BUDGET_WINDOW},"budget_type":"${BUDGET_TYPE}"}}
 EOF
 )
 

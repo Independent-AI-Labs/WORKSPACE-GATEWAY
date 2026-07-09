@@ -110,7 +110,13 @@ else
             tenant_id="default" \
             user_id="agent" \
             active=true \
-            created_at="2026-01-01T00:00:00Z"
+            created_at="2026-01-01T00:00:00Z" \
+            rate_limit_rpm=100 \
+            rate_limit_window=60 \
+            token_budget=1000000 \
+            cost_budget=0 \
+            budget_window=86400 \
+            budget_type="tokens"
         echo "[openbao] Gateway key provisioned."
     fi
 fi

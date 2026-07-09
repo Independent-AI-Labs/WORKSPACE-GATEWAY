@@ -2,8 +2,8 @@
 
 Routes traffic to any OpenAI-compatible LLM provider through Apache APISIX
 3.17.0, with PII redaction, virtual key management, billing-grade token
-accounting, and a Grafana dashboard. Three custom Lua plugins, five built-in
-plugins, zero sidecars on the hot path. Per-tenant isolation runs entirely
+accounting, per-key rate limiting, and a Grafana dashboard. Four custom Lua
+plugins, five built-in plugins, zero sidecars on the hot path. Per-tenant isolation runs entirely
 inside APISIX: virtual keys are minted in OpenBao, every request is scoped
 to a tenant route, and token usage is streamed to ClickHouse via Vector for
 second-granularity audit and cost attribution. No proxy process to babysit,
@@ -78,11 +78,12 @@ graph TB
     subgraph "Gateway :9080"
         subgraph "Auth + Redaction"
             KR["key-resolver<br/>2555"]
+            KM["key-meta<br/>2530"]
             RD["redact<br/>2500"]
         end
         subgraph "Proxy"
             PRW["proxy-rewrite<br/>rewrite"]
-            RL["ai-rate-limiting<br/>990"]
+            LC["limit-count<br/>2002"]
             PB["proxy-buffering<br/>300"]
         end
         subgraph "Telemetry"
@@ -109,7 +110,7 @@ graph TB
 
     C -->|"POST /opencode_federated/*"| KR
     C -->|"POST /opencode/*"| KR
-    KR --> RD --> PRW --> RL --> PB -->|"HTTPS /zen/go/*"| GO
+    KR --> KM --> RD --> PRW --> LC --> PB -->|"HTTPS /zen/go/*"| GO
     GO -->|"response"| SU
 
     KR -.->|"GET key"| OB
@@ -164,7 +165,8 @@ retries on failure, health checks, and provider-level routing rules.
 | Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
 | Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
 | SSE token extraction | `sse-usage`: buffers SSE, extracts usage, writes ClickHouse | Custom |
-| Per-model rate limiting | `ai-rate-limiting` | Built-in |
+| Per-key rate limiting (RPM) | `limit-count` + `key-meta` | Built-in + custom Lua |
+| Per-key token/cost budget | `key-resolver` + `sse-usage` + `ngx.shared` | Custom Lua |
 | Request/response logging | `http-logger` to Vector to ClickHouse | Built-in |
 | Prometheus metrics | `prometheus` at `:9100` | Built-in |
 | SSE streaming support | `proxy-buffering` disabled per-route | Config |
@@ -175,13 +177,15 @@ retries on failure, health checks, and provider-level routing rules.
 
 ## Plugins
 
-Eight plugins on two routes, ordered by Nginx phase priority:
+Eight plugins on the passthrough route, nine on the federated route
+(federated adds `key-resolver`), ordered by Nginx phase priority:
 
-- **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Rewrites `/opencode_federated/*` → `/zen/go/*` (or `/opencode/*` → `/zen/go/*`)
-- **`key-resolver`** (2555, Custom Lua, `access`) : Resolve `vgw-*` keys via OpenBao; pass through others
+- **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Rewrites both route prefixes → `/zen/go/*`
+- **`key-resolver`** (2555, Custom Lua, `access`, federated only) : Resolve `vgw-*` keys via OpenBao; pass through others
+- **`key-meta`** (2530, Custom Lua, `access`) : Compute key hash for per-key scoping (`X-Key-Hash`)
 - **`redact`** (2500, Custom Lua, `access`/`header_filter`/`body_filter`/`log`) : PII anonymization + re-hydration
-- **`sse-usage`** (2400, Custom Lua, `header_filter`/`body_filter`/`log`) : Extract token usage from SSE/JSON responses
-- **`ai-rate-limiting`** (990, Built-in, `access`) : Per-model rate limit (1000 req / 60s)
+- **`sse-usage`** (2400, Custom Lua, `header_filter`/`body_filter`/`log`) : Extract token usage; increment budget counter
+- **`limit-count`** (2002, Built-in, `access`) : Per-key RPM; federated route uses variable limits from OpenBao headers
 - **`http-logger`** (410, Built-in, `log`) : Send req/resp metadata to Vector
 - **`proxy-buffering`** (300, Built-in, `filter`) : Disable buffering for SSE
 - **`prometheus`** (N/A, Built-in, `log`) : Export metrics at `:9100`
@@ -238,7 +242,7 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 ### Key Files
 
 - `conf/config.yaml`: APISIX standalone mode: plugin list, shared dicts, env vars, Prometheus port
-- `conf/apisix.yaml`: Two routes: `/opencode/*` + `/opencode_federated/*`, 8 plugins each
+- `conf/apisix.yaml`: Two routes: `/opencode/*` (8 plugins) + `/opencode_federated/*` (9 plugins)
 - `conf/openbao.hcl`: OpenBao production config (file-storage backend)
 - `conf/prometheus.yml`: Prometheus scrape config (APISIX `:9100`)
 - `conf/grafana/`: Grafana datasources + dashboards (provisioned on start)

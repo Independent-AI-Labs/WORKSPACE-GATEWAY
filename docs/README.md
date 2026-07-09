@@ -11,7 +11,7 @@
 |----------|-------|
 | [`PROPOSAL-LLM-GATEWAY-v3.md`](PROPOSAL-LLM-GATEWAY-v3.md) | Umbrella architecture: APISIX pivot rationale, plugin mapping, billing-grade contract, ClickHouse schema. Supersedes v2.0 (Kong, archived). |
 | [`PLUGIN-FOUNDATION.md`](PLUGIN-FOUNDATION.md) | APISIX custom Lua plugin development foundation: file layout, manifest, schema, phase mapping, context/state, cosockets, custom Docker image, error discipline. |
-| [`BUILTIN-PLUGINS.md`](BUILTIN-PLUGINS.md) | Configuration guide for APISIX built-in plugins: `openid-connect`, `ldap-auth`, `ai-proxy`, `ai-proxy-multi`, `ai-rate-limiting`, `http-logger`, `prometheus`, `proxy-buffering`, `proxy-rewrite`. Zero custom code. |
+| [`BUILTIN-PLUGINS.md`](BUILTIN-PLUGINS.md) | Configuration guide for APISIX built-in plugins: `openid-connect`, `ldap-auth`, `ai-proxy`, `ai-proxy-multi`, `limit-count`, `http-logger`, `prometheus`, `proxy-buffering`, `proxy-rewrite`. Zero custom code. |
 | [`PLUGIN-REDACT-LUA.md`](PLUGIN-REDACT-LUA.md) | Custom Lua plugin (v1): PII redaction via `ngx.re` PCRE + file-based dictionary. PII Map in `ctx`. `body_filter` re-hydration with sliding window. Zero sidecars. |
 | [`PLUGIN-REDACT-ENGINE.md`](PLUGIN-REDACT-ENGINE.md) | Optional NER sidecar (v2): Rust binary, ONNX BERT-tiny, `POST /ner`. Off-thread via `ngx.timer.at`. Best-effort enrichment. |
 | [`PLUGIN-SEMANTIC-CACHE.md`](PLUGIN-SEMANTIC-CACHE.md) | Custom Lua plugin (v2): Redis VSS semantic cache via `lua-resty-redis` cosocket. Embedding via Rust sidecar (torch/llama.cpp). Canonical JSON storage + SSE synthesis on HIT. |

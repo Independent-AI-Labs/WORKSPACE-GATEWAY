@@ -80,8 +80,11 @@ assert_eq "custom_lua_shared_dict has gateway-cache" "true" "$HAS_GATEWAY_CACHE"
 GATEWAY_CACHE_SIZE=$(echo "$JSON_DATA" | jq -r '.nginx_config.http.custom_lua_shared_dict["gateway-cache"]')
 assert_eq "gateway-cache shared dict size is 2m" "2m" "$GATEWAY_CACHE_SIZE"
 
-PLUGINS_RATE=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "ai-rate-limiting")] | length')
-assert_eq "ai-rate-limiting in plugins list" "1" "$PLUGINS_RATE"
+HAS_QUOTA_DICT=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("quota_counters")')
+assert_eq "custom_lua_shared_dict has quota_counters" "true" "$HAS_QUOTA_DICT"
+
+PLUGINS_RATE=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "limit-count")] | length')
+assert_eq "limit-count in plugins list" "1" "$PLUGINS_RATE"
 
 PLUGINS_PROM=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "prometheus")] | length')
 assert_eq "prometheus in plugins list" "1" "$PLUGINS_PROM"

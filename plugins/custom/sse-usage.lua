@@ -245,6 +245,25 @@ function plugin.log(conf, ctx)
     if not ok then
         core.log.error("sse-usage: failed to create timer: ", err)
     end
+
+    --- Per-key budget counter increment (Tier 3)
+    if ctx.quota_bucket_key then
+        local qd = ngx.shared.quota_counters
+        if qd then
+            local increment
+            if ctx.quota_type == "cost" then
+                increment = math.ceil((tonumber(final_cost) or 0) * 100)
+            else
+                increment = tonumber(tt) or 0
+            end
+            if increment > 0 then
+                local new_val = qd:incr(ctx.quota_bucket_key, increment)
+                qd:set(ctx.quota_bucket_key, new_val or increment, ctx.quota_window * 2 or 172800)
+            end
+        else
+            core.log.error("sse-usage: quota_counters shared dict not configured")
+        end
+    end
 end
 
 return plugin

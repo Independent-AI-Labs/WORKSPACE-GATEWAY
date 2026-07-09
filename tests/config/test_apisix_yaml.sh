@@ -77,8 +77,8 @@ assert_eq "relay-opencode: gateway-auth plugin removed" "false" "$OC_HAS_GATEWAY
 OC_HAS_SSE_USAGE=$(echo "$OC_ROUTE" | jq '.plugins | has("sse-usage")')
 assert_eq "relay-opencode: sse-usage plugin present" "true" "$OC_HAS_SSE_USAGE"
 
-OC_HAS_AI_RATE=$(echo "$OC_ROUTE" | jq '.plugins | has("ai-rate-limiting")')
-assert_eq "relay-opencode: ai-rate-limiting plugin present" "true" "$OC_HAS_AI_RATE"
+OC_HAS_LIMIT_COUNT=$(echo "$OC_ROUTE" | jq '.plugins | has("limit-count")')
+assert_eq "relay-opencode: limit-count plugin present" "true" "$OC_HAS_LIMIT_COUNT"
 
 OC_HAS_PROMETHEUS=$(echo "$OC_ROUTE" | jq '.plugins | has("prometheus")')
 assert_eq "relay-opencode: prometheus plugin present" "true" "$OC_HAS_PROMETHEUS"
@@ -134,8 +134,8 @@ assert_eq "relay-opencode-federated: gateway-auth plugin removed" "false" "$FED_
 FED_HAS_SSE_USAGE=$(echo "$FED_ROUTE" | jq '.plugins | has("sse-usage")')
 assert_eq "relay-opencode-federated: sse-usage plugin present" "true" "$FED_HAS_SSE_USAGE"
 
-FED_HAS_AI_RATE=$(echo "$FED_ROUTE" | jq '.plugins | has("ai-rate-limiting")')
-assert_eq "relay-opencode-federated: ai-rate-limiting plugin present" "true" "$FED_HAS_AI_RATE"
+FED_HAS_LIMIT_COUNT=$(echo "$FED_ROUTE" | jq '.plugins | has("limit-count")')
+assert_eq "relay-opencode-federated: limit-count plugin present" "true" "$FED_HAS_LIMIT_COUNT"
 
 FED_HAS_PROMETHEUS=$(echo "$FED_ROUTE" | jq '.plugins | has("prometheus")')
 assert_eq "relay-opencode-federated: prometheus plugin present" "true" "$FED_HAS_PROMETHEUS"

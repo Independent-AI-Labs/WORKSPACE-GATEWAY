@@ -206,52 +206,59 @@ or use the Lua glue plugin.
 
 ---
 
-## 5. Rate Limiting: `ai-rate-limiting`
+## 5. Rate Limiting: `limit-count` (Request RPM)
 
-Replaces: Custom rate-limiting logic.
+### 5.1 Overview
 
-Per-consumer, per-model, per-instance token-based rate limiting with
-configurable token strategies.
+Uses APISIX built-in `limit-count` plugin (fixed window algorithm) enforced
+on both routes. Scoped by `X-Key-Hash` header (set by `key-meta` plugin) so
+each unique client key gets its own independent counter. `ai-rate-limiting`
+is NOT used: it requires `ai-proxy`/`ai-proxy-multi` to populate token
+usage context, which our route chain does not include.
 
-### 5.1 Config
+### 5.2 Passthrough route (`/opencode/*`)
+
+Same static limit for all passthrough keys (no OpenBao resolution):
 
 ```yaml
-plugins:
-  ai-rate-limiting:
-    consumer_name: "$consumer"         # per-consumer limits
-    instances:
-      - name: "per-tenant-openai"
-        provider: openai
-        model: "gpt-4o"
-        limit: 1000000                 # tokens per window
-        window_size: 86400             # 24h window
-        token_strategy: "total-tokens" # total | prompt | completion | cost
-    rules:
-      - match:
-          model: "gpt-4o"
-          provider: "openai"
-        limit:
-          prompt_tokens: 500000
-          completion_tokens: 500000
-          total_tokens: 1000000
-        window: 86400
-      - match:
-          model: "gpt-4o-mini"
-        limit:
-          total_tokens: 5000000
-        window: 86400
-    rejected_code: 429
-    rejected_msg: "Rate limit exceeded for this model"
+limit-count:
+  count: 100
+  time_window: 60
+  rejected_code: 429
+  key_type: var
+  key: http_x_key_hash
+  policy: local
 ```
 
-### 5.2 Notes
+### 5.3 Federated route (`/opencode_federated/*`)
 
-- `consumer_name` uses the authenticated consumer from `openid-connect` or
-  `ldap-auth` plugin context.
-- Token strategy options: `total-tokens`, `prompt-tokens`, `completion-tokens`,
-  `cost` (dollar-based limits).
-- **Bug #12896** (per-consumer rate limiting not working) fixed in PR #12900
-  (Jan 2026). Pin APISIX >= 3.16.0; we use 3.17.0.
+Per-key variable limits read from OpenBao by `key-resolver` and injected as
+headers `X-Gateway-Rate-Limit-RPM` / `X-Gateway-Rate-Limit-Window`:
+
+```yaml
+limit-count:
+  rules:
+    - count: "$http_x_gateway_rate_limit_rpm"
+      time_window: "$http_x_gateway_rate_limit_window"
+      key: "$http_x_key_hash"
+  rejected_code: 429
+  policy: local
+```
+
+### 5.4 Per-key token/cost budget (Tier 3: custom Lua, not a built-in plugin)
+
+In addition to RPM, `key-resolver` reads `token_budget`, `cost_budget`,
+`budget_window`, and `budget_type` from the key's OpenBao record. At access
+phase it checks a `ngx.shared.quota_counters` dict against the budget;
+if spent >= budget the request is rejected with 429. The `sse-usage` plugin
+increments the counter at log phase with the tokens or cost (in cents)
+consumed in the response.
+
+Budget fields are stored per-key in OpenBao:
+- `token_budget`: token limit per window (0 = unlimited)
+- `cost_budget`: cost limit in cents per window (0 = unlimited)
+- `budget_window`: time window in seconds (default 86400)
+- `budget_type`: `"tokens"` or `"cost"` (default `"tokens"`)
 
 ---
 
@@ -345,7 +352,7 @@ the LLM chat route:
 ```
 openid-connect (2599) → ldap-auth (2599) → semantic-cache (2550, v2)
 → redact (2500, v1) → ai-proxy-multi (2402) → ai-proxy (2402)
-→ ai-rate-limiting (2300) → proxy-buffering (2800, nginx directive)
+→ limit-count (2002) → proxy-buffering (2800, nginx directive)
 → proxy-rewrite (2996) → http-logger (410) → prometheus (500)
 ```
 
@@ -371,8 +378,8 @@ routes:
         on_error: closed
       ai-proxy-multi:
         # ... (§4.1 config)
-      ai-rate-limiting:
-        # ... (§5.1 config)
+      limit-count:
+        # ... (§5 config)
       proxy-rewrite:
         headers:
           remove: ["X-Tenant-ID", "X-User-ID", "X-Routing-Tier"]
@@ -395,7 +402,7 @@ Before production deployment, verify:
 - [ ] `ldap-auth` binds successfully against AD DC with TLS
 - [ ] `ai-proxy-multi` fails over on 429 (inject 429 from mock provider)
 - [ ] `ai-proxy` `stream_options.include_usage` is enforced (or Lua glue plugin works)
-- [ ] `ai-rate-limiting` blocks requests when token budget exceeded (returns 429)
+- [ ] `limit-count` blocks requests when RPM exceeded (returns 429)
 - [ ] `proxy-buffering` disabled → SSE chunks arrive at client incrementally (not buffered)
 - [ ] `proxy-rewrite` strips all context headers from upstream request
 - [ ] `http-logger` sends log payloads to Vector → ClickHouse

@@ -11,11 +11,13 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/opencode/(.*)", "/zen/go/$1"]
       key-meta: {}
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
+      limit-count:
+        count: 100
         time_window: 60
         rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
       prometheus:
         prefer_name: true
       http-logger:
@@ -53,11 +55,13 @@ routes:
         key_prefix: "secret/data/gateway/keys/"
         cache_ttl: 5
         virtual_key_prefix: "vgw-"
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
+      limit-count:
+        count: 100
         time_window: 60
         rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
       prometheus:
         prefer_name: true
       http-logger:

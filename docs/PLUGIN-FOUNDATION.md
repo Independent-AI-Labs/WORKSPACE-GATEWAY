@@ -340,7 +340,7 @@ APISIX runs plugins in `priority` order (higher first). Recommended priorities:
 | `redact` | 2500 | After auth, before ai-proxy |
 | `ai-proxy-multi` | ~2402 | Built-in; routes to provider |
 | `ai-proxy` | ~2402 | Built-in; format translation |
-| `ai-rate-limiting` | ~2300 | Built-in; rate limit after routing decision |
+| `limit-count` | 2002 | Built-in; fixed-window rate limiting, per-key via var key |
 | `proxy-buffering` | ~2800 | Built-in; sets nginx directive (high priority) |
 | `http-logger` | ~410 | Built-in; log phase |
 | `prometheus` | ~500 | Built-in; metrics |

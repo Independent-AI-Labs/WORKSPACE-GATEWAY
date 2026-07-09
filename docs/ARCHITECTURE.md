@@ -9,7 +9,7 @@
 
 WORKSPACE-GATEWAY is a multi-tenant LLM gateway built on **Apache APISIX
 3.17.0** (standalone YAML mode, Apache 2.0). The gateway provides three
-custom Lua plugins, five APISIX built-in plugins, OpenBao-backed virtual
+custom Lua plugins, six APISIX built-in plugins, OpenBao-backed virtual
 key management, PII redaction with re-hydration, billing-grade token
 accounting in ClickHouse, and Prometheus metrics. It ships with a bundled
 demo provider configuration pointing at **OpenCode Go**
@@ -104,7 +104,7 @@ sequenceDiagram
     participant A as APISIX
     participant KR as key-resolver<br/>(priority 2555)
     participant RD as redact<br/>(priority 2500)
-    participant RL as ai-rate-limiting<br/>(priority 990)
+    participant RL as limit-count<br/>(priority 2002)
     participant SU as sse-usage<br/>(priority 2400)
     participant HL as http-logger<br/>(priority 410)
     participant PB as proxy-buffering<br/>(priority 300)
@@ -140,7 +140,7 @@ sequenceDiagram
     RD->>A: set_body_data(redacted_body)
     RD->>A: set_header X-Redact-Active: 1
 
-    RL->>RL: Check rate limit for model
+    RL->>RL: Check request count per-key
 
     Note over A,Z: Phase: rewrite (proxy-rewrite)
     PRW->>PRW: Rewrite path<br/>/opencode_federated/v1/... -> /zen/go/v1/...
@@ -184,7 +184,7 @@ graph LR
     subgraph "access phase"
         KR["key-resolver<br/>priority: 2555<br/>Resolve virtual key or pass-through"]
         RD["redact<br/>priority: 2500<br/>PII anonymization"]
-        RL["ai-rate-limiting<br/>priority: 990<br/>Per-model rate limit"]
+        RL["limit-count<br/>priority: 2002<br/>Per-key request rate limit"]
     end
 
     subgraph "header_filter phase"
@@ -219,7 +219,7 @@ graph LR
 |--------|----------|------|--------|---------|
 | `key-resolver` | 2555 | Custom Lua | access | Resolve virtual key via OpenBao or pass-through |
 | `redact` | 2500 | Custom Lua | access, header_filter, body_filter, log | PII redaction and re-hydration |
-| `ai-rate-limiting` | 990 | Built-in | access | Per-model request rate limiting |
+| `limit-count` | 2002 | Built-in | access | Per-key request rate limiting (scoped by `X-Key-Hash`); variable `count`/`time_window` from `X-Gateway-Rate-Limit-*` headers |
 | `sse-usage` | 2400 | Custom Lua | header_filter, body_filter, log | Extract token usage from SSE/JSON responses |
 | `http-logger` | 410 | Built-in | log | Send request/response metadata to Vector |
 | `proxy-buffering` | 300 | Built-in | filter | Disable Nginx buffering for SSE streaming |
@@ -617,17 +617,61 @@ the two tables for cross-validation.
 
 ## 6. Built-in Plugins
 
-### 6.1 ai-rate-limiting
+### 6.1 limit-count (Request RPM)
 
-**Priority**: 990 (APISIX built-in)
-**Config**: `model: "$request_body.model"`, `limit: 1000`,
-`time_window: 60`, `rejected_code: 429`
+**Priority**: 2002 (APISIX built-in)
 
-Rate limits per-model requests. The model is extracted from the request
-body at access time. Limits are per-model, not per-key. In production,
-this would be combined with consumer-level limits.
+Enforces per-key request rate limiting via the `limit-count` plugin (fixed
+window algorithm). The plugin is enabled on both routes, scoped by
+`X-Key-Hash` (set by `key-meta` at priority 2530) to give each unique
+client key its own counter.
 
-### 6.2 http-logger
+**Passthrough route**: static limit, same for all passthrough keys:
+```yaml
+limit-count:
+  count: 100
+  time_window: 60
+  rejected_code: 429
+  key_type: var
+  key: http_x_key_hash
+  policy: local
+```
+
+**Federated route**: per-key variable limits read from OpenBao by
+`key-resolver` and injected as headers:
+```yaml
+limit-count:
+  rules:
+    - count: "$http_x_gateway_rate_limit_rpm"
+      time_window: "$http_x_gateway_rate_limit_window"
+      key: "$http_x_key_hash"
+  rejected_code: 429
+  policy: local
+```
+
+The `X-Gateway-Rate-Limit-RPM` and `X-Gateway-Rate-Limit-Window` headers
+are set by `key-resolver` from the key's OpenBao record (or defaults of
+100/60 for passthrough keys). The `key` is `$http_x_key_hash` on both
+routes so every unique client key is scoped independently.
+
+### 6.2 Budget enforcement (Tier 3: per-key token/cost)
+
+**Purely in custom Lua** (NOT an APISIX built-in). The `key-resolver`
+plugin reads `token_budget`, `cost_budget`, `budget_window`, and
+`budget_type` from the OpenBao key record at access phase and checks a
+`ngx.shared.quota_counters` dict. If the key's cumulative spend equals or
+exceeds its budget, the request is rejected with 429.
+
+The `sse-usage` plugin (log phase) increments the shared dict counter by
+the tokens or cost (converted to cents) consumed in the response. The
+window is aligned to calendar boundaries (floor division), so stale
+entries auto-expire via TTL.
+
+**Race**: concurrent requests may over-spend by the number of in-flight
+requests per key. Acceptable for rate limiting; for hard quota precision
+add Redis-atomic counters.
+
+### 6.3 http-logger
 
 **Priority**: 410 (APISIX built-in)
 **Config**: `uri: "http://vector:8080/ingest"`, `method: POST`,
@@ -642,7 +686,7 @@ used; APISIX default log format includes `request.body`, `response.body`,
 `client_ip`, `upstream_latency`, `route_id`, `start_time`, `consumer`,
 and all request headers.
 
-### 6.3 prometheus
+### 6.4 prometheus
 
 **Priority**: N/A (APISIX built-in, log phase)
 **Config**: `prefer_name: true`
@@ -657,7 +701,7 @@ Metrics include:
 | `apisix_node_info` | gauge | Node info (version, hostname) |
 | `apisix_shared_dict_*` | gauge | Shared dict capacity + used bytes |
 
-### 6.4 proxy-buffering
+### 6.5 proxy-buffering
 
 **Priority**: 300 (APISIX built-in)
 **Config**: `disable: true`
@@ -1039,13 +1083,14 @@ apisix:
 
 plugins:
   - key-resolver
-  - ai-rate-limiting
+  - key-meta
   - proxy-buffering
   - proxy-rewrite
   - http-logger
   - prometheus
   - redact
   - sse-usage
+  - limit-count
 
 plugin_attr:
   prometheus:
@@ -1061,6 +1106,7 @@ nginx_config:
     custom_lua_shared_dict:
       redact_state: 1m
       key_cache: 5m
+      quota_counters: 5m
     proxy_buffering: "on"
 ```
 
@@ -1103,11 +1149,14 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/opencode/(.*)$", "/zen/go/$1"]
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
+      key-meta: {}
+      limit-count:
+        count: 100
         time_window: 60
         rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
       prometheus:
         prefer_name: true
       http-logger:
@@ -1144,11 +1193,13 @@ routes:
         key_prefix: "secret/data/gateway/keys/"
         cache_ttl: 5
         virtual_key_prefix: "vgw-"
-      ai-rate-limiting:
-        model: "$request_body.model"
-        limit: 1000
-        time_window: 60
+      limit-count:
+        rules:
+          - count: "$http_x_gateway_rate_limit_rpm"
+            time_window: "$http_x_gateway_rate_limit_window"
+            key: "$http_x_key_hash"
         rejected_code: 429
+        policy: local
       prometheus:
         prefer_name: true
       http-logger:

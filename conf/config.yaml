@@ -21,6 +21,7 @@ plugins:
   - prometheus
   - redact
   - sse-usage
+  - limit-count
 plugin_attr:
   prometheus:
     export_addr:
@@ -58,4 +59,5 @@ nginx_config:
       redact_state: 1m
       key_cache: 5m
       gateway-cache: 2m
+      quota_counters: 5m
     proxy_buffering: "on"

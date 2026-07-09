@@ -310,7 +310,7 @@ YAML, and `grep` for text-based assertions.
 | 9 | `proxy-rewrite` present with regex_uri that strips prefix |
 | 10 | `proxy-rewrite` regex_uri replacement is `/zen/go/` |
 | 11 | `key-resolver` plugin present |
-| 12 | `ai-rate-limiting` plugin present |
+| 12 | `limit-count` plugin present |
 | 13 | `prometheus` plugin present |
 | 14 | `http-logger` plugin present |
 | 15 | `http-logger` has no `log_format` field |
@@ -971,7 +971,7 @@ when v2 semantic cache or multi-provider routing is implemented).
 |-----|--------------|---------------|
 | `redact.lua` plugin: 0 unit tests | 153 lines of access/header_filter/body_filter/log logic untested | Unit tests for body parsing, stream_mode reject, on_error closed/open, header_filter X-Redact-Active |
 | No streaming + redaction E2E | `body_filter` stream branch unexercised | E2E test with `stream: true` + PII in prompt, verify redaction + restore on SSE chunks |
-| No rate-limit enforcement test | `ai-rate-limiting` 429 never triggered | Send N+1 requests rapidly, verify 429 on the (N+1)th |
+| No rate-limit enforcement test | `limit-count` 429 never triggered | Send N+1 requests rapidly, verify 429 on the (N+1)th |
 | No Prometheus metrics test | `/apisix/prometheus/metrics` never curled | Curl metrics endpoint, verify gateway-specific metrics present |
 | No Vector-to-ClickHouse flow test | No event posted to `/ingest` and verified in DB | Post a test log entry to Vector `/ingest`, query ClickHouse, verify row appears |
 | Reconciler never executed | 7 assertions are all grep/syntax checks | Run `reconciler.sh` against ClickHouse with seed data, verify row-logging and empty-result paths |
@@ -981,7 +981,7 @@ when v2 semantic cache or multi-provider routing is implemented).
 | No ClickHouse log content verification | Row count checked, content never validated | After E2E request, query `request_log` and assert model/status/latency match the request |
 | `token_map` correctness unverified | Token presence asserted, mapping value never checked | Assert `token_map["[EMAIL_1]"] == "john@example.com"` |
 | Counter increments unverified | Never asserts `counters["EMAIL"] == 2` after two emails | Add counter assertions to Lua unit tests |
-| Config test value gaps | Plugin presence checked, config values mostly unchecked | Validate `ai-rate-limiting` limit/window/code, `http-logger` full log_format, `redact` patterns_file path |
+| Config test value gaps | Plugin presence checked, config values mostly unchecked | Validate `limit-count` count/time_window/rejected_code, `http-logger` full log_format, `redact` patterns_file path |
 
 ### 14.4 Documentation Gaps (P1)
 

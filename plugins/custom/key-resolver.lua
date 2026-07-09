@@ -37,6 +37,14 @@ plugin.schema = {
             type = "string",
             default = "vgw-",
         },
+        default_rate_limit_rpm = {
+            type = "integer",
+            default = 100,
+        },
+        default_rate_limit_window = {
+            type = "integer",
+            default = 60,
+        },
     },
 }
 
@@ -141,6 +149,8 @@ function plugin.access(conf, ctx)
         ngx.req.set_header("X-Gateway-Key-Id", "passthrough")
         ngx.req.set_header("X-Gateway-Tenant-Id", "direct")
         ngx.req.set_header("X-Gateway-User-Id", "")
+        ngx.req.set_header("X-Gateway-Rate-Limit-RPM", tostring(conf.default_rate_limit_rpm))
+        ngx.req.set_header("X-Gateway-Rate-Limit-Window", tostring(conf.default_rate_limit_window))
         ctx.consumer = {
             username = "passthrough",
         }
@@ -179,6 +189,43 @@ function plugin.access(conf, ctx)
     ngx.req.set_header("X-Gateway-Key-Id", key_id)
     ngx.req.set_header("X-Gateway-Tenant-Id", tenant_id)
     ngx.req.set_header("X-Gateway-User-Id", user_id)
+
+    --- Per-key RPM limits (Tier 2)
+    local rpm = key_data.rate_limit_rpm or conf.default_rate_limit_rpm
+    local rpm_window = key_data.rate_limit_window or conf.default_rate_limit_window
+    ngx.req.set_header("X-Gateway-Rate-Limit-RPM", tostring(rpm))
+    ngx.req.set_header("X-Gateway-Rate-Limit-Window", tostring(rpm_window))
+
+    --- Per-key token/cost budget enforcement via shared dict (Tier 3)
+    local token_budget = tonumber(key_data.token_budget) or 0
+    local cost_budget = tonumber(key_data.cost_budget) or 0
+    local budget_window = tonumber(key_data.budget_window) or 86400
+    local budget_type = key_data.budget_type or "tokens"
+
+    if token_budget > 0 or cost_budget > 0 then
+        local qd = ngx.shared.quota_counters
+        if qd then
+            local now = ngx.time()
+            local ws = math.floor(now / budget_window) * budget_window
+            local bucket_key = "q:" .. key_id .. ":" .. tostring(ws)
+            local spent = qd:get(bucket_key) or 0
+
+            local budget = cost_budget > 0 and cost_budget or token_budget
+            local actual_type = cost_budget > 0 and "cost" or "tokens"
+
+            ctx.quota_bucket_key = bucket_key
+            ctx.quota_budget = budget
+            ctx.quota_window = budget_window
+            ctx.quota_type = actual_type
+            ctx.quota_spent = spent
+
+            if spent >= budget then
+                return 429, {error = "key-resolver: quota exceeded - " .. actual_type .. " budget depleted for this key"}
+            end
+        else
+            core.log.error("key-resolver: quota_counters shared dict not configured")
+        end
+    end
 
     ctx.consumer = {
         username = key_id,

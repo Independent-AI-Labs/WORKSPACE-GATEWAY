@@ -147,7 +147,7 @@ plugins:
   - ldap-auth
   - ai-proxy
   - ai-proxy-multi
-  - ai-rate-limiting
+  - limit-count
   - proxy-buffering
   - proxy-rewrite
   - http-logger
@@ -231,15 +231,13 @@ routes:
         max_stream_duration_ms: 120000
 
       # Phase 4: Rate Limiting (built-in)
-      ai-rate-limiting:
-        instances:
-          - name: "per-tenant-openai"
-            provider: openai
-            model: "gpt-4o"
-            limit: 1000000
-            window_size: 86400
-            token_strategy: "total-tokens"
+      limit-count:
+        count: 100
+        time_window: 60
         rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
 
       # Phase 5: Strip context headers before egress (built-in)
       proxy-rewrite:
