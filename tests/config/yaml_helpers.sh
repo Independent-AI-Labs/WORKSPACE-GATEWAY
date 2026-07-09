@@ -11,6 +11,20 @@
 #     ...
 #   fi
 
+# version_ge v1 v2 - returns 0 (true) if semver v1 >= v2, else 1.
+# Uses awk to avoid bash array pitfalls under set -u.
+version_ge() {
+    awk -v a="$1" -v b="$2" 'BEGIN{
+        n=split(a,va,"."); m=split(b,vb,".");
+        for(i=1;i<=(n>m?n:m);i++){
+            x=va[i]+0; y=vb[i]+0;
+            if(x>y) exit 0;
+            if(x<y) exit 1;
+        }
+        exit 0
+    }'
+}
+
 # Converts a YAML file to compact JSON on stdout.
 # Exit 0 on success, non-zero on parse failure.
 yaml_to_json() {

@@ -50,6 +50,9 @@ check "pre-push references ci-check-push" "$?"
 grep -q 'check-dead-code' "$PRE_PUSH" 2>/dev/null
 check "pre-push references check-dead-code" "$?"
 
+grep -q 'check-dependency-versions\|check_dependency_versions' "$PRE_COMMIT" 2>/dev/null
+check "pre-commit references check-dependency-versions" "$?"
+
 if [ -f "$REPO_ROOT/.pre-commit-config.yaml" ]; then
     check ".pre-commit-config.yaml exists" "0"
 else

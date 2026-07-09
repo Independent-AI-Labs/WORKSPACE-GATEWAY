@@ -430,5 +430,5 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 - **ClickHouse 24.8**: Apache 2.0
 - **Vector 0.40**: MPL 2.0
 - **Prometheus v3.11.3**: Apache 2.0
-- **Grafana 12.0.0**: AGPLv3
+- **Grafana 13.0.2**: AGPLv3
 

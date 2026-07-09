@@ -8,7 +8,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DASHBOARD_FILE="$REPO_ROOT/conf/grafana/dashboards/gateway-overview.json"
+DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
+COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
+OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
+LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"
+ALL_DASHBOARDS=("$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE")
 
 CH_URL="http://localhost:8123"
 PROM_URL="http://localhost:9092"
@@ -60,22 +64,38 @@ CH_MODEL_LIST=$(echo "$ALL_MODELS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd
 echo "[INFO] Models: $(echo "$ALL_MODELS" | grep -c '.' || true)"
 echo ""
 
-# ── Query extraction helpers (jq → dashboard JSON) ─────────────────────
+# ── Query extraction helpers (jq → dashboard JSON, all 3 files) ────────
 
-# Get rawSql for a ClickHouse panel by panel id and refId (default "A")
-get_ch_sql() {
-    local pid="$1"; local ref="${2:-A}"
-    jq -r --arg pid "$pid" --arg ref "$ref" \
-        '.panels[] | select(.id == ($pid | tonumber)) | .targets[] | select(.refId == $ref) | .rawSql' \
-        "$DASHBOARD_FILE"
+# Find which dashboard file contains a given panel id (echo path, empty if none)
+find_panel_file() {
+    local pid="$1"
+    for df in "${ALL_DASHBOARDS[@]}"; do
+        local n
+        n=$(jq --arg pid "$pid" '[.panels[] | select(.id == ($pid | tonumber))] | length' "$df" 2>/dev/null || echo 0)
+        [ "$n" -gt 0 ] && { printf '%s' "$df"; return; }
+    done
 }
 
-# Get expr for a Prometheus panel by panel id and refId (default "A")
+# Get rawSql for a ClickHouse panel by panel id and refId (default "A").
+# Searches all 3 dashboard files (panel id is unique across the set).
+get_ch_sql() {
+    local pid="$1"; local ref="${2:-A}"
+    local df; df=$(find_panel_file "$pid")
+    [ -z "$df" ] && { echo "[ERROR] panel $pid not found in any dashboard" >&2; return 1; }
+    jq -r --arg pid "$pid" --arg ref "$ref" \
+        '.panels[] | select(.id == ($pid | tonumber)) | .targets[] | select(.refId == $ref) | .rawSql' \
+        "$df"
+}
+
+# Get expr for a Prometheus panel by panel id and refId (default "A").
+# All Prometheus panels live in ops-health, but search all files for safety.
 get_prom_expr() {
     local pid="$1"; local ref="${2:-A}"
+    local df; df=$(find_panel_file "$pid")
+    [ -z "$df" ] && { echo "[ERROR] panel $pid not found in any dashboard" >&2; return 1; }
     jq -r --arg pid "$pid" --arg ref "$ref" \
         '.panels[] | select(.id == ($pid | tonumber)) | .targets[] | select(.refId == $ref) | .expr' \
-        "$DASHBOARD_FILE"
+        "$df"
 }
 
 # ── Macro substitution ─────────────────────────────────────────────────
@@ -132,12 +152,14 @@ in_range() { awk "BEGIN{exit !($1 >= $2 && $1 <= $3)}" 2>/dev/null; }
 # Q1: All ClickHouse panel queries return HTTP 200
 # =====================================================================
 echo "--- Q1: ClickHouse Query Execution (all panels, all targets) ---"
-# Iterate over every ClickHouse panel + target in the dashboard
+# Iterate over every ClickHouse panel + target across all 3 dashboards
 while IFS=$'\t' read -r pid ref; do
     sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")")
     hc=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" || echo "000")
     [ "$hc" = "200" ] && rp "Q1: p${pid}-${ref} HTTP 200" || rf "Q1: p${pid}-${ref} HTTP $hc"
-done < <(jq -r '.panels[] | select(.datasource.uid == "clickhouse") | .id as $pid | .targets[] | [$pid, .refId] | @tsv' "$DASHBOARD_FILE")
+done < <(for df in "${ALL_DASHBOARDS[@]}"; do
+    jq -r '.panels[] | select(.datasource.uid == "clickhouse") | .id as $pid | .targets[] | [$pid, .refId] | @tsv' "$df"
+done)
 echo ""
 
 # =====================================================================
@@ -227,6 +249,8 @@ echo ""
 
 # =====================================================================
 # Q8: p8 model dist sum ≈ total requests (ASOF JOIN may miss rows; <=2% tolerance)
+# p8 (Model Distribution) is in cost-usage; p1 (Total Requests) is in ops-health.
+# Both are ClickHouse; get_ch_sql auto-detects the correct file per panel id.
 # =====================================================================
 echo "--- Q8: p8 Model Distribution Consistency ---"
 P8D=$(exec_ch 8 A)
@@ -247,7 +271,7 @@ echo ""
 # =====================================================================
 # Q9: p10 avg latency in (0, 300); model names non-empty
 # =====================================================================
-echo "--- Q9: p10 Avg Latency Range (0, 300) ---"
+echo "--- Q9: p10 Avg Response Time Range (0, 300) ---"
 P10R=$(exec_ch 10 A)
 if [ -z "$P10R" ]; then
     rs "Q9: p10 no latency data"
@@ -274,7 +298,9 @@ while IFS=$'\t' read -r pid ref; do
     else
         rp "Q10: p${pid}-${ref}: success ($cnt results)"
     fi
-done < <(jq -r '.panels[] | select(.datasource.uid == "prometheus") | .id as $pid | .targets[] | [$pid, .refId] | @tsv' "$DASHBOARD_FILE")
+done < <(for df in "${ALL_DASHBOARDS[@]}"; do
+    jq -r '.panels[] | select(.datasource.uid == "prometheus") | .id as $pid | .targets[] | [$pid, .refId] | @tsv' "$df"
+done)
 echo ""
 
 # =====================================================================
@@ -383,13 +409,19 @@ echo ""
 
 # =====================================================================
 # Q16: Dashboard macro verification (no $__conditionalAll, no allValue, UNION)
+# Checks all 3 dashboards; templating is identical so api_key/model checks
+# only need one file (use cost-usage as canonical).
 # =====================================================================
 echo "--- Q16: Dashboard Macro Verification ---"
-CA=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$DASHBOARD_FILE" 2>/dev/null || echo "error")
-[ "$CA" = "0" ] && rp "Q16: no \$__conditionalAll" || rf "Q16: $CA conditionalAll macros found"
-AK=$(jq -r '[.templating.list[]|select(.name=="api_key")]|if length==0 then "error" else (.[0].allValue|if .==null or .=="" then "None" else . end) end' "$DASHBOARD_FILE" 2>/dev/null || echo "error")
+CA=0
+for df in "${ALL_DASHBOARDS[@]}"; do
+    c=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$df" 2>/dev/null || echo 0)
+    CA=$((CA + c))
+done
+[ "$CA" = "0" ] && rp "Q16: no \$__conditionalAll (all 3 dashboards)" || rf "Q16: $CA conditionalAll macros found"
+AK=$(jq -r '[.templating.list[]|select(.name=="api_key")]|if length==0 then "error" else (.[0].allValue|if .==null or .=="" then "None" else . end) end' "$COST_USAGE_FILE" 2>/dev/null || echo "error")
 [ "$AK" = "None" ] && rp "Q16: api_key no allValue" || rf "Q16: api_key allValue=$AK"
-MQ=$(jq -r '[.templating.list[]|select(.name=="model")]|if length==0 then "error" else (.[0].query|ascii_upcase|if test("UNION") then "union" else "single" end) end' "$DASHBOARD_FILE" 2>/dev/null || echo "error")
+MQ=$(jq -r '[.templating.list[]|select(.name=="model")]|if length==0 then "error" else (.[0].query|ascii_upcase|if test("UNION") then "union" else "single" end) end' "$COST_USAGE_FILE" 2>/dev/null || echo "error")
 [ "$MQ" = "union" ] && rp "Q16: model variable UNIONs both tables" || rf "Q16: model variable no UNION"
 echo ""
 

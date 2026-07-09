@@ -1,14 +1,15 @@
 {
-  "title": "Gateway Overview",
-  "uid": "gateway-overview",
+  "title": "Gateway Operations & Health",
+  "uid": "gateway-ops-health",
   "tags": [
     "gateway",
     "llm"
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 44,
-  "refresh": "15s",
+  "version": 47,
+  "hideControls": true,
+  "refresh": "5s",
   "time": {
     "from": "now-24h",
     "to": "now"
@@ -51,228 +52,6 @@
   },
   "panels": [
     {
-      "id": 3,
-      "title": "Token Usage by Category",
-      "type": "stat",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 0
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "table",
-          "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(total_tok >= 1000000, concat(toString(round(total_tok / 1000000)), ' Mil'), total_tok >= 1000, concat(toString(round(total_tok / 1000)), ' K'), toString(total_tok)), ' ($', toString(round(total_cost, 2)), ')') as Total FROM totals"
-        },
-        {
-          "refId": "B",
-          "format": "table",
-          "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(input_tok >= 1000000, concat(toString(round(input_tok / 1000000)), ' Mil'), input_tok >= 1000, concat(toString(round(input_tok / 1000)), ' K'), toString(input_tok)), ' ($', toString(round(total_cost * input_tok / nullIf(total_tok, 0), 2)), ')') as Input FROM totals"
-        },
-        {
-          "refId": "C",
-          "format": "table",
-          "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000)), ' Mil'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000)), ' K'), toString(cached_tok)), ' ($', toString(round(total_cost * cached_tok / nullIf(total_tok, 0), 2)), ')') as Cached FROM totals"
-        },
-        {
-          "refId": "D",
-          "format": "table",
-          "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(output_tok >= 1000000, concat(toString(round(output_tok / 1000000)), ' Mil'), output_tok >= 1000, concat(toString(round(output_tok / 1000)), ' K'), toString(output_tok)), ' ($', toString(round(total_cost * output_tok / nullIf(total_tok, 0), 2)), ')') as Output FROM totals"
-        },
-        {
-          "refId": "E",
-          "format": "table",
-          "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT concat(multiIf(reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000)), ' Mil'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000)), ' K'), toString(reasoning_tok)), ' ($', toString(round(total_cost * reasoning_tok / nullIf(total_tok, 0), 2)), ')') as Reasoning FROM totals"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "#247ba0"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Total"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Total"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#70c1b3",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Input"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Input (uncached)"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#247ba0",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Cached"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Cached"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#8cada7",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Output"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Output (non-reasoning)"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#ffe066",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Reasoning"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Reasoning"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#f25f5c",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/Total|Input|Cached|Output|Reasoning/",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      }
-    },
-    {
-      "id": 15,
-      "title": "Cost Over Time by Model ($)",
-      "type": "timeseries",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "targets": [
-        {
-          "queryType": "timeseries",
-          "refId": "A",
-          "format": "timeseries",
-          "timeColumn": "time",
-          "rawSql": "SELECT toStartOfMinute(timestamp) as time, model as label, round(sum(cost), 6) as cost FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time, model ORDER BY time, label"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            },
-            "fillOpacity": 30,
-            "showPoints": "never",
-            "spanNulls": true
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "sum"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
       "id": 1,
       "title": "Total Requests",
       "type": "stat",
@@ -284,7 +63,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 8
+        "y": 0
       },
       "targets": [
         {
@@ -341,7 +120,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 8
+        "y": 0
       },
       "targets": [
         {
@@ -399,7 +178,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 8
+        "y": 0
       },
       "targets": [
         {
@@ -454,7 +233,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 12
+        "y": 4
       },
       "targets": [
         {
@@ -498,7 +277,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 4
       },
       "targets": [
         {
@@ -649,7 +428,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 20
+        "y": 12
       },
       "targets": [
         {
@@ -739,7 +518,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 20
+        "y": 12
       },
       "targets": [
         {
@@ -850,7 +629,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 20
       },
       "targets": [
         {
@@ -940,7 +719,7 @@
     },
     {
       "id": 10,
-      "title": "Avg Latency by Model (seconds)",
+      "title": "Avg Response Time by Model",
       "type": "bargauge",
       "datasource": {
         "uid": "clickhouse",
@@ -950,7 +729,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 20
       },
       "targets": [
         {
@@ -993,9 +772,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 24,
         "x": 0,
-        "y": 36
+        "y": 28
       },
       "targets": [
         {
@@ -1064,50 +843,6 @@
       }
     },
     {
-      "id": 8,
-      "title": "Model Distribution",
-      "type": "bargauge",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 36
-      },
-      "targets": [
-        {
-          "queryType": "table",
-          "refId": "A",
-          "rawSql": "SELECT u.model, count() as requests FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.key_id = u.key_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND u.model != '' AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND u.model IN (${model:singlequote}) GROUP BY u.model ORDER BY requests DESC LIMIT 20",
-          "format": "table"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "req",
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
-        }
-      }
-    },
-    {
       "id": 12,
       "title": "Shared Dict Memory Usage",
       "type": "timeseries",
@@ -1119,7 +854,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 36
       },
       "targets": [
         {

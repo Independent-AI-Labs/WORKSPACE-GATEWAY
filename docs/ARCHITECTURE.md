@@ -8,18 +8,20 @@
 ## 1. System Overview
 
 WORKSPACE-GATEWAY is a multi-tenant LLM gateway built on **Apache APISIX
-3.17.0** (standalone YAML mode, Apache 2.0). It relays all requests to a
-single upstream: **OpenCode Go** (`https://opencode.ai/zen/go/v1`). The
-gateway provides three custom Lua plugins, five APISIX built-in plugins,
-OpenBao-backed virtual key management, PII redaction with re-hydration,
-billing-grade token accounting in ClickHouse, and Prometheus metrics.
-The upstream exposes 20+ Chinese model families (MiniMax, Kimi, GLM,
-DeepSeek, Qwen, MiMo, HY3).
+3.17.0** (standalone YAML mode, Apache 2.0). The gateway provides three
+custom Lua plugins, five APISIX built-in plugins, OpenBao-backed virtual
+key management, PII redaction with re-hydration, billing-grade token
+accounting in ClickHouse, and Prometheus metrics. It ships with a bundled
+demo provider configuration pointing at **OpenCode Go**
+(`https://opencode.ai/zen/go/v1`) which exposes 20+ Chinese model families
+(MiniMax, Kimi, GLM, DeepSeek, Qwen, MiMo, HY3). The upstream is fully
+configurable - replace the `nodes` entry in `conf/apisix.yaml` to point at
+any provider.
 
 **Two routes**: `/opencode/*` (passthrough, no key-resolver) and
 `/opencode_federated/*` (virtual-key, key-resolver for `vgw-*` keys),
 both proxied to `opencode.ai:443` with TLS and proxy-rewrite on both
-routes. OpenCode Go handles all upstream provider routing.
+routes (default configuration).
 
 **Zero sidecars on the hot path.** All request-time logic runs in pure
 Lua inside the APISIX Nginx worker process.
@@ -36,7 +38,7 @@ graph TB
         CLICKHOUSE["ClickHouse 24.8<br/>port 8123 (HTTP)<br/>port 9000 (native)"]
         OPENBAO["OpenBao 2.4.4<br/>port 8200 (internal)<br/>port 8201 (host)"]
         PROM["Prometheus v3.11.3<br/>port 9090<br/>host 9092"]
-        GRAFANA["Grafana 12.0.0<br/>port 3000<br/>host 3030"]
+        GRAFANA["Grafana 13.0.2<br/>port 3000<br/>host 3030"]
     end
 
     subgraph "External Network"
@@ -63,7 +65,7 @@ graph TB
 | Vector | `timberio/vector:0.40.0-debian` | 8080 | 8080 | Telemetry ingest and transform |
 | OpenBao | custom build from `res/docker/Dockerfile.openbao` | 8200 | 8201 | Virtual key storage (production file-storage, persistent volume) |
 | Prometheus | `prom/prometheus:v3.11.3` | 9090 | 9092 | Metrics scraper (APISIX metrics endpoint) |
-| Grafana | `grafana/grafana-oss:12.0.0` | 3000 | 3030 | Metrics dashboards (Prometheus data source) |
+| Grafana | `grafana/grafana-oss:13.0.2` | 3000 | 3030 | Dashboards (Prometheus + ClickHouse data sources, 3 provisioned dashboards) |
 
 ### Networks
 
@@ -1238,9 +1240,13 @@ persistent `openbao-data` named volume (no `-dev` flag, no fixed root
 token; the entrypoint creates a fixed-ID service token matching
 `OPENBAO_TOKEN`). Prometheus (`prom/prometheus:v3.11.3`, host port 9092)
 scrapes the APISIX metrics endpoint and is backed by the
-`prometheus-data` volume. Grafana (`grafana/grafana-oss:12.0.0`, host
-port 3030) queries Prometheus and is backed by the `grafana-data`
-volume.
+`prometheus-data` volume. Grafana (`grafana/grafana-oss:13.0.2`, host
+port 3030) queries Prometheus and ClickHouse and is backed by the
+`grafana-data` volume. Grafana serves 3 provisioned dashboards:
+Gateway Cost & Usage (`gateway-cost-usage`), Gateway Operations &
+Health (`gateway-ops-health`), and Gateway Cost Leaderboard
+(`gateway-cost-leaderboard`), all auto-discovered from
+`conf/grafana/dashboards/*.json` via file provisioning.
 
 ---
 
@@ -1527,111 +1533,6 @@ canonical names, context limits (scaled by `CONTEXT_LIMIT_PCT`,
 capped by `CONTEXT_LIMIT_CEILING`),
 capabilities, and costs, then writes the merged result into the opencode
 config.
-
----
-
-## 14. Repository Layout
-
-```
-WORKSPACE-GATEWAY/
-├── README.md
-├── Makefile
-├── pyproject.toml
-├── ci-profile.yaml
-├── .env                          # gitignored: Zen key, OpenBao token
-├── .gitignore
-├── .pre-commit-config.yaml
-├── quality_exceptions.yaml
-├── docs/
-│   ├── ARCHITECTURE.md           # this file
-│   ├── README.md                 # docs index
-│   ├── TEST-PLAN.md              # 6-stage test plan
-│   ├── PROPOSAL-LLM-GATEWAY-v3.md
-│   ├── PLUGIN-FOUNDATION.md
-│   ├── BUILTIN-PLUGINS.md
-│   ├── PLUGIN-REDACT-LUA.md
-│   ├── PLUGIN-REDACT-ENGINE.md
-│   ├── PLUGIN-SEMANTIC-CACHE.md
-│   ├── DEPLOYMENT.md
-│   └── OPENCODE-INTEGRATION.md
-├── plugins/
-│   └── custom/
-│       ├── key-resolver.lua      # priority 2555: virtual key resolution
-│       ├── redact.lua            # priority 2500: PII redaction adapter
-│       ├── redact_lib.lua        # pure logic: luhn, load, redact, restore
-│       ├── sse-usage.lua         # priority 2400: SSE token extraction adapter
-│       └── sse_usage_lib.lua     # pure logic: buffer, scan, parse, extract
-├── conf/
-│   ├── config.yaml               # APISIX standalone config
-│   ├── apisix.yaml               # route + plugin configs
-│   ├── redact-patterns.json      # PII regex + dictionary
-│   ├── clickhouse-init.sql       # database + table schema
-│   └── vector.toml               # telemetry pipeline
-├── res/
-│   ├── docker/
-│   │   ├── docker-compose.yml
-│   │   └── Dockerfile.apisix
-│   ├── ansible/
-│   │   ├── dev.yml               # lifecycle playbook
-│   │   ├── inventory.yml
-│   │   └── services.yml
-│   └── scripts/
-│       ├── issue-key.sh          # create virtual key
-│       ├── list-keys.sh          # list all keys
-│       ├── revoke-key.sh         # revoke key (preserve record)
-│       ├── reconciler.sh         # daily billing reconciliation
-│       └── sync-opencode-models.sh
-├── tests/
-│   ├── run_all.sh                # master test runner
-│   ├── lua/                      # Stage 1: unit tests
-│   ├── config/                   # Stage 2: config validation
-│   ├── reconciler/               # Stage 3: reconciler static tests
-│   ├── integration/              # Stage 4: black-box HTTP tests
-│   ├── ci/                       # Stage 5: CI hook verification
-│   └── e2e/                      # Stage 6: Zen API tests
-└── config/
-    ├── coverage_thresholds.yaml
-    ├── dead_code.yaml
-    ├── dependency_excludes.yaml
-    ├── duplicate_dependency_excludes.yaml
-    ├── file_length_limits.yaml
-    ├── markdown_docs.yaml
-    └── sensitive_files_exceptions.yaml
-```
-
----
-
-## 15. Commit History
-
-| Commit | Type | Description |
-|--------|------|-------------|
-| `8354cd8` | feat | Initial project structure (Kong + Rust Wasm) |
-| `0b782de` | fix | Switch to traditional mode with PostgreSQL |
-| `3f288f0` | docs | Pivot from Kong to Apache APISIX/Lua |
-| `4e5db94` | docs | opencode integration specification |
-| `2e89582` | feat | Deployment infrastructure + redact Lua plugin |
-| `4c3b6b0` | fix | Single Zen upstream route (replace 5 per-provider routes) |
-| `77e2649` | docs | Test plan with extract-testable-core pattern |
-| `e373c4a` | feat | Full test suite and CI config (stages C-J) |
-| `f4b202c` | fix | APISIX 3.17 + ClickHouse 24.8 fixes |
-| `b3864fe` | fix | Ansible dev lifecycle, fix all integration test failures |
-| `d462d36` | fix | Remove ClickHouse ulimits (OCI permission denied) |
-| `85e9378` | feat | Replace key-auth with gateway-auth (server-side key injection) |
-| `bd6fe75` | feat | sync-models script for opencode provider config |
-
----
-
-## 16. v2 Roadmap (Deferred)
-
-| Feature | Spec Document | Status |
-|---------|---------------|--------|
-| Semantic cache (Redis VSS) | `docs/PLUGIN-SEMANTIC-CACHE.md` | Deferred |
-| NER sidecar (Rust, ONNX BERT-tiny) | `docs/PLUGIN-REDACT-ENGINE.md` | Deferred |
-| Embedding service (Rust, local model) | `docs/PLUGIN-SEMANTIC-CACHE.md` | Deferred |
-| OIDC/LDAP authentication | `docs/BUILTIN-PLUGINS.md` | Deferred |
-| Upstream billing API reconciliation | `docs/DEPLOYMENT.md` | Deferred |
-| opencode plugin for dynamic identity headers | N/A | Deferred |
-| Cost accounting pipeline (billing_ledger) | `docs/DEPLOYMENT.md` | Schema ready, pipeline deferred |
 
 ---
 

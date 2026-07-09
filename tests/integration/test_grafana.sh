@@ -61,10 +61,11 @@ fi
 wait_for_url "http://localhost:3030/api/health" "Grafana on port 3030" 60
 
 GRAFANA_VERSION=$(curl -s http://localhost:3030/api/health 2>/dev/null | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
-if [ "$GRAFANA_VERSION" = "12.0.0" ]; then
-    record_pass "Grafana version is 12.0.0"
+# Min version 12.4.0 (time-range pan/zoom GA). Use awk semver compare.
+if awk -v a="$GRAFANA_VERSION" -v b="12.4.0" 'BEGIN{n=split(a,va,".");m=split(b,vb,".");for(i=1;i<=(n>m?n:m);i++){x=va[i]+0;y=vb[i]+0;if(x>y)exit 0;if(x<y)exit 1}exit 0}' 2>/dev/null; then
+    record_pass "Grafana version >= 12.4.0 (got $GRAFANA_VERSION)"
 else
-    record_fail "Grafana version mismatch: expected 12.0.0, got $GRAFANA_VERSION"
+    record_fail "Grafana version too old: expected >= 12.4.0, got $GRAFANA_VERSION"
 fi
 
 # ── 4. Grafana datasources provisioned ────────────────────────────────
@@ -86,16 +87,22 @@ else
     record_fail "Grafana datasource names: expected ClickHouse,Prometheus, got $DS_NAMES"
 fi
 
-# ── 5. Dashboard provisioned ──────────────────────────────────────────
+# ── 5. Dashboards provisioned (3 split dashboards) ───────────────────
 
 DASHBOARDS=$(curl -s http://admin:admin@localhost:3030/api/search 2>/dev/null || echo "[]")
-HAS_OVERVIEW=$(echo "$DASHBOARDS" | jq '[.[] | select(.title == "Gateway Overview")] | length > 0' 2>/dev/null || echo "false")
 
-if [ "$HAS_OVERVIEW" = "true" ]; then
-    record_pass "Gateway Overview dashboard is provisioned"
-else
-    record_fail "Gateway Overview dashboard not found in Grafana"
-fi
+for dash_info in "Gateway Cost & Usage|gateway-cost-usage" \
+                 "Gateway Operations & Health|gateway-ops-health" \
+                 "Gateway Cost Leaderboard|gateway-cost-leaderboard"; do
+    dash_title="${dash_info%%|*}"
+    dash_uid="${dash_info##*|}"
+    has_dash=$(echo "$DASHBOARDS" | jq --arg t "$dash_title" '[.[] | select(.title == $t)] | length > 0' 2>/dev/null || echo "false")
+    if [ "$has_dash" = "true" ]; then
+        record_pass "$dash_title dashboard is provisioned"
+    else
+        record_fail "$dash_title dashboard not found in Grafana"
+    fi
+done
 
 # ── 6. Container names do not conflict ────────────────────────────────
 

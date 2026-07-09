@@ -880,7 +880,7 @@ normalize, and compute pipeline all worked end-to-end.
 - [x] `plugins/custom/sse-usage.lua` - capture `ctx.sse_req_model` from request body (`core.request.get_body()` in access phase)
 - [x] `conf/config.yaml` - added `gateway-cache: 2m` to `nginx_config.http.custom_lua_shared_dict`
 - [x] `conf/clickhouse-init.sql` - added `cost_source Enum8(...)` to CREATE TABLE + idempotent ALTER; live ALTER applied to running ClickHouse
-- [x] `conf/grafana/dashboards/gateway-overview.json` - p3 has 9 targets/9 overrides (3 new source tiles); p16 panel added (v27)
+- [x] `conf/grafana/dashboards/gateway-cost-usage.json` - p3 has 9 targets/9 overrides (3 new source tiles); p16 panel added (v27). Original `gateway-overview.json` later split into 3 dashboards (cost-usage, ops-health, cost-leaderboard); p3 now lives in cost-usage, p16 was removed during the split.
 - [x] `tests/config/test_cost_calc.sh` - 21 tests (file, module table, 5 functions, 3 constants, 5 compute_cost math, 2 resolve_cost, 2 return-value-count), ALL PASS
 - [x] `tests/config/test_clickhouse_sql.sh` - added `cost_source` column assertions (28 tests, ALL PASS)
 - [x] `tests/config/test_config_yaml.sh` - added `gateway-cache` dict assertion (23 tests, ALL PASS)

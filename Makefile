@@ -137,7 +137,7 @@ _compose-clean:
 	@echo "=== Destroying volumes (data loss!) ==="
 	-$(COMPOSE_CMD) down -v
 
-.PHONY: dev-start dev-stop dev-restart dev-rebuild dev-logs dev-status \
+.PHONY: dev-start dev-stop dev-restart dev-rebuild dev-restart-service dev-restart-grafana dev-logs dev-status \
         dev-clean dev-shell dev-reset-db dev-test dev-sanity
 
 dev-start: _compose-build _compose-up ## Start the gateway stack (build + up + health checks)
@@ -151,6 +151,27 @@ dev-restart: dev-stop dev-start ## Restart the gateway stack (stop + start)
 dev-rebuild: dev-stop _compose-build _compose-up ## Rebuild images and restart
 	@echo "=== Waiting for services to become healthy ==="
 	$(ANSIBLE_DEV) --tags start
+
+dev-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|vector|openbao|prometheus)
+	@test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make dev-restart-service SVC=grafana" >&2; exit 1; }
+	@echo "=== Recreating service: $(SVC) ==="
+	@timeout 120 $(COMPOSE_CMD) up -d --force-recreate --no-deps $(SVC); \
+	rc=$$?; \
+	if [ $$rc -ne 0 ]; then echo "=== ERROR: recreate $(SVC) failed (rc=$$rc) ===" >&2; exit 1; fi
+	@echo "=== $(SVC) recreated ==="
+
+dev-restart-grafana: ## Recreate Grafana (pulls new image from compose), wait healthy, reload provisioning
+	@$(MAKE) dev-restart-service SVC=grafana
+	@echo "=== Waiting for Grafana health ==="
+	@for i in 1 2 3 4 5 6 7 8 9 10 15 20; do \
+		if curl -sf --max-time 2 http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health >/dev/null 2>&1; then \
+			curl -s http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health | python3 -c "import json,sys; print('Grafana version:', json.load(sys.stdin)['version'])"; break; \
+		fi; \
+		echo "  waiting... (attempt $$i/20)"; sleep 2; \
+	done
+	@echo "=== Reloading provisioning (drops orphan dashboards) ==="
+	@curl -s -X POST http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/admin/provisioning/dashboards/reload >/dev/null
+	@echo "=== Grafana upgrade complete ==="
 
 dev-logs: ## Tail container logs (Ctrl-C to stop)
 	$(COMPOSE_CMD) logs -f

@@ -115,7 +115,9 @@ gated behind `RUN_LIVE_API_TESTS=1`; they are skipped by default
 | `conf/vector.toml` | 2 |
 | `conf/openbao.hcl` | 2 |
 | `conf/prometheus.yml` | 2 |
-| `conf/grafana/dashboards/gateway-overview.json` | 2 |
+| `conf/grafana/dashboards/gateway-cost-usage.json` | 2 |
+| `conf/grafana/dashboards/gateway-ops-health.json` | 2 |
+| `conf/grafana/dashboards/gateway-cost-leaderboard.json` | 2 |
 | `res/docker/docker-compose.yml` | 2, 4, 6 |
 | `res/docker/Dockerfile.apisix` | 2, 4 |
 | `res/docker/Dockerfile.openbao` | 2, 4 |
@@ -155,6 +157,9 @@ tests/
     test_clickhouse_sql.sh     Validate clickhouse-init.sql
     test_vector_toml.sh        Validate vector.toml
     test_grafana_provisioning.sh  Validate Grafana datasources/dashboard/prometheus
+    test_dashboard_cost_usage.sh  Validate Cost & Usage dashboard structure
+    test_dashboard_ops_health.sh  Validate Operations & Health dashboard structure
+    test_dashboard_cost_leaderboard.sh  Validate Cost Leaderboard dashboard structure
     test_cost_calc.sh          Validate cost_calc.lua module (21 tests, runs in container luajit)
     run.sh                     Run all config tests
   reconciler/
@@ -434,21 +439,22 @@ once the COPY directives are fixed.
 | 8 | ClickHouse datasource `protocol` is `http` |
 | 9 | ClickHouse datasource uses `llm_gateway` database |
 | 10 | `conf/grafana/dashboards/` provisioning dir exists |
-| 11 | `gateway-overview.json` is valid JSON |
-| 12 | Dashboard has `title` containing `gateway` |
-| 13 | Dashboard has `uid` set |
-| 14 | Dashboard has at least one panel |
-| 15 | Panel references Prometheus datasource |
-| 16 | Panel has a `targets` array with PromQL query |
-| 17 | Panel type is `timeseries` or `stat` |
-| 18 | Dashboard has `time` range picker |
-| 19 | Dashboard has `refresh` interval set |
+| 11 | All 3 dashboard JSONs are valid JSON (cost-usage, ops-health, cost-leaderboard) |
+| 12 | Each dashboard has `title` containing `Gateway` |
+| 13 | Each dashboard has a unique `uid` |
+| 14 | Total panel count across 3 dashboards is 15 (3 + 11 + 1) |
+| 15 | Ops & Health dashboard has Prometheus panels |
+| 16 | Each Prom panel has a `targets` array with PromQL query |
+| 17 | Panel types are valid (stat, timeseries, bargauge, piechart, table) |
+| 18 | Each dashboard has `time` range picker |
+| 19 | Each dashboard has `refresh` interval set |
 | 20 | `conf/prometheus.yml` is valid YAML |
 | 21 | `prometheus.yml` `scrape_interval` configured |
 | 22 | `prometheus.yml` scrape target includes `apisix` |
 | 23 | `prometheus.yml` scrape target includes `prometheus` (self) |
 | 24 | Grafana dashboard provisioning config points to `/etc/grafana/provisioning/dashboards` |
 | 25 | Datasource provisioning config points to `/etc/grafana/provisioning/datasources` |
+| 26 | Templating (api_key + model) is identical across all 3 dashboards |
 
 ### 7.3 Runner
 
@@ -456,7 +462,7 @@ once the COPY directives are fixed.
 tests/config/run.sh
 ```
 
-Runs all 8 config test scripts sequentially. Exits 0 on all pass.
+Runs all 11 config test scripts sequentially. Exits 0 on all pass.
 
 ---
 

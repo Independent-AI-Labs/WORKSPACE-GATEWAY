@@ -74,7 +74,7 @@ services:
       - gateway
 
   prometheus:
-    image: prom/prometheus:v3.11.3
+    image: prom/prometheus:v3.13.0
     container_name: gw-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -90,7 +90,7 @@ services:
       - gateway
 
   grafana:
-    image: grafana/grafana-oss:12.0.0
+    image: grafana/grafana-oss:13.0.2
     container_name: gw-grafana
     environment:
       GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource
@@ -99,7 +99,6 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/gateway-overview.json
     volumes:
       - ../../conf/grafana/provisioning:/etc/grafana/provisioning:ro
       - ../../conf/grafana/dashboards:/var/lib/grafana/dashboards:ro

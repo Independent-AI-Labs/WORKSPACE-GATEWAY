@@ -13,6 +13,7 @@ hooks:
     - check-markdown-docs
     - check-file-length
     - check-required-hooks-present
+    - check-dependency-versions
     - ci-lint
     - ci-type-check
   commit-msg:
@@ -22,3 +23,7 @@ hooks:
     - block-coauthored-history
     - ci-check-push
     - check-dead-code
+
+overrides:
+  - check-dependency-versions:
+    entry: "../CI/.venv/bin/python -m ci.check_dependency_versions res/docker/docker-compose.yml"

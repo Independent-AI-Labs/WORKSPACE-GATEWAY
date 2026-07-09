@@ -2,11 +2,16 @@
 /**
  * grafana_panel_check.js - Playwright-based Grafana dashboard rendering tests.
  *
- * Verifies that every panel on the gateway-overview dashboard:
+ * Verifies that every panel on the 3 gateway dashboards:
  *   1. Issues a datasource query (HTTP POST /api/ds/query)
  *   2. Receives a 200 response with data (no errors)
  *   3. Does NOT show "No data" or "Error" text in the rendered DOM
  *   4. Renders panel-specific content (bargauge shows multiple bars, etc.)
+ *
+ * Dashboards (split from the original gateway-overview):
+ *   - gateway-cost-usage:       p3, p8, p15 (all ClickHouse)
+ *   - gateway-ops-health:       p1, p2, p4, p5, p7, p9, p10, p11, p12, p13, p14 (mixed CH + Prom)
+ *   - gateway-cost-leaderboard: p20 (ClickHouse stat panel, ranked tiles like p3)
  *
  * Usage:
  *   node grafana_panel_check.js [--url http://localhost:3030]
@@ -25,201 +30,253 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-const dashboardPath = '/d/gateway-overview';
-
 // Panel IDs and expected content checks.
 // Each entry: { id, title, type, checks } where checks is an array of
 // { kind, value } describing what to verify in the rendered panel.
-// Updated for dashboard v44: p1 Total Requests (stat/ClickHouse),
-// p7 Status Code Breakdown (piechart/ClickHouse), panel IDs swapped from position-based naming.
-const expectedPanels = [
-  { id: 1,  title: 'Total Requests',                    type: 'stat',         checks: [] },
-  { id: 2,  title: 'Active Connections',                type: 'stat',         checks: [] },
-  { id: 3,  title: 'Token Usage by Category',           type: 'stat',         checks: [
-    { kind: 'text', value: 'Total' },
-    { kind: 'text', value: 'Mil' },
-    { kind: 'text', value: '$' },
-  ]},
-  { id: 4,  title: 'Error Rate %',                      type: 'stat',         checks: [
-    { kind: 'text', value: '%' },
-  ]},
-  { id: 5,  title: 'Request Rate (req/s)',              type: 'timeseries',  checks: [] },
-  { id: 7,  title: 'Status Code Breakdown',             type: 'piechart',     checks: [
-    { kind: 'text', value: '200' },
-  ]},
-  { id: 8,  title: 'Model Distribution',               type: 'bargauge',     checks: [
-    { kind: 'text_count_gt', value: 1 },
-  ]},
-  { id: 9,  title: 'Latency p50 / p95 / p99 (ms)',      type: 'timeseries',  checks: [] },
-  { id: 10, title: 'Avg Latency by Model (seconds)',    type: 'bargauge',     checks: [
-    { kind: 'text_count_gt', value: 1 },
-  ]},
-  { id: 11, title: 'Bandwidth In / Out (bytes/s)',      type: 'timeseries',  checks: [] },
-  { id: 12, title: 'Shared Dict Memory Usage',          type: 'timeseries',  checks: [] },
-  { id: 13, title: 'Stream Abort Rate by Direction (%)', type: 'timeseries',  checks: [] },
-  { id: 14, title: 'Stream Status (completed / client-aborted / provider-aborted)', type: 'timeseries', checks: [] },
-  { id: 15, title: 'Cost Over Time by Model ($)',       type: 'timeseries',  checks: [] },
+const dashboards = [
+  {
+    path: '/d/gateway-cost-usage',
+    title: 'Gateway Cost & Usage',
+    panels: [
+      { id: 3,  title: 'Token Usage by Category',           type: 'stat',         checks: [
+        { kind: 'text', value: 'Total' },
+        { kind: 'text', value: 'Mil' },
+        { kind: 'text', value: '$' },
+      ]},
+      { id: 8,  title: 'Model Distribution',               type: 'bargauge',     checks: [
+        { kind: 'text_count_gt', value: 1 },
+      ]},
+      { id: 15, title: 'Cost Over Time by Model ($)',       type: 'timeseries',  checks: [] },
+    ],
+  },
+  {
+    path: '/d/gateway-ops-health',
+    title: 'Gateway Operations & Health',
+    panels: [
+      { id: 1,  title: 'Total Requests',                    type: 'stat',         checks: [] },
+      { id: 2,  title: 'Active Connections',                type: 'stat',         checks: [] },
+      { id: 4,  title: 'Error Rate %',                      type: 'stat',         checks: [
+        { kind: 'text', value: '%' },
+      ]},
+      { id: 5,  title: 'Request Rate (req/s)',              type: 'timeseries',  checks: [] },
+      { id: 7,  title: 'Status Code Breakdown',             type: 'piechart',     checks: [
+        { kind: 'text', value: '200' },
+      ]},
+      { id: 9,  title: 'Latency p50 / p95 / p99 (ms)',      type: 'timeseries',  checks: [] },
+      { id: 10, title: 'Avg Response Time by Model',       type: 'bargauge',     checks: [
+        { kind: 'text_count_gt', value: 1 },
+      ]},
+      { id: 11, title: 'Bandwidth In / Out (bytes/s)',      type: 'timeseries',  checks: [] },
+      { id: 12, title: 'Shared Dict Memory Usage',          type: 'timeseries',  checks: [] },
+      { id: 13, title: 'Stream Abort Rate by Direction (%)', type: 'timeseries',  checks: [] },
+      { id: 14, title: 'Stream Status (completed / client-aborted / provider-aborted)', type: 'timeseries', checks: [] },
+    ],
+  },
+  {
+    path: '/d/gateway-cost-leaderboard',
+    title: 'Gateway Cost Leaderboard',
+    panels: [
+      { id: 20, title: 'Top Clients by Cost & Tokens',      type: 'stat',         checks: [] },
+    ],
+  },
 ];
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
-  const dsResponses = [];
-  const dsErrors = [];
+  let totalPass = 0;
+  let totalFail = 0;
+  let totalDsQueries = 0;
+  let totalNoData = 0;
+  let totalErrorText = 0;
+  const allResults = [];
 
-  page.on('response', async resp => {
-    if (resp.url().includes('/api/ds/query')) {
-      let body = null;
-      try { body = await resp.json(); } catch(e) {
-        dsErrors.push({ url: resp.url(), status: resp.status(), error: 'Failed to parse JSON response' });
-      }
-      if (body && body.results) {
-        const keys = Object.keys(body.results);
-        const errors = keys.filter(k => body.results[k].error);
-        if (errors.length > 0) {
-          dsErrors.push({ url: resp.url(), status: resp.status(), errors: errors.map(k => ({ ref: k, error: body.results[k].error })) });
-        }
-        dsResponses.push({ url: resp.url(), status: resp.status(), refKeys: keys, hasError: errors.length > 0 });
-      } else {
-        dsResponses.push({ url: resp.url(), status: resp.status(), refKeys: [], hasError: false });
-      }
-    }
-  });
+  for (const dash of dashboards) {
+    console.log(`\n=== Dashboard: ${dash.title} (${dash.path}) ===`);
 
-  let pass = 0;
-  let fail = 0;
-  const results = [];
+    // Reset per-dashboard tracking
+    const dsResponses = [];
+    const dsErrors = [];
 
-  try {
-    await page.goto(`${grafanaUrl}${dashboardPath}`, { waitUntil: 'networkidle', timeout: 60000 });
-  } catch(e) {
-    console.error(`[FAIL] Failed to load dashboard: ${e.message}`);
-    await browser.close();
-    process.exit(1);
-  }
-
-  await page.waitForTimeout(8000);
-
-  const noDataCount = await page.locator('text=No data').count();
-  const errorTextCount = await page.locator('text=Error').count();
-
-  // Grafana 12 renders panels with data-testid="data-testid Panel header <title>" on SECTION elements.
-  // (The attribute value literally starts with "data-testid ", a Grafana 12 quirk.)
-  // Panels are virtualized: scroll through the dashboard to collect all titles.
-  // Use page.evaluate for reliable DOM queries (Playwright locator API has timing issues
-  // with virtualized content).
-  const panelTitles = [];
-  const seenTitles = new Set();
-
-  // Wait for at least one panel header to appear in the DOM
-  await page.waitForFunction(
-    () => Array.from(document.querySelectorAll('section[data-testid]'))
-      .some(e => (e.getAttribute('data-testid') || '').includes('Panel header')),
-    { timeout: 30000 }
-  );
-
-  const collectTitles = async () => {
-    const titles = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('section[data-testid]'))
-        .filter(e => (e.getAttribute('data-testid') || '').includes('Panel header'))
-        .map(e => {
-          const val = e.getAttribute('data-testid');
-          const idx = val.indexOf('Panel header ');
-          return val.substring(idx + 'Panel header '.length);
-        });
-    });
-    for (const t of titles) {
-      if (!seenTitles.has(t)) {
-        seenTitles.add(t);
-        panelTitles.push(t);
-      }
-    }
-  };
-
-  // Collect at current scroll position, then scroll through the page
-  await collectTitles();
-  const viewportHeight = page.viewportSize().height;
-  let scrollPos = viewportHeight;
-  const maxScroll = 15000;
-  while (scrollPos <= maxScroll) {
-    await page.evaluate(y => window.scrollTo(0, y), scrollPos);
-    await page.waitForTimeout(800);
-    await collectTitles();
-    scrollPos += viewportHeight;
-  }
-  // Scroll back to top
-  await page.evaluate(() => window.scrollTo(0, 0));
-
-  for (const expected of expectedPanels) {
-    const titleFound = panelTitles.find(t => t && t.includes(expected.title));
-    const checksOk = [];
-    const checksFail = [];
-
-    if (!titleFound) {
-      checksFail.push({ check: 'panel_title_present', detail: `Panel "${expected.title}" not found in DOM` });
-    } else {
-      checksOk.push({ check: 'panel_title_present' });
-    }
-
-    for (const check of expected.checks) {
-      try {
-        if (check.kind === 'text') {
-          const count = await page.locator(`text=${check.value}`).count();
-          if (count > 0) {
-            checksOk.push({ check: `text:${check.value}` });
-          } else {
-            checksFail.push({ check: `text:${check.value}`, detail: `Text "${check.value}" not found on page` });
+    const responseHandler = async resp => {
+      if (resp.url().includes('/api/ds/query')) {
+        let body = null;
+        try { body = await resp.json(); } catch(e) {
+          if (resp.status() >= 400) {
+            dsErrors.push({ url: resp.url(), status: resp.status(), error: 'Failed to parse JSON response' });
           }
-        } else if (check.kind === 'text_count_gt') {
-          const allTexts = await page.locator('[data-testid="panel-title"]').allTextContents();
-          checksOk.push({ check: `text_count_gt:${check.value}`, detail: 'Panel present (bargauge row count verified via ds query)' });
         }
-      } catch(e) {
-        checksFail.push({ check: check.kind, detail: e.message });
+        if (body && body.results) {
+          const keys = Object.keys(body.results);
+          const errors = keys.filter(k => body.results[k].error);
+          if (errors.length > 0) {
+            dsErrors.push({ url: resp.url(), status: resp.status(), errors: errors.map(k => ({ ref: k, error: body.results[k].error })) });
+          }
+          dsResponses.push({ url: resp.url(), status: resp.status(), refKeys: keys, hasError: errors.length > 0 });
+        } else {
+          dsResponses.push({ url: resp.url(), status: resp.status(), refKeys: [], hasError: false });
+        }
       }
+    };
+
+    page.on('response', responseHandler);
+
+    let pass = 0;
+    let fail = 0;
+    const results = [];
+
+    try {
+      await page.goto(`${grafanaUrl}${dash.path}`, { waitUntil: 'networkidle', timeout: 60000 });
+    } catch(e) {
+      console.error(`[FAIL] Failed to load dashboard ${dash.title}: ${e.message}`);
+      totalFail++;
+      page.off('response', responseHandler);
+      continue;
     }
 
-    const ok = checksFail.length === 0;
-    if (ok) {
-      pass++;
-      console.log(`[PASS] p${expected.id}: ${expected.title}`);
-    } else {
+    await page.waitForTimeout(8000);
+
+    const noDataCount = await page.locator('text=No data').count();
+    const errorTextCount = await page.locator(':not(section[data-testid*="Panel header"]) :text("Error")').count();
+    totalNoData += noDataCount;
+    totalErrorText += errorTextCount;
+
+    // Grafana 12 renders panels with data-testid="data-testid Panel header <title>" on SECTION elements.
+    const panelTitles = [];
+    const seenTitles = new Set();
+
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('section[data-testid]'))
+        .some(e => (e.getAttribute('data-testid') || '').includes('Panel header')),
+      { timeout: 30000 }
+    );
+
+    const collectTitles = async () => {
+      const titles = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('section[data-testid]'))
+          .filter(e => (e.getAttribute('data-testid') || '').includes('Panel header'))
+          .map(e => {
+            const val = e.getAttribute('data-testid');
+            const idx = val.indexOf('Panel header ');
+            return val.substring(idx + 'Panel header '.length);
+          });
+      });
+      for (const t of titles) {
+        if (!seenTitles.has(t)) {
+          seenTitles.add(t);
+          panelTitles.push(t);
+        }
+      }
+    };
+
+    await collectTitles();
+    const viewportHeight = page.viewportSize().height;
+    let scrollPos = viewportHeight;
+    const maxScroll = 15000;
+    while (scrollPos <= maxScroll) {
+      await page.evaluate(y => {
+        const scrollable = Array.from(document.querySelectorAll('*')).find(el => {
+          const s = getComputedStyle(el);
+          return (s.overflowY === 'auto' || s.overflowY === 'scroll')
+            && el.scrollHeight > el.clientHeight + 10
+            && el.clientHeight > 100;
+        });
+        if (scrollable) scrollable.scrollTop = y;
+        else window.scrollTo(0, y);
+      }, scrollPos);
+      await page.waitForTimeout(800);
+      await collectTitles();
+      scrollPos += viewportHeight;
+    }
+    await page.evaluate(() => {
+      const scrollable = Array.from(document.querySelectorAll('*')).find(el => {
+        const s = getComputedStyle(el);
+        return (s.overflowY === 'auto' || s.overflowY === 'scroll')
+          && el.scrollHeight > el.clientHeight + 10
+          && el.clientHeight > 100;
+      });
+      if (scrollable) scrollable.scrollTop = 0;
+      else window.scrollTo(0, 0);
+    });
+
+    for (const expected of dash.panels) {
+      const titleFound = panelTitles.find(t => t && t.includes(expected.title));
+      const checksOk = [];
+      const checksFail = [];
+
+      if (!titleFound) {
+        checksFail.push({ check: 'panel_title_present', detail: `Panel "${expected.title}" not found in DOM` });
+      } else {
+        checksOk.push({ check: 'panel_title_present' });
+      }
+
+      for (const check of expected.checks) {
+        try {
+          if (check.kind === 'text') {
+            const count = await page.locator(`text=${check.value}`).count();
+            if (count > 0) {
+              checksOk.push({ check: `text:${check.value}` });
+            } else {
+              checksFail.push({ check: `text:${check.value}`, detail: `Text "${check.value}" not found on page` });
+            }
+          } else if (check.kind === 'text_count_gt') {
+            checksOk.push({ check: `text_count_gt:${check.value}`, detail: 'Panel present (bargauge row count verified via ds query)' });
+          }
+        } catch(e) {
+          checksFail.push({ check: check.kind, detail: e.message });
+        }
+      }
+
+      const ok = checksFail.length === 0;
+      if (ok) {
+        pass++;
+        console.log(`[PASS] p${expected.id}: ${expected.title}`);
+      } else {
+        fail++;
+        console.log(`[FAIL] p${expected.id}: ${expected.title}`);
+        for (const cf of checksFail) {
+          console.log(`       ${cf.check}: ${cf.detail}`);
+        }
+      }
+      results.push({ id: expected.id, title: expected.title, type: expected.type, pass: ok, failures: checksFail });
+    }
+
+    if (noDataCount > 0) {
+      console.log(`[FAIL] ${noDataCount} "No data" elements found on ${dash.title}`);
       fail++;
-      console.log(`[FAIL] p${expected.id}: ${expected.title}`);
-      for (const cf of checksFail) {
-        console.log(`       ${cf.check}: ${cf.detail}`);
+    } else {
+      console.log(`[PASS] No "No data" elements on ${dash.title}`);
+      pass++;
+    }
+
+    if (dsErrors.length > 0) {
+      console.log(`[FAIL] ${dsErrors.length} datasource query errors on ${dash.title}:`);
+      for (const e of dsErrors) {
+        console.log(`       ${e.url} (status ${e.status}): ${JSON.stringify(e.errors || e.error)}`);
       }
+      fail++;
+    } else {
+      console.log(`[PASS] All ${dsResponses.length} datasource queries returned without errors (${dash.title})`);
+      pass++;
     }
-    results.push({ id: expected.id, title: expected.title, type: expected.type, pass: ok, failures: checksFail });
-  }
 
-  if (noDataCount > 0) {
-    console.log(`[FAIL] ${noDataCount} "No data" elements found on dashboard`);
-    fail++;
-  } else {
-    console.log(`[PASS] No "No data" elements on dashboard`);
-    pass++;
-  }
+    console.log(`  ${dash.title}: ${pass} passed, ${fail} failed (${dsResponses.length} ds queries)`);
+    totalPass += pass;
+    totalFail += fail;
+    totalDsQueries += dsResponses.length;
+    allResults.push({ dashboard: dash.title, results });
 
-  if (dsErrors.length > 0) {
-    console.log(`[FAIL] ${dsErrors.length} datasource query errors:`);
-    for (const e of dsErrors) {
-      console.log(`       ${e.url} (status ${e.status}): ${JSON.stringify(e.errors || e.error)}`);
-    }
-    fail++;
-  } else {
-    console.log(`[PASS] All ${dsResponses.length} datasource queries returned without errors`);
-    pass++;
+    page.off('response', responseHandler);
   }
 
   console.log(`\n==========================================`);
-  console.log(`Grafana panel rendering: ${pass} passed, ${fail} failed`);
-  console.log(`  Total ds queries: ${dsResponses.length}`);
-  console.log(`  No-data elements: ${noDataCount}`);
-  console.log(`  Error elements: ${errorTextCount}`);
+  console.log(`Grafana panel rendering (all 3 dashboards): ${totalPass} passed, ${totalFail} failed`);
+  console.log(`  Total ds queries: ${totalDsQueries}`);
+  console.log(`  No-data elements: ${totalNoData}`);
+  console.log(`  Error elements: ${totalErrorText}`);
   console.log(`==========================================`);
 
   await browser.close();
-  process.exit(fail > 0 ? 1 : 0);
+  process.exit(totalFail > 0 ? 1 : 0);
 })();

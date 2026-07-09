@@ -69,7 +69,16 @@ PROMETHEUS_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.prometheus.image')
 assert_eq "Prometheus image is prom/prometheus:v3.11.3" "prom/prometheus:v3.11.3" "$PROMETHEUS_IMAGE"
 
 GRAFANA_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.grafana.image')
-assert_eq "Grafana image is grafana/grafana-oss:12.0.0" "grafana/grafana-oss:12.0.0" "$GRAFANA_IMAGE"
+GRAFANA_TAG=$(echo "$GRAFANA_IMAGE" | sed 's|.*:||')
+GRAFANA_REPO=$(echo "$GRAFANA_IMAGE" | sed 's|:.*||')
+assert_eq "Grafana image repo is grafana/grafana-oss" "grafana/grafana-oss" "$GRAFANA_REPO"
+if version_ge "$GRAFANA_TAG" "13.0.2"; then
+    echo "[PASS] Grafana image tag >= 13.0.2 (got $GRAFANA_TAG)"
+    pass=$((pass + 1))
+else
+    echo "[FAIL] Grafana image tag >= 13.0.2 (got $GRAFANA_TAG)"
+    fail=$((fail + 1))
+fi
 
 OPENBAO_PORT=$(echo "$JSON_DATA" | jq '[.services.openbao.ports[] | select(. == "8201:8200")] | length')
 assert_eq "OpenBao exposes port 8201:8200" "1" "$OPENBAO_PORT"

@@ -421,14 +421,22 @@ table = "request_log"
 skip_unknown_fields = true
 ```
 
-### 5.3 Grafana: Gateway Overview Dashboard
+### 5.3 Grafana: Gateway Dashboards
 
-The Gateway Overview dashboard is available at:
-`http://localhost:3030/d/gateway-overview/gateway-overview`
+The gateway observability stack provides 3 separate Grafana dashboards:
 
-It has 12 panels mixing Prometheus and ClickHouse datasources, covering
-request rate, latency percentiles, error rate, per-model usage, token
-consumption, active consumers, and queue depth.
+- **Gateway Cost & Usage**: `http://localhost:3030/d/gateway-cost-usage/gateway-cost-usage`
+  - token usage by category (p3), model distribution (p8), cost over time (p15).
+  All ClickHouse datasource.
+- **Gateway Operations & Health**: `http://localhost:3030/d/gateway-ops-health/gateway-ops-health`
+  - total requests, active connections, error rate, request rate, status code
+  breakdown, latency percentiles, avg latency by model, bandwidth, shared dict
+  memory, stream abort rate, stream status. Mixed Prometheus + ClickHouse.
+- **Gateway Cost Leaderboard**: `http://localhost:3030/d/gateway-cost-leaderboard/gateway-cost-leaderboard`
+  - top clients ranked by cost and token consumption (p20, ClickHouse table).
+
+All 3 dashboards share identical `templating` (api_key + model variables) and
+the same time range / refresh settings.
 
 ### 5.4 Rate Limiting (ai-rate-limiting)
 
@@ -461,7 +469,8 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
    `@ai-sdk/openai-compatible`.
 3. **Telemetry pipeline**: APISIX `http-logger` to Vector to ClickHouse.
    Prometheus scrapes APISIX metrics endpoint at `apisix:9100`. Grafana
-   Gateway Overview dashboard at `localhost:3030`.
+   dashboards at `localhost:3030` (Cost & Usage, Operations & Health,
+   Cost Leaderboard).
 4. **PII redaction**: custom Lua `redact` plugin on both OpenCode Go
    routes.
 5. **Rate limiting**: `ai-rate-limiting` plugin, per-model RPM.

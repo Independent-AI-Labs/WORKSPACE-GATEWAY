@@ -1,0 +1,151 @@
+{
+  "title": "Gateway Cost Leaderboard",
+  "uid": "gateway-cost-leaderboard",
+  "tags": [
+    "gateway",
+    "llm"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 28,
+  "hideControls": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "api_key",
+        "label": "Client API Key",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "multi": true,
+        "includeAll": true,
+        "allValue": null,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 20,
+      "title": "Top Clients by Cost & Tokens",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH ranked AS (\n    SELECT\n        coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS client,\n        toInt64(sum(total_tokens)) AS total_tok,\n        sum(cost) AS total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n    GROUP BY client\n    ORDER BY total_cost DESC\n    LIMIT 100\n)\nSELECT\n    concat(toString(row_number() OVER ()), '. ', client) AS name_str,\n    concat(\n        multiIf(\n            total_tok >= 1000000, concat(toString(round(total_tok / 1000000)), ' Mil'),\n            total_tok >= 1000, concat(toString(round(total_tok / 1000)), ' K'),\n            toString(total_tok)\n        ),\n        ' ($', toString(round(total_cost, 2)), ')'\n    ) AS value_str,\n    multiIf(\n        row_number() OVER () = 1, '#C9A44C',\n        row_number() OVER () = 2, '#A8A9AD',\n        row_number() OVER () = 3, '#B07A3C',\n        '#FFFFFF'\n    ) AS Color\nFROM ranked\nLIMIT 10"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value_str",
+                "handlerKey": "field.value"
+              },
+              {
+                "fieldName": "Color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FFFFFF"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "textSize": {
+          "title": {
+            "mode": "fixed",
+            "fixed": 28
+          },
+          "value": {
+            "mode": "fixed",
+            "fixed": 28
+          }
+        },
+        "maxPerRow": 5
+      }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [],
+  "liveNow": false,
+  "panelsOrder": []
+}

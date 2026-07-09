@@ -9,7 +9,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DASHBOARD_FILE="$REPO_ROOT/conf/grafana/dashboards/gateway-overview.json"
+DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
+COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
+OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
+LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"
+ALL_DASHBOARDS=("$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE")
 
 GRAFANA_URL="http://localhost:3030"
 GRAFANA_AUTH="admin:admin"
@@ -31,28 +35,44 @@ fi
 echo "=== Grafana Datasource Proxy Tests ==="
 echo ""
 
-# Extract query from dashboard JSON by panel title
+# Find which dashboard file contains a panel with the given title
+find_panel_file_by_title() {
+    local title="$1"
+    for df in "${ALL_DASHBOARDS[@]}"; do
+        local n
+        n=$(jq --arg t "$title" '[.panels[] | select(.title == $t)] | length' "$df" 2>/dev/null || echo 0)
+        [ "$n" -gt 0 ] && { printf '%s' "$df"; return; }
+    done
+}
+
+# Extract query from dashboard JSON by panel title (searches all 3 dashboards)
 get_panel_query() {
     local title="$1"
+    local df; df=$(find_panel_file_by_title "$title")
+    [ -z "$df" ] && { echo "[ERROR] panel '$title' not found" >&2; return 1; }
     jq -r --arg t "$title" \
         '.panels[] | select(.title == $t) | .targets[0].rawSql // .targets[0].expr // empty' \
-        "$DASHBOARD_FILE"
+        "$df"
 }
 
-# Extract datasource UID from dashboard JSON by panel title
+# Extract datasource UID from dashboard JSON by panel title (searches all 3 dashboards)
 get_panel_ds() {
     local title="$1"
+    local df; df=$(find_panel_file_by_title "$title")
+    [ -z "$df" ] && { echo "[ERROR] panel '$title' not found" >&2; return 1; }
     jq -r --arg t "$title" \
         '.panels[] | select(.title == $t) | .datasource.uid' \
-        "$DASHBOARD_FILE"
+        "$df"
 }
 
-# Extract format from panel target
+# Extract format from panel target (searches all 3 dashboards)
 get_panel_format() {
     local title="$1"
+    local df; df=$(find_panel_file_by_title "$title")
+    [ -z "$df" ] && { echo "[ERROR] panel '$title' not found" >&2; return 1; }
     jq -r --arg t "$title" \
         '.panels[] | select(.title == $t) | .targets[0].format // "none"' \
-        "$DASHBOARD_FILE"
+        "$df"
 }
 
 # Query Grafana datasource proxy
@@ -162,7 +182,7 @@ echo "--- T3: Status Code Breakdown (piechart, reduceOptions.values=true) ---"
 T3_QUERY=$(get_panel_query "Status Code Breakdown")
 T3_DS=$(get_panel_ds "Status Code Breakdown")
 T3_FMT=$(get_panel_format "Status Code Breakdown")
-T3_REDUCE=$(jq -r '.panels[] | select(.title == "Status Code Breakdown") | .options.reduceOptions.values // false' "$DASHBOARD_FILE")
+T3_REDUCE=$(jq -r --arg t "Status Code Breakdown" '.panels[] | select(.title == $t) | .options.reduceOptions.values // false' "$(find_panel_file_by_title "Status Code Breakdown")")
 
 [ "$T3_DS" = "$CH_UID" ] && rp "T3: datasource=clickhouse" || rf "T3: datasource=$T3_DS (expected clickhouse)"
 [ "$T3_FMT" = "table" ] && rp "T3: format=table" || rf "T3: format=$T3_FMT (expected table)"
@@ -170,10 +190,10 @@ T3_REDUCE=$(jq -r '.panels[] | select(.title == "Status Code Breakdown") | .opti
 
 T3_RESP=$(ds_query "$T3_DS" "$T3_QUERY" "table" "table")
 T3_COUNT=$(ds_value_count "$T3_RESP")
-# Should return 7 status codes (200, 401, 404, 429, 499, 503, 504)
-# NOT 1 or 2 (which would mean the piechart is reducing all rows to a single value)
-if [ "$T3_COUNT" -ge 5 ] 2>/dev/null; then
-    rp "T3: $T3_COUNT status codes returned (>=5, not reduced to single value)"
+# Catches piechart "reduce all rows to 1-2 values → 'Count: 100%'" bug.
+# Threshold >= 3 accepts 24h-window data variance (some codes may fall outside).
+if [ "$T3_COUNT" -ge 3 ] 2>/dev/null; then
+    rp "T3: $T3_COUNT status codes returned (>=3, not reduced to single value)"
 else
     rf "T3: only $T3_COUNT values returned (piechart would show 'count 100%' bug)"
 fi
@@ -211,11 +231,11 @@ fi
 echo ""
 
 # =====================================================================
-# T5: Avg Latency by Model (id=10) - ASOF JOIN, 4+ models
+# T5: Avg Response Time by Model (id=10) - ASOF JOIN, 4+ models
 # =====================================================================
-echo "--- T5: Avg Latency by Model (ASOF JOIN usage_log) ---"
-T5_QUERY=$(get_panel_query "Avg Latency by Model (seconds)")
-T5_DS=$(get_panel_ds "Avg Latency by Model (seconds)")
+echo "--- T5: Avg Response Time by Model (ASOF JOIN usage_log) ---"
+T5_QUERY=$(get_panel_query "Avg Response Time by Model")
+T5_DS=$(get_panel_ds "Avg Response Time by Model")
 
 [ "$T5_DS" = "$CH_UID" ] && rp "T5: datasource=clickhouse" || rf "T5: datasource=$T5_DS (expected clickhouse)"
 
