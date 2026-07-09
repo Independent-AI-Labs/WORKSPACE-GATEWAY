@@ -66,7 +66,7 @@ OPENBAO_VOLUME=$(echo "$JSON_DATA" | jq '[.volumes | has("openbao-data")] | any'
 assert_eq "OpenBao has persistent volume" "true" "$OPENBAO_VOLUME"
 
 PROMETHEUS_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.prometheus.image')
-PROMETHEUS_TAG=$(echo "$PROMETHEUS_IMAGE" | sed 's|.*:||')
+PROMETHEUS_TAG=$(echo "$PROMETHEUS_IMAGE" | sed 's|.*:||' | sed 's/^v//')
 PROMETHEUS_REPO=$(echo "$PROMETHEUS_IMAGE" | sed 's|:.*||')
 assert_eq "Prometheus image repo is prom/prometheus" "prom/prometheus" "$PROMETHEUS_REPO"
 if version_ge "$PROMETHEUS_TAG" "3.13.0"; then
