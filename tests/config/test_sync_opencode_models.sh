@@ -6,8 +6,9 @@ set -euo pipefail
 # Asserts: both files exist, the shell script fetches llamafile models, the
 # Lua script emits THREE provider entries (private, own, llamafile), the
 # llamafile provider uses /llamafile/v1, has no apiKey, and the model entry
-# has name=MiniCPM5 with context 128000. Also runs the Lua script inside the
-# APISIX container with temp files to verify the output JSON structurally.
+# has name=MiniCPM5 with context 131072 (trained limit) and tool_call=true.
+# Also runs the Lua script inside the APISIX container with temp files to
+# verify the output JSON structurally.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -63,7 +64,8 @@ assert_contains "lua: writes workspace-gw-llamafile provider" "$LUA_BODY" '"work
 assert_contains "lua: llamafile provider name is Workspace GW (llamafile)" "$LUA_BODY" 'Workspace GW (llamafile)'
 assert_contains "lua: llamafile provider uses /llamafile/v1 route" "$LUA_BODY" '/llamafile/v1'
 assert_contains "lua: llamafile model name is MiniCPM5" "$LUA_BODY" '"MiniCPM5"'
-assert_contains "lua: llamafile context limit is 128000" "$LUA_BODY" '128000'
+assert_contains "lua: llamafile context limit is 131072" "$LUA_BODY" '131072'
+assert_contains "lua: llamafile tool_call is true" "$LUA_BODY" 'tool_call = true'
 
 # The llamafile provider must NOT have an apiKey field (no-auth route).
 # Check that the llamafile provider block does not contain apiKey.
@@ -107,7 +109,7 @@ else
         /sync-tmp/gateway_models.json \
         /sync-tmp/models_dev.json \
         /sync-tmp/llamafile_models.json \
-        "100" \
+        "80" \
         "128000" \
         2>/dev/null) || {
         echo "[FAIL] functional: Lua script exited non-zero"
@@ -136,7 +138,13 @@ else
         assert_eq "functional: llamafile model display name is MiniCPM5" "MiniCPM5" "$LF_MODEL_NAME"
 
         LF_MODEL_CTX=$(printf '%s' "$LUA_JSON_FUNC" | jq -r '.provider["workspace-gw-llamafile"].models["/zip/MiniCPM5-1B-Q8_0.gguf"].limit.context' 2>/dev/null || echo "")
-        assert_eq "functional: llamafile model context is 128000" "128000" "$LF_MODEL_CTX"
+        assert_eq "functional: llamafile model context is 104857 (80% of 131072)" "104857" "$LF_MODEL_CTX"
+
+        LF_MODEL_OUT=$(printf '%s' "$LUA_JSON_FUNC" | jq -r '.provider["workspace-gw-llamafile"].models["/zip/MiniCPM5-1B-Q8_0.gguf"].limit.output' 2>/dev/null || echo "")
+        assert_eq "functional: llamafile model output is 104857" "104857" "$LF_MODEL_OUT"
+
+        LF_MODEL_TC=$(printf '%s' "$LUA_JSON_FUNC" | jq -r '.provider["workspace-gw-llamafile"].models["/zip/MiniCPM5-1B-Q8_0.gguf"].tool_call' 2>/dev/null || echo "")
+        assert_eq "functional: llamafile model tool_call is true" "true" "$LF_MODEL_TC"
 
         # Verify the other two providers still exist
         PRIV_NAME=$(printf '%s' "$LUA_JSON_FUNC" | jq -r '.provider["workspace-gw-private"].name' 2>/dev/null || echo "")

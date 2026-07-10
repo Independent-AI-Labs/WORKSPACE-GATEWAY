@@ -150,11 +150,12 @@ end
 --route does NOT rewrite the body model field (only the URI prefix).
 --The display name is a friendly label for the UI.
 local function build_llamafile_model_entry(model_id)
+  local ctx = scale_limit(131072)
   return {
     name = "MiniCPM5",
     limit = {
-      context = scale_limit(128000) or 128000,
-      output = 4096,
+      context = ctx,
+      output = ctx,
     },
     cost = {
       input = 0,
@@ -162,7 +163,7 @@ local function build_llamafile_model_entry(model_id)
     },
     temperature = true,
     reasoning = false,
-    tool_call = false,
+    tool_call = true,
     attachment = false,
   }
 end
