@@ -3,12 +3,12 @@
 --Runs inside apache/apisix:3.17.0-debian container (has cjson.safe + lyaml).
 --
 --Args: config_path gateway_url gateway_api_key gateway_models_file
---models_dev_file context_limit_pct context_limit_ceiling
+--models_dev_file llamafile_models_file context_limit_pct context_limit_ceiling
 --
 --Reads the opencode JSONC config, strips comments + trailing commas,
---merges enriched model data from models.dev, writes two provider entries
---(workspace-gw-private, workspace-gw-own), outputs compact JSON to stdout.
---Status messages go to stderr.
+--merges enriched model data from models.dev, writes THREE provider entries
+--(workspace-gw-private, workspace-gw-own, workspace-gw-llamafile), outputs
+--compact JSON to stdout. Status messages go to stderr.
 
 local cjson = require("cjson.safe")
 
@@ -17,12 +17,14 @@ local gateway_url = arg[2]
 local gateway_api_key = arg[3]
 local gateway_models_file = arg[4]
 local models_dev_file = arg[5]
-local context_limit_pct = tonumber(arg[6])
-local context_limit_ceiling = tonumber(arg[7])
+local llamafile_models_file = arg[6]
+local context_limit_pct = tonumber(arg[7])
+local context_limit_ceiling = tonumber(arg[8])
 
 if not config_path or not gateway_url then
   io.stderr:write("Usage: config_path gateway_url gateway_api_key "
-    .. "gateway_models_file models_dev_file pct ceiling\n")
+    .. "gateway_models_file models_dev_file llamafile_models_file "
+    .. "pct ceiling\n")
   os.exit(1)
 end
 
@@ -142,6 +144,29 @@ local function build_model_entry(model_id, md)
   return entry
 end
 
+--Build a model entry for the local llamafile upstream.
+--The raw model id (e.g. /zip/MiniCPM5-1B-Q8_0.gguf) is used as the key
+--because opencode sends it in the request body and the relay-llamafile
+--route does NOT rewrite the body model field (only the URI prefix).
+--The display name is a friendly label for the UI.
+local function build_llamafile_model_entry(model_id)
+  return {
+    name = "MiniCPM5",
+    limit = {
+      context = scale_limit(128000) or 128000,
+      output = 4096,
+    },
+    cost = {
+      input = 0,
+      output = 0,
+    },
+    temperature = true,
+    reasoning = false,
+    tool_call = false,
+    attachment = false,
+  }
+end
+
 --Load gateway model IDs
 local f = io.open(gateway_models_file, "r")
 if not f then
@@ -181,6 +206,25 @@ for _, mid in ipairs(sorted_ids) do
     bare_count = bare_count + 1
   end
   models_dict[mid] = build_model_entry(mid, md)
+end
+
+--Load llamafile model IDs
+local lf_f = io.open(llamafile_models_file, "r")
+if not lf_f then
+  io.stderr:write("ERROR: cannot read " .. llamafile_models_file .. "\n")
+  os.exit(1)
+end
+local llamafile_model_ids = cjson.decode(lf_f:read("*a"))
+lf_f:close()
+
+if not llamafile_model_ids or #llamafile_model_ids == 0 then
+  io.stderr:write("ERROR: llamafile model list is empty\n")
+  os.exit(1)
+end
+
+local llamafile_models_dict = {}
+for _, mid in ipairs(llamafile_model_ids) do
+  llamafile_models_dict[mid] = build_llamafile_model_entry(mid)
 end
 
 --Load existing opencode config (JSONC)
@@ -242,6 +286,21 @@ config.provider["workspace-gw-own"] = {
   models = own_models,
 }
 
+--Write workspace-gw-llamafile (no-auth local LLM, no apiKey)
+config.provider["workspace-gw-llamafile"] = {
+  name = "Workspace GW (llamafile)",
+  api = gateway_url .. "/llamafile/v1",
+  npm = "@ai-sdk/openai-compatible",
+  options = {
+    baseURL = gateway_url .. "/llamafile/v1",
+    headers = {
+      ["X-Tenant-ID"] = "default",
+      ["X-User-ID"] = "agent",
+    },
+  },
+  models = llamafile_models_dict,
+}
+
 --Output compact JSON to stdout (shell wrapper pipes through jq for pretty-print)
 local json_out = cjson.encode(config)
 if not json_out then
@@ -253,10 +312,12 @@ io.write("\n")
 
 --Status to stderr
 local total = #sorted_ids
+local lf_total = #llamafile_model_ids
 io.stderr:write("  Wrote " .. total .. " models to " .. config_path .. "\n")
 io.stderr:write("    Enriched from models.dev: " .. enriched_count .. "\n")
 io.stderr:write("    Bare (no models.dev match): " .. bare_count .. "\n")
 io.stderr:write("    Context limit: " .. context_limit_pct
   .. "% (ceiling: " .. context_limit_ceiling .. ")\n")
-io.stderr:write("    workspace-gw-private: " .. total .. " models (virtual key)\n")
-io.stderr:write("    workspace-gw-own:     " .. total .. " models (own key)\n")
+io.stderr:write("    workspace-gw-private:   " .. total .. " models (virtual key)\n")
+io.stderr:write("    workspace-gw-own:       " .. total .. " models (own key)\n")
+io.stderr:write("    workspace-gw-llamafile:  " .. lf_total .. " models (no-auth local)\n")

@@ -280,8 +280,9 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 
 ## opencode Integration
 
-The gateway registers as `workspace-gw-private` (virtual key) and
-`workspace-gw-own` (own key) custom providers in opencode.
+The gateway registers as `workspace-gw-private` (virtual key),
+`workspace-gw-own` (own key), and `workspace-gw-llamafile` (local LLM)
+custom providers in opencode.
 
 ```bash
 # Sync all models from gateway into opencode config
@@ -291,15 +292,19 @@ make sync-models
 This fetches `/opencode_federated/v1/models` from the gateway using the
 virtual gateway key, enriches each model with canonical metadata (name,
 context limit, capabilities, cost, modalities) from [models.dev](https://models.dev),
-and writes TWO provider entries into `~/.config/opencode/opencode.jsonc`:
+and also fetches `/llamafile/v1/models` for the local llamafile upstream.
+It writes THREE provider entries into `~/.config/opencode/opencode.jsonc`:
 
 - `workspace-gw-private`: virtual-key mode (apiKey = `vgw-gateway-key`)
 - `workspace-gw-own`: own-key passthrough (no apiKey, client provides key)
+- `workspace-gw-llamafile`: no-auth local LLM (VM-hosted llamafile, no apiKey)
 
-Both providers receive the full enriched model catalog so opencode does not
-drop them (opencode deletes providers with zero models). The script runs
-automatically on `make dev-start` and `make dev-restart` via the Ansible
-playbook.
+The first two providers receive the full enriched model catalog so opencode
+does not drop them (opencode deletes providers with zero models). The
+llamafile provider receives the model list from `/llamafile/v1/models`
+(or a default model id if the llamafile server is not running). The script
+runs automatically on `make dev-start` and `make dev-restart` via the
+Ansible playbook.
 
 Context limits are scaled by `CONTEXT_LIMIT_PCT` (default 80) from `.env`,
 so e.g. `CONTEXT_LIMIT_PCT=80` reduces a 200000-token context to 160000.

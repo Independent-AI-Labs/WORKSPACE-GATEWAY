@@ -20,7 +20,8 @@
 >   discovered in the 2026-07-09 audit. New items needed:
 >   R-41 (correlation ID test), R-42 (event_id integration test),
 >   R-43 (CJK token test), R-44 (Vector backpressure test),
->   R-45 (sse-usage retry test).
+>   R-45 (sse-usage retry test),
+>   R-46 (sync-opencode-models emits llamafile provider).
 
 **Project:** WORKSPACE-GATEWAY
 **Platform:** Apache APISIX 3.17.0, OpenCode Go

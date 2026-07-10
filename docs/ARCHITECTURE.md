@@ -1805,11 +1805,22 @@ is untouched.
 ### 13.2 Model Discovery
 
 The `sync-opencode-models.sh` script fetches the model list from the
-gateway's `/zen_federated/v1/models` endpoint using the virtual gateway
+gateway's `/opencode_federated/v1/models` endpoint using the virtual gateway
 key, then enriches each model with canonical metadata (name, context
 limit, capabilities, cost, modalities) from
 [models.dev](https://models.dev/api.json), and writes all enriched model
-entries into the opencode config under TWO providers:
+entries into the opencode config under THREE providers:
+
+1. `workspace-gw-private` (virtual key, `/opencode_federated/v1`)
+2. `workspace-gw-own` (own key passthrough, `/opencode/v1`)
+3. `workspace-gw-llamafile` (no-auth local LLM, `/llamafile/v1`)
+
+The llamafile provider fetches its model list from `/llamafile/v1/models`
+on the gateway's `relay-llamafile` route. If the VM llamafile server is not
+running at sync time a default model id (`/zip/MiniCPM5-1B-Q8_0.gguf`) is
+used so the provider entry is always created. The model display name is
+`MiniCPM5` and the context limit is 128000 (scaled by the same
+`CONTEXT_LIMIT_PCT` / `CONTEXT_LIMIT_CEILING` logic as upstream models).
 
 ```bash
 make sync-models
@@ -1851,13 +1862,14 @@ opencode config. A future opencode plugin could dynamically set
 ### 13.4 Dynamic Model List (models.dev)
 
 opencode's built-in `opencode` provider auto-refreshes models from
-`models.dev` every 5 minutes. The `zen` and `zen_federated` custom
-providers do not auto-refresh; the `sync-models` script fetches
-models.dev at stack start time, enriches the gateway model list with
-canonical names, context limits (scaled by `CONTEXT_LIMIT_PCT`,
-capped by `CONTEXT_LIMIT_CEILING`),
-capabilities, and costs, then writes the merged result into the opencode
-config.
+`models.dev` every 5 minutes. The custom gateway providers
+(`workspace-gw-private`, `workspace-gw-own`, `workspace-gw-llamafile`)
+do not auto-refresh; the `sync-models` script fetches models.dev at
+stack start time, enriches the gateway model list with canonical names,
+context limits (scaled by `CONTEXT_LIMIT_PCT`, capped by
+`CONTEXT_LIMIT_CEILING`), capabilities, and costs, then writes the
+merged result into the opencode config. The llamafile provider uses
+hardcoded defaults (no models.dev entry for MiniCPM5).
 
 ---
 
