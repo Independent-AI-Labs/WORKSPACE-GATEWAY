@@ -42,7 +42,7 @@ fi
 assert_eq "Valid YAML (parseable)" "ok" "ok"
 
 ROUTE_COUNT=$(echo "$JSON_DATA" | jq '.routes | length')
-assert_eq "Exactly 2 routes" "2" "$ROUTE_COUNT"
+assert_eq "Exactly 3 routes" "3" "$ROUTE_COUNT"
 
 # --- relay-opencode (passthrough, no key-resolver) ---
 OC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode")][0]')
@@ -85,6 +85,17 @@ assert_eq "relay-opencode: prometheus plugin present" "true" "$OC_HAS_PROMETHEUS
 
 OC_HAS_HTTP_LOGGER=$(echo "$OC_ROUTE" | jq '.plugins | has("http-logger")')
 assert_eq "relay-opencode: http-logger plugin present" "true" "$OC_HAS_HTTP_LOGGER"
+
+OC_HAS_REQUEST_ID_PLUGIN=$(echo "$OC_ROUTE" | jq '.plugins | has("request-id")')
+assert_eq "relay-opencode: has request-id plugin" "true" "$OC_HAS_REQUEST_ID_PLUGIN"
+
+OC_RID_HEADER=$(echo "$OC_ROUTE" | jq -r '.plugins["request-id"].header_name')
+assert_eq "relay-opencode: request-id header_name is X-Request-Id" "X-Request-Id" "$OC_RID_HEADER"
+
+# log_format must NOT be set: a custom log_format replaces APISIX's full
+# default log fields, dropping client_ip/start_time/route_id/request/response.
+OC_HAS_LOG_FORMAT=$(echo "$OC_ROUTE" | jq '.plugins["http-logger"] | has("log_format")')
+assert_eq "relay-opencode: http-logger does NOT set log_format (uses full default)" "false" "$OC_HAS_LOG_FORMAT"
 
 OC_HAS_PROXY_BUFFERING=$(echo "$OC_ROUTE" | jq '.plugins | has("proxy-buffering")')
 assert_eq "relay-opencode: proxy-buffering plugin present" "true" "$OC_HAS_PROXY_BUFFERING"
@@ -153,8 +164,16 @@ assert_eq "relay-opencode-federated: redact plugin present" "true" "$FED_HAS_RED
 HTTP_LOGGER_URI=$(echo "$FED_ROUTE" | jq -r '.plugins["http-logger"].uri')
 assert_eq "http-logger uri is http://vector:8080/ingest" "http://vector:8080/ingest" "$HTTP_LOGGER_URI"
 
+HAS_REQUEST_ID_PLUGIN=$(echo "$FED_ROUTE" | jq '.plugins | has("request-id")')
+assert_eq "federated: has request-id plugin" "true" "$HAS_REQUEST_ID_PLUGIN"
+
+FED_RID_HEADER=$(echo "$FED_ROUTE" | jq -r '.plugins["request-id"].header_name')
+assert_eq "federated: request-id header_name is X-Request-Id" "X-Request-Id" "$FED_RID_HEADER"
+
+# log_format must NOT be set: a custom log_format replaces APISIX's full
+# default log fields, dropping client_ip/start_time/route_id/request/response.
 HAS_LOG_FORMAT=$(echo "$FED_ROUTE" | jq '.plugins["http-logger"] | has("log_format")')
-assert_eq "http-logger has no log_format (uses default format)" "false" "$HAS_LOG_FORMAT"
+assert_eq "federated: http-logger does NOT set log_format (uses full default)" "false" "$HAS_LOG_FORMAT"
 
 INCLUDE_REQ_BODY=$(echo "$FED_ROUTE" | jq -r '.plugins["http-logger"].include_req_body')
 assert_eq "http-logger include_req_body is true" "true" "$INCLUDE_REQ_BODY"
@@ -163,10 +182,10 @@ INCLUDE_RESP_BODY=$(echo "$FED_ROUTE" | jq -r '.plugins["http-logger"].include_r
 assert_eq "http-logger include_resp_body is true" "true" "$INCLUDE_RESP_BODY"
 
 MAX_REQ_BODY=$(echo "$FED_ROUTE" | jq -r '.plugins["http-logger"].max_req_body_bytes')
-assert_eq "http-logger max_req_body_bytes is 8192" "8192" "$MAX_REQ_BODY"
+assert_eq "http-logger max_req_body_bytes is 262144" "262144" "$MAX_REQ_BODY"
 
 MAX_RESP_BODY=$(echo "$FED_ROUTE" | jq -r '.plugins["http-logger"].max_resp_body_bytes')
-assert_eq "http-logger max_resp_body_bytes is 8192" "8192" "$MAX_RESP_BODY"
+assert_eq "http-logger max_resp_body_bytes is 1048576" "1048576" "$MAX_RESP_BODY"
 
 # --- global assertions ---
 HAS_KEY_AUTH=$(echo "$JSON_DATA" | jq '[.routes[] | .plugins | has("key-auth")] | any')
@@ -174,5 +193,71 @@ assert_eq "key-auth plugin removed from all routes" "false" "$HAS_KEY_AUTH"
 
 NO_CONSUMERS=$(echo "$JSON_DATA" | jq 'has("consumers")')
 assert_eq "No consumers section" "false" "$NO_CONSUMERS"
+
+# --- relay-llamafile (local no-auth LLM upstream, env-driven) ---
+LF_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-llamafile")][0]')
+
+LF_ID=$(echo "$LF_ROUTE" | jq -r '.id')
+assert_eq "relay-llamafile: id is relay-llamafile" "relay-llamafile" "$LF_ID"
+
+LF_URI=$(echo "$LF_ROUTE" | jq -r '.uri')
+assert_eq "relay-llamafile: uri is /llamafile/*" "/llamafile/*" "$LF_URI"
+
+LF_SCHEME=$(echo "$LF_ROUTE" | jq -r '.upstream.scheme')
+assert_eq "relay-llamafile: upstream scheme is http" "http" "$LF_SCHEME"
+
+LF_NODE=$(echo "$LF_ROUTE" | jq -r '.upstream.nodes | keys[0]')
+assert_eq "relay-llamafile: upstream node is host.docker.internal:8765" "host.docker.internal:8765" "$LF_NODE"
+
+LF_HAS_KEY_RESOLVER=$(echo "$LF_ROUTE" | jq '.plugins | has("key-resolver")')
+assert_eq "relay-llamafile: no key-resolver (no-auth local)" "false" "$LF_HAS_KEY_RESOLVER"
+
+LF_HAS_KEY_META=$(echo "$LF_ROUTE" | jq '.plugins | has("key-meta")')
+assert_eq "relay-llamafile: no key-meta (no-auth local)" "false" "$LF_HAS_KEY_META"
+
+LF_HAS_GATEWAY_AUTH=$(echo "$LF_ROUTE" | jq '.plugins | has("gateway-auth")')
+assert_eq "relay-llamafile: gateway-auth plugin removed" "false" "$LF_HAS_GATEWAY_AUTH"
+
+LF_HAS_PROXY_REWRITE=$(echo "$LF_ROUTE" | jq '.plugins | has("proxy-rewrite")')
+assert_eq "relay-llamafile: proxy-rewrite plugin present" "true" "$LF_HAS_PROXY_REWRITE"
+
+LF_REWRITE_REGEX=$(echo "$LF_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-llamafile: proxy-rewrite regex strips /llamafile/" "^/llamafile/(.*)" "$LF_REWRITE_REGEX"
+
+LF_REWRITE_REPLACE=$(echo "$LF_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-llamafile: proxy-rewrite replacement strips prefix" '/$1' "$LF_REWRITE_REPLACE"
+
+LF_HAS_SSE_USAGE=$(echo "$LF_ROUTE" | jq '.plugins | has("sse-usage")')
+assert_eq "relay-llamafile: sse-usage plugin present" "true" "$LF_HAS_SSE_USAGE"
+
+LF_SSE_CH_ADDR=$(echo "$LF_ROUTE" | jq -r '.plugins["sse-usage"].clickhouse_addr')
+assert_eq "relay-llamafile: sse-usage clickhouse_addr is http://clickhouse:8123" "http://clickhouse:8123" "$LF_SSE_CH_ADDR"
+
+LF_HAS_PROMETHEUS=$(echo "$LF_ROUTE" | jq '.plugins | has("prometheus")')
+assert_eq "relay-llamafile: prometheus plugin present" "true" "$LF_HAS_PROMETHEUS"
+
+LF_HAS_HTTP_LOGGER=$(echo "$LF_ROUTE" | jq '.plugins | has("http-logger")')
+assert_eq "relay-llamafile: http-logger plugin present" "true" "$LF_HAS_HTTP_LOGGER"
+
+LF_HAS_REQUEST_ID=$(echo "$LF_ROUTE" | jq '.plugins | has("request-id")')
+assert_eq "relay-llamafile: request-id plugin present" "true" "$LF_HAS_REQUEST_ID"
+
+LF_RID_HEADER=$(echo "$LF_ROUTE" | jq -r '.plugins["request-id"].header_name')
+assert_eq "relay-llamafile: request-id header_name is X-Request-Id" "X-Request-Id" "$LF_RID_HEADER"
+
+LF_HAS_PROXY_BUFFERING=$(echo "$LF_ROUTE" | jq '.plugins | has("proxy-buffering")')
+assert_eq "relay-llamafile: proxy-buffering plugin present" "true" "$LF_HAS_PROXY_BUFFERING"
+
+LF_HAS_REDACT=$(echo "$LF_ROUTE" | jq '.plugins | has("redact")')
+assert_eq "relay-llamafile: redact plugin present" "true" "$LF_HAS_REDACT"
+
+LF_HAS_LOG_FORMAT=$(echo "$LF_ROUTE" | jq '.plugins["http-logger"] | has("log_format")')
+assert_eq "relay-llamafile: http-logger does NOT set log_format (uses full default)" "false" "$LF_HAS_LOG_FORMAT"
+
+LF_HAS_LIMIT_COUNT=$(echo "$LF_ROUTE" | jq '.plugins | has("limit-count")')
+assert_eq "relay-llamafile: limit-count plugin present" "true" "$LF_HAS_LIMIT_COUNT"
+
+LF_LIMIT_KEY=$(echo "$LF_ROUTE" | jq -r '.plugins["limit-count"].key')
+assert_eq "relay-llamafile: limit-count key is remote_addr (per IP)" "remote_addr" "$LF_LIMIT_KEY"
 
 summary

@@ -129,6 +129,18 @@ check("resolve_cost returns exactly 2 values", c == nil and a ~= nil and b ~= ni
 local a2, b2, c2 = M.resolve_cost(0, {pt=1, ct=1, cached=0, reasoning=0}, "x")
 check("resolve_cost miss returns exactly 2 values", c2 == nil and a2 ~= nil and b2 ~= nil)
 
+-- Test 13: normalize_key exposes module function
+check("Exposes normalize_key", type(M.normalize_key) == "function")
+
+-- Test 14: normalize_key strips provider prefix and lowercases
+check("normalize_key frank/GLM-5.2 -> glm-5.2", M.normalize_key("frank/GLM-5.2") == "glm-5.2")
+check("normalize_key vercel/zai/glm-5.2 -> glm-5.2", M.normalize_key("vercel/zai/glm-5.2") == "glm-5.2")
+check("normalize_key GLM-5.2 -> glm-5.2", M.normalize_key("GLM-5.2") == "glm-5.2")
+check("normalize_key glm-5.2 -> glm-5.2", M.normalize_key("glm-5.2") == "glm-5.2")
+check("normalize_key empty -> empty", M.normalize_key("") == "")
+check("normalize_key nil -> empty", M.normalize_key(nil) == "")
+check("normalize_key upstream/Model-X -> model-x", M.normalize_key("upstream/Model-X") == "model-x")
+
 io.stderr:write(string.format("\nLUA_RESULTS:%d,%d\n", pass, fail))
 LUAEOF
 )

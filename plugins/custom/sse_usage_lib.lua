@@ -25,6 +25,7 @@ function M.scan_sse_for_usage(text)
     local done = false
     local usage, model
     local cost = 0
+    local reasoning_text = ""
     for line in text:gmatch("[^\r\n]+") do
         local payload = line:match("^data:%s*(.+)$")
         if payload then
@@ -45,11 +46,20 @@ function M.scan_sse_for_usage(text)
                     if chunk_cost and chunk_cost > 0 then
                         cost = chunk_cost
                     end
+                    if obj.choices and type(obj.choices) == "table" and obj.choices[1] then
+                        local delta = obj.choices[1].delta
+                        if delta and type(delta) == "table" then
+                            local rc = delta.reasoning_content
+                            if type(rc) == "string" and rc ~= "" then
+                                reasoning_text = reasoning_text .. rc
+                            end
+                        end
+                    end
                 end
             end
         end
     end
-    return usage, model, done, cost
+    return usage, model, done, cost, reasoning_text
 end
 
 function M.parse_json_usage(body)
@@ -67,7 +77,22 @@ function M.parse_json_usage(body)
     return nil, nil, 0
 end
 
-function M.extract_tokens(usage)
+function M.count_tokens(text)
+    if not text or text == "" then return 0 end
+    local ascii_bytes = 0
+    local multi_bytes = 0
+    for i = 1, #text do
+        local b = text:byte(i)
+        if b and b < 0x80 then
+            ascii_bytes = ascii_bytes + 1
+        else
+            multi_bytes = multi_bytes + 1
+        end
+    end
+    return math.ceil(ascii_bytes / 4) + math.ceil(multi_bytes / 2)
+end
+
+function M.extract_tokens(usage, reasoning_text)
     if not usage then return 0, 0, 0, 0, 0 end
     local pt = tonumber(usage.prompt_tokens) or 0
     local ct = tonumber(usage.completion_tokens) or 0
@@ -81,6 +106,9 @@ function M.extract_tokens(usage)
     reasoning = tonumber(usage.reasoning_tokens) or 0
     if type(usage.completion_tokens_details) == "table" then
         reasoning = tonumber(usage.completion_tokens_details.reasoning_tokens) or reasoning
+    end
+    if reasoning == 0 and reasoning_text and reasoning_text ~= "" then
+        reasoning = M.count_tokens(reasoning_text)
     end
     return pt, ct, tt, cached, reasoning
 end

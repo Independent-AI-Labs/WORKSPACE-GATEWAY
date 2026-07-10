@@ -92,6 +92,9 @@ assert_eq "prometheus in plugins list" "1" "$PLUGINS_PROM"
 PLUGINS_LOGGER=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "http-logger")] | length')
 assert_eq "http-logger in plugins list" "1" "$PLUGINS_LOGGER"
 
+PLUGINS_REQUEST_ID=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "request-id")] | length')
+assert_eq "request-id in plugins list (populates X-Request-Id for Vector)" "1" "$PLUGINS_REQUEST_ID"
+
 PLUGINS_BUFFER=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "proxy-buffering")] | length')
 assert_eq "proxy-buffering in plugins list" "1" "$PLUGINS_BUFFER"
 

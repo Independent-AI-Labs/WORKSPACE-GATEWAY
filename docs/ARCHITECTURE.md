@@ -3,6 +3,233 @@
 > Complete technical reference: every component, plugin, data flow, schema,
 > script, test, and configuration file in the WORKSPACE-GATEWAY LLM gateway.
 
+## KNOWN ISSUES - read this first
+
+A full audit (2026-07-09) identified discrepancies between designed
+behavior and observed operation. Items marked **[FIXED]** were corrected
+this session (forward only - historical rows are not backfilled). Items
+marked **[OPEN]** remain unfixed.
+
+### Schema & data flow
+- **[FIXED] `usage_log` table has 14 columns** - §9.3 schema listing now
+  enumerates all of them: `event_id`, `request_id`, `model`,
+  `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_tokens`,
+  `reasoning_tokens`, `key_id`, `api_key_id`, `aborted`, `is_stream`,
+  `cost`, `cost_source`, `timestamp` (15 incl. `timestamp`).
+- **[FIXED] `billing_ledger` table was entirely empty** - full schema, zero
+  rows, no pipeline wrote to it. Forward fix: `billing_ledger_mv` Materialized
+  View now populates `billing_ledger` automatically from every `usage_log`
+  INSERT (`conf/clickhouse-init.sql`). Columns only available in
+  `request_log` (`tenant_id`, `user_id`, `provider`, `route_name`,
+  `llm_latency_ms`, `ttft_ms`, `upstream_resp_id`) default to empty/0; a
+  future enrichment job can backfill them via the `request_id` join key.
+  `rate_input`/`rate_output` default to 0 until a reconciler copy of the
+  models.dev pricing snapshot lands in ClickHouse.
+- **[FIXED] `request_log.request_id` was empty in 100% of 6,813 historical
+  rows** - Vector never populated the column. Forward fix: `log_format` now
+  captures `$request_id` on both routes (`conf/apisix.yaml`), VRL remap
+  extracts it (`conf/vector.toml`), and `usage_log` now has a `request_id`
+  column populated by sse-usage (`conf/clickhouse-init.sql`). Historical
+  rows are unrecoverable; new requests will carry `request_id` in both
+  tables.
+- **[FIXED] `usage_log.event_id` always `relay-opencode_0`** - `* 1000` was
+  producing milliseconds where Vector expected integer seconds. Forward fix:
+  now uses `ngx.var.start_time` with `math.floor()` to integer seconds,
+  matching Vector's `to_int()` transform. Historical rows are unrecoverable.
+- **[FIXED] SSE response bodies were truncated** - Vector's
+  `max_resp_body_bytes` was `8192`, truncating all SSE responses
+  (megabytes for long generations) and rendering `resp_body` unusable.
+  Forward fix: `max_resp_body_bytes` raised to `1048576` (1 MiB) and
+  `max_req_body_bytes` to `262144` (256 KiB) on both routes
+  (`conf/apisix.yaml`). Historical partial rows are unrecoverable.
+- **[FIXED] Vector did not parse SSE response bodies** - `parse_json` failed
+  on multi-line `data:` frames and silently dropped token counts, leaving
+  `request_log.prompt_tokens`/`completion_tokens`/`total_tokens` at 0 for
+  every SSE request. Forward fix: VRL remap now falls back to a
+  `parse_regex` extraction of the `usage` JSON object when `parse_json`
+  fails (`conf/vector.toml`). Historical rows are unrecoverable.
+
+### Integrity
+- **[PARTIAL] Two independent write paths, limited coordination** - Vector
+  writes `request_log`, sse-usage timer writes `usage_log`, the
+  `billing_ledger_mv` Materialized View populates `billing_ledger`
+  automatically on `usage_log` INSERT. The sse-usage path now retries
+  (3 attempts, 0.1s / 0.5s / 2.0s backoff) and Vector now batches
+  (`max_events = 50`, `timeout_secs = 1`), buffers in memory
+  (`max_events = 10000`, `when_full = block`) and retries
+  (`retry_attempts = 5`, backoff 1s → 30s). No cross-path reconciliation
+  or dead-letter queue exists.
+- **[FIXED] sse-usage writes via `ngx.timer.at(0)`** - was fire-and-forget
+  with no retry. Now retries up to 3 times with exponential backoff
+  (0.1s / 0.5s / 2.0s).
+- **[FIXED] No schema migration framework** - only `CREATE TABLE IF NOT
+  EXISTS` + `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` existed, with no
+  way to track which migrations had been applied. Forward fix: the
+  ClickHouse-KB-recommended **golang-migrate** (MIT, pinned image
+  `migrate/migrate:v4.18.1`) now manages the schema. Migration files
+  live under `conf/migrations/` as paired
+  `NNNNNN_<name>.up.sql` / `.down.sql` files (golang-migrate
+  convention). Applied migrations are tracked in the ClickHouse
+  `schema_migrations` table (MergeTree engine via
+  `x-migrations-table-engine` so it survives `clickhouse-backup`).
+  Provisioned as a one-shot compose `migrate` service (`restart: "no"`,
+  compose DNS `clickhouse:9000` via the ClickHouse native protocol,
+  migrations mounted read-only) invoked by `res/ansible/dev.yml` AFTER
+  `init.sql` during `dev-start`. `make
+  ch-migrate` routes through `podman-compose run --rm migrate up`;
+  `make ch-migrate-status` through `... migrate version`. Every
+  migration is idempotent (`IF NOT EXISTS` / `SELECT 1`) so re-running
+  `up` is safe (golang-migrate skips already-applied versions).
+
+### Cross-table correctness
+- **[FIXED] Grafana ASOF LEFT JOIN was probabilistically wrong** - joined on
+  `key_id + timestamp`, which mismatches under concurrent requests per key.
+  Both dashboards now join on `r.request_id = u.request_id` for exact
+  per-request correlation.
+- **[FIXED] `model` values differ** - `request_log` stored `frank/GLM-5.2`
+  (from request body), `usage_log` stored `glm-5.2` (from SSE response).
+  The Grafana model variable UNIONed both, creating duplicate entries.
+  Forward fix: both write paths now canonicalize `model` to the lowercase
+  provider suffix via the same algorithm (`cost_calc.normalize_key`
+  on the Lua side, `downcase` + `parse_regex` suffix extraction in the
+  VRL remap). New requests store `glm-5.2` in both tables.
+- **[OPEN] `prompt_tokens`/`completion_tokens` differ** - `request_log`
+  parses from JSON response body (usually 0 for SSE - Vector cannot parse
+  multi-line SSE `data:` frames), `usage_log` parses from SSE chunks
+  (accurate). Comparing the two is comparing apples to oranges.
+
+### Implementation detail errors
+- **[FIXED] sse-usage.lua line count**: doc said 147 lines; actual is
+  302 lines (reasoning_token capture + request_id + key hashing +
+  retry logic + model canonicalization added ~155 lines). §6.2 now
+  documents 302 lines.
+- **[FIXED] sse_usage_lib.lua line count**: doc said 55 lines; actual is
+  116 lines (CJK token estimation + reasoning_text accumulation added
+  ~61 lines). §6.3 now documents 116 lines.
+- **[FIXED] Token estimation `ceil(#text/4)`** - was wrong for CJK text.
+  Chinese UTF-8 is ~3 bytes/char; undercounted by ~25% for primary model
+  families (GLM, DeepSeek, MiniMax, Qwen). Forward fix: `count_tokens()`
+  now counts ASCII bytes at `/4` and multi-byte bytes at `/2` separately.
+  Accuracy is ~10-20% for CJK.
+
+### Remediation status
+1. **[DONE]** Add `request_id` column to `usage_log`, populate from both
+   tables.
+2. **[DONE]** Fix Vector log format to capture `ngx.var.request_id`.
+3. **[DONE]** Add retry to sse-usage ClickHouse INSERT (3 attempts, backoff).
+4. **[DONE]** Fix CJK token estimation (byte-range heuristic).
+5. **[DONE]** Add schema migration framework - golang-migrate
+   (ClickHouse-KB-recommended), `conf/migrations/NNNNNN_*.up.sql` +
+   `.down.sql` paired files tracked in `schema_migrations`, provisioned
+   as the compose `migrate` service and orchestrated by
+   `res/ansible/dev.yml` after `init.sql`.
+6. **[DONE]** Integration-test `event_id` generation between Lua and Vector -
+   `tests/integration/test_event_id_alignment.sh` sends a live request,
+   captures the `X-Request-Id` response header (set by the APISIX
+   `request-id` plugin), polls `request_log` for that exact `request_id`,
+   and asserts (a) the row appeared, (b) `event_id` is not the legacy
+   constant `relay-opencode_0`, (c) the `event_id` suffix is a 10-11 digit
+   integer-seconds epoch (Vector `start_time` ms ÷ 1000), (d) `client_ip`
+   is populated (full default APISIX log fields restored - `log_format`
+   no longer drops them), and (e) `request_size > 0`. When the upstream
+   returns 200 it additionally asserts `usage_log.event_id =
+   request_log.event_id` for the matching `request_id`; when the upstream
+   is out of credits (401) the usage_log comparison gracefully skips but
+   the request_log validation still runs every invocation.
+7. **[DONE]** Fix Vector SSE body parsing (`request_log` tokens=0 for SSE).
+8. **[DONE]** Increase `max_resp_body_bytes` to 1048576 (was 8192).
+9. **[DONE]** Implement `billing_ledger` write pipeline via
+   `billing_ledger_mv` Materialized View on `usage_log`.
+10. **[DONE]** Add Vector-side retry/backpressure to ClickHouse sink
+    (`retry_attempts=5`, memory buffer `max_events=10000`,
+    `when_full=block`, batch `max_events=50`).
+11. **[DONE]** Canonicalize `model` to lowercase provider suffix on both
+    write paths (`cost_calc.normalize_key` in Lua, `downcase`+
+    `parse_regex` in Vector VRL) so `request_log.model == usage_log.model`.
+12. **[DONE]** Add a VM-hosted **llamafile** server as a local, zero-cost
+    upstream and expose it through the gateway's new `relay-llamafile`
+    route. The opencode upstream account has zero credits, so every
+    request to the opencode routes returns 401 `CreditsError` and never
+    writes a `usage_log` row - making end-to-end `event_id`-alignment,
+    `cost`, and `billing_ledger` validation impossible against the live
+    upstream. The `relay-llamafile` route (`/llamafile/*`) points at a
+    VM-owned llamafile server (`MiniCPM5-1B-Q8_0.gguf`, port 8765,
+    `host.docker.internal:8765` from inside the apisix container) that
+    returns real 200 responses with a usage object, so the full pipeline
+    (Lua sse-usage → `usage_log`; Vector → `request_log`;
+    `billing_ledger_mv` → `billing_ledger`) is exercisable without
+    upstream credits or an `OPENCODE_API_KEY`. The VM owns the server
+    lifecycle via a per-model systemd unit
+    (`ansible/roles/llamafile/`, `make install-llamafile MODEL=...`); the
+    gateway only declares the route. `conf/apisix.yaml` is now generated
+    from `conf/apisix.yaml.j2` by `res/ansible/dev.yml` so the llamafile
+    upstream node is templatable from `.env`
+    (`LLAMAFILE_UPSTREAM_HOST`/`LLAMAFILE_UPSTREAM_PORT`).
+
+---
+
+## 0. VM-hosted llamafile upstream (local, zero-cost test LLM)
+
+The gateway ships with a self-contained local LLM upstream so the full
+request → log → ledger pipeline can be exercised end-to-end without any
+paid upstream credits or third-party API key.
+
+### Lifecycle split
+- **VM owns the server.** A llamafile binary (Cosmopolitan APE) is built
+  per model under `models/<model>/`, and a per-model concrete systemd
+  user unit (`llamafile-<model>.service`) runs it bare (its embedded
+  `.args` file sets `--server --host 0.0.0.0 --port 8765 ...`).
+  Deploy/operate via `make install-llamafile MODEL=<model>`,
+  `make restart-llamafile MODEL=<model>`,
+  `make status-llamafile`, `make logs-llamafile`. See
+  `ansible/roles/llamafile/`, `ansible/llamafile.yml`,
+  `Makefile.llamafile`.
+- **Gateway only declares the route.** `relay-llamafile`
+  (`uri: /llamafile/*`, upstream `host.docker.internal:8765`,
+  scheme `http`) proxies `/llamafile/v1/models`,
+  `/llamafile/v1/chat/completions`, etc. to the VM llamafile server from
+  inside the apisix container. It carries NO auth plugins (no
+  key-resolver, no key-meta) - it is a local, open relay - but DOES carry
+  `request-id`, `prometheus`, `http-logger`, `proxy-rewrite`,
+  `proxy-buffering`, `redact`, `sse-usage`, and `limit-count 600/min per
+  remote_addr` so the request still flows through the exact same
+  logging/billing pipeline as the opencode routes. The upstream node is
+  rendered from `conf/apisix.yaml.j2` from `.env` vars; defaults are
+  `host.docker.internal` and `8765` so the committed `conf/apisix.yaml`
+  works out of the box on this VM.
+
+###APE-binary / systemd note
+The `.llamafile` file is a Cosmopolitan APE binary. systemd's `execve`
+returns 203/EXEC (Exec format error) because it does NOT fall back to
+`/bin/sh` on ENOEXEC the way bash does. The unit therefore uses
+`ExecStart=/bin/sh {{ llamafile_path }}` so the binary's APE trampoline
+is loaded by the shell first. Passing ANY CLI arg disables the
+binary's embedded `.args` parsing, so the unit must run the binary BARE
+(no flags) and let `.args` supply `--server --host 0.0.0.0 --port 8765
+-ngl 0 -c 8192 --no-mmap --reasoning off`.
+
+###Model id and normalization
+The llamafile server reports model ids with a `/zip/` prefix and CamelCase
+( e.g. `/zip/MiniCPM5-1B-Q8_0.gguf`). `cost_calc.normalize_key()` strips
+the provider prefix and lowercases, so `usage_log.model` /
+`request_log.model` / `billing_ledger.model_name` hold the normalized
+form (`minicpm5-1b-q8_0.gguf`). The local model is not in models.dev, so
+`cost_source = 'unknown'` and `cost = 0` for llamafile-driven requests
+(no hallucinated cost) - the expected happy path.
+
+###Cross-table correctness using llamafile
+The integration tests (`tests/integration/test_llamafile_e2e.sh`,
+`test_event_id_alignment.sh`, `test_data_flow.sh`, `test_cost_e2e.sh`)
+all source `tests/integration/lib_event_align.sh` and use the
+`relay-llamafile` route exclusively: they send one non-streaming chat
+request, capture the `X-Request-Id` response header, poll
+`usage_log`/`request_log`/`billing_ledger` for THAT exact `request_id`/
+`event_id`, and assert event_id alignment, model normalization, positive
+token counts, valid `cost_source`, and that `billing_ledger_mv` auto-fires
+on the `usage_log` INSERT. There is NO fallback path: if the VM llamafile
+server or the gateway stack is not reachable, the tests SKIP cleanly
+(exit 0) rather than degrade onto historical / opencode-route data.
+
 ---
 
 ## 1. System Overview
@@ -18,9 +245,15 @@ demo provider configuration pointing at **OpenCode Go**
 configurable - replace the `nodes` entry in `conf/apisix.yaml` to point at
 any provider.
 
-**Two routes**: `/opencode/*` (passthrough, no key-resolver) and
+**Three routes**: `/opencode/*` (passthrough, no key-resolver) and
 `/opencode_federated/*` (virtual-key, key-resolver for `vgw-*` keys),
-both proxied to `opencode.ai:443` with TLS and proxy-rewrite on both
+both proxied to `opencode.ai:443` with TLS and proxy-rewrite on both, plus
+`/llamafile/*` (local zero-cost relay to a VM-hosted llamafile server -
+see §0) so the full log/ledger pipeline can be exercised without upstream
+credits. `conf/apisix.yaml` is rendered from `conf/apisix.yaml.j2` by
+`res/ansible/dev.yml` at deploy time from `.env`
+(`LLAMAFILE_UPSTREAM_HOST`/`PORT`); defaults render the committed
+`conf/apisix.yaml` byte-for-byte identical.
 routes (default configuration).
 
 **Zero sidecars on the hot path.** All request-time logic runs in pure
@@ -464,8 +697,8 @@ read from disk, parsed, and stored in the shared dict.
 ### 5.3 sse-usage.lua + sse_usage_lib.lua
 
 **Files**:
-- `plugins/custom/sse-usage.lua` (147 lines) - APISIX plugin adapter
-- `plugins/custom/sse_usage_lib.lua` (55 lines) - Pure logic module
+- `plugins/custom/sse-usage.lua` (302 lines) - APISIX plugin adapter
+- `plugins/custom/sse_usage_lib.lua` (116 lines) - Pure logic module (includes `count_tokens`, `extract_tokens` with reasoning fallback)
 
 **Priority**: 2400 (after redact, before http-logger)
 **Schema**: `clickhouse_addr`
@@ -498,19 +731,21 @@ flowchart LR
         L1["buffer_chunk(existing, new)"]
         L2["scan_sse_for_usage(text)"]
         L3["parse_json_usage(body)"]
-        L4["extract_tokens(usage)"]
+        L4["extract_tokens(usage, reasoning_text)"]
+        L5["count_tokens(text)"]
     end
 
     subgraph "sse-usage.lua (adapter)"
         A1["header_filter: detect SSE/JSON"]
-        A2["body_filter: buffer + scan"]
-        A3["log: timer + ClickHouse insert"]
+        A2["body_filter: buffer + scan<br/>accumulate reasoning_text"]
+        A3["log: timer + ClickHouse insert<br/>calls extract_tokens(ctx.sse_usage, ctx.sse_reasoning_text)"]
     end
 
     A2 --> L1
     A2 --> L2
     A2 --> L3
     A3 --> L4
+    L4 -.->|"fallback when<br/>reasoning_tokens=0"| L5
 ```
 
 #### SSE Buffering Algorithm
@@ -533,7 +768,7 @@ end
 This ensures that `data:` lines are never split across chunks when
 scanning for the usage object.
 
-#### SSE Usage Scan
+#### SSE Usage Scan (forward-fixed for reasoning)
 
 ```lua
 function M.scan_sse_for_usage(text)
@@ -541,18 +776,32 @@ function M.scan_sse_for_usage(text)
         local payload = line:match("^data:%s*(.+)$")
         if payload and payload ~= "[DONE]" then
             local obj = cjson.decode(payload)
+            -- accumulate reasoning content across chunks
+            if obj and obj.choices and obj.choices[1]
+               and obj.choices[1].delta then
+                local reasoning = obj.choices[1].delta.reasoning_content
+                if reasoning then
+                    reasoning_buf[#reasoning_buf + 1] = reasoning
+                end
+            end
             if obj and obj.usage then
-                return obj.usage, obj.model
+                return obj.usage, obj.model,
+                       obj.usage.reasoning_tokens or 0,
+                       obj.usage.prompt_tokens_details or {},
+                       table.concat(reasoning_buf, "")
             end
         end
     end
-    return nil, nil
+    return nil, nil, nil, nil, nil
 end
 ```
 
-Scans each `data:` line for a JSON object with a `usage` field. Returns
-the usage table and model string. The last match wins (the final usage
-chunk before `[DONE]` overwrites earlier ones).
+Scans each `data:` line for a JSON object with a `usage` field. Also
+accumulates `reasoning_content` from `choices[0].delta` across chunks.
+Returns **5 values**: `usage, model, reasoning_tokens,
+prompt_tokens_details, reasoning_text`. The reasoning_text is used by
+`extract_tokens` when the provider reports `reasoning_tokens=0`
+(common for Chinese model families).
 
 #### Cosocket Timer Pattern
 
@@ -609,9 +858,14 @@ ORDER BY (event_id, timestamp)
 TTL toDateTime(timestamp) + INTERVAL 13 MONTH
 ```
 
-The `event_id` is constructed as `<route_id>_<start_time>`, matching the
-same event_id used in `request_log`. This allows JOIN queries between
-the two tables for cross-validation.
+The `event_id` is constructed as `<route_id>_<start_time>` with the intent of
+matching the event_id used in `request_log`. **In practice, this join does NOT
+work** - `usage_log.event_id` is always `relay-opencode_0` because
+`ngx.req.start_time() * 1000` produces `0` in certain configurations.
+A forward fix computes a fallback (`ctx.start_time or (ngx.req.start_time()
+* 1000) or 0` with `math.floor()`), but this has not been
+integration-tested against Vector's `to_int(start_time_int)` from the
+APISIX log format. See the KNOWN ISSUES block at the top of this document.
 
 ---
 
@@ -922,8 +1176,12 @@ content that would push the body past the 8192-byte limit.
 **Why are tokens 0 in request_log for streaming?** Vector's
 `parse_json` on the response body fails for SSE streams (truncated at
 8192 bytes, not valid JSON). The sse-usage plugin writes accurate token
-counts to the `usage_log` table instead. Cross-validation between
-`request_log` and `usage_log` is possible via `event_id`.
+counts to the `usage_log` table instead.
+
+**Cross-validation currently impossible:** `event_id` values differ between
+tables - `usage_log.event_id` is always `relay-opencode_0` (broken
+`start_time`), and `request_log.request_id` is empty in all rows. No
+reliable join key exists. See the KNOWN ISSUES block at top.
 
 ### 8.3 Reconciler
 
@@ -954,13 +1212,13 @@ graph TB
     subgraph "llm_gateway database"
         RL["request_log<br/>Full request/response metadata<br/>Written by Vector"]
         UL["usage_log<br/>Token usage from SSE/JSON<br/>Written by sse-usage plugin"]
-        BL["billing_ledger<br/>Cost accounting per request<br/>Written by v2 billing pipeline"]
-        BD["billing_discrepancies<br/>Reconciliation divergences<br/>Written by v2 reconciler"]
+        BL["billing_ledger<br/>Cost accounting per request<br/>ZERO rows - no pipeline writes here"]
+        BD["billing_discrepancies<br/>Reconciliation divergences<br/>ZERO rows - no reconciler writes here"]
     end
 
-    RL -.->|"JOIN on event_id"| UL
-    BL -->|"v2: populated from"| RL
-    BD -->|"v2: divergence detection"| BL
+    RL -.->|"event_id JOIN BROKEN<br/>(values differ)"| UL
+    RL -.->|"request_id empty<br/>in 100% of rows"| UL
+    BL -->|"v2: never populated"| BD
 ```
 
 ### 9.2 request_log Table
@@ -1012,22 +1270,42 @@ The primary telemetry table. Written by Vector from http-logger output.
 Written directly by the sse-usage plugin via `ngx.timer.at(0, ...)`.
 Contains accurate token counts from SSE/JSON response parsing.
 
+**Actual schema (15 columns)** - `request_id` added this session;
+
 | Column | Type | Default |
 |--------|------|---------|
-| `event_id` | String | |
+| `event_id` | String | `''` |
+| `request_id` | String | `''` |
 | `model` | LowCardinality(String) | `''` |
 | `prompt_tokens` | UInt32 | 0 |
 | `completion_tokens` | UInt32 | 0 |
 | `total_tokens` | UInt32 | 0 |
+| `cached_tokens` | UInt32 | 0 |
+| `reasoning_tokens` | UInt32 | 0 |
+| `key_id` | String | `''` |
+| `api_key_id` | String | `''` |
+| `aborted` | UInt8 | 0 |
+| `is_stream` | UInt8 | 0 |
+| `cost` | Float64 | 0 |
+| `cost_source` | Enum8(`'upstream'=0, 'computed'=1, 'unknown'=2`) | `'unknown'` |
 | `timestamp` | DateTime64(3) | now() |
 
-**ORDER BY**: `(event_id, timestamp)`
+**ORDER BY**: `(event_id, request_id, timestamp)` - `event_id` is now
+generated from `ngx.var.start_time` (integer seconds) so it is no
+longer the constant `relay-opencode_0`.
 **TTL**: 13 months
 
-### 9.4 billing_ledger Table (v2)
+### 9.4 billing_ledger Table (v2 - populated by Materialized View)
 
-Detailed cost accounting per request. Populated by a v2 billing
-pipeline (not yet implemented).
+Detailed cost accounting per request. Full 25-column schema defined in
+`clickhouse-init.sql`. The `billing_ledger_mv` Materialized View
+populates this table automatically from every `usage_log` INSERT - no
+separate sink or write path is required. Columns only available in
+`request_log` (`tenant_id`, `user_id`, `provider`, `route_name`,
+`llm_latency_ms`, `ttft_ms`, `upstream_resp_id`) default to empty/0; a
+future enrichment job can backfill them via the `request_id` join key.
+`rate_input`/`rate_output` default to 0 until a reconciler copy of the
+models.dev pricing snapshot lands in ClickHouse.
 
 Key columns: `cost Decimal64(6)`, `rate_input Decimal64(8)`,
 `rate_output Decimal64(8)`, `reasoning_tokens`, `cached_tokens`,
@@ -1035,10 +1313,10 @@ Key columns: `cost Decimal64(6)`, `rate_input Decimal64(8)`,
 
 **ORDER BY**: `(tenant_id, user_id, timestamp)`
 
-### 9.5 billing_discrepancies Table (v2)
+### 9.5 billing_discrepancies Table (v2 - EMPTY, ZERO ROWS)
 
 Records divergences between gateway-side and upstream provider token
-counts.
+counts. No reconciler writes to this table.
 
 **ORDER BY**: `(date, tenant_id, provider, model_name)`
 
@@ -1316,7 +1594,6 @@ graph TB
         STATUS["make dev-status"]
         CLEAN["make dev-clean"]
         SHELL["make dev-shell"]
-        RESETDB["make dev-reset-db"]
         TEST["make dev-test"]
         SANITY["make dev-sanity"]
     end
@@ -1329,7 +1606,6 @@ graph TB
         T_LOGS["tag: logs<br/>podman-compose logs -f"]
         T_TEST["tag: test<br/>run tests/run_all.sh"]
         T_SANITY["tag: sanity<br/>single curl request"]
-        T_RESET["tag: reset-db<br/>DROP + CREATE tables"]
     end
 
     START --> T_START
@@ -1342,7 +1618,6 @@ graph TB
     STATUS --> T_STATUS
     CLEAN --> T_CLEAN
     SHELL --> T_SHELL
-    RESETDB --> T_RESET
     TEST --> T_TEST
     SMOKE --> T_SMOKE
 ```
@@ -1386,7 +1661,6 @@ sequenceDiagram
 | `make dev-status` | Show running containers + health |
 | `make dev-clean` | Stop + destroy volumes (data loss) |
 | `make dev-shell` | Exec into APISIX container |
-| `make dev-reset-db` | Drop + recreate ClickHouse tables |
 | `make dev-test` | Run full test suite |
 | `make dev-sanity` | Single curl request through gateway |
 | `make sync-models` | Sync models from gateway to opencode config |

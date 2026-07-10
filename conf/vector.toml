@@ -12,7 +12,14 @@ source = """
 
 req_body_str = to_string!(.request.body || "")
 req_parsed = parse_json(req_body_str) ?? {}
-.model = to_string!(req_parsed.model || "")
+model_raw = to_string!(req_parsed.model || "")
+model_norm = downcase(model_raw)
+model_caps = parse_regex(model_norm, r'(?P<model>[^/]+)$') ?? null
+.model = if model_caps != null {
+    to_string(model_caps.model)
+} else {
+    model_norm
+}
 .stream = to_string!(req_parsed.stream || false) == "true"
 
 .method = to_string!(.request.method || "")
@@ -21,7 +28,23 @@ req_parsed = parse_json(req_body_str) ?? {}
 
 resp_body_str = to_string!(.response.body || "")
 resp_parsed = parse_json(resp_body_str) ?? {}
-usage_obj = resp_parsed.usage || {}
+
+usage_obj = resp_parsed.usage || null
+
+if (usage_obj == null && contains(resp_body_str, "data:")) {
+  usage_caps = parse_regex(resp_body_str, r'"usage"\\s*:\\s*(?P<usage>\\{[^}]*\\})') ?? null
+  if (usage_caps != null) {
+    usage_json_str = to_string(usage_caps.usage || "")
+    if (usage_json_str != "") {
+      usage_obj = parse_json(usage_json_str) ?? null
+    }
+  }
+}
+
+if (usage_obj == null) {
+  usage_obj = {}
+}
+
 .prompt_tokens = to_int(usage_obj.prompt_tokens || 0) ?? 0
 .completion_tokens = to_int(usage_obj.completion_tokens || 0) ?? 0
 .total_tokens = to_int(usage_obj.total_tokens || 0) ?? 0
@@ -62,13 +85,21 @@ hashed = if final_key != "" {
 .user_agent = to_string!(get!(req_headers, ["user-agent"]) || "")
 
 route_id_str = to_string!(.route_id || "")
-start_time_int = to_int(.start_time || 0) ?? 0
+# APISIX http-logger sends `start_time` as integer MILLISECONDS since epoch.
+start_time_ms = to_int(.start_time || 0) ?? 0
+# Integer SECONDS (floor) used for event_id - matches sse-usage.lua which
+# does math.floor(ngx.var.start_time) on the Lua side (start_time there is
+# epoch-seconds with millisecond precision). Both sides converge on the
+# same integer-second value, e.g. 1783607080.
+start_time_int = to_int(start_time_ms / 1000)
 .event_id = route_id_str + "_" + to_string(start_time_int)
 
 .req_body = req_body_str
 .resp_body = resp_body_str
 
-.timestamp = format_timestamp!(from_unix_timestamp(start_time_int, "milliseconds") ?? now(), "%Y-%m-%d %H:%M:%S%.3f")
+.request_id = to_string!(get!(req_headers, ["x-request-id"]) || "")
+
+.timestamp = format_timestamp!(from_unix_timestamp(start_time_ms, "milliseconds") ?? now(), "%Y-%m-%d %H:%M:%S%.3f")
 """
 
 [sinks.clickhouse_request_log]
@@ -78,3 +109,18 @@ endpoint = "http://clickhouse:8123"
 database = "llm_gateway"
 table = "request_log"
 skip_unknown_fields = true
+
+[sinks.clickhouse_request_log.batch]
+max_events = 50
+timeout_secs = 1
+
+[sinks.clickhouse_request_log.buffer]
+type = "memory"
+max_events = 10000
+when_full = "block"
+
+[sinks.clickhouse_request_log.request]
+retry_attempts = 5
+retry_initial_backoff_secs = 1
+retry_max_duration_secs = 30
+timeout_secs = 30

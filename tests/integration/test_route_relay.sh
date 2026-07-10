@@ -5,6 +5,7 @@ GATEWAY="http://localhost:9080"
 CORRECT_KEY="${GATEWAY_API_KEY:-vgw-gateway-key}"
 ZEN_ROUTE="/opencode/v1/models"
 FED_ROUTE="/opencode_federated/v1/models"
+LLAMAFILE_ROUTE="/llamafile/v1/models"
 NONEXIST_ROUTE="/nonexistent"
 
 pass=0
@@ -62,6 +63,17 @@ test_federated_route_exists() {
     return 0
 }
 
+test_llamafile_route_exists() {
+    local code
+    code=$(http_code "$GATEWAY$LLAMAFILE_ROUTE")
+    if [ "$code" = "404" ]; then
+        record_fail "llamafile route $LLAMAFILE_ROUTE returned 404"
+        return 1
+    fi
+    record_pass "Llamafile route exists ($LLAMAFILE_ROUTE returned $code, not 404)"
+    return 0
+}
+
 test_nonexistent_route() {
     local code
     code=$(http_code -H "Authorization: Bearer $CORRECT_KEY" "$GATEWAY$NONEXIST_ROUTE")
@@ -77,6 +89,7 @@ main() {
     wait_for_apisix || exit 1
     test_route_exists
     test_federated_route_exists
+    test_llamafile_route_exists
     test_nonexistent_route
     echo "test_route_relay: $pass passed, $fail failed"
 }

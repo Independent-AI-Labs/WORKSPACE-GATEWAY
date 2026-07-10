@@ -93,7 +93,7 @@ routes:
       scheme: http
       pass_host: node
       nodes:
-        "host.docker.internal:8765": 1
+        "{{ LLAMAFILE_UPSTREAM_HOST | default('host.docker.internal', true) }}:{{ LLAMAFILE_UPSTREAM_PORT | default('8765', true) }}": 1
     plugins:
       proxy-rewrite:
         regex_uri: ["^/llamafile/(.*)", "/$1"]

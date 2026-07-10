@@ -178,7 +178,7 @@ P3_OVERRIDES=$(jq '[.panels[] | select(.id == 3)][0].fieldConfig.overrides | len
 assert_eq "p3 has 5 field overrides (Total, Input, Cached, Output, Reasoning)" "5" "$P3_OVERRIDES"
 
 P3_TARGETS=$(jq '[.panels[] | select(.id == 3)][0].targets | length' "$COST_USAGE_FILE")
-assert_eq "p3 has 5 targets (one per category)" "5" "$P3_TARGETS"
+assert_eq "p3 has 1 target (consolidated CTE)" "1" "$P3_TARGETS"
 
 # ── p16 and p17 removed (Cost by Source panels) ──────────────────────
 
@@ -251,12 +251,12 @@ P3_TYPE=$(jq -r '[.panels[] | select(.id == 3)][0].type' "$COST_USAGE_FILE")
 assert_eq "p3 is a stat panel" "stat" "$P3_TYPE"
 
 P3_TARGET_COUNT=$(jq '[.panels[] | select(.id == 3)][0].targets | length' "$COST_USAGE_FILE")
-assert_eq "p3 Token Usage has 5 targets (one per category)" "5" "$P3_TARGET_COUNT"
+assert_eq "p3 Token Usage has 1 target (consolidated CTE)" "1" "$P3_TARGET_COUNT"
 
 P3_HAS_COST=$(jq '[[.panels[] | select(.id == 3)][0].targets[].rawSql | select(. != null) | select(test("cost"))] | length > 0' "$COST_USAGE_FILE")
 assert_eq "p3 queries reference cost" "true" "$P3_HAS_COST"
 
-P3_HAS_5_CATEGORIES=$(jq '[.panels[] | select(.id == 3)][0].targets | length' "$COST_USAGE_FILE")
+P3_HAS_5_CATEGORIES=$(jq -r '[.panels[] | select(.id == 3)][0].targets[0].rawSql | [test("( as )Total";"i"),test("( as )Input";"i"),test("( as )Cached";"i"),test("( as )Output";"i"),test("( as )Reasoning";"i")] | map(select(.)) | length' "$COST_USAGE_FILE")
 assert_eq "p3 has 5 categories (Total + Input + Cached + Output + Reasoning)" "5" "$P3_HAS_5_CATEGORIES"
 
 P3_OVERRIDES=$(jq '[.panels[] | select(.id == 3)][0].fieldConfig.overrides | length' "$COST_USAGE_FILE")

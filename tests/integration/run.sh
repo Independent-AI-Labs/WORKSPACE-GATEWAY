@@ -87,8 +87,13 @@ else
     fail=$((fail + 1))
 fi
 
-if stack_is_up && [ -n "${OPENCODE_API_KEY:-}" ]; then
-    for test_script in test_data_flow.sh test_reconciler_exec.sh; do
+if stack_is_up; then
+    # Local-llamafile-driven e2e tests. They SKIP cleanly (exit 0) when the
+    # VM llamafile server is not reachable, so they can run unconditionally
+    # in CI without a local LLM. No OPENCODE_API_KEY needed: the local LLM
+    # serves real 200 responses with a usage object, which the zero-credit
+    # opencode upstream cannot.
+    for test_script in test_llamafile_e2e.sh test_event_id_alignment.sh test_data_flow.sh test_cost_e2e.sh test_reconciler_exec.sh; do
         echo ""
         echo "--- $test_script ---"
         if bash "$SCRIPT_DIR/$test_script"; then
@@ -98,7 +103,7 @@ if stack_is_up && [ -n "${OPENCODE_API_KEY:-}" ]; then
         fi
     done
 else
-    echo "[INFO] Skipping data-flow and reconciler-exec tests (need API key)"
+    echo "[INFO] Skipping local-LLM e2e tests (stack not running)"
 fi
 
 echo ""

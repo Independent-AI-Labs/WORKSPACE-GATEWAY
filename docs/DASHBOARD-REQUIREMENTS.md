@@ -1,5 +1,26 @@
 # Dashboard Requirements: Gateway Dashboards
 
+> **KNOWN ISSUES (2026-07-09):**
+> - All panels using `ASOF LEFT JOIN ON r.key_id = u.key_id AND r.timestamp >= u.timestamp`
+>   (Panels 8, 10) are **probabilistically wrong** - under concurrent requests
+>   per key, the join matches the wrong `usage_log` row. The join key is not
+>   unique per request.
+> - The `event_id` JOIN path (`request_log.event_id = usage_log.event_id`) does
+>   **not work** historically - `usage_log.event_id` is always
+>   `relay-opencode_0` due to broken `start_time` generation.
+> - `request_log.model` and `usage_log.model` differ for the same request
+>   (e.g., `frank/GLM-5.2` vs `glm-5.2`), so the model variable UNION produces
+>   duplicate entries.
+> - `prompt_tokens`/`completion_tokens` differ between tables for SSE requests
+>   (`request_log` parses JSON, always 0; `usage_log` parses SSE, accurate).
+>   Cross-table comparisons are misleading.
+> - The `billing_ledger` table that several panels reference as a future data
+>   source has zero rows - no pipeline writes to it.
+>
+> All panels display data from their respective sources correctly in isolation;
+> the cross-table JOINs are where correctness breaks down. See
+> `docs/ARCHITECTURE.md` head for full audit.
+
 This document specifies the purpose, theory, and correctness criteria for every
 panel across the 3 gateway dashboards:
 

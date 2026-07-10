@@ -47,6 +47,7 @@ local function normalize_key(model_id)
     end
     return key
 end
+M.normalize_key = normalize_key
 
 function M.warmup(models_dev_url)
     local url = models_dev_url or DEFAULT_URL

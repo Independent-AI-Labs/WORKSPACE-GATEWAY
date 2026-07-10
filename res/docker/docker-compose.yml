@@ -42,6 +42,35 @@ services:
     networks:
       - gateway
 
+  # One-shot schema migration runner (golang-migrate, ClickHouse-KB-recommended).
+  # Pinned image; restart:no so it exits after applying migrations.
+  # Invoked by res/ansible/dev.yml AFTER init.sql (healthcheck-gated) and by
+  # `make ch-migrate` / `make ch-migrate-status`. Uses the ClickHouse NATIVE
+  # protocol (port 9000, not HTTP 8123) - golang-migrate's `clickhouse://`
+  # scheme maps to the native protocol. Connects via compose DNS
+  # (clickhouse:9000), NOT localhost - no --network host needed.
+  # x-migrations-table-engine=MergeTree so schema_migrations survives
+  # clickhouse-backup (default TinyLog is not backed up).
+  migrate:
+    image: migrate/migrate:v4.19.1
+    container_name: gw-migrate
+    depends_on:
+      - clickhouse
+    volumes:
+      - ../../conf/migrations:/migrations:ro
+    # entrypoint holds the persistent flags so `podman-compose run --rm
+    # migrate <subcommand>` replaces ONLY args (subcommand), preserving
+    # -path and -database. Default command is "up"; overridden by
+    # `run ... migrate version` for status, etc.
+    entrypoint:
+      - "migrate"
+      - "-path=/migrations/"
+      - "-database=clickhouse://clickhouse:9000/llm_gateway?database=llm_gateway&x-multi-statement=true&x-migrations-table-engine=MergeTree"
+    command: ["up"]
+    restart: "no"
+    networks:
+      - gateway
+
   vector:
     image: timberio/vector:0.40.0-debian
     command: ["--config", "/etc/vector/vector.toml"]

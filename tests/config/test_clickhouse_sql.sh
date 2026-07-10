@@ -36,14 +36,14 @@ assert_eq "Creates database llm_gateway" "1" "$HAS_DB"
 HAS_REQUEST_LOG=$(grep -c 'CREATE TABLE.*request_log' "$SQL_FILE" || true)
 assert_eq "Creates table request_log" "1" "$HAS_REQUEST_LOG"
 
-HAS_BILLING_LEDGER=$(grep -c 'billing_ledger' "$SQL_FILE" || true)
+HAS_BILLING_LEDGER=$(grep -c 'CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger' "$SQL_FILE" || true)
 assert_eq "Creates table billing_ledger" "1" "$HAS_BILLING_LEDGER"
 
-HAS_BILLING_DISC=$(grep -c 'billing_discrepancies' "$SQL_FILE" || true)
+HAS_BILLING_DISC=$(grep -c 'CREATE TABLE IF NOT EXISTS llm_gateway.billing_discrepancies' "$SQL_FILE" || true)
 assert_eq "Creates table billing_discrepancies" "1" "$HAS_BILLING_DISC"
 
 HAS_DECIMAL=$(grep -c 'cost.*Decimal64(6)' "$SQL_FILE" || true)
-assert_eq "billing_ledger has Decimal64(6) for cost" "1" "$HAS_DECIMAL"
+assert_eq "billing_ledger has Decimal64(6) for cost" "true" "$([ "$HAS_DECIMAL" -ge 1 ] && echo true || echo false)"
 
 HAS_TTL=$(grep -c 'INTERVAL 13 MONTH' "$SQL_FILE" || true)
 assert_eq "TTL 13 MONTH on tables" "true" "$([ "$HAS_TTL" -ge 2 ] && echo true || echo false)"
@@ -114,5 +114,23 @@ assert_eq "Has idempotent ALTER for cost_source column" "1" "$HAS_COST_SOURCE_AL
 
 HAS_ENUM_VALUES=$(grep -c "Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2)" "$SQL_FILE" || true)
 assert_eq "cost_source enum has upstream=0, computed=1, unknown=2" "true" "$([ "$HAS_ENUM_VALUES" -ge 1 ] && echo true || echo false)"
+
+HAS_BILLING_MV=$(grep -c 'CREATE MATERIALIZED VIEW IF NOT EXISTS.*billing_ledger_mv' "$SQL_FILE" || true)
+assert_eq "Creates materialized view billing_ledger_mv" "1" "$HAS_BILLING_MV"
+
+HAS_MV_TO=$(grep -c 'TO llm_gateway.billing_ledger' "$SQL_FILE" || true)
+assert_eq "MV targets billing_ledger table" "1" "$HAS_MV_TO"
+
+HAS_MV_FROM_USAGE=$(grep -c 'FROM llm_gateway.usage_log' "$SQL_FILE" || true)
+assert_eq "MV selects FROM usage_log" "1" "$HAS_MV_FROM_USAGE"
+
+HAS_MV_REQUEST_MODE=$(grep -c "request_mode" "$SQL_FILE" || true)
+assert_eq "MV has request_mode column" "true" "$([ "$HAS_MV_REQUEST_MODE" -ge 1 ] && echo true || echo false)"
+
+HAS_MV_CACHE_STATUS=$(grep -c "cache_status" "$SQL_FILE" || true)
+assert_eq "MV has cache_status column" "true" "$([ "$HAS_MV_CACHE_STATUS" -ge 1 ] && echo true || echo false)"
+
+HAS_MV_SUCCESS=$(grep -c "aborted = 0" "$SQL_FILE" || true)
+assert_eq "MV derives success from aborted=0" "1" "$HAS_MV_SUCCESS"
 
 summary

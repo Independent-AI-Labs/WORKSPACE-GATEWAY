@@ -1,0 +1,6 @@
+-- 000003_align_usage_log_order_by.down.sql
+-- No reversible action exists: ClickHouse 24.8 cannot MODIFY ORDER BY on a
+-- populated MergeTree either direction, and the up migration was a no-op.
+-- An empty down file is the golang-migrate convention to signal an
+-- irreversible migration: `down` will succeed but make no schema change,
+-- and the version is still decremented so `up` can be re-run if needed.

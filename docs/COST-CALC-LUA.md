@@ -1,5 +1,14 @@
 # Cost Calculator Module Specification - APISIX Custom Lua Module
 
+> **SCOPE NOTE (2026-07-09):** This document is accurate for the cost
+> calculator module itself. The token counts fed to it come from
+> `sse_usage_lib.extract_tokens()`, which uses `ceil(#text/4)` as a fallback
+> for `reasoning_tokens`. This heuristic undercounts CJK text tokens by ~25%
+> (Chinese UTF-8 is ~3 bytes/char, not 4 chars/token). For models like GLM,
+> DeepSeek, MiniMax, Qwen that primarily serve Chinese-language content, the
+> computed cost may be systematically low. See `docs/ARCHITECTURE.md` head for
+> the full audit context.
+
 **Document ID:** AMI-PROP-LLMGW-COST-CALC-LUA-v1.2
 **Status:** Draft (revised - live-verified 2026-07-07; deployment gaps documented in §18)
 **Date:** 2026-07-07

@@ -138,10 +138,11 @@ _compose-clean:
 	-$(COMPOSE_CMD) down -v
 
 .PHONY: dev-start dev-stop dev-restart dev-rebuild dev-restart-service dev-restart-grafana dev-logs dev-status \
-        dev-clean dev-shell dev-reset-db dev-test dev-sanity
+        dev-clean dev-shell dev-test dev-sanity
 
 dev-start: _compose-build _compose-up ## Start the gateway stack (build + up + health checks)
 	@echo "=== Waiting for services to become healthy ==="
+	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
 
 dev-stop: _compose-down ## Stop the gateway stack (keep volumes)
@@ -150,6 +151,7 @@ dev-restart: dev-stop dev-start ## Restart the gateway stack (stop + start)
 
 dev-rebuild: dev-stop _compose-build _compose-up ## Rebuild images and restart
 	@echo "=== Waiting for services to become healthy ==="
+	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
 
 dev-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|vector|openbao|prometheus)
@@ -184,15 +186,19 @@ dev-clean: _compose-clean ## Stop stack and remove all volumes (data loss!)
 dev-shell: ## Exec into APISIX container shell
 	@podman exec -it docker_apisix_1 /bin/bash
 
-dev-reset-db: ## Reset ClickHouse (drop + recreate tables)
-	$(ANSIBLE_DEV) --tags reset-db
-
 dev-test: ## Run full test suite against running stack
 	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	bash tests/run_all.sh
 
 dev-sanity: ## Quick sanity check: one request through the gateway
 	$(ANSIBLE_DEV) --tags sanity
+
+.PHONY: ch-migrate ch-migrate-status
+ch-migrate: ## Apply pending ClickHouse schema migrations (golang-migrate via compose)
+	@$(COMPOSE_CMD) run --rm migrate up
+
+ch-migrate-status: ## Show ClickHouse schema migration status (golang-migrate version)
+	@$(COMPOSE_CMD) run --rm migrate version
 
 sync-models: ## Sync models from gateway into opencode config
 	bash $(REPO_ROOT)/res/scripts/sync-opencode-models.sh

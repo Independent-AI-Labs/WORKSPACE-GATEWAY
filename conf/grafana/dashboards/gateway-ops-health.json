@@ -70,7 +70,7 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "SELECT count() as total_requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})"
+          "rawSql": "SELECT count() as total_requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})"
         }
       ],
       "fieldConfig": {
@@ -127,7 +127,7 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "SELECT round(countIf(status >= 400) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})"
+          "rawSql": "SELECT round(countIf(status >= 400) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})"
         }
       ],
       "fieldConfig": {
@@ -284,7 +284,7 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "SELECT toString(status) as status, count() as count FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY status ORDER BY status"
+          "rawSql": "SELECT toString(status) as status, count() as count FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY status ORDER BY status"
         }
       ],
       "fieldConfig": {
@@ -735,7 +735,7 @@
         {
           "queryType": "table",
           "refId": "A",
-          "rawSql": "SELECT u.model, avg(r.upstream_response_time_s) as avg_latency FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.key_id = u.key_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND r.upstream_response_time_s > 0 AND u.model != '' AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND u.model IN (${model:singlequote}) GROUP BY u.model ORDER BY avg_latency DESC LIMIT 20",
+          "rawSql": "SELECT u.model, avg(r.upstream_response_time_s) as avg_latency FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.request_id = u.request_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND r.upstream_response_time_s > 0 AND u.model != '' AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND u.model IN (${model:singlequote}) GROUP BY u.model ORDER BY avg_latency DESC LIMIT 20",
           "format": "table"
         }
       ],

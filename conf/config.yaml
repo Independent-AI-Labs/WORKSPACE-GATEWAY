@@ -19,6 +19,7 @@ plugins:
   - proxy-rewrite
   - http-logger
   - prometheus
+  - request-id
   - redact
   - sse-usage
   - limit-count

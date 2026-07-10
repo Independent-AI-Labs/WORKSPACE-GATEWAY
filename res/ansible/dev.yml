@@ -10,14 +10,13 @@
 #   operations now run directly from Makefile targets (_compose-build,
 #   _compose-up, _compose-down) so output streams live to the terminal.
 #   This playbook handles only: health checks, ClickHouse init, model
-#   sync, status, sanity, and reset-db.
+#   sync, status, sanity.
 #
 # Tags:
 #   start    - health checks + ClickHouse init + model sync
 #   status   - podman ps + endpoint health
 #   logs     - tail container logs
 #   sanity   - single curl request through gateway
-#   reset-db - drop and recreate ClickHouse tables
 #
 # Makefile orchestrates multi-step flows:
 #   dev-start = _compose-build + _compose-up + ansible --tags start
@@ -68,9 +67,26 @@
       tags: always
 
 
-    # ── start: health checks + ClickHouse init + model sync ─────────────
+    # ── start: render apisix.yaml, then health checks + init + sync ──────
     # NOTE: compose build/up/down are now Makefile targets (see header).
     # This tag assumes the stack is already up via `make _compose-up`.
+    # APISIX standalone YAML mode polls apisix.yaml every 1s, so rendering
+    # the .j2 here (after compose-up) hot-reloads the llamafile route into
+    # the running APISIX without a container restart.
+    - name: Capture llamafile upstream env vars (empty -> .j2 defaults apply)
+      ansible.builtin.set_fact:
+        LLAMAFILE_UPSTREAM_HOST: "{{ lookup('env', 'LLAMAFILE_UPSTREAM_HOST') }}"
+        LLAMAFILE_UPSTREAM_PORT: "{{ lookup('env', 'LLAMAFILE_UPSTREAM_PORT') }}"
+      tags: [start]
+
+    - name: Render conf/apisix.yaml from .j2 template (env-driven llamafile route)
+      ansible.builtin.template:
+        src: "{{ project_root }}/conf/apisix.yaml.j2"
+        dest: "{{ project_root }}/conf/apisix.yaml"
+        mode: '0644'
+        backup: false
+      tags: [start]
+
     - name: Create external network dataops_default
       ansible.builtin.command: podman network create dataops_default
       register: net_create
@@ -130,6 +146,19 @@
     - name: Show ClickHouse init output
       ansible.builtin.debug:
         var: ch_init.stdout_lines
+      tags: [start]
+
+    - name: Run ClickHouse schema migrations (golang-migrate via compose)
+      ansible.builtin.command: "{{ compose_cmd }} run --rm migrate up"
+      args:
+        chdir: "{{ project_root }}"
+      register: ch_migrate
+      changed_when: "'no change' not in (ch_migrate.stdout | default(''))"
+      tags: [start]
+
+    - name: Show schema migration output
+      ansible.builtin.debug:
+        var: ch_migrate.stdout_lines
       tags: [start]
 
     - name: Wait for Prometheus metrics endpoint
@@ -294,36 +323,3 @@
       ansible.builtin.debug:
         msg: "Sanity check HTTP status: {{ sanity_code.stdout }}"
       tags: [sanity, never]
-
-
-    # ── reset-db: drop and recreate ClickHouse tables ────────────────────
-    - name: Drop ClickHouse llm_gateway database
-      ansible.builtin.command: >
-        podman exec docker_clickhouse_1 clickhouse-client
-        --query "DROP DATABASE IF EXISTS llm_gateway"
-      register: ch_drop
-      changed_when: true
-      tags: [reset-db, never]
-
-    - name: Show ClickHouse drop output
-      ansible.builtin.debug:
-        var: ch_drop.stdout_lines
-      tags: [reset-db, never]
-
-    - name: Recreate ClickHouse tables from init SQL
-      ansible.builtin.shell: >
-        podman exec -i docker_clickhouse_1 clickhouse-client --multiquery
-        < {{ project_root }}/conf/clickhouse-init.sql
-      register: ch_recreate
-      changed_when: true
-      tags: [reset-db, never]
-
-    - name: Show ClickHouse recreate output
-      ansible.builtin.debug:
-        var: ch_recreate.stdout_lines
-      tags: [reset-db, never]
-
-    - name: ClickHouse reset complete
-      ansible.builtin.debug:
-        msg: "ClickHouse llm_gateway database reset."
-      tags: [reset-db, never]

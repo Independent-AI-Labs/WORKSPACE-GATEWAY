@@ -60,13 +60,13 @@ end
 
 local function scan_sse_tests()
     do
-        local usage, model = sse_lib.scan_sse_for_usage(
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
             'data: {"choices":[{"delta":{"content":"hi"}}],"usage":null}\n')
         check(usage == nil, "scan[1] null usage returns nil")
     end
 
     do
-        local usage, model = sse_lib.scan_sse_for_usage(
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
             'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15},"model":"minimax-m3"}\n')
         check(usage ~= nil, "scan[2] usage found")
         if usage then
@@ -78,12 +78,13 @@ local function scan_sse_tests()
     end
 
     do
-        local usage, model = sse_lib.scan_sse_for_usage("data: [DONE]\n")
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("data: [DONE]\n")
         check(usage == nil, "scan[3] DONE returns nil")
+        check(done == true, "scan[3] done flag set")
     end
 
     do
-        local usage, model = sse_lib.scan_sse_for_usage(
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
             'data: {"choices":[{"delta":{"content":"a"}}],"usage":null}\n' ..
             'data: {"choices":[{"delta":{"content":"b"}}],"usage":null}\n' ..
             'data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30},"model":"gpt-5"}\n' ..
@@ -93,21 +94,40 @@ local function scan_sse_tests()
             assert_eq(usage.total_tokens, 30, "scan[4] total_tokens")
         end
         assert_eq(model, "gpt-5", "scan[4] model")
+        check(done == true, "scan[4] done flag set")
     end
 
     do
-        local usage = sse_lib.scan_sse_for_usage("")
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("")
         check(usage == nil, "scan[5] empty string returns nil")
     end
 
     do
-        local usage = sse_lib.scan_sse_for_usage("event: ping\ndata: not json\n")
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("event: ping\ndata: not json\n")
         check(usage == nil, "scan[6] non-data lines ignored")
     end
 
     do
-        local usage = sse_lib.scan_sse_for_usage("data: {bad json}\n")
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("data: {bad json}\n")
         check(usage == nil, "scan[7] bad json returns nil")
+    end
+
+    do
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
+            'data: {"choices":[{"delta":{"reasoning_content":"Therefore,"}}],"usage":null}\n' ..
+            'data: {"choices":[{"delta":{"reasoning_content":" we conclude"}}],"usage":null}\n' ..
+            'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"reasoning_tokens":3},"model":"glm-5.2"}\n')
+        check(usage ~= nil, "scan[8] reasoning usage found")
+        assert_eq(usage.reasoning_tokens, 3, "scan[8] reasoning_tokens")
+        assert_eq(reasoning_text, "Therefore, we conclude", "scan[8] reasoning_text accumulated")
+    end
+
+    do
+        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
+            'data: {"choices":[{"delta":{"reasoning_content":"\xE4\xBD\xA0\xE5\xA5\xBD"}}],"usage":null}\n' ..
+            'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8},"model":"deepseek-v4"}\n')
+        check(usage ~= nil, "scan[9] CJK reasoning found")
+        assert_eq(reasoning_text, "\xE4\xBD\xA0\xE5\xA5\xBD", "scan[9] CJK reasoning_text")
     end
 end
 
@@ -146,33 +166,107 @@ end
 
 local function extract_tokens_tests()
     do
-        local pt, ct, tt = sse_lib.extract_tokens(
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(
             {prompt_tokens = 100, completion_tokens = 50, total_tokens = 150})
         assert_eq(pt, 100, "tokens[1] prompt")
         assert_eq(ct, 50, "tokens[1] completion")
         assert_eq(tt, 150, "tokens[1] total")
+        assert_eq(cached, 0, "tokens[1] cached")
+        assert_eq(reasoning, 0, "tokens[1] reasoning")
     end
 
     do
-        local pt, ct, tt = sse_lib.extract_tokens(nil)
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(nil)
         assert_eq(pt, 0, "tokens[2] nil prompt")
         assert_eq(ct, 0, "tokens[2] nil completion")
         assert_eq(tt, 0, "tokens[2] nil total")
+        assert_eq(cached, 0, "tokens[2] cached")
+        assert_eq(reasoning, 0, "tokens[2] reasoning")
     end
 
     do
-        local pt, ct, tt = sse_lib.extract_tokens({})
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens({})
         assert_eq(pt, 0, "tokens[3] empty prompt")
         assert_eq(ct, 0, "tokens[3] empty completion")
         assert_eq(tt, 0, "tokens[3] empty total")
+        assert_eq(cached, 0, "tokens[3] cached")
+        assert_eq(reasoning, 0, "tokens[3] reasoning")
     end
 
     do
-        local pt, ct, tt = sse_lib.extract_tokens(
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(
             {prompt_tokens = "42", completion_tokens = "17", total_tokens = "59"})
         assert_eq(pt, 42, "tokens[4] string prompt")
         assert_eq(ct, 17, "tokens[4] string completion")
         assert_eq(tt, 59, "tokens[4] string total")
+        assert_eq(cached, 0, "tokens[4] cached")
+        assert_eq(reasoning, 0, "tokens[4] reasoning")
+    end
+
+    do
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(
+            {prompt_tokens = 10, completion_tokens = 20, total_tokens = 30,
+             cached_tokens = 5, reasoning_tokens = 3})
+        assert_eq(cached, 5, "tokens[5] cached from top-level")
+        assert_eq(reasoning, 3, "tokens[5] reasoning from top-level")
+    end
+
+    do
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(
+            {prompt_tokens = 10, completion_tokens = 20, total_tokens = 30,
+             prompt_tokens_details = {cached_tokens = 7}})
+        assert_eq(cached, 7, "tokens[6] cached from details")
+    end
+
+    do
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(
+            {prompt_tokens = 10, completion_tokens = 20, total_tokens = 30,
+             completion_tokens_details = {reasoning_tokens = 4}})
+        assert_eq(reasoning, 4, "tokens[7] reasoning from details")
+    end
+
+    do
+        local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(
+            {prompt_tokens = 10, completion_tokens = 20, total_tokens = 30},
+            "Therefore, we conclude the answer is 42")
+        assert_eq(reasoning, 10, "tokens[8] reasoning from text fallback")
+    end
+end
+
+local function count_tokens_tests()
+    do
+        local n = sse_lib.count_tokens("")
+        assert_eq(n, 0, "count[1] empty string")
+    end
+
+    do
+        local n = sse_lib.count_tokens(nil)
+        assert_eq(n, 0, "count[2] nil")
+    end
+
+    do
+        local n = sse_lib.count_tokens("Hello world")
+        assert_eq(n, 3, "count[3] ASCII: ceil(11/4)=3")
+    end
+
+    do
+        local n = sse_lib.count_tokens("aaaaaaaaaaaaaaaaaaaa")
+        assert_eq(n, 5, "count[4] ASCII: ceil(20/4)=5")
+    end
+
+    do
+        --CJK chars: 6 bytes (3 bytes each), ceil(6/2)=3
+        local n = sse_lib.count_tokens("\xE4\xBD\xA0\xE5\xA5\xBD")
+        assert_eq(n, 3, "count[5] CJK: ceil(6/2)=3")
+    end
+
+    do
+        --4 CJK chars = 12 bytes + 5 ASCII bytes
+        local n = sse_lib.count_tokens("\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C hello")
+        --ASCII: 6 bytes (space+h+e+l+l+o), ceil(6/4)=2
+        --CJK: 12 bytes, ceil(12/2)=6
+        --Total: 8
+        assert_eq(n, 8, "count[6] mixed CJK+ASCII: ceil(6/4)+ceil(12/2)=2+6=8")
     end
 end
 
@@ -181,6 +275,7 @@ local function main()
     scan_sse_tests()
     parse_json_usage_tests()
     extract_tokens_tests()
+    count_tokens_tests()
 
     io.write(string.format("\n==== SSE usage lib tests: %d passed, %d failed ====\n", pass, fail))
     if fail > 0 then

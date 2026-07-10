@@ -35,11 +35,13 @@ P3_MATCHERS=$(jq -r '[.panels[]|select(.id==3)][0].fieldConfig.overrides | map(.
 assert_eq "$LABEL S5b: p3 has 5 matcher names (Cached,Input,Output,Reasoning,Total)" \
   "Cached,Input,Output,Reasoning,Total" "$P3_MATCHERS"
 
-# p3: 5 targets, 5 overrides
+# p3: consolidated single target (was 5 duplicated CTEs), 5 overrides
 P3_TARGETS=$(jq '[.panels[]|select(.id==3)][0].targets|length' "$F")
-assert_eq "$LABEL: p3 has 5 targets" "5" "$P3_TARGETS"
+assert_eq "$LABEL: p3 has 1 target" "1" "$P3_TARGETS"
 P3_OVERRIDES=$(jq '[.panels[]|select(.id==3)][0].fieldConfig.overrides|length' "$F")
 assert_eq "$LABEL: p3 has 5 field overrides" "5" "$P3_OVERRIDES"
+P3_COLS=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql | [test("( as )Total";"i"),test("( as )Input";"i"),test("( as )Cached";"i"),test("( as )Output";"i"),test("( as )Reasoning";"i")] | map(select(.))|length' "$F")
+assert_eq "$LABEL: p3 query returns 5 categories" "5" "$P3_COLS"
 
 # p3: stat panel positioned top-left
 P3_GRID=$(jq -r '[.panels[]|select(.id==3)][0].gridPos | "y=\(.y),x=\(.x)"' "$F")
@@ -61,13 +63,13 @@ assert_eq "$LABEL: p15 query sums cost" "true" "$P15_COST"
 P15_APIKEY=$(jq '[[.panels[]|select(.id==15)][0].targets[].rawSql|select(.!=null)|select(test("\\$\\{api_key:singlequote\\}"))]|length>0' "$F")
 assert_eq "$LABEL: p15 filters by \${api_key:singlequote}" "true" "$P15_APIKEY"
 
-# p8: bargauge, ASOF LEFT JOIN, u.model
+# p8: bargauge, single-table usage_log query (no ASOF JOIN needed), selects model
 P8_TYPE=$(jq -r '[.panels[]|select(.id==8)][0].type' "$F")
 assert_eq "$LABEL: p8 is bargauge" "bargauge" "$P8_TYPE"
-P8_ADOF=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("ASOF LEFT JOIN";"i"))]|length>0' "$F")
-assert_eq "$LABEL: p8 uses ASOF LEFT JOIN" "true" "$P8_ADOF"
-P8_UMODEL=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("u.model"))]|length>0' "$F")
-assert_eq "$LABEL: p8 selects u.model" "true" "$P8_UMODEL"
+P8_USAGE=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("FROM llm_gateway.usage_log";"i"))]|length>0' "$F")
+assert_eq "$LABEL: p8 queries usage_log directly" "true" "$P8_USAGE"
+P8_MODEL=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("SELECT model";"i"))]|length>0' "$F")
+assert_eq "$LABEL: p8 selects model" "true" "$P8_MODEL"
 
 # Cross-dashboard invariant: templating identical across all 3
 check_templating_sync

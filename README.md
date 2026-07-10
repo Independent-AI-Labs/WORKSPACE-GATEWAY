@@ -3,7 +3,8 @@
 Routes traffic to any OpenAI-compatible LLM provider through Apache APISIX
 3.17.0, with PII redaction, virtual key management, billing-grade token
 accounting, per-key rate limiting, and a Grafana dashboard. Four custom Lua
-plugins, five built-in plugins, zero sidecars on the hot path. Per-tenant isolation runs entirely
+plugins, five built-in plugins, zero sidecars on the hot path. Per-tenant
+isolation runs entirely
 inside APISIX: virtual keys are minted in OpenBao, every request is scoped
 to a tenant route, and token usage is streamed to ClickHouse via Vector for
 second-granularity audit and cost attribution. No proxy process to babysit,
@@ -383,7 +384,6 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 | `make dev-logs` | Tail container logs |
 | `make dev-clean` | Stop + destroy volumes (data loss) |
 | `make dev-shell` | Exec into APISIX container |
-| `make dev-reset-db` | Drop + recreate ClickHouse tables |
 | `make dev-sanity` | Single curl request through gateway |
 | `make dev-test` | Run full test suite via Ansible |
 

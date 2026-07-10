@@ -2,8 +2,28 @@
 
 **Project:** WORKSPACE-GATEWAY, High-Performance Enterprise Multi-Tenant LLM Gateway
 **Platform:** Apache APISIX 3.17.0 (standalone YAML mode)
-**Status:** Draft specs (research-validated)
-**Date:** 2026-07-05
+**Status:** Implementation complete; 22 architectural issues found in audit
+**Date:** 2026-07-09 (revised)
+
+## Audit Context
+
+A full audit (2026-07-09) found that several documents in this
+directory describe aspirational or outdated behavior. Every document now
+carries a `KNOWN ISSUES` block at its head listing discrepancies between
+documentation and observed reality. Key cross-cutting findings:
+
+- **`docs/ARCHITECTURE.md`** - Contains the full audit report. Read this first.
+- **`docs/DASHBOARD-REQUIREMENTS.md`** - Panels 8/10 ASOF JOINs are
+  probabilistically wrong; event_id JOIN doesn't work historically.
+- **`docs/TEST-PLAN.md`** - Missing coverage for correlation ID, event_id
+  generation, CJK token estimation, and concurrent requests.
+- **`docs/COST-CALC-LUA.md`** - Cost calc module is correct; CJK token
+  estimation in feeding function undercounts by ~25%.
+
+Documents NOT listed above (PROPOSAL, PLUGIN-FOUNDATION, BUILTIN-PLUGINS,
+PLUGIN-REDACT-LUA, PLUGIN-REDACT-ENGINE, PLUGIN-SEMANTIC-CACHE,
+DEPLOYMENT, OPENCODE-INTEGRATION) were not audited for this round; their
+content may also be stale.
 
 ## Index
 

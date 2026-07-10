@@ -72,11 +72,14 @@ function plugin.body_filter(conf, ctx)
 
         if complete ~= "" then
             if ctx.sse_is_stream then
-                local usage, model, done, cost = sse_lib.scan_sse_for_usage(complete)
+                local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(complete)
                 if done then ctx.sse_completed = true end
                 if usage then ctx.sse_usage = usage end
                 if model and model ~= "" then ctx.sse_model = model end
                 if cost and cost > 0 then ctx.sse_cost = cost end
+                if reasoning_text and reasoning_text ~= "" then
+                    ctx.sse_reasoning_text = (ctx.sse_reasoning_text or "") .. reasoning_text
+                end
             else
                 local usage, model, cost = sse_lib.parse_json_usage(complete)
                 if usage then
@@ -91,11 +94,14 @@ function plugin.body_filter(conf, ctx)
     if eof then
         if ctx.sse_buffer and ctx.sse_buffer ~= "" then
             if ctx.sse_is_stream then
-                local usage, model, done, cost = sse_lib.scan_sse_for_usage(ctx.sse_buffer)
+                local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(ctx.sse_buffer)
                 if done then ctx.sse_completed = true end
                 if usage then ctx.sse_usage = usage end
                 if model and model ~= "" then ctx.sse_model = model end
                 if cost and cost > 0 then ctx.sse_cost = cost end
+                if reasoning_text and reasoning_text ~= "" then
+                    ctx.sse_reasoning_text = (ctx.sse_reasoning_text or "") .. reasoning_text
+                end
             else
                 local usage, model, cost = sse_lib.parse_json_usage(ctx.sse_buffer)
                 if usage then
@@ -140,7 +146,7 @@ function plugin.log(conf, ctx)
 
     local is_stream = ctx.sse_is_stream and 1 or 0
 
-    local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(ctx.sse_usage)
+    local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(ctx.sse_usage, ctx.sse_reasoning_text)
     local model = ctx.sse_model or ""
     local sse_cost = tonumber(ctx.sse_cost) or 0
     local req_model = ctx.sse_req_model or model
@@ -164,9 +170,19 @@ function plugin.log(conf, ctx)
         end
     end
 
+    --Canonicalize model to lowercase suffix (e.g. "frank/GLM-5.2" ->
+    --"glm-5.2") so usage_log.model matches request_log.model for the
+    --same request. Mirrors cost_calc.normalize_key and the Vector VRL
+    --remap (conf/vector.toml) so the Grafana model variable UNION
+    --doesn't produce duplicate entries.
+    model = cost_calc.normalize_key(model)
+
     local route_id = ctx.route_id or ""
-    local start_time = ctx.start_time or 0
-    local event_id = route_id .. "_" .. tostring(start_time)
+    --Use ngx.var.start_time (Nginx $start_time, seconds.millis string), same source Vector reads.
+    --to_int() in VRL truncates to integer seconds, so match that.
+    local start_time_sec = math.floor(tonumber(ngx.var.start_time)
+        or ngx.req.start_time() or 0)
+    local event_id = route_id .. "_" .. tostring(start_time_sec)
 
     --Resolve + hash client key (mirrors conf/vector.toml VRL hashing
     --so usage_log.key_id == request_log.key_id for the same request).
@@ -196,8 +212,15 @@ function plugin.log(conf, ctx)
         hashed = table.concat(hex):sub(1, 16)
     end
 
+    --request_id: read the X-Request-Id request header (set by the APISIX
+    --request-id plugin in the rewrite phase) so the value matches exactly
+    --what Vector writes to request_log. Fall back to nginx's $request_id
+    --if the request-id plugin is not enabled.
+    local request_id = ngx.var.http_x_request_id or ngx.var.request_id or ""
+
     local entry = cjson.encode({
         event_id = event_id,
+        request_id = request_id,
         model = model,
         prompt_tokens = pt,
         completion_tokens = ct,
@@ -220,28 +243,42 @@ function plugin.log(conf, ctx)
     local clickhouse_addr = conf.clickhouse_addr
     local body = entry .. "\n"
 
+    local max_retries = 3
+    local retry_delays = {0.1, 0.5, 2.0}
+
     local timer_handler
-    timer_handler = function(premature)
+    timer_handler = function(premature, retry_count)
         if premature then return end
+        retry_count = retry_count or 0
+
         local httpc = http.new()
+        httpc:set_timeout(5000)
         local res, err = httpc:request_uri(clickhouse_addr .. "/", {
             method = "POST",
             query = {query = "INSERT INTO llm_gateway.usage_log FORMAT JSONEachRow"},
             body = body,
             headers = {["Content-Type"] = "application/json"},
-            timeout = 5000,
         })
-        if not res then
-            core.log.error("sse-usage: clickhouse insert failed: ", err)
-            return
-        end
-        if res.status ~= 200 then
+        if res and res.status ~= 200 then
             core.log.error("sse-usage: clickhouse returned status ", res.status,
                            ": ", res.body or "")
         end
+        if not res and retry_count < max_retries then
+            core.log.warn("sse-usage: clickhouse insert failed (attempt ",
+                          retry_count + 1, "/", max_retries, "): ", err or "unknown")
+            local ok, timer_err = ngx.timer.at(retry_delays[retry_count + 1] or 1, timer_handler, retry_count + 1)
+            if not ok then
+                core.log.error("sse-usage: retry timer creation failed: ", timer_err)
+            end
+            return
+        end
+        if not res then
+            core.log.error("sse-usage: clickhouse insert failed after ",
+                           max_retries, " attempts: ", err or "unknown")
+        end
     end
 
-    local ok, err = ngx.timer.at(0, timer_handler)
+    local ok, err = ngx.timer.at(0, timer_handler, 0)
     if not ok then
         core.log.error("sse-usage: failed to create timer: ", err)
     end
