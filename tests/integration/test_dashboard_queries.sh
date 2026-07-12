@@ -194,14 +194,21 @@ echo ""
 # Q4: p3 format: "NN Mil ($X.XX)" or "NN K ($X.XX)" or "NN ($X.XX)"
 # =====================================================================
 echo "--- Q4: p3 Output Format ---"
-for ref in A B C D E; do
-    r=$(exec_ch 3 "$ref")
-    if echo "$r" | grep -qP '^\d+ (Mil|K) \(\$\d+\.\d+\)$' || echo "$r" | grep -qP '^\d+ \(\$\d+(\.\d+)?\)$'; then
-        rp "Q4: p3-${ref} format valid"
+P3_FMT_ROW=$(exec_ch 3 A | head -1)
+P3_LABELS=(Total Input Cached Output Reasoning)
+P3_IDX=0
+IFS=$'\t' read -r -a P3_COLS <<< "$P3_FMT_ROW"
+for val in "${P3_COLS[@]}"; do
+    label="${P3_LABELS[$P3_IDX]}"
+    if echo "$val" | grep -qE '^[0-9]+ (Mil|K) \(\$[0-9]+\.[0-9]+\)$' \
+        || echo "$val" | grep -qE '^[0-9]+ \(\$[0-9]+(\.[0-9]+)?\)$'; then
+        rp "Q4: p3-${label} format valid"
     else
-        rf "Q4: p3-${ref} format invalid: $(echo "$r" | head -1)"
+        rf "Q4: p3-${label} format invalid: $val"
     fi
+    P3_IDX=$((P3_IDX + 1))
 done
+[ "${#P3_COLS[@]}" -eq 5 ] && rp "Q4: p3 returns 5 formatted columns" || rf "Q4: p3 returns ${#P3_COLS[@]} columns (expected 5)"
 echo ""
 
 # =====================================================================
@@ -255,8 +262,9 @@ echo ""
 echo "--- Q8: p8 Model Distribution Consistency ---"
 P8D=$(exec_ch 8 A)
 P8S=$(echo "$P8D" | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
-# Total requests from p1 (Total Requests panel, same ClickHouse query)
-P8T=$(exec_ch 1 A | head -1); P8T=${P8T:-0}
+# Compare against usage_log row count (p8 counts usage_log rows per model)
+P8T_SQL="SELECT count() FROM llm_gateway.usage_log WHERE timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS') AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ($CH_KEY_LIST) AND model IN ($CH_MODEL_LIST) FORMAT TabSeparated"
+P8T=$(exec_ch_raw "$P8T_SQL" | head -1); P8T=${P8T:-0}
 P8DIFF=$((P8T - P8S))
 if [ "$P8DIFF" -lt 0 ]; then P8DIFF=$((-P8DIFF)); fi
 P8PCT=$(awk "BEGIN{if($P8T > 0) printf \"%.2f\", ($P8DIFF * 100.0 / $P8T); else print 0}" 2>/dev/null)
