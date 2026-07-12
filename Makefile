@@ -173,6 +173,12 @@ dev-restart-grafana: ## Recreate Grafana (pulls new image from compose), wait he
 	done
 	@echo "=== Reloading provisioning (drops orphan dashboards) ==="
 	@curl -s -X POST http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/admin/provisioning/dashboards/reload >/dev/null
+	@echo "=== Syncing dashboard defaults from JSON (7d / 5s) ==="
+	@bash res/scripts/sync-grafana-dashboards.sh
+	@echo "=== Canonical dashboard URLs (use these; stale bookmarks may keep now-24h) ==="
+	@echo "  http://localhost:3030/d/gateway-cost-usage?from=now-7d&to=now&refresh=5s"
+	@echo "  http://localhost:3030/d/gateway-ops-health?from=now-7d&to=now&refresh=5s"
+	@echo "  http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s"
 	@echo "=== Grafana upgrade complete ==="
 
 dev-logs: ## Tail container logs (Ctrl-C to stop)

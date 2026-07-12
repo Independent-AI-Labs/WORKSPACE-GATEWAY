@@ -34,10 +34,10 @@ prom_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$PROM_URL/-/hea
 echo "=== Dashboard Query Integration Tests (extracted from JSON) ==="
 echo ""
 
-# ── Time range (last 24h) ──────────────────────────────────────────────
-FROM_TS=$(date -d '24 hours ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
-    date -u -d "@$(($(date +%s)-86400))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
-    date -u -r "$(( $(date +%s) - 86400 ))" '+%Y-%m-%d %H:%M:%S')
+# ── Time range (last 7d) ───────────────────────────────────────────────
+FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
+    date -u -d "@$(($(date +%s)-604800))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
+    date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
 TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "[INFO] Time range: $FROM_TS to $TO_TS"
 

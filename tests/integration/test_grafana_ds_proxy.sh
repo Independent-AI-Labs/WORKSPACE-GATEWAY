@@ -111,7 +111,7 @@ ds_query() {
                 rawSql: $sql,
                 refId: "A"
             }],
-            range: {from: "now-24h", to: "now"}
+            range: {from: "now-7d", to: "now"}
         }')
     curl -sf --max-time 30 -X POST "$GRAFANA_URL/api/ds/query" \
         -u "$GRAFANA_AUTH" \

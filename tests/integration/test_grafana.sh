@@ -104,6 +104,19 @@ for dash_info in "Gateway Cost & Usage|gateway-cost-usage" \
     fi
 done
 
+# ── 5b. Dashboard defaults (7d lookback, 5s refresh) ───────────────────
+
+for dash_uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; do
+    dash_json=$(curl -s "http://admin:admin@localhost:3030/api/dashboards/uid/$dash_uid" 2>/dev/null || echo "{}")
+    dash_from=$(echo "$dash_json" | jq -r '.dashboard.time.from // "missing"' 2>/dev/null || echo "parse_error")
+    dash_refresh=$(echo "$dash_json" | jq -r '.dashboard.refresh // "missing"' 2>/dev/null || echo "parse_error")
+    if [ "$dash_from" = "now-7d" ] && [ "$dash_refresh" = "5s" ]; then
+        record_pass "$dash_uid defaults: now-7d / 5s"
+    else
+        record_fail "$dash_uid defaults: expected now-7d / 5s, got $dash_from / $dash_refresh"
+    fi
+done
+
 # ── 6. Container names do not conflict ────────────────────────────────
 
 if podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^gw-grafana$'; then

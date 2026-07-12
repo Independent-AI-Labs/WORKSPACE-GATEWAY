@@ -85,7 +85,7 @@ Two template variables filter every panel query:
 | `api_key` | ClickHouse | `SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') FROM request_log` | No `allValue` set. Grafana expands `${api_key:singlequote}` to all values when "All" is selected. |
 | `model` | ClickHouse | `SELECT DISTINCT model FROM (request_log UNION ALL usage_log) WHERE model != ''` | No `allValue`. UNIONs both tables so all models appear. |
 
-Time range: default `now-24h` to `now`, refresh every 5 seconds.
+Time range: default `now-7d` to `now`, refresh every 5 seconds.
 
 The key identity filter uses `coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown')`
 to normalize the key field across both tables (some rows use `key_id`, others
@@ -664,7 +664,7 @@ These apply to every panel regardless of type:
    medal/neutral accent set outside the brand palette: white `#ffffff`
    (default tile background for ranks 4-10), matte gold `#c9a44c` (rank 1),
    matte silver `#a8a9ad` (rank 2), matte bronze `#b07a3c` (rank 3).
-10. **Dashboard time range:** `now-24h` to `now`, refresh `5s` (all 3 dashboards).
+10. **Dashboard time range:** `now-7d` to `now`, refresh `5s` (all 3 dashboards).
 11. **Panel count:** 15 panels total across 3 dashboards (10 ClickHouse,
     5 Prometheus). Cost & Usage: 3 CH. Operations & Health: 6 CH + 5 Prom.
     Cost Leaderboard: 1 CH (stat panel, 10 ranked tiles).

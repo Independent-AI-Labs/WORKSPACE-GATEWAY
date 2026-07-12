@@ -428,14 +428,14 @@ skip_unknown_fields = true
 
 The gateway observability stack provides 3 separate Grafana dashboards:
 
-- **Gateway Cost & Usage**: `http://localhost:3030/d/gateway-cost-usage/gateway-cost-usage`
+- **Gateway Cost & Usage**: `http://localhost:3030/d/gateway-cost-usage?from=now-7d&to=now&refresh=5s`
   - token usage by category (p3), model distribution (p8), cost over time (p15).
   All ClickHouse datasource.
-- **Gateway Operations & Health**: `http://localhost:3030/d/gateway-ops-health/gateway-ops-health`
+- **Gateway Operations & Health**: `http://localhost:3030/d/gateway-ops-health?from=now-7d&to=now&refresh=5s`
   - total requests, active connections, error rate, request rate, status code
   breakdown, latency percentiles, avg latency by model, bandwidth, shared dict
   memory, stream abort rate, stream status. Mixed Prometheus + ClickHouse.
-- **Gateway Cost Leaderboard**: `http://localhost:3030/d/gateway-cost-leaderboard/gateway-cost-leaderboard`
+- **Gateway Cost Leaderboard**: `http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s`
   - top clients ranked by cost and token consumption (p20, ClickHouse table).
 
 All 3 dashboards share identical `templating` (api_key + model variables) and
