@@ -86,12 +86,12 @@ ds_query() {
         -e 's|\$__timeFilter(r\.timestamp)|r.timestamp >= now() - INTERVAL 24 HOUR|g' \
         -e 's|\$__timeFilter(timestamp)|timestamp >= now() - INTERVAL 24 HOUR|g')
 
-    # Step 2: Replace ${api_key:singlequote} and ${model:singlequote} with placeholder tokens
+    # Step 2: Replace ${api_key:singlequote} and ${model:singlequote} with sentinel tokens
     sql=$(printf '%s' "$sql" | sed \
         -e 's|\${api_key:singlequote}|APIKEYPLACEHOLDER|g' \
         -e 's|\${model:singlequote}|MODELPLACEHOLDER|g')
 
-    # Step 3: Replace placeholders with actual subqueries using bash (handles quotes)
+    # Step 3: Replace sentinel tokens with actual subqueries using bash (handles quotes)
     local all_keys_sub="(SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') FROM llm_gateway.request_log)"
     local all_models_sub="(SELECT DISTINCT model FROM llm_gateway.usage_log WHERE model != '')"
     sql="${sql//APIKEYPLACEHOLDER/$all_keys_sub}"

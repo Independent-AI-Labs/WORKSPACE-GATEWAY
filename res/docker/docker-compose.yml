@@ -6,6 +6,7 @@ services:
     ports:
       - "9080:9080"
       - "9443:9443"
+      - "9180:9180"
       - "9100:9100"
     volumes:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
@@ -23,6 +24,7 @@ services:
     depends_on:
       - vector
       - openbao
+      - etcd
     restart: unless-stopped
     networks:
       - gateway
@@ -103,7 +105,7 @@ services:
       - gateway
 
   prometheus:
-    image: prom/prometheus:v3.13.0
+    image: prom/prometheus:v3.13.1
     container_name: gw-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -140,11 +142,28 @@ services:
     networks:
       - gateway
 
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.20
+    container_name: gw-etcd
+    entrypoint: /usr/local/bin/etcd
+    command:
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --data-dir=/etcd-data
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd-data:/etcd-data
+    restart: unless-stopped
+    networks:
+      - gateway
+
 volumes:
   clickhouse-data:
   prometheus-data:
   grafana-data:
   openbao-data:
+  etcd-data:
 
 networks:
   gateway:

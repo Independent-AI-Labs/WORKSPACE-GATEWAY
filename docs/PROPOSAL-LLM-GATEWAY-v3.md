@@ -61,7 +61,7 @@ failover).
 | Control Plane | `apisix.yaml` file (standalone mode) or ADC `adc sync` for GitOps. |
 | IdP | Identity Provider, Keycloak, Entra ID, or raw Active Directory (LDAP/Kerberos). |
 | Context Pattern | Standardized `ctx` + header injection of `X-Tenant-ID`, `X-User-ID`, `X-Routing-Tier`. |
-| PII Map | The per-request `{placeholder -> original}` association used for re-hydration. |
+| PII Map | The per-request `{redaction token -> original}` association used for re-hydration. |
 | Reconciler | A daily offline job cross-checking APISIX usage logs against provider billing APIs. |
 
 ---
@@ -257,13 +257,13 @@ aggregate queries. TTL 13 months for high-volume retention without `Too many par
   codes, internal system identifiers). Loaded at init from a YAML file; matched via
   PCRE alternation (`org1|org2|org3|...`, PCRE optimizes with internal trie) or
   `lua-resty-aho-corasick` FFI if available.
-- Original PII -> safe placeholder (`[EMAIL_1]`, `[CUSTOMER_NAME_1]`). PII Map
+- Original PII -> safe redaction token (`[EMAIL_1]`, `[CUSTOMER_NAME_1]`). PII Map
   stashed in `ctx` (per-request, zero-copy table access).
 - `Content-Length` cleared in `header_filter` (before body_filter; headers are
   flushed after that).
-- Cross-chunk sliding window: SSE responses stream as multiple chunks; a placeholder
+- Cross-chunk sliding window: SSE responses stream as multiple chunks; a redaction token
   may span a chunk boundary. The Lua matcher keeps a tail buffer across `body_filter`
-  invocations so partial placeholders are rehydrated correctly.
+  invocations so partial redaction tokens are rehydrated correctly.
 - **Zero IPC on the hot path.** No sidecar call. No serialization. No network.
 
 ### 7.2 Heavy NER (off-thread sidecar, v2)
@@ -281,7 +281,7 @@ The data plane never blocks the client on the sidecar. See `PLUGIN-REDACT-ENGINE
 
 ### 7.3 Security guarantee
 
-Upstream LLM providers never see original PII, only placeholders. PII is re-injected
+Upstream LLM providers never see original PII, only redaction tokens. PII is re-injected
 only as the outbound stream passes back through the Lua `body_filter`. The PII Map
 never leaves the gateway data plane.
 

@@ -42,10 +42,19 @@ fi
 assert_eq "Valid YAML" "ok" "ok"
 
 DEPLOY_ROLE=$(echo "$JSON_DATA" | jq -r '.deployment.role')
-assert_eq "deployment.role is data_plane" "data_plane" "$DEPLOY_ROLE"
+assert_eq "deployment.role is traditional" "traditional" "$DEPLOY_ROLE"
 
-DEPLOY_PROVIDER=$(echo "$JSON_DATA" | jq -r '.deployment.role_data_plane.config_provider')
-assert_eq "deployment.role_data_plane.config_provider is yaml" "yaml" "$DEPLOY_PROVIDER"
+DEPLOY_PROVIDER=$(echo "$JSON_DATA" | jq -r '.deployment.role_traditional.config_provider')
+assert_eq "deployment.role_traditional.config_provider is etcd" "etcd" "$DEPLOY_PROVIDER"
+
+HAS_ADMIN_KEY=$(echo "$JSON_DATA" | jq -r '.deployment.admin.admin_key[0].key')
+assert_eq "deployment.admin.admin_key[0].key uses env var syntax" '${{ADMIN_KEY}}' "$HAS_ADMIN_KEY"
+
+HAS_ADMIN_UI=$(echo "$JSON_DATA" | jq '.deployment.admin.enable_admin_ui == true')
+assert_eq "deployment.admin.enable_admin_ui is true" "true" "$HAS_ADMIN_UI"
+
+HAS_ETCD=$(echo "$JSON_DATA" | jq '.deployment.etcd.host | index("http://etcd:2379") != null')
+assert_eq "deployment.etcd.host contains http://etcd:2379" "true" "$HAS_ETCD"
 
 PLUGINS_REDACT=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "redact")] | length')
 assert_eq "redact in plugins list" "1" "$PLUGINS_REDACT"

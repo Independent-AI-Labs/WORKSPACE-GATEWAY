@@ -59,6 +59,9 @@ assert_eq "Has prometheus service" "true" "$HAS_PROMETHEUS"
 HAS_GRAFANA=$(echo "$JSON_DATA" | jq '.services | has("grafana")')
 assert_eq "Has grafana service" "true" "$HAS_GRAFANA"
 
+HAS_ETCD=$(echo "$JSON_DATA" | jq '.services | has("etcd")')
+assert_eq "Has etcd service" "true" "$HAS_ETCD"
+
 OPENBAO_BUILD=$(echo "$JSON_DATA" | jq '.services.openbao.build != null')
 assert_eq "OpenBao uses custom build (Dockerfile.openbao)" "true" "$OPENBAO_BUILD"
 
@@ -125,6 +128,9 @@ assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
 APISIX_PORT_9100=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9100:9100")] | length')
 assert_eq "APISIX exposes port 9100 for prometheus" "1" "$APISIX_PORT_9100"
 
+APISIX_PORT_9180=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9180:9180")] | length')
+assert_eq "APISIX exposes port 9180 for Admin API + Dashboard" "1" "$APISIX_PORT_9180"
+
 APISIX_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.apisix.volumes[]')
 HAS_APISIX_YAML=$(echo "$APISIX_MOUNTS" | grep -c "apisix.yaml" || true)
 assert_eq "APISIX mounts apisix.yaml" "1" "$HAS_APISIX_YAML"
@@ -158,6 +164,15 @@ assert_eq "Vector exposes port 8080" "1" "$VECTOR_PORT_8080"
 VECTOR_CMD=$(echo "$JSON_DATA" | jq -r '[.services.vector.command[] | select(. == "/etc/vector/vector.toml")] | length')
 assert_eq "Vector command specifies vector.toml config" "1" "$VECTOR_CMD"
 
+ETCD_CONTAINER=$(echo "$JSON_DATA" | jq -r '.services.etcd.container_name')
+assert_eq "etcd container name is gw-etcd" "gw-etcd" "$ETCD_CONTAINER"
+
+ETCD_PORT=$(echo "$JSON_DATA" | jq '[.services.etcd.ports[] | select(. == "2379:2379")] | length')
+assert_eq "etcd exposes port 2379" "1" "$ETCD_PORT"
+
+ETCD_NETWORK=$(echo "$JSON_DATA" | jq '[.services.etcd.networks[] | select(. == "gateway")] | length')
+assert_eq "etcd on gateway network" "1" "$ETCD_NETWORK"
+
 HAS_GATEWAY=$(echo "$JSON_DATA" | jq '.networks | has("gateway")')
 assert_eq "Networks has gateway" "true" "$HAS_GATEWAY"
 
@@ -170,6 +185,9 @@ assert_eq "Has prometheus-data volume" "true" "$HAS_PROM_VOLUME"
 HAS_GRAFANA_VOLUME=$(echo "$JSON_DATA" | jq '.volumes | has("grafana-data")')
 assert_eq "Has grafana-data volume" "true" "$HAS_GRAFANA_VOLUME"
 
+HAS_ETCD_VOLUME=$(echo "$JSON_DATA" | jq '.volumes | has("etcd-data")')
+assert_eq "Has etcd-data volume" "true" "$HAS_ETCD_VOLUME"
+
 APISIX_ENV_FILE=$(echo "$JSON_DATA" | jq -r '.services.apisix.env_file[]')
 HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" || true)
 assert_eq "APISIX has env_file pointing to .env" "1" "$HAS_ENV_FILE"
@@ -177,5 +195,8 @@ assert_eq "APISIX has env_file pointing to .env" "1" "$HAS_ENV_FILE"
 APISIX_DEPS=$(echo "$JSON_DATA" | jq -r '.services.apisix.depends_on[]')
 HAS_OPENBAO_DEP=$(echo "$APISIX_DEPS" | grep -c "openbao" || true)
 assert_eq "APISIX depends on openbao" "1" "$HAS_OPENBAO_DEP"
+
+HAS_ETCD_DEP=$(echo "$APISIX_DEPS" | grep -c "etcd" || true)
+assert_eq "APISIX depends on etcd" "1" "$HAS_ETCD_DEP"
 
 summary

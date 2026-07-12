@@ -31,7 +31,7 @@ HTTP/JSON in --->  | axum/hyper server  (POST /ner, /healthz)         |  ---> HT
                     |   - BIO tag decoding -> entity spans              |
                     |   - runs on tokio::task::spawn_blocking threads   |
                     |                                                  |
-                    | No regex, no dictionary, no placeholder minting  |
+                    | No regex, no dictionary, no redaction token minting  |
                     | (all of that is in the Lua plugin now)           |
                     +--------------------------------------------------+
 ```
@@ -80,7 +80,7 @@ Response (200):
 ```
 
 The Lua plugin receives entities and applies them to the PII map (minting
-placeholders like `[CUSTOMER_NAME_1]`, `[ORGANIZATION_1]`). Placeholder minting
+redaction tokens like `[CUSTOMER_NAME_1]`, `[ORGANIZATION_1]`). Redaction token minting
 and PII map management stay in the Lua plugin, the sidecar only detects.
 
 ### 2.2 `GET /healthz`
@@ -322,8 +322,8 @@ if conf.ner_sidecar_url and conf.ner_sidecar_url ~= "" then
                 for _, ent in ipairs(ner.entities) do
                     local kind = string.upper(ent.kind)
                     ctx.ner_counter = (ctx.ner_counter or 0) + 1
-                    local placeholder = string.format("[%s_%d]", kind, ctx.ner_counter)
-                    ctx.redact_key[placeholder] = ent.text
+                    local redaction token = string.format("[%s_%d]", kind, ctx.ner_counter)
+                    ctx.redact_key[redaction token] = ent.text
                 end
             end
         end

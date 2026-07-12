@@ -28,7 +28,7 @@ detection (Person/Org/Location), invoked off-thread via `ngx.timer.at`.
                   |         build dictionary alternation regex         |
                   |                                                   |
                   | access: scan message content with regex + dict     |
- request ------>  |   replace PII -> [KIND_N] placeholders             | -----> upstream LLM
+ request ------>  |   replace PII -> [KIND_N] redaction tokens             | -----> upstream LLM
                   |   stash PII Map in ctx (per-request)               |
                   |   rewrite request body                             |
                   |                                                   |
@@ -168,7 +168,7 @@ end
 
 ---
 
-## 5. PII Detection and Placeholder Minting
+## 5. PII Detection and Redaction token Minting
 
 ### 5.1 Luhn check (credit card false-positive suppression)
 
@@ -218,9 +218,9 @@ local function redact_text(text, patterns, counters, pii_map, redact_ips)
                     local pos = positions[i]
                     local kind_key = string.upper(p.kind)
                     counters[kind_key] = (counters[kind_key] or 0) + 1
-                    local placeholder = string.format("[%s_%d]", kind_key, counters[kind_key])
-                    pii_map[placeholder] = pos[3]
-                    text = text:sub(1, pos[1] - 1) .. placeholder .. text:sub(pos[1] + pos[2])
+                    local redaction token = string.format("[%s_%d]", kind_key, counters[kind_key])
+                    pii_map[redaction token] = pos[3]
+                    text = text:sub(1, pos[1] - 1) .. redaction token .. text:sub(pos[1] + pos[2])
                 end
             end
         end
@@ -239,9 +239,9 @@ local function redact_text(text, patterns, counters, pii_map, redact_ips)
             for i = #positions, 1, -1 do
                 local pos = positions[i]
                 counters["DICTIONARY"] = (counters["DICTIONARY"] or 0) + 1
-                local placeholder = string.format("[DICTIONARY_%d]", counters["DICTIONARY"])
-                pii_map[placeholder] = pos[3]
-                text = text:sub(1, pos[1] - 1) .. placeholder .. text:sub(pos[1] + pos[2])
+                local redaction token = string.format("[DICTIONARY_%d]", counters["DICTIONARY"])
+                pii_map[redaction token] = pos[3]
+                text = text:sub(1, pos[1] - 1) .. redaction token .. text:sub(pos[1] + pos[2])
             end
         end
     end
@@ -367,7 +367,7 @@ function _M.body_filter(conf, ctx)
     local chunk, eof = ngx.arg[1], ngx.arg[2]
 
     if conf.stream_mode == "passthrough" and ctx.redact_stream then
-        return  -- emit unmodified; placeholders pass to client. DANGEROUS, default off.
+        return  -- emit unmodified; redaction tokens pass to client. DANGEROUS, default off.
     end
 
     -- Buffer-then-restore on EOF (default 'buffer' mode)
@@ -403,7 +403,7 @@ function _M.body_filter(conf, ctx)
 end
 ```
 
-**Cross-chunk safety:** placeholders are fixed ASCII tokens (`[A-Z_0-9]+`). The
+**Cross-chunk safety:** redaction tokens are fixed ASCII tokens (`[A-Z_0-9]+`). The
 SSE buffer is gsub'd wholesale on EOF, which is always correct because the buffer
 contains the full concatenated response.
 
@@ -435,11 +435,11 @@ columns.
 |---------------|----------------------------|
 | `reject` | 400 immediately if `stream:true` |
 | `buffer` (default) | Forward `stream:true` upstream; buffer SSE to EOF in `body_filter`; restore once; flush as single chunk. Breaks per-token streaming UX (client sees whole response at once). |
-| `passthrough` | Emit chunks unmodified; placeholders pass to client. Only acceptable if client is trusted/internal and re-hydrates. DANGEROUS, default off. |
+| `passthrough` | Emit chunks unmodified; redaction tokens pass to client. Only acceptable if client is trusted/internal and re-hydrates. DANGEROUS, default off. |
 
 **Future enhancement (v1.1):** Per-frame restore pattern, parse `data: {…}\n\n`
 frames in the Lua buffer and restore per frame before emitting. Preserves
-per-token streaming UX without breaking cross-chunk placeholders.
+per-token streaming UX without breaking cross-chunk redaction tokens.
 
 ---
 
@@ -452,7 +452,7 @@ per-token streaming UX without breaking cross-chunk placeholders.
 | Request body not chat-shaped | `parsed.messages == nil` | passthrough (no redaction) | passthrough |
 | `cjson.encode` fails on rewrite | pcall returns false | 502 | pass through original body |
 | Empty response from upstream | `body == ""` on EOF | emit empty body | empty body |
-| `body_filter` gsub fails | pcall wrap | log + emit raw (placeholders to client!) | same |
+| `body_filter` gsub fails | pcall wrap | log + emit raw (redaction tokens to client!) | same |
 
 `on_error=closed` (default) is the production posture per AGENTS.md Rule 13.
 
@@ -461,16 +461,16 @@ per-token streaming UX without breaking cross-chunk placeholders.
 ## 12. Test Plan
 
 - Unit: `redact_text` with email, SSN, card (valid + Luhn-fail), API key, phone, JWT.
-- Unit: `restore_with_key` with placeholders containing `[]`, `%`, parens, must
+- Unit: `restore_with_key` with redaction tokens containing `[]`, `%`, parens, must
   escape metacharacters and not double-substitute.
 - Unit: Luhn check rejects 16-digit invoice IDs, accepts valid test card numbers.
 - Unit: Dictionary matching, "Acme Corporation" matched, "Acme Corp" not matched
   (exact match only in v1).
 - Unit: Round-trip: redact then restore = original text.
-- Integration: end-to-end through APISIX; assert placeholders in upstream call,
+- Integration: end-to-end through APISIX; assert redaction tokens in upstream call,
   originals in client response.
 - Stream-mode matrix: `reject` (400), `buffer` (defers to EOF, single emission),
-  `passthrough` (placeholders pass through).
+  `passthrough` (redaction tokens pass through).
 - Failure: invalid patterns file -> 503 (`closed`) / unredacted pass (`open`).
 - Header: assert `Content-Length` cleared; assert chunked transfer encoding.
 - No silent fallback: assert NO request proceeds without either redaction or

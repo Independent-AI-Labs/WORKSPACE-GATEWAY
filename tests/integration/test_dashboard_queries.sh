@@ -100,7 +100,7 @@ get_prom_expr() {
 
 # ── Macro substitution ─────────────────────────────────────────────────
 # Replaces $__timeFilter, ${api_key:singlequote}, ${model:singlequote}
-# Uses placeholder tokens to avoid sed single-quote escaping hell.
+# Uses sentinel tokens to avoid sed single-quote escaping hell.
 sub_ch() {
     local sql="$1"
     local keys="${2:-$CH_KEY_LIST}"
@@ -109,7 +109,7 @@ sub_ch() {
     sql=$(printf '%s' "$sql" | sed \
         -e "s|\$__timeFilter(r\.timestamp)|r.timestamp >= toDateTime('$FROM_TS') AND r.timestamp <= toDateTime('$TO_TS')|g" \
         -e "s|\$__timeFilter(timestamp)|timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS')|g")
-    # Step 2: placeholder tokens for Grafana variables
+    # Step 2: sentinel tokens for Grafana variables
     sql=$(printf '%s' "$sql" | sed \
         -e 's|\${api_key:singlequote}|APIKEYPLACEHOLDER|g' \
         -e 's|\${model:singlequote}|MODELPLACEHOLDER|g')

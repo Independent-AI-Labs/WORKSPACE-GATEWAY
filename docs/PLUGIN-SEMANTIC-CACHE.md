@@ -502,7 +502,7 @@ denial-of-service amplifier. Errors are surfaced via response header + log, but
 | `lua-resty-redis` `do_raw` for FT.SEARCH with binary PARAMS | Verify binary blob handling in `do_raw`; may need `ffi.string` + length prefix |
 | Per-tenant Redis index vs shared + TAG filter | Default shared + TAG; per-tenant index opt-in via `index_name` in query |
 | Vector Sets (`VADD`/`VSIM`) vs RediSearch FT.* | Default FT.* (Redis 8); Vector Sets alternative tracked |
-| Store post-re-hydration or placeholder-laden response? | Store canonical JSON (post-re-hydration); redact plugin re-runs on cached HIT |
+| Store post-re-hydration or redaction token-laden response? | Store canonical JSON (post-re-hydration); redact plugin re-runs on cached HIT |
 
 ---
 

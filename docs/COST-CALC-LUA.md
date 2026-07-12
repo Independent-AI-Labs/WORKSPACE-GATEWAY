@@ -398,7 +398,7 @@ tokens` comment.
 **`0 * cache_write`** - this term is always zero because `sse_usage_lib` does
 not extract a `cache_write` token count (the upstream doesn't report it).
 opencode's formula includes `tokens.cache.write * costInfo.cache.write`, but
-we have no `cache_write` token count to multiply. The `0 *` is a placeholder
+we have no `cache_write` token count to multiply. The `0 *` is a redaction token
 that should be removed or wired up. See §18.6.
 
 ### 5.3 Worked example - LIVE VERIFIED (glm-5.2, 2026-07-07)

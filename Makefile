@@ -115,7 +115,7 @@ _compose-up:
 		exit 1; \
 	fi
 	@echo "=== Verifying containers started ==="
-	@expected="docker_apisix_1 docker_clickhouse_1 docker_vector_1 gw-grafana gw-prometheus gw-openbao"; \
+	@expected="docker_apisix_1 docker_clickhouse_1 docker_vector_1 gw-etcd gw-grafana gw-prometheus gw-openbao"; \
 	missing=""; \
 	for c in $$expected; do \
 		if ! podman inspect -f '{{.State.Running}}' $$c | grep -q true; then \

@@ -34,6 +34,7 @@
     compose_file: "{{ project_root }}/res/docker/docker-compose.yml"
     venv_bin: "{{ project_root }}/.venv/bin"
     compose_cmd: "{{ venv_bin }}/podman-compose -f {{ compose_file }}"
+    admin_api_key: "{{ lookup('env', 'ADMIN_KEY') }}"
 
   environment:
     PATH: "{{ venv_bin }}:{{ lookup('env', 'PATH') }}"
@@ -64,6 +65,13 @@
         path: "{{ venv_bin }}/podman-compose"
       register: compose_bin
       failed_when: not compose_bin.stat.exists
+      tags: always
+
+    - name: Require ADMIN_KEY environment variable
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'ADMIN_KEY') | length > 0
+        fail_msg: "ADMIN_KEY must be set (add to .env, see .env.example)"
       tags: always
 
 
@@ -121,6 +129,45 @@
       until: apisix_health.status in [200, 404]
       retries: 15
       delay: 2
+      tags: [start]
+
+    - name: Wait for etcd to be ready
+      ansible.builtin.uri:
+        url: http://localhost:2379/health
+        method: GET
+        status_code: [200]
+        timeout: 5
+      register: etcd_health
+      until: etcd_health.status == 200
+      retries: 15
+      delay: 2
+      tags: [start]
+
+    - name: Wait for APISIX Admin API to be ready
+      ansible.builtin.uri:
+        url: http://localhost:9180/apisix/admin/routes
+        method: GET
+        headers:
+          X-API-KEY: "{{ admin_api_key }}"
+        status_code: [200]
+        timeout: 5
+      register: admin_health
+      until: admin_health.status == 200
+      retries: 15
+      delay: 2
+      tags: [start]
+
+    - name: Seed routes from conf/apisix.yaml into Admin API (etcd)
+      ansible.builtin.command: "{{ project_root }}/res/scripts/seed-routes.sh"
+      args:
+        chdir: "{{ project_root }}"
+      register: seed_result
+      changed_when: "'seeded' in (seed_result.stdout | default(''))"
+      tags: [start]
+
+    - name: Show seed result
+      ansible.builtin.debug:
+        var: seed_result.stdout_lines
       tags: [start]
 
     - name: Wait for ClickHouse to be ready
@@ -201,13 +248,16 @@
       ansible.builtin.debug:
         msg: |
           Stack is ready.
-            APISIX:           http://localhost:9080
-            Grafana:          http://localhost:3030
-            Prometheus:       http://localhost:9092
-            APISIX metrics:   http://localhost:9100/apisix/prometheus/metrics
-            ClickHouse:       http://localhost:8123
-            Vector:           http://localhost:8080/ingest
-            OpenBao:          http://localhost:8201
+            APISIX:             http://localhost:9080
+            APISIX Admin API:   http://localhost:9180
+            APISIX Dashboard:   http://localhost:9180/ui/
+            Grafana:            http://localhost:3030
+            Prometheus:         http://localhost:9092
+            APISIX metrics:     http://localhost:9100/apisix/prometheus/metrics
+            ClickHouse:         http://localhost:8123
+            Vector:             http://localhost:8080/ingest
+            OpenBao:            http://localhost:8201
+            etcd:               http://localhost:2379
       tags: [start]
 
     - name: Sync models from gateway into opencode config
@@ -260,6 +310,28 @@
       failed_when: ch_status.status | default(0) < 0
       tags: [status, never]
 
+    - name: Check etcd health
+      ansible.builtin.uri:
+        url: http://localhost:2379/health
+        method: GET
+        status_code: [200]
+        timeout: 5
+      register: etcd_status
+      failed_when: etcd_status.status | default(0) < 0
+      tags: [status, never]
+
+    - name: Check APISIX Admin API
+      ansible.builtin.uri:
+        url: http://localhost:9180/apisix/admin/routes
+        method: GET
+        headers:
+          X-API-KEY: "{{ admin_api_key }}"
+        status_code: [200]
+        timeout: 5
+      register: admin_status
+      failed_when: admin_status.status | default(0) < 0
+      tags: [status, never]
+
     - name: Check Prometheus metrics
       ansible.builtin.uri:
         url: http://localhost:9100/apisix/prometheus/metrics
@@ -294,6 +366,8 @@
       ansible.builtin.debug:
         msg:
           - "APISIX:           {{ 'UP' if apisix_status.status in [200, 404] else 'DOWN' }}"
+          - "APISIX Admin:     {{ 'UP' if admin_status.status == 200 else 'DOWN' }}"
+          - "etcd:             {{ 'UP' if etcd_status.status == 200 else 'DOWN' }}"
           - "ClickHouse:       {{ 'UP' if ch_status.status == 200 else 'DOWN' }}"
           - "APISIX metrics:   {{ 'UP' if prom_status.status == 200 else 'DOWN' }}"
           - "Grafana:          {{ 'UP' if grafana_status.status == 200 else 'DOWN' }}"

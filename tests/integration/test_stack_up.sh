@@ -9,6 +9,17 @@ IMAGE_TAG="workspace-gateway-apisix:local"
 
 export PATH="$PATH:$REPO_ROOT/.venv/bin"
 
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    source "$REPO_ROOT/.env" || exit 1
+    set +a
+fi
+
+if [ -z "${ADMIN_KEY:-}" ]; then
+    echo "[FAIL] ADMIN_KEY environment variable is required (set in .env, see .env.example)"
+    exit 1
+fi
+
 KEEP_STACK_UP="${KEEP_STACK_UP:-0}"
 
 pass=0
@@ -125,6 +136,40 @@ step3_apisix() {
     return 1
 }
 
+step4_etcd() {
+    wait_for_url "http://localhost:2379/health" "etcd on port 2379" 30
+}
+
+step5_admin_api() {
+    local max_attempts=30
+    local attempt=0
+    while [ "$attempt" -lt "$max_attempts" ]; do
+        local code
+        code=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-KEY: $ADMIN_KEY" "http://localhost:9180/apisix/admin/routes" || echo "000")
+        if [ "$code" != "000" ]; then
+            record_pass "APISIX Admin API on port 9180 is ready (HTTP $code)"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        echo "  [$attempt/$max_attempts] APISIX Admin API not ready yet (curl returned 000), retrying in 2s..."
+        sleep 2
+    done
+    record_fail "APISIX Admin API on port 9180 not ready after $max_attempts attempts"
+    return 1
+}
+
+step6_seed_routes() {
+    if bash "$REPO_ROOT/res/scripts/seed-routes.sh" \
+        --admin-key "$ADMIN_KEY" \
+        --admin-url "http://localhost:9180" \
+        --apisix-yaml "$REPO_ROOT/conf/apisix.yaml"; then
+        record_pass "Seed routes from conf/apisix.yaml into Admin API"
+        return 0
+    fi
+    record_fail "Seed routes from conf/apisix.yaml into Admin API"
+    return 1
+}
+
 step7_vector() {
     wait_for_port "localhost" "8080" "Vector" 30
 }
@@ -180,6 +225,9 @@ main() {
         step2_start
     fi
     step3_apisix
+    step4_etcd
+    step5_admin_api
+    step6_seed_routes
     step7_vector
     step8_clickhouse
     step8b_prometheus
