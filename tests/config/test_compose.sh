@@ -110,8 +110,8 @@ assert_eq "Prometheus on gateway network" "1" "$PROMETHEUS_NETWORK"
 GRAFANA_CONTAINER=$(echo "$JSON_DATA" | jq -r '.services.grafana.container_name')
 assert_eq "Grafana container name is gw-grafana" "gw-grafana" "$GRAFANA_CONTAINER"
 
-GRAFANA_PORT=$(echo "$JSON_DATA" | jq '[.services.grafana.ports[] | select(. == "3030:3000")] | length')
-assert_eq "Grafana exposes port 3030:3000" "1" "$GRAFANA_PORT"
+GRAFANA_PORT=$(echo "$JSON_DATA" | jq '[.services.grafana.ports[] | select(. == "127.0.0.1:3030:3000")] | length')
+assert_eq "Grafana binds localhost only on 3030:3000" "1" "$GRAFANA_PORT"
 
 GRAFANA_NETWORK=$(echo "$JSON_DATA" | jq '[.services.grafana.networks[] | select(. == "gateway")] | length')
 assert_eq "Grafana on gateway network" "1" "$GRAFANA_NETWORK"
@@ -120,7 +120,13 @@ GRAFANA_PLUGIN=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_PLU
 assert_eq "Grafana preinstalls ClickHouse plugin" "grafana-clickhouse-datasource" "$GRAFANA_PLUGIN"
 
 GRAFANA_ANON=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_AUTH_ANONYMOUS_ENABLED')
-assert_eq "Grafana anonymous auth enabled" "true" "$GRAFANA_ANON"
+assert_eq "Grafana anonymous auth defaults off" '${GF_AUTH_ANONYMOUS_ENABLED:-false}' "$GRAFANA_ANON"
+
+GRAFANA_PROXY=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_AUTH_PROXY_ENABLED')
+assert_eq "Grafana auth-proxy defaults on" '${GF_AUTH_PROXY_ENABLED:-true}' "$GRAFANA_PROXY"
+
+GRAFANA_SUBPATH=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_SERVER_SERVE_FROM_SUB_PATH')
+assert_eq "Grafana serves from subpath" "true" "$GRAFANA_SUBPATH"
 
 APISIX_PORT_9080=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9080:9080")] | length')
 assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
