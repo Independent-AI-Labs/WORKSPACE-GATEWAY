@@ -2,17 +2,19 @@
 
 Routes traffic to any OpenAI-compatible LLM provider through Apache APISIX
 3.17.0, with PII redaction, virtual key management, billing-grade token
-accounting, per-key rate limiting, and a Grafana dashboard. Four custom Lua
-plugins, five built-in plugins, zero sidecars on the hot path. Per-tenant
+accounting, per-key rate limiting, and three Grafana dashboards. Four custom Lua
+plugins (`cost_calc.lua` is a shared library, not a registered plugin), five
+built-in plugins, zero sidecars on the hot path. Per-tenant
 isolation runs entirely
 inside APISIX: virtual keys are minted in OpenBao, every request is scoped
 to a tenant route, and token usage is streamed to ClickHouse via Vector for
 second-granularity audit and cost attribution. No proxy process to babysit,
 no external rate-limiter, no separate auth tier; the gateway is the policy.
 
-Currently configured with **OpenCode Go** as the upstream. APISIX's
-built-in `ai-proxy` / `ai-proxy-multi` plugins support 10 provider
-backends out of the box (see [Supported Providers](#supported-providers)).
+**Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
+The gateway itself is provider-agnostic: add relay routes or swap to
+`ai-proxy` / `ai-proxy-multi` for any OpenAI-compatible backend (see
+[Supported Providers](#supported-providers)).
 
 > Full technical reference: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
@@ -41,7 +43,7 @@ backends out of the box (see [Supported Providers](#supported-providers)).
 # 1. Install podman-compose and build images
 make install
 
-# 2. Start the gateway stack (APISIX + ClickHouse + Vector + OpenBao + Prometheus + Grafana)
+# 2. Start the gateway stack (APISIX + etcd + ClickHouse + Vector + OpenBao + Prometheus + Grafana)
 make dev-start
 
 # 3. Send a request through the gateway
@@ -52,7 +54,7 @@ curl -s http://localhost:9080/opencode_federated/v1/chat/completions \
   -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}]}'
 ```
 
-Ports: 9080 (gateway), 8123 (ClickHouse), 9100 (Prometheus metrics), 8201 (OpenBao), 3030 (Grafana), 9092 (Prometheus).
+Ports: 9080 (gateway), 9180 (APISIX Admin API + `/ui/`), 8123 (ClickHouse), 9100 (APISIX Prometheus metrics), 8201 (OpenBao), 3030 (Grafana), 9092 (Prometheus).
 
 ### Prerequisites
 
@@ -60,8 +62,8 @@ Ports: 9080 (gateway), 8123 (ClickHouse), 9100 (Prometheus metrics), 8201 (OpenB
 - [Ansible](https://docs.ansible.com/) 2.21+
 - `curl`, `jq`, `openssl`, `xxd` (used by tests and key scripts)
 - `uv` (for `.venv` setup)
-- A `.env` file with `OPENCODE_API_KEY`, `GATEWAY_API_KEY`,
-  `OPENBAO_TOKEN` (see `.env` example in repo, gitignored)
+- A `.env` file with `ADMIN_KEY`, `OPENCODE_API_KEY`, `GATEWAY_API_KEY`,
+  `OPENBAO_TOKEN` (see [`.env.example`](.env.example), gitignored)
 
 Run `make init` to check all system dependencies and print install
 instructions for any that are missing.
@@ -70,66 +72,84 @@ instructions for any that are missing.
 
 ## Architecture
 
+**Legend:** solid arrows = request/response data path; dashed arrows = config,
+key lookup, or read-only observability.
+
+### Diagram 1: System context
+
 ```mermaid
-graph TB
-    subgraph "Client Layer"
-        C["opencode / curl / any HTTP client"]
-    end
+flowchart TB
+    Clients[Clients]
+    Gateway["LLM Gateway<br/>APISIX :9080"]
+    Cloud["Cloud LLM APIs<br/>OpenAI · Anthropic · xAI · ..."]
+    Local["Local inference<br/>llamafile · vLLM · ..."]
+    OpenBao[(OpenBao)]
+    Store[(ClickHouse)]
 
-    subgraph "Gateway :9080"
-        subgraph "Auth + Redaction"
-            KR["key-resolver<br/>2555"]
-            KM["key-meta<br/>2530"]
-            RD["redact<br/>2500"]
-        end
-        subgraph "Proxy"
-            PRW["proxy-rewrite<br/>rewrite"]
-            LC["limit-count<br/>2002"]
-            PB["proxy-buffering<br/>300"]
-        end
-        subgraph "Telemetry"
-            SU["sse-usage<br/>2400"]
-            HL["http-logger<br/>410"]
-            PROMP["prometheus<br/>:9100"]
-        end
-    end
-
-    subgraph "Data Layer"
-        OB["OpenBao<br/>key store"]
-        V["Vector<br/>ingest"]
-        CH["ClickHouse<br/>request_log + usage_log"]
-    end
-
-    subgraph "Monitoring"
-        PROM["Prometheus<br/>metrics"]
-        GW["Grafana<br/>dashboard"]
-    end
-
-    subgraph "Upstream"
-        GO["OpenCode Go<br/>or any OpenAI-compatible API"]
-    end
-
-    C -->|"POST /opencode_federated/*"| KR
-    C -->|"POST /opencode/*"| KR
-    KR --> KM --> RD --> PRW --> LC --> PB -->|"HTTPS /zen/go/*"| GO
-    GO -->|"response"| SU
-
-    KR -.->|"GET key"| OB
-    HL -.->|"POST log"| V --> CH
-    SU -.->|"INSERT usage"| CH
-    PROMP -.->|"export :9100"| PROM
-    GW -.->|"query"| PROM
+    Clients -->|HTTPS| Gateway
+    Gateway -->|cloud relays| Cloud
+    Gateway -->|local relay| Local
+    Gateway -.->|vgw-* keys| OpenBao
+    Gateway -.->|usage and request logs| Store
 ```
 
-Standalone YAML mode: file-driven configuration, hot reload.
+The gateway is provider-agnostic. Diagram 1 shows scope only, not plugin
+internals or a specific vendor.
 
-**Current upstream**: OpenCode Go (`opencode.ai:443`), reached via the
-`/zen/go/` path rewrite applied by `proxy-rewrite`. The gateway exposes
-two routes: `/opencode/*` (passthrough) and `/opencode_federated/*`
-(virtual-key), both rewritten to `/zen/go/*`. The Go endpoint serves
-20+ models across Chinese model families: MiniMax, Kimi, GLM, DeepSeek,
-Qwen, MiMo, HY3. The gateway can be reconfigured to point at any
-OpenAI-compatible API by editing `conf/apisix.yaml`.
+### Diagram 2: Request path (one federated cloud request)
+
+```mermaid
+flowchart TB
+    Client[Client]
+    Route["/opencode_federated/*"]
+    Policy[Policy plugins]
+    Proxy[Proxy plugins]
+    Upstream[Cloud upstream]
+    Tele[Telemetry plugins]
+    CH[(ClickHouse)]
+    Vector[Vector]
+    OpenBao[(OpenBao)]
+
+    Client --> Route --> Policy --> Proxy --> Upstream --> Tele
+    Tele -->|usage_log| CH
+    Tele -->|request_log| Vector
+    Vector --> CH
+    OpenBao -.->|key lookup| Policy
+```
+
+`/opencode/*` skips `key-resolver`; `/llamafile/*` skips auth and targets
+a local upstream (see sample deployments table below).
+
+### How it works
+
+Diagram 1 = who talks to whom. Diagram 2 = one happy-path request spine
+(top to bottom). Each new provider is a relay route + upstream node (or
+`ai-proxy` / `ai-proxy-multi` for native multi-provider LB; see
+[`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)).
+
+Traditional/etcd mode: routes stored in etcd, seeded from
+`conf/apisix.yaml` via `res/scripts/seed-routes.sh`. Admin API and
+built-in dashboard at `http://localhost:9180/ui/`. Route templates live
+in [`conf/apisix.yaml.j2`](conf/apisix.yaml.j2); committed
+[`conf/apisix.yaml`](conf/apisix.yaml) is the drift-checked render.
+
+To add or change providers, see [Supported Providers](#supported-providers).
+For diagram authoring rules, see
+[`workflows/WORKFLOW-CREATING-DIAGRAMS.md`](workflows/WORKFLOW-CREATING-DIAGRAMS.md).
+
+### Sample deployments in this repo
+
+| Route | Prefix | Auth | Sample upstream |
+|-------|--------|------|-----------------|
+| `relay-opencode` | `/opencode/*` | Direct key passthrough | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
+| `relay-opencode-federated` | `/opencode_federated/*` | Virtual keys (`vgw-*`) via OpenBao | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
+| `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile (`host.docker.internal:8765`) |
+
+In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
+DeepSeek, Qwen, MiMo, HY3). Swap the upstream node in `apisix.yaml.j2`
+to point at any other compatible API. Additional providers = new relay
+route + upstream node; see [`docs/PROVIDER-XAI-GROK.md`](docs/PROVIDER-XAI-GROK.md)
+for the xAI Grok draft spec.
 
 ---
 
@@ -171,17 +191,17 @@ retries on failure, health checks, and provider-level routing rules.
 | Request/response logging | `http-logger` to Vector to ClickHouse | Built-in |
 | Prometheus metrics | `prometheus` at `:9100` | Built-in |
 | SSE streaming support | `proxy-buffering` disabled per-route | Config |
-| Grafana dashboard | Pre-provisioned datasources + dashboards for gateway observability | Config |
+| Grafana dashboards (3) | Cost & Usage, Ops & Health, Cost Leaderboard: 7d lookback, 5s refresh | Config |
 | Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL |
 
 ---
 
 ## Plugins
 
-Eight plugins on the passthrough route, nine on the federated route
-(federated adds `key-resolver`), ordered by Nginx phase priority:
+Eight plugins on the passthrough and llamafile routes, nine on the federated
+route (federated adds `key-resolver`), ordered by Nginx phase priority:
 
-- **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Rewrites both route prefixes → `/zen/go/*`
+- **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Strips route prefix; opencode relays → `/zen/go/*`, llamafile → upstream root
 - **`key-resolver`** (2555, Custom Lua, `access`, federated only) : Resolve `vgw-*` keys via OpenBao; pass through others
 - **`key-meta`** (2530, Custom Lua, `access`) : Compute key hash for per-key scoping (`X-Key-Hash`)
 - **`redact`** (2500, Custom Lua, `access`/`header_filter`/`body_filter`/`log`) : PII anonymization + re-hydration
@@ -203,29 +223,32 @@ Each custom plugin is split into two files:
 ## Key Management
 
 ```mermaid
-flowchart TD
-    REQ["Authorization: Bearer <token>"] --> CHECK{"Starts with vgw-?"}
-    CHECK -->|"YES"| OPENBAO["Lookup in OpenBao<br/>secret/data/gateway/keys/<token>"]
-    OPENBAO -->|"Found + active"| INJECT["Replace with upstream key<br/>Set X-Gateway-* identity headers"]
-    OPENBAO -->|"Not found"| R401["401: invalid key"]
-    OPENBAO -->|"Revoked"| R401R["401: key revoked"]
-    OPENBAO -->|"Unreachable"| R503["503: key store unreachable"]
-    CHECK -->|"NO"| PASS["Pass through as-is<br/>X-Gateway-Key-Id: passthrough"]
-    INJECT -->|"POST /opencode_federated/*"| UPSTREAM["Proxy to OpenCode Go"]
-    PASS -->|"POST /opencode/*"| UPSTREAM
+flowchart TB
+    REQ["Authorization: Bearer token"] --> CHECK{"Starts with vgw-?"}
+    CHECK -->|"YES"| OPENBAO["Lookup in OpenBao"]
+    OPENBAO -->|"Found + active"| INJECT["Inject upstream provider key"]
+    OPENBAO -->|"Not found"| R401["401 invalid key"]
+    OPENBAO -->|"Revoked"| R401R["401 key revoked"]
+    OPENBAO -->|"Unreachable"| R503["503 key store unreachable"]
+    CHECK -->|"NO"| PASS["Pass through provider key"]
+    INJECT -->|"federated route"| UPSTREAM["Configured upstream provider"]
+    PASS -->|"passthrough route"| UPSTREAM
 ```
+
+Applies to `/opencode/*` and `/opencode_federated/*` only; `/llamafile/*`
+has no `Authorization` flow.
 
 ### Two Key Modes
 
 1. **Virtual keys** (`vgw-*`): Used on the `/opencode_federated/*`
    route. Stored in OpenBao (production file-storage mode with
-   persistent volumes). Resolved to an upstream Go key. Can be
+   persistent volumes). Resolved to an upstream provider API key. Can be
    revoked, rate-limited per tenant, audited. Cached in `key_cache`
    shared dict (5s TTL in dev, 300s in prod).
 
 2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): Used on the
    `/opencode/*` route. Passed through to upstream as-is. No OpenBao
-   lookup. Users bring their own Go API keys.
+   lookup. Users bring their own upstream provider API keys.
 
 ### Commands
 
@@ -242,24 +265,27 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 
 ### Key Files
 
-- `conf/config.yaml`: APISIX standalone mode: plugin list, shared dicts, env vars, Prometheus port
-- `conf/apisix.yaml`: Two routes: `/opencode/*` (8 plugins) + `/opencode_federated/*` (9 plugins)
+- `conf/config.yaml`: APISIX traditional/etcd mode: plugin list, shared dicts, env vars, Admin API, Prometheus port
+- `conf/apisix.yaml`: Committed route render (3 routes); drift-checked against `conf/apisix.yaml.j2`
+- `conf/apisix.yaml.j2`: Jinja2 route template rendered at deploy from `.env`
+- `res/scripts/seed-routes.sh`: Seeds etcd from rendered `apisix.yaml` on stack start
 - `conf/openbao.hcl`: OpenBao production config (file-storage backend)
 - `conf/prometheus.yml`: Prometheus scrape config (APISIX `:9100`)
-- `conf/grafana/`: Grafana datasources + dashboards (provisioned on start)
+- `conf/grafana/`: Grafana datasources + 3 provisioned dashboards
 - `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
-- `conf/clickhouse-init.sql`: 4 tables: `request_log`, `usage_log`, `billing_ledger`, `billing_discrepancies`
+- `conf/clickhouse-init.sql`: Base schema; incremental changes via `conf/migrations/`
 - `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink
-- `res/docker/docker-compose.yml`: 6 services: apisix, clickhouse, vector, openbao, prometheus, grafana
-- `res/docker/Dockerfile.apisix`: Custom APISIX image: 5 Lua files + config copied in
+- `res/docker/docker-compose.yml`: 8 services: apisix, etcd, clickhouse, migrate, vector, openbao, prometheus, grafana
+- `res/docker/Dockerfile.apisix`: Custom APISIX image: Lua plugins + config copied in
 - `res/docker/Dockerfile.openbao`: Custom OpenBao image (production file-storage)
 - `res/docker/openbao-entrypoint.sh`: OpenBao auto-init, auto-unseal, gateway key provisioning (data persists via `openbao-data` named volume)
-- `.env`: Secrets: `OPENCODE_API_KEY`, `GATEWAY_API_KEY`, `OPENBAO_TOKEN`
+- `.env`: Secrets: `ADMIN_KEY`, `OPENCODE_API_KEY`, `GATEWAY_API_KEY`, `OPENBAO_TOKEN`
 
 ### Environment Variables
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
+| `ADMIN_KEY` | APISIX Admin API key (not stored in tracked files) | `your-apisix-admin-key` |
 | `OPENCODE_API_KEY` | Upstream Go key (injected into proxied requests) | `sk-HiEr...` |
 | `OPENCODE_BASE_URL` | Upstream Go base URL | `https://opencode.ai/zen/go/v1` |
 | `GATEWAY_API_KEY` | Default virtual key for opencode integration | `vgw-gateway-key` |
@@ -271,10 +297,24 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 
 | Table | Written By | Key Columns |
 |-------|-----------|-------------|
-| `request_log` | Vector (from http-logger) | model, tokens, req_body, resp_body, 11 identity columns |
-| `usage_log` | sse-usage plugin (via timer) | model, prompt_tokens, completion_tokens, total_tokens |
-| `billing_ledger` | v2 billing pipeline (deferred) | cost `Decimal64(6)`, rate_input/output, cache_status |
+| `request_log` | Vector (from http-logger) | `request_id`, model, status, req_body, resp_body, identity columns |
+| `usage_log` | sse-usage plugin (via timer) | `request_id`, model, token breakdown, `cost`, `cost_source` |
+| `billing_ledger` | MV on `usage_log` INSERT | cost `Decimal64(6)`, rate_input/output, cache_status |
 | `billing_discrepancies` | v2 reconciler (deferred) | gateway_tokens, provider_tokens, divergence |
+
+### Grafana Dashboards
+
+Three provisioned dashboards (default: `now-7d` lookback, `5s` refresh):
+
+| Dashboard | URL |
+|-----------|-----|
+| Gateway Cost & Usage | `http://localhost:3030/d/gateway-cost-usage?from=now-7d&to=now&refresh=5s` |
+| Gateway Operations & Health | `http://localhost:3030/d/gateway-ops-health?from=now-7d&to=now&refresh=5s` |
+| Gateway Cost Leaderboard | `http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s` |
+
+The leaderboard shows top clients (p20) and top models (p21) by cost and
+tokens. After editing dashboard JSON, run `make dev-restart-grafana` to
+reload provisioning. See [`docs/DASHBOARD-REQUIREMENTS.md`](docs/DASHBOARD-REQUIREMENTS.md).
 
 ---
 
@@ -302,9 +342,10 @@ It writes THREE provider entries into `~/.config/opencode/opencode.jsonc`:
 The first two providers receive the full enriched model catalog so opencode
 does not drop them (opencode deletes providers with zero models). The
 llamafile provider receives the model list from `/llamafile/v1/models`
-(or a default model id if the llamafile server is not running). The script
-runs automatically on `make dev-start` and `make dev-restart` via the
-Ansible playbook.
+(or a default model id if the llamafile server is not running). MiniCPM5
+uses context `131072` (scaled to `104857` at 80%) with `tool_call: true`.
+The script runs automatically on `make dev-start` and `make dev-restart`
+via the Ansible playbook.
 
 Context limits are scaled by `CONTEXT_LIMIT_PCT` (default 80) from `.env`,
 so e.g. `CONTEXT_LIMIT_PCT=80` reduces a 200000-token context to 160000.
@@ -365,9 +406,10 @@ make dev-test      # Same as test, via Ansible
 ```
 
 1. Lua unit tests via `resty` CLI inside the APISIX container
-2. Config validation: 7 scripts checking every YAML, SQL, TOML, JSON file
+2. Config validation: 14 scripts (YAML, SQL, TOML, JSON, dashboard structure, migrations)
 3. Reconciler static analysis: syntax, strict mode, error handling
-4. Integration: black-box HTTP against the running stack
+4. Integration: black-box HTTP against the running stack (llamafile e2e,
+   event_id alignment, data flow, cost e2e, Grafana panel checks)
 5. CI hook verification: pre-commit and pre-push hooks present and wired
 6. E2E: real Go API calls (gated behind `RUN_LIVE_API_TESTS=1`)
 
@@ -391,6 +433,10 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 | `make dev-shell` | Exec into APISIX container |
 | `make dev-sanity` | Single curl request through gateway |
 | `make dev-test` | Run full test suite via Ansible |
+| `make dev-restart-service SVC=name` | Recreate one service (apisix, vector, grafana, etc.) |
+| `make dev-restart-grafana` | Recreate Grafana, reload provisioning, sync dashboard defaults |
+| `make ch-migrate` | Apply pending ClickHouse schema migrations |
+| `make ch-migrate-status` | Show ClickHouse migration version |
 
 ### Key Management
 
@@ -416,14 +462,18 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 
 ## Documentation
 
+- **[`workflows/WORKFLOW-CREATING-DIAGRAMS.md`](workflows/WORKFLOW-CREATING-DIAGRAMS.md)** : How we author and review architecture diagrams
 - **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** : Complete technical reference: every component, plugin, data flow, schema, script, test
 - **[`docs/TEST-PLAN.md`](docs/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
+- **[`docs/DASHBOARD-REQUIREMENTS.md`](docs/DASHBOARD-REQUIREMENTS.md)** : Authoritative Grafana dashboard spec (16 panels across 3 dashboards)
+- **[`docs/COST-CALC-LUA.md`](docs/COST-CALC-LUA.md)** : Cost calculation module and token pricing paths
 - **[`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md)** : Architecture rationale, Kong-to-APISIX pivot, billing contract
 - **[`docs/PLUGIN-FOUNDATION.md`](docs/PLUGIN-FOUNDATION.md)** : APISIX custom Lua plugin development foundation
 - **[`docs/PLUGIN-REDACT-LUA.md`](docs/PLUGIN-REDACT-LUA.md)** : Redact plugin specification
 - **[`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)** : Built-in plugin configuration guide
 - **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** : Deployment and operations guide
 - **[`docs/OPENCODE-INTEGRATION.md`](docs/OPENCODE-INTEGRATION.md)** : OpenCode Go integration specifics
+- **[`docs/PROVIDER-XAI-GROK.md`](docs/PROVIDER-XAI-GROK.md)** : xAI Grok provider integration spec (draft)
 
 ### v2 Specs (Deferred)
 
@@ -438,6 +488,6 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 - **OpenBao 2.4.4**: MPL 2.0
 - **ClickHouse 24.8**: Apache 2.0
 - **Vector 0.40**: MPL 2.0
-- **Prometheus v3.11.3**: Apache 2.0
+- **Prometheus v3.13.1**: Apache 2.0
 - **Grafana 13.0.2**: AGPLv3
 

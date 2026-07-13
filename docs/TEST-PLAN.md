@@ -1,31 +1,28 @@
 # Test Plan: WORKSPACE-GATEWAY
 
-> **DOCUMENT-SCOPE DEFICIENCIES (2026-07-09):**
-> - No test for `event_id` generation consistency (Lua `ngx.req.start_time() * 1000`
->   vs Vector `to_int(start_time_int)` - values may differ; no integration test).
-> - No test for correlation ID (`request_id`) propagation - column is entirely
->   empty in production (6,813 rows), and no test asserts it gets populated.
-> - No test for CJK token estimation accuracy - `ceil(#text/4)` undercounts
->   Chinese tokens by ~25%; no test verifies this.
-> - No concurrent-request test - all tests are sequential, so ASOF JOIN races
->   are never exercised.
-> - No test for Vector failure handling - if ClickHouse is down, Vector drops
->   silently (batch_max_size: 1, no backpressure). No test verifies this.
-> - No test for sse-usage timer failure - if ClickHouse is down during
->   `ngx.timer.at` handler, the error is logged but the row is lost. No test.
-> - Assertion counts in §6.5 (44+45=89) may be stale after forward fix for
->   reasoning_tokens added new tests to `test_sse_usage_lib.lua`. Audit needed.
-> - §14's 40 remediation items (R-01 through R-40) are complete for the
->   v1 audit but do not cover the correlation-ID, event-ID, or CJK token gaps
->   discovered in the 2026-07-09 audit. New items needed:
->   R-41 (correlation ID test), R-42 (event_id integration test),
->   R-43 (CJK token test), R-44 (Vector backpressure test),
->   R-45 (sse-usage retry test),
->   R-46 (sync-opencode-models emits llamafile provider).
+> **DOCUMENT-SCOPE DEFICIENCIES (2026-07-13):**
+> - **Addressed (R-41-R-46 partial):** `test_llamafile_e2e.sh`,
+>   `test_event_id_alignment.sh`, and `test_data_flow.sh` assert `request_id`
+>   propagation and usage_log/request_log alignment for live llamafile traffic.
+>   CJK-aware token estimation lives in `sse_usage_lib.lua` with unit tests.
+>   `test_sync_opencode_models.sh` asserts the `workspace-gw-llamafile` provider.
+>   `sse-usage.lua` has retry/backpressure handling (R-45 code path; no dedicated
+>   failure-injection test yet).
+> - **Still open:** No concurrent-request test: all integration tests are
+>   sequential, so ASOF JOIN races are never exercised.
+> - **Still open:** No Vector failure-injection test: if ClickHouse is down,
+>   Vector may drop silently (`batch_max_size: 1`). No test verifies backpressure
+>   (R-44).
+> - **Still open:** No sse-usage timer failure-injection test: ClickHouse down
+>   during `ngx.timer.at` logs error but row may be lost.
+> - **Still open:** Assertion counts in §6.5 may be stale after reasoning_tokens
+>   and dashboard test additions. Audit needed.
+> - **Historical data caveat:** Pre-fix `request_id` / `event_id` columns in
+>   production may still be empty or misaligned; tests only cover new traffic.
 
 **Project:** WORKSPACE-GATEWAY
 **Platform:** Apache APISIX 3.17.0, OpenCode Go
-**Date:** 2026-07-09 (revised)
+**Date:** 2026-07-13 (revised)
 
 ---
 
