@@ -1,15 +1,9 @@
 # Multi-tenant LLM Gateway on APISIX
 
-Routes traffic to any OpenAI-compatible LLM provider through Apache APISIX
-3.17.0, with PII redaction, virtual key management, billing-grade token
-accounting, per-key rate limiting, and three Grafana dashboards. Four custom Lua
-plugins (`cost_calc.lua` is a shared library, not a registered plugin), five
-built-in plugins, zero sidecars on the hot path. Per-tenant
-isolation runs entirely
-inside APISIX: virtual keys are minted in OpenBao, every request is scoped
-to a tenant route, and token usage is streamed to ClickHouse via Vector for
-second-granularity audit and cost attribution. No proxy process to babysit,
-no external rate-limiter, no separate auth tier; the gateway is the policy.
+Multi-tenant LLM gateway on Apache APISIX: OpenBao virtual keys, per-key rate
+and token budgets, PII redaction, and billing-grade usage in ClickHouse with
+provider reconciliation. Federate through OpenCode, reach other cloud providers
+via ai-proxy or relay routes, attach local llamafile, and monitor in Grafana.
 
 **Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
 The gateway itself is provider-agnostic: add relay routes or swap to
