@@ -1,7 +1,7 @@
 # Multi-tenant LLM Gateway on APISIX
 
 Apache APISIX gateway for shared LLM traffic with per-tenant keys, spend
-limits, and PII redaction. Cloud backends run through ai-proxy or relay
+limits, and **PII redaction**. Cloud backends run through ai-proxy or relay
 configuration, including OpenAI, Anthropic, Gemini, Bedrock, and others,
 with usage, cost, and health tracked in ClickHouse and Grafana; this repo
 ships sample routes to OpenCode and llamafile.
