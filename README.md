@@ -16,7 +16,7 @@ The gateway itself is provider-agnostic: add relay routes or swap to
 `ai-proxy` / `ai-proxy-multi` for any OpenAI-compatible backend (see
 [Supported Providers](#supported-providers)).
 
-> Full technical reference: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+> Full technical reference: [`docs/architecture/README.md`](docs/architecture/README.md)
 
 ---
 
@@ -508,7 +508,7 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 ## Documentation
 
 - **[`workflows/WORKFLOW-CREATING-DIAGRAMS.md`](workflows/WORKFLOW-CREATING-DIAGRAMS.md)** : How we author and review architecture diagrams
-- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** : Complete technical reference: every component, plugin, data flow, schema, script, test
+- **[`docs/architecture/README.md`](docs/architecture/README.md)** : Architecture hub: components, plugins, data flows, schema
 - **[`docs/TEST-PLAN.md`](docs/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
 - **[`docs/DASHBOARD-REQUIREMENTS.md`](docs/DASHBOARD-REQUIREMENTS.md)** : Authoritative Grafana dashboard spec (16 panels across 3 dashboards)
 - **[`docs/COST-CALC-LUA.md`](docs/COST-CALC-LUA.md)** : Cost calculation module and token pricing paths

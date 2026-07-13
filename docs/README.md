@@ -15,7 +15,7 @@ llamafile routing, Grafana dashboards, correlation ID / event_id tests, and
 the `workspace-gw-llamafile` opencode provider. Key cross-cutting findings
 that remain open:
 
-- **`docs/ARCHITECTURE.md`**: Full audit report and component reference. Read this first.
+- **`docs/architecture/README.md`**: Architecture hub and child docs (ALL_CAPS). Read this first.
 - **`docs/DASHBOARD-REQUIREMENTS.md`**: Panels 8/10 ASOF JOINs are
   probabilistically wrong; event_id JOIN doesn't work historically.
 - **`docs/COST-CALC-LUA.md`**: Cost calc module is correct; CJK token
@@ -33,7 +33,7 @@ the 2026-07-12/13 dashboard and provider work.
 
 | Document | Scope |
 |----------|-------|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Complete technical reference: components, plugins, data flows, schema, scripts, tests, audit findings. |
+| [`architecture/README.md`](architecture/README.md) | Architecture hub: components, plugins, data flows, schema, scripts, tests. Audit gaps in [`OPEN-ISSUES.md`](architecture/OPEN-ISSUES.md). |
 | [`TEST-PLAN.md`](TEST-PLAN.md) | End-to-end testing strategy, stage breakdown, remediation items R-01 through R-46. |
 | [`DASHBOARD-REQUIREMENTS.md`](DASHBOARD-REQUIREMENTS.md) | Authoritative Grafana spec: 3 dashboards, 16 panels (incl. leaderboard p20/p21). |
 | [`COST-CALC-LUA.md`](COST-CALC-LUA.md) | Cost calculation module: pricing paths, `compute_cost`, model normalization. |
@@ -49,7 +49,7 @@ the 2026-07-12/13 dashboard and provider work.
 
 ## Reading Order
 
-1. `ARCHITECTURE.md`: how the gateway is built and where the audit gaps are.
+1. `architecture/README.md`: how the gateway is built and start here; audit gaps in architecture/OPEN-ISSUES.md.
 2. `PROPOSAL-LLM-GATEWAY-v3.md`: umbrella architecture and rationale.
 3. `PLUGIN-FOUNDATION.md`: shared plugin development contracts.
 4. `BUILTIN-PLUGINS.md`: built-in plugin configuration (auth, proxy, failover, telemetry).

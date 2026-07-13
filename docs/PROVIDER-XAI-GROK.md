@@ -10,7 +10,7 @@
 **Document ID:** AMI-PROP-LLMGW-PROVIDER-XAI-GROK-v1.0
 **Status:** Draft
 **Date:** 2026-07-12
-**Parent:** `docs/ARCHITECTURE.md`
+**Parent:** `docs/architecture/README.md`
 **Companion:** `docs/COST-CALC-LUA.md`, `docs/PLUGIN-FOUNDATION.md`
 
 ---
@@ -136,7 +136,7 @@ graph TB
 ### 2.1 Container Topology
 
 The Grok route reuses the existing gateway container topology (§2 of
-`ARCHITECTURE.md`). No new containers are needed. The `xai-auth` plugin runs
+`docs/architecture/README.md`). No new containers are needed. The `xai-auth` plugin runs
 inside the APISIX Lua worker process alongside the existing plugins.
 
 ```mermaid

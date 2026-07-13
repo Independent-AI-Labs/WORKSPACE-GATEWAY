@@ -6,7 +6,7 @@
 > for `reasoning_tokens`. This heuristic undercounts CJK text tokens by ~25%
 > (Chinese UTF-8 is ~3 bytes/char, not 4 chars/token). For models like GLM,
 > DeepSeek, MiniMax, Qwen that primarily serve Chinese-language content, the
-> computed cost may be systematically low. See `docs/ARCHITECTURE.md` head for
+> computed cost may be systematically low. See [`docs/architecture/OPEN-ISSUES.md`](architecture/OPEN-ISSUES.md) for
 > the full audit context.
 
 **Document ID:** AMI-PROP-LLMGW-COST-CALC-LUA-v1.2

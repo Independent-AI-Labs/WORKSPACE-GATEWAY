@@ -5,7 +5,7 @@ set -euo pipefail
 # Persistent validation of the golang-migrate schema-migration framework
 # (ClickHouse-KB-recommended). Asserts: directory layout, file naming,
 # compose `migrate` service, ansible orchestration, Makefile routing,
-# ARCHITECTURE.md references, and that the legacy hand-rolled framework
+# architecture/TELEMETRY-AND-SCHEMA.md references, and that the legacy hand-rolled framework
 # has been fully removed. Does NOT require a running ClickHouse.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,7 +14,7 @@ MIGRATIONS_DIR="$REPO_ROOT/conf/migrations"
 COMPOSE_FILE="$REPO_ROOT/res/docker/docker-compose.yml"
 ANSIBLE_FILE="$REPO_ROOT/res/ansible/dev.yml"
 MAKEFILE="$REPO_ROOT/Makefile"
-ARCH_FILE="$REPO_ROOT/docs/ARCHITECTURE.md"
+ARCH_FILE="$REPO_ROOT/docs/architecture/TELEMETRY-AND-SCHEMA.md"
 
 pass=0
 fail=0
@@ -157,12 +157,12 @@ assert_contains "Makefile ch-migrate-status invokes migrate version" "$mk_body" 
 assert_not_contains "Makefile no longer references scripts/clickhouse-migrate.sh" "$mk_body" "clickhouse-migrate.sh"
 assert_not_contains "Makefile no longer references scripts/ch-migrate.sh" "$mk_body" "ch-migrate.sh"
 
-# ── (G) ARCHITECTURE.md references ──────────────────────────────────────
+# ── (G) architecture/TELEMETRY-AND-SCHEMA.md references ──────────────────────────────────────
 arch_body="$(cat "$ARCH_FILE" 2>/dev/null || echo "")"
-assert_contains "ARCHITECTURE.md references golang-migrate" "$arch_body" "golang-migrate"
-assert_contains "ARCHITECTURE.md references schema_migrations" "$arch_body" "schema_migrations"
-assert_not_contains "ARCHITECTURE.md does NOT reference scripts/clickhouse-migrate.sh" "$arch_body" "scripts/clickhouse-migrate.sh"
-assert_not_contains "ARCHITECTURE.md does NOT reference llm_gateway._migrations" "$arch_body" "llm_gateway._migrations"
+assert_contains "architecture/TELEMETRY-AND-SCHEMA.md references golang-migrate" "$arch_body" "golang-migrate"
+assert_contains "architecture/TELEMETRY-AND-SCHEMA.md references schema_migrations" "$arch_body" "schema_migrations"
+assert_not_contains "architecture/TELEMETRY-AND-SCHEMA.md does NOT reference scripts/clickhouse-migrate.sh" "$arch_body" "scripts/clickhouse-migrate.sh"
+assert_not_contains "architecture/TELEMETRY-AND-SCHEMA.md does NOT reference llm_gateway._migrations" "$arch_body" "llm_gateway._migrations"
 
 echo ""
 echo "test_migrations.sh: $pass passed, $fail failed"

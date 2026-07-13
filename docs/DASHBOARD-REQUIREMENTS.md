@@ -19,7 +19,7 @@
 >
 > All panels display data from their respective sources correctly in isolation;
 > the cross-table JOINs are where correctness breaks down. See
-> `docs/ARCHITECTURE.md` head for full audit.
+> [`docs/architecture/OPEN-ISSUES.md`](architecture/OPEN-ISSUES.md) for full audit.
 
 This document specifies the purpose, theory, and correctness criteria for every
 panel across the 3 gateway dashboards:

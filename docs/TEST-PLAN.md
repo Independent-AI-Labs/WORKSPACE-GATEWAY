@@ -15,8 +15,8 @@
 >   (R-44).
 > - **Still open:** No sse-usage timer failure-injection test: ClickHouse down
 >   during `ngx.timer.at` logs error but row may be lost.
-> - **Still open:** Assertion counts in §6.5 may be stale after reasoning_tokens
->   and dashboard test additions. Audit needed.
+> - **Addressed (2026-07-13):** §7.2 config assertions and script inventory
+>   updated for etcd mode, 3 routes, 14 config scripts, 13 integration scripts.
 > - **Historical data caveat:** Pre-fix `request_id` / `event_id` columns in
 >   production may still be empty or misaligned; tests only cover new traffic.
 
@@ -30,9 +30,12 @@
 
 This document defines the end-to-end testing and verification plan
 for the WORKSPACE-GATEWAY project. The gateway uses Apache APISIX
-3.17.0 as a relay to OpenCode Go, with PII redaction, rate
-limiting, telemetry logging, and billing-grade token accounting.
+3.17.0 in **etcd/traditional mode** as a relay to OpenCode Go (and
+optional local llamafile), with PII redaction, rate limiting,
+telemetry logging, and billing-grade token accounting.
 
+- Config: `deployment.role: traditional`, `config_provider: etcd`
+- Routes: 3 (`relay-opencode`, `relay-opencode-federated`, `relay-llamafile`)
 - Upstream: OpenCode Go (`https://opencode.ai/zen/go/v1`)
 - Gateway port: 9080 (HTTP), 9443 (HTTPS)
 - Key models: `minimax-m3`, `mimo-v2.5`,
@@ -169,8 +172,9 @@ tests/
     test_sse_usage_lib.lua     Lua unit tests for sse_usage_lib
     run.sh                     Podman-based resty CLI runner
   config/
-    test_apisix_yaml.sh        Validate apisix.yaml
-    test_config_yaml.sh        Validate config.yaml
+    test_apisix_yaml.sh        Validate apisix.yaml (3 routes, plugin matrix)
+    test_apisix_yaml_render.sh Validate apisix.yaml env substitution
+    test_config_yaml.sh        Validate config.yaml (etcd traditional mode)
     test_compose.sh            Validate docker-compose.yml
     test_dockerfile.sh         Validate Dockerfile.apisix
     test_patterns_json.sh      Validate redact-patterns.json
@@ -180,18 +184,27 @@ tests/
     test_dashboard_cost_usage.sh  Validate Cost & Usage dashboard structure
     test_dashboard_ops_health.sh  Validate Operations & Health dashboard structure
     test_dashboard_cost_leaderboard.sh  Validate Cost Leaderboard dashboard structure
-    test_cost_calc.sh          Validate cost_calc.lua module (21 tests, runs in container luajit)
-    run.sh                     Run all config tests
+    test_migrations.sh         Validate migration docs vs golang-migrate
+    test_sync_opencode_models.sh  Validate workspace-gw-llamafile provider sync
+    test_cost_calc.sh          Validate cost_calc.lua module (not in run.sh)
+    run.sh                     Run all 14 config tests
   reconciler/
     test_reconciler.sh         Reconciler script tests
   integration/
     test_stack_up.sh           Podman stack bring-up and health
     test_key_resolver.sh       key-resolver plugin black-box test
     test_route_relay.sh        Route relay to upstream test
+    test_prometheus.sh         Prometheus scrape black-box test
     test_grafana.sh            Grafana/Prometheus black-box test
-    test_data_flow.sh          APISIX-Vector-ClickHouse data flow test
+    test_dashboard_queries.sh  Dashboard ClickHouse query sanity check
+    test_grafana_ds_proxy.sh   Grafana datasource proxy test
+    test_grafana_panels.sh     Grafana panel render test (Playwright)
+    test_llamafile_e2e.sh      Local llamafile e2e (skips if unreachable)
+    test_event_id_alignment.sh request_id / event_id alignment (live)
+    test_data_flow.sh          APISIX-Vector-ClickHouse data flow (live)
+    test_cost_e2e.sh           Cost calc e2e via llamafile (live)
     test_reconciler_exec.sh    Reconciler execution test
-    run.sh                     Run all integration tests
+    run.sh                     Run all integration tests (13 scripts + stack_up)
   e2e/
     test_zen_chat.sh           End-to-end chat completion
     test_zen_stream.sh         End-to-end SSE streaming
@@ -315,49 +328,32 @@ YAML, and `grep` for text-based assertions.
 
 ### 7.2 Test Cases
 
-**apisix.yaml** (`test_apisix_yaml.sh`):
+**apisix.yaml** (`test_apisix_yaml.sh`, 70+ assertions):
 
-| # | Assertion |
+| # | Assertion (representative) |
 |---|-----------|
 | 1 | Valid YAML (parseable) |
-| 2 | Exactly 2 routes |
-| 3 | First route id is `relay-opencode` |
-| 4 | First route uri is `/opencode/*` |
-| 5 | Second route id is `relay-opencode-federated` |
-| 6 | Second route uri is `/opencode_federated/*` |
-| 7 | Upstream scheme is `https` |
-| 8 | Upstream node is `opencode.ai:443` |
-| 9 | `proxy-rewrite` present with regex_uri that strips prefix |
-| 10 | `proxy-rewrite` regex_uri replacement is `/zen/go/` |
-| 11 | `key-resolver` plugin present |
-| 12 | `limit-count` plugin present |
-| 13 | `prometheus` plugin present |
-| 14 | `http-logger` plugin present |
-| 15 | `http-logger` has no `log_format` field |
-| 16 | `http-logger` `include_req_body` is true |
-| 17 | `http-logger` `include_resp_body` is true |
-| 18 | `http-logger` `max_req_body_bytes` and `max_resp_body_bytes` are 8192 |
-| 19 | `http-logger` uri is `http://vector:8080/ingest` |
-| 20 | `proxy-buffering` plugin present |
-| 21 | `redact` plugin present |
-| 22 | `sse-usage` plugin present |
+| 2 | Exactly 3 routes |
+| 3 | `relay-opencode`: uri `/opencode/*`, upstream `opencode.ai:443`, no `key-resolver` |
+| 4 | `relay-opencode-federated`: uri `/opencode_federated/*`, `key-resolver` + OpenBao |
+| 5 | `relay-llamafile`: uri `/llamafile/*`, upstream `host.docker.internal:8765` |
+| 6 | All routes: `proxy-rewrite`, `sse-usage`, `http-logger`, `redact`, `request-id` |
+| 7 | `http-logger` has no `log_format`; bodies included; max 262144 / 1048576 bytes |
+| 8 | `key-auth` and `gateway-auth` removed; no `consumers` section |
 
-**config.yaml** (`test_config_yaml.sh`):
+**config.yaml** (`test_config_yaml.sh`, 30+ assertions):
 
-| # | Assertion |
+| # | Assertion (representative) |
 |---|-----------|
 | 1 | Valid YAML |
-| 2 | `deployment.role` is `data_plane` |
-| 3 | `deployment.config_provider` is `yaml` |
-| 4 | `redact` in plugins list |
-| 5 | `key-resolver` in plugins list |
-| 6 | `proxy-rewrite` in plugins list |
-| 7 | `resolver` is `no` (disables Nginx static resolver) |
-| 8 | `lua_shared_dict` has `redact_state` |
-| 9 | `lua_shared_dict` has `key_cache` |
-| 10 | `lua_shared_dict` has `gateway-cache` (cost_calc pricing cache, 2m) |
-| 11 | `OPENCODE_API_KEY` referenced via env.var |
-| 12 | `OPENBAO_TOKEN` referenced for key-resolver OpenBao access |
+| 2 | `deployment.role` is `traditional` |
+| 3 | `deployment.role_traditional.config_provider` is `etcd` |
+| 4 | `deployment.etcd.host` contains `http://etcd:2379` |
+| 5 | Custom plugins enabled: `redact`, `key-resolver`, `key-meta`, `sse-usage` |
+| 6 | Enterprise plugins removed: `ai-proxy`, `ai-proxy-multi`, `gateway-auth`, `key-auth` |
+| 7 | `custom_lua_shared_dict`: `redact_state`, `key_cache`, `gateway-cache` (2m), `quota_counters` |
+| 8 | `nginx_config.envs`: `OPENCODE_API_KEY`, `OPENBAO_TOKEN` |
+| 9 | `plugin_attr.prometheus.export_addr` on `0.0.0.0:9100` |
 
 **docker-compose.yml** (`test_compose.sh`):
 
@@ -462,7 +458,7 @@ once the COPY directives are fixed.
 | 11 | All 3 dashboard JSONs are valid JSON (cost-usage, ops-health, cost-leaderboard) |
 | 12 | Each dashboard has `title` containing `Gateway` |
 | 13 | Each dashboard has a unique `uid` |
-| 14 | Total panel count across 3 dashboards is 15 (3 + 11 + 1) |
+| 14 | Total panel count across 3 dashboards is 16 (3 + 11 + 2) |
 | 15 | Ops & Health dashboard has Prometheus panels |
 | 16 | Each Prom panel has a `targets` array with PromQL query |
 | 17 | Panel types are valid (stat, timeseries, bargauge, piechart, table) |
@@ -482,7 +478,7 @@ once the COPY directives are fixed.
 tests/config/run.sh
 ```
 
-Runs all 11 config test scripts sequentially. Exits 0 on all pass.
+Runs all 14 config test scripts sequentially. Exits 0 on all pass.
 
 ---
 
@@ -534,9 +530,9 @@ podman network create dataops_default 2>/dev/null || true
 | 1 | Build APISIX image | Exit 0 |
 | 2 | Start stack | All services running |
 | 3 | APISIX responds on port 9080 | HTTP response (any status) |
-| 4 | `key-auth` rejects without `apikey` header | 401 |
-| 5 | `key-auth` rejects with wrong key | 401 |
-| 6 | Route exists (correct key reaches upstream) | Non-404 response |
+| 4 | `key-resolver` resolves virtual key on federated route | Non-401 response |
+| 5 | Passthrough route reaches upstream | Non-404 response |
+| 6 | Prometheus metrics endpoint responds | HTTP 200 |
 | 7 | Vector listening on port 8080 | Connection accepted |
 | 8 | ClickHouse listening on port 8123 | HTTP response |
 | 9 | ClickHouse tables exist | `SELECT count()` succeeds |
@@ -545,8 +541,18 @@ podman network create dataops_default 2>/dev/null || true
 ### 9.4 Files
 
 - `tests/integration/test_stack_up.sh`
-- `tests/integration/test_key_auth.sh`
+- `tests/integration/test_key_resolver.sh`
 - `tests/integration/test_route_relay.sh`
+- `tests/integration/test_prometheus.sh`
+- `tests/integration/test_grafana.sh`
+- `tests/integration/test_dashboard_queries.sh`
+- `tests/integration/test_grafana_ds_proxy.sh`
+- `tests/integration/test_grafana_panels.sh`
+- `tests/integration/test_llamafile_e2e.sh`
+- `tests/integration/test_event_id_alignment.sh`
+- `tests/integration/test_data_flow.sh`
+- `tests/integration/test_cost_e2e.sh`
+- `tests/integration/test_reconciler_exec.sh`
 - `tests/integration/run.sh`
 
 ### 9.5 Approach

@@ -198,7 +198,7 @@ Preview at [mermaid.live](https://mermaid.live) or GitHub before merge.
 - [C4 model](https://c4model.com/)
 - [Mermaid flowchart syntax](https://mermaid.js.org/syntax/flowchart.html)
 - In-repo: [`docs/DASHBOARD-REQUIREMENTS.md`](../docs/DASHBOARD-REQUIREMENTS.md): Grafana panel specs (different concern; do not mix into gateway context diagrams)
-- In-repo: [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md): full technical reference and runtime service inventory
+- In-repo: [`docs/architecture/README.md`](../docs/architecture/README.md): architecture hub; see architecture/RUNTIME-TOPOLOGY.md
 
 ## Anti-patterns (from past README mistakes)
 

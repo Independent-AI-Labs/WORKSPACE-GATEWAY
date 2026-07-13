@@ -1,8 +1,14 @@
 # Deployment Guide - APISIX LLM Gateway
 
+> **AUTHORITATIVE ARCHITECTURE:** Runtime topology, plugin matrix, routes, and
+> telemetry are documented in [`docs/architecture/README.md`](architecture/README.md).
+> This file covers compose, image build, and operational commands. Sections marked
+> *enterprise (future)* describe aspirational OIDC/ai-proxy-multi config, not the
+> current etcd relay deployment.
+
 **Document ID:** AMI-PROP-LLMGW-DEPLOYMENT-v1.0
 **Status:** Draft
-**Date:** 2026-07-05
+**Date:** 2026-07-13 (revised)
 **Parent:** `PROPOSAL-LLM-GATEWAY-v3.md`
 
 This document specifies the deployment infrastructure for the APISIX LLM Gateway:
@@ -127,58 +133,83 @@ volume-mounted `:ro` for live development without image rebuilds.
 
 ## 3. APISIX Configuration (`config.yaml`)
 
-```yaml
-# conf/config.yaml
-deployment:
-  role: data_plane
-  role_trust_by_default: false
-  config_provider: yaml          # standalone YAML mode
+The live stack uses **traditional/etcd mode** (`deployment.role: traditional`,
+`config_provider: etcd`). Routes are loaded from etcd at startup via
+`res/scripts/apisix-entrypoint.sh`; `conf/apisix.yaml` is the source template
+synced into etcd on container start.
 
-apisix:
-  admin_key: ""                  # no Admin API in standalone mode
-  extra_lua_path: "/usr/local/apisix/apisix/plugins/custom/?.lua;"
-  lua_shared_dict:
-    redact_state: 1m
-    semcache_state: 4m
+```yaml
+# conf/config.yaml (current relay deployment)
+deployment:
+  role: traditional
+  role_traditional:
+    config_provider: etcd
+  admin:
+    admin_key:
+      - name: admin
+        key: ${{ADMIN_KEY}}
+        role: admin
+    enable_admin_ui: true
+  etcd:
+    host:
+      - "http://etcd:2379"
+    prefix: "/apisix"
 
 plugins:
-  # Built-in plugins (enabled by APISIX)
-  - openid-connect
-  - ldap-auth
-  - ai-proxy
-  - ai-proxy-multi
+  - key-resolver
+  - key-meta
   - limit-count
   - proxy-buffering
   - proxy-rewrite
   - http-logger
   - prometheus
-  # Custom plugins
+  - request-id
   - redact
-  # v2:
-  # - semantic-cache
+  - sse-usage
 
 nginx_config:
+  envs:
+    - OPENCODE_API_KEY
+    - OPENBAO_TOKEN
   http:
-    lua_shared_dict:
+    custom_lua_shared_dict:
       redact_state: 1m
-      semcache_state: 4m
-    proxy_buffering: "on"        # default on; disabled per-route via proxy-buffering plugin
+      key_cache: 5m
+      gateway-cache: 2m
+      quota_counters: 5m
 ```
 
-### 3.1 Standalone YAML mode notes
+### 3.1 etcd mode notes
 
-- `config_provider: yaml`, APISIX reads `apisix.yaml` for all routes/services.
-- No etcd needed. No Admin API writes.
-- `apisix.yaml` is polled every 1 second for changes, hot reload without restart.
-- For multi-node deployment or Admin API access, switch to `config_provider: etcd`
-  and use ADC (`adc sync`) for GitOps.
+- `config_provider: etcd`: APISIX reads routes/upstreams from etcd (`etcd:2379`).
+- Admin API and Admin UI are enabled; `ADMIN_KEY` is injected at runtime.
+- `conf/apisix.yaml` is not polled in etcd mode; changes require re-sync
+  (entrypoint or `adc sync`). See [`architecture/OVERVIEW.md`](architecture/OVERVIEW.md).
+- Standalone YAML (`config_provider: yaml`) is documented in §3.2 for reference only.
 
 ---
 
 ## 4. Route Configuration (`apisix.yaml`)
 
+**Current deployment (3 relay routes):**
+
+| Route id | URI prefix | Upstream | Auth |
+|----------|------------|----------|------|
+| `relay-opencode` | `/opencode/*` | `opencode.ai:443` | Passthrough (shared key) |
+| `relay-opencode-federated` | `/opencode_federated/*` | `opencode.ai:443` | Virtual key via `key-resolver` + OpenBao |
+| `relay-llamafile` | `/llamafile/*` | `host.docker.internal:8765` | None (local e2e LLM) |
+
+Per-route plugin matrix and request lifecycle:
+[`architecture/PLUGIN-PIPELINE.md`](architecture/PLUGIN-PIPELINE.md),
+[`architecture/REQUEST-LIFECYCLE.md`](architecture/REQUEST-LIFECYCLE.md).
+
+### 4.1 Enterprise example (future, not deployed)
+
+The block below is the original OIDC + `ai-proxy-multi` design. It is **not**
+what runs today.
+
 ```yaml
-# conf/apisix.yaml
+# aspirational (NOT conf/apisix.yaml)
 routes:
   - id: llm-chat-completions
     uri: /v1/chat/completions
