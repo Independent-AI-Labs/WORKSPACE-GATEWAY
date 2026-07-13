@@ -125,8 +125,16 @@ services:
     container_name: gw-grafana
     environment:
       GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Prod: anonymous off, auth-proxy via wiki nginx X-WEBAUTH-USER. Dev: set
+      # GF_AUTH_ANONYMOUS_ENABLED=true and GF_AUTH_PROXY_ENABLED=false in .env.
+      GF_AUTH_ANONYMOUS_ENABLED: "${GF_AUTH_ANONYMOUS_ENABLED:-false}"
+      GF_AUTH_PROXY_ENABLED: "${GF_AUTH_PROXY_ENABLED:-true}"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:3030/}"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -135,7 +143,7 @@ services:
       - ../../conf/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "3030:3000"
+      - "127.0.0.1:3030:3000"
     depends_on:
       - prometheus
     restart: unless-stopped
