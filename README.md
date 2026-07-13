@@ -1,14 +1,10 @@
 # Multi-tenant LLM Gateway on APISIX
 
-Running LLM traffic for multiple agents and services means tenant
-credentials, PII in prompts and responses, streaming token counts,
-per-caller spend caps, cloud and local upstreams, and operator visibility,
-often duplicated in every client that touches the API. WORKSPACE-GATEWAY
-centralizes that work on Apache APISIX so one request can authenticate
-with an OpenBao virtual key, pass through PII redaction and per-key rate
-and token limits, continue to OpenCode, an ai-proxy provider, or
-llamafile, and leave a ClickHouse record that Grafana turns into
-per-tenant cost, error, and model views.
+Apache APISIX gateway for shared LLM traffic with per-tenant keys, spend
+limits, and PII redaction. Cloud backends run through ai-proxy or relay
+configuration, including OpenAI, Anthropic, Gemini, Bedrock, and others,
+with usage, cost, and health tracked in ClickHouse and Grafana; this repo
+ships sample routes to OpenCode and llamafile.
 
 **Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
 The gateway itself is provider-agnostic: add relay routes or swap to
