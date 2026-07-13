@@ -587,7 +587,8 @@ WORKSPACE-GATEWAY/
 │   │   └── Dockerfile.apisix
 │   ├── scripts/
 │   │   └── reconciler.sh
-│   └── LOGO_RAW.png
+│   ├── LOGO.png
+│   └── LOGO.svg
 └── sidecars/                       # v2
     ├── ner-engine/
     │   ├── Cargo.toml
