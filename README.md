@@ -1,11 +1,11 @@
 # Multi-tenant LLM Gateway on APISIX
 
-Routing LLM calls straight to the vendor leaves you with shared master
-keys, unfiltered prompt content, and no per-team spend trail. When clients
-call through this APISIX gateway instead, they present an OpenBao virtual
-key and pass redaction and spend checks before the relay continues to
-OpenCode, an ai-proxy provider, or llamafile, and ClickHouse retains the
-trail for Grafana and reconciliation.
+Agents and services across the workspace call LLM APIs constantly, yet
+each team tends to carry its own provider key with no shared redaction
+rules and no ledger that explains who drove cost last week. WORKSPACE-GATEWAY
+fronts that traffic on Apache APISIX with OpenBao virtual keys, running
+tenant policy before relay and retaining enough telemetry in ClickHouse
+for Grafana to answer per-tenant spend and error questions.
 
 **Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
 The gateway itself is provider-agnostic: add relay routes or swap to
