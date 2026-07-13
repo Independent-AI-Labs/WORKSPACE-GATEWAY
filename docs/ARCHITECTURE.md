@@ -263,49 +263,63 @@ Lua inside the APISIX Nginx worker process.
 
 ## 2. Container Topology
 
+Eight long-running services plus a one-shot `migrate` job on the **gateway**
+bridge network. Request, telemetry, metrics, and control-plane **flows** are
+diagrammed in [`README.md`](../README.md#architecture) (Diagrams 1-5); this
+section lists runtime services, ports, and networks.
+
+### Runtime services
+
 ```mermaid
-graph TB
-    subgraph "Gateway Network (bridge)"
-        APISIX["APISIX 3.17.0<br/>port 9080 (HTTP)<br/>port 9100 (Prometheus)<br/>port 9443 (HTTPS)"]
-        VECTOR["Vector 0.40.0<br/>port 8080 (HTTP ingest)"]
-        CLICKHOUSE["ClickHouse 24.8<br/>port 8123 (HTTP)<br/>port 9000 (native)"]
-        OPENBAO["OpenBao 2.4.4<br/>port 8200 (internal)<br/>port 8201 (host)"]
-        PROM["Prometheus v3.11.3<br/>port 9090<br/>host 9092"]
-        GRAFANA["Grafana 13.0.2<br/>port 3000<br/>host 3030"]
+flowchart TB
+    subgraph gw [gateway network]
+        APISIX["APISIX<br/>9080 9180 9100"]
+        ETCD[(etcd<br/>2379)]
+        CH[(ClickHouse<br/>8123 9000)]
+        VEC[Vector<br/>8080]
+        OB[(OpenBao<br/>8200)]
+        PROM[(Prometheus<br/>9090)]
+        GF[Grafana<br/>3000]
     end
 
-    subgraph "External Network"
-        DATAOPS["dataops_default<br/>(shared services)"]
-    end
-
-    CLIENT["Inbound Clients<br/>opencode, curl, apps"] -->|HTTP :9080| APISIX
-    APISIX -->|"HTTPS :443<br/>/opencode/* (passthrough)<br/>/opencode_federated/* (vkey)"| GO["OpenCode Go<br/>opencode.ai/zen/go/v1"]
-    APISIX -->|"POST /ingest<br/>request + response bodies"| VECTOR
-    APISIX -->|"GET /v1/secret/data/..."| OPENBAO
-    APISIX -->|"POST INSERT<br/>(via timer)"| CLICKHOUSE
-    VECTOR -->|"INSERT request_log"| CLICKHOUSE
-    APISIX -.->|"metrics :9100"| PROM
-    PROM -.->|"metrics query"| GRAFANA
-    APISIX --> DATAOPS
+    MIG[migrate one-shot]
+    ETCD -.->|route config| APISIX
+    MIG -.->|schema up| CH
 ```
+
+APISIX also joins the external **dataops_default** network for cross-project
+services (see Networks below).
 
 ### Service Inventory
 
 | Service | Image | Container Port | Host Port | Purpose |
 |---------|-------|----------------|-----------|---------|
-| APISIX | `apache/apisix:3.17.0-debian` (custom) | 9080, 9443, 9100 | 9080, 9443, 9100 | Data plane: routing, plugins, proxy |
+| APISIX | `apache/apisix:3.17.0-debian` (custom) | 9080, 9180, 9443, 9100 | 9080, 9180, 9443, 9100 | Data plane: routing, plugins, proxy, Admin API, Prometheus export |
+| etcd | `quay.io/coreos/etcd:v3.5.20` | 2379 | 2379 | Route and config store (traditional/etcd mode) |
 | ClickHouse | `clickhouse/clickhouse-server:24.8-alpine` | 8123, 9000 | 8123, 9000 | Billing-grade token accounting |
+| migrate | `migrate/migrate:v4.19.1` | n/a (one-shot) | n/a | golang-migrate schema runner (`make ch-migrate`) |
 | Vector | `timberio/vector:0.40.0-debian` | 8080 | 8080 | Telemetry ingest and transform |
 | OpenBao | custom build from `res/docker/Dockerfile.openbao` | 8200 | 8201 | Virtual key storage (production file-storage, persistent volume) |
-| Prometheus | `prom/prometheus:v3.11.3` | 9090 | 9092 | Metrics scraper (APISIX metrics endpoint) |
+| Prometheus | `prom/prometheus:v3.13.1` | 9090 | 9092 | Metrics scraper (`apisix:9100/apisix/prometheus/metrics`) |
 | Grafana | `grafana/grafana-oss:13.0.2` | 3000 | 3030 | Dashboards (Prometheus + ClickHouse data sources, 3 provisioned dashboards) |
+
+### Flow diagrams (README)
+
+| Diagram | Concern |
+|---------|---------|
+| 1 System context | Clients, gateway, cloud/local providers, OpenBao, ClickHouse |
+| 2 Request path | Federated route through policy/proxy plugins to upstream |
+| 3 Telemetry | `sse-usage` / `http-logger` to ClickHouse and Vector |
+| 4 Metrics | `:9100` export, Prometheus scrape, Grafana PromQL + CH queries |
+| 5 Control plane | `apisix.yaml.j2` to seed-routes to etcd to live routes |
 
 ### Networks
 
-- **gateway** (bridge): APISIX, ClickHouse, Vector, OpenBao, Prometheus,
+- **gateway** (bridge): APISIX, etcd, ClickHouse, Vector, OpenBao, Prometheus,
   Grafana communicate over this internal network. Container DNS resolves
-  service names (`http://clickhouse:8123`, `http://vector:8080`,
-  `http://openbao:8200`, `http://prometheus:9090`, `http://grafana:3000`).
+  service names (`http://etcd:2379`, `http://clickhouse:8123`,
+  `http://vector:8080`, `http://openbao:8200`, `http://prometheus:9090`,
+  `http://grafana:3000`).
   APISIX requires a DNS resolver config (`resolver:
   [10.89.0.1, 10.89.1.1]` in `config.yaml` under `nginx_config` or
   `apisix`) so that Lua cosockets can resolve container hostnames at

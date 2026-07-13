@@ -133,19 +133,55 @@ flowchart TB
 returns. Diagram 3 is separate from Diagram 2 so the request spine stays
 a single downward chain.
 
+### Diagram 4: Metrics and dashboards
+
+```mermaid
+flowchart TB
+    Plugin[prometheus plugin]
+    Export["APISIX :9100"]
+    Prom[(Prometheus)]
+    Grafana[Grafana]
+    CH[(ClickHouse)]
+
+    Plugin --> Export
+    Prom -.->|scrape| Export
+    Grafana -.->|PromQL| Prom
+    Grafana -.->|SQL queries| CH
+```
+
+The `prometheus` plugin exports request metrics at `:9100`. Prometheus
+scrapes on a 15s interval (`conf/prometheus.yml`). Grafana dashboards
+use **Prometheus** for ops panels (latency, error rate) and **ClickHouse**
+for cost and usage panels. Grafana only queries data; it does not write.
+
+### Diagram 5: Control plane (routes and config)
+
+```mermaid
+flowchart TB
+    J2[apisix.yaml.j2]
+    YAML[apisix.yaml]
+    Seed[seed-routes.sh]
+    Etcd[(etcd)]
+    Routes[APISIX routes]
+    Admin["Admin API :9180"]
+
+    J2 --> YAML --> Seed --> Etcd --> Routes
+    Admin -.->|route CRUD| Etcd
+```
+
+Traditional/etcd mode: routes live in etcd, seeded from the rendered
+`conf/apisix.yaml` on stack start. Templates live in
+[`conf/apisix.yaml.j2`](conf/apisix.yaml.j2); committed
+[`conf/apisix.yaml`](conf/apisix.yaml) is the drift-checked render.
+Admin API and built-in dashboard: `http://localhost:9180/ui/`.
+
 ### How it works
 
-Diagram 1 = who talks to whom. Diagram 2 = request through the gateway to
-upstream. Diagram 3 = telemetry after the upstream responds. Each new
-provider is a relay route + upstream node (or
+Diagram 1 = scope. Diagram 2 = request to upstream. Diagram 3 = usage and
+request logs. Diagram 4 = metrics and dashboards. Diagram 5 = route config.
+Each new provider is a relay route + upstream node (or
 `ai-proxy` / `ai-proxy-multi` for native multi-provider LB; see
 [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)).
-
-Traditional/etcd mode: routes stored in etcd, seeded from
-`conf/apisix.yaml` via `res/scripts/seed-routes.sh`. Admin API and
-built-in dashboard at `http://localhost:9180/ui/`. Route templates live
-in [`conf/apisix.yaml.j2`](conf/apisix.yaml.j2); committed
-[`conf/apisix.yaml`](conf/apisix.yaml) is the drift-checked render.
 
 To add or change providers, see [Supported Providers](#supported-providers).
 For diagram authoring rules, see

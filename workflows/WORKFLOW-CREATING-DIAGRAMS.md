@@ -13,6 +13,8 @@ and agents.
 | Who talks to whom at system scope | System context diagram |
 | How one request flows through plugins | Request path diagram |
 | Where usage/request logs land after upstream responds | Telemetry and logging diagram |
+| Metrics scrape and dashboard queries | Metrics and dashboards diagram |
+| Route templates, etcd, Admin API | Control plane diagram |
 | Auth or key decision logic | Decision flow diagram |
 | Which routes/upstreams ship in this repo | Sample deployments table |
 
@@ -53,6 +55,26 @@ Example: README **Diagram 2: Request path**.
 - **Keep separate** from the request-path diagram
 
 Example: README **Diagram 3: Telemetry and logging**.
+
+### Metrics and dashboards
+
+- **Audience:** operators and dashboard authors
+- **Message:** export path (plugin to `:9100` to Prometheus) and read paths (Grafana queries)
+- **Exclude:** request routing, Vector ingest, etcd
+- **Budget:** ≤6 nodes
+- **Grafana to ClickHouse:** dashed, labeled `SQL queries` or `queries`; never solid write
+
+Example: README **Diagram 4: Metrics and dashboards**.
+
+### Control plane
+
+- **Audience:** deployers and route editors
+- **Message:** template render to seed to etcd to live routes
+- **Include:** Admin API as dashed sidecar to etcd (not on the request path)
+- **Exclude:** LLM upstreams, telemetry sinks, Grafana
+- **Budget:** ≤7 nodes
+
+Example: README **Diagram 5: Control plane**.
 
 ### Decision flow
 
@@ -128,7 +150,7 @@ above or below the Mermaid block (see README Architecture section).
 - [ ] Single spine; no spider fan-in/out
 - [ ] Arrow direction matches real data flow (writes solid, reads/config dashed)
 - [ ] Legend present if mixing solid and dashed
-- [ ] Node count within budget (≤7 context, ≤7 request path, ≤6 telemetry)
+- [ ] Node count within budget (≤7 context/path/control, ≤6 telemetry/metrics)
 - [ ] Rendered at [mermaid.live](https://mermaid.live) or GitHub preview
 - [ ] Prose references diagram numbers instead of re-narrating every arrow
 - [ ] `make check` / markdown link checks pass
@@ -145,8 +167,9 @@ above or below the Mermaid block (see README Architecture section).
 
 | Anti-pattern | Fix |
 |--------------|-----|
-| One canvas with routes + plugins + etcd + Vector + Grafana | Split into context + request path + telemetry (+ optional decision flow) |
-| Request path diagram includes ClickHouse/Vector branches | Diagram 2 = gateway spine only; Diagram 3 = telemetry sinks |
+| One canvas with routes + plugins + etcd + Vector + Grafana | Split into context + request + telemetry + metrics + control plane |
+| Request path diagram includes ClickHouse/Vector branches | Diagram 2 = gateway spine; Diagram 3 = telemetry; Diagram 4 = metrics |
+| etcd/Prometheus only mentioned in prose | Diagram 4 = metrics; Diagram 5 = etcd/control plane |
 | Naming one vendor as the headline upstream in a multi-provider gateway doc | Generic "Cloud LLM APIs" node; vendor in sample table |
 | `### Current deployment (this repo)` | `### Sample deployments in this repo` |
 | `Upstream today` column | `Sample upstream` |
