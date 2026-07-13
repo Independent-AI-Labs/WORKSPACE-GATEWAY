@@ -1,12 +1,11 @@
 # Multi-tenant LLM Gateway on APISIX
 
-This stack runs on Apache APISIX and gives each tenant virtual keys from
-OpenBao, PII redaction on requests and responses, and per-key rate and
-token budgets, while logging every call to ClickHouse for cost tracking
-and reconciliation. For upstreams, cloud traffic defaults to OpenCode Go,
-ai-proxy plugins cover OpenAI, Anthropic, Gemini, Bedrock, and other
-providers, and a relay route connects local llamafile with Grafana
-dashboards for usage, health, and spend.
+Routing LLM calls straight to the vendor leaves you with shared master
+keys, unfiltered prompt content, and no per-team spend trail. When clients
+call through this APISIX gateway instead, they present an OpenBao virtual
+key and pass redaction and spend checks before the relay continues to
+OpenCode, an ai-proxy provider, or llamafile, and ClickHouse retains the
+trail for Grafana and reconciliation.
 
 **Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
 The gateway itself is provider-agnostic: add relay routes or swap to
