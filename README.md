@@ -1,9 +1,9 @@
 # Multi-tenant LLM Gateway on APISIX
 
-Multi-tenant LLM gateway on Apache APISIX: OpenBao virtual keys, per-key rate
-and token budgets, PII redaction, and billing-grade usage in ClickHouse with
-provider reconciliation. Federate through OpenCode, reach other cloud providers
-via ai-proxy or relay routes, attach local llamafile, and monitor in Grafana.
+Apache APISIX gateway for shared LLM traffic with per-tenant keys, spend
+limits, and PII redaction. Cloud models use OpenCode or other providers,
+local models use llamafile, and ClickHouse plus Grafana cover usage, cost,
+and health.
 
 **Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
 The gateway itself is provider-agnostic: add relay routes or swap to
