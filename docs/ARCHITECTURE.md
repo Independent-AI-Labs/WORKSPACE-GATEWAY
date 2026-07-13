@@ -265,8 +265,9 @@ Lua inside the APISIX Nginx worker process.
 
 Eight long-running services plus a one-shot `migrate` job on the **gateway**
 bridge network. Request, telemetry, metrics, and control-plane **flows** are
-diagrammed in [`README.md`](../README.md#architecture) (Diagrams 1-5); this
-section lists runtime services, ports, and networks.
+diagrammed in the owning [`README.md`](../README.md) sections (Architecture,
+Plugins, Configuration, Key Management); this section lists runtime services,
+ports, and networks.
 
 ### Runtime services
 
@@ -303,15 +304,16 @@ services (see Networks below).
 | Prometheus | `prom/prometheus:v3.13.1` | 9090 | 9092 | Metrics scraper (`apisix:9100/apisix/prometheus/metrics`) |
 | Grafana | `grafana/grafana-oss:13.0.2` | 3000 | 3030 | Dashboards (Prometheus + ClickHouse data sources, 3 provisioned dashboards) |
 
-### Flow diagrams (README)
+### Flow diagrams (README, by section)
 
-| Diagram | Concern |
-|---------|---------|
-| 1 System context | Clients, gateway, cloud/local providers, OpenBao, ClickHouse |
-| 2 Request path | Federated route through policy/proxy plugins to upstream |
-| 3 Telemetry | `sse-usage` / `http-logger` to ClickHouse and Vector |
-| 4 Metrics | `:9100` export, Prometheus scrape, Grafana PromQL + CH queries |
-| 5 Control plane | `apisix.yaml.j2` to seed-routes to etcd to live routes |
+| README section | Concern |
+|----------------|---------|
+| Architecture | System context; sample deployments table |
+| Plugins | Federated request path through policy/proxy plugins |
+| Configuration / ClickHouse Tables | Telemetry: `sse-usage`, `http-logger`, Vector |
+| Configuration / Grafana Dashboards | Metrics export, Prometheus scrape, Grafana queries |
+| Configuration / Routes and config | `apisix.yaml.j2` to etcd to live routes |
+| Key Management | Virtual key decision flow |
 
 ### Networks
 

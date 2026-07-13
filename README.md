@@ -72,10 +72,10 @@ instructions for any that are missing.
 
 ## Architecture
 
-**Legend:** solid arrows = request/response data path; dashed arrows = config,
-key lookup, or read-only observability.
+**Legend (all diagrams in this doc):** solid arrows = request/response data
+path; dashed arrows = config, key lookup, or read-only observability.
 
-### Diagram 1: System context
+### System context
 
 ```mermaid
 flowchart TB
@@ -93,98 +93,15 @@ flowchart TB
     Gateway -.->|usage and request logs| Store
 ```
 
-The gateway is provider-agnostic. Diagram 1 shows scope only, not plugin
-internals or a specific vendor.
+The gateway is provider-agnostic: clients hit APISIX, which relays to cloud
+or local LLM APIs, resolves virtual keys via OpenBao, and persists usage data.
+Deeper flows are diagrammed in the section that owns each concern:
+[Plugins](#plugins) (request path), [Configuration](#configuration)
+(telemetry, metrics, route config), [Key Management](#key-management) (auth).
 
-### Diagram 2: Request path (one federated cloud request)
-
-```mermaid
-flowchart TB
-    Client[Client]
-    Route["/opencode_federated/*"]
-    Policy[Policy plugins]
-    Proxy[Proxy plugins]
-    Upstream[Cloud upstream]
-    OpenBao[(OpenBao)]
-
-    Client --> Route --> Policy --> Proxy --> Upstream
-    OpenBao -.->|key lookup| Policy
-```
-
-`/opencode/*` skips `key-resolver`; `/llamafile/*` skips auth and targets
-a local upstream (see sample deployments table below).
-
-### Diagram 3: Telemetry and logging (response phase)
-
-```mermaid
-flowchart TB
-    Response[Upstream response]
-    Tele[Telemetry plugins]
-    CH[(ClickHouse)]
-    Vector[Vector]
-
-    Response --> Tele
-    Tele -->|usage_log| CH
-    Tele -->|request_log| Vector
-    Vector --> CH
-```
-
-`sse-usage` and `http-logger` run in response/log phases after the upstream
-returns. Diagram 3 is separate from Diagram 2 so the request spine stays
-a single downward chain.
-
-### Diagram 4: Metrics and dashboards
-
-```mermaid
-flowchart TB
-    Plugin[prometheus plugin]
-    Export["APISIX :9100"]
-    Prom[(Prometheus)]
-    Grafana[Grafana]
-    CH[(ClickHouse)]
-
-    Plugin --> Export
-    Prom -.->|scrape| Export
-    Grafana -.->|PromQL| Prom
-    Grafana -.->|SQL queries| CH
-```
-
-The `prometheus` plugin exports request metrics at `:9100`. Prometheus
-scrapes on a 15s interval (`conf/prometheus.yml`). Grafana dashboards
-use **Prometheus** for ops panels (latency, error rate) and **ClickHouse**
-for cost and usage panels. Grafana only queries data; it does not write.
-
-### Diagram 5: Control plane (routes and config)
-
-```mermaid
-flowchart TB
-    J2[apisix.yaml.j2]
-    YAML[apisix.yaml]
-    Seed[seed-routes.sh]
-    Etcd[(etcd)]
-    Routes[APISIX routes]
-    Admin["Admin API :9180"]
-
-    J2 --> YAML --> Seed --> Etcd --> Routes
-    Admin -.->|route CRUD| Etcd
-```
-
-Traditional/etcd mode: routes live in etcd, seeded from the rendered
-`conf/apisix.yaml` on stack start. Templates live in
-[`conf/apisix.yaml.j2`](conf/apisix.yaml.j2); committed
-[`conf/apisix.yaml`](conf/apisix.yaml) is the drift-checked render.
-Admin API and built-in dashboard: `http://localhost:9180/ui/`.
-
-### How it works
-
-Diagram 1 = scope. Diagram 2 = request to upstream. Diagram 3 = usage and
-request logs. Diagram 4 = metrics and dashboards. Diagram 5 = route config.
-Each new provider is a relay route + upstream node (or
-`ai-proxy` / `ai-proxy-multi` for native multi-provider LB; see
-[`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)).
-
-To add or change providers, see [Supported Providers](#supported-providers).
-For diagram authoring rules, see
+Each new provider is a relay route + upstream node (or `ai-proxy` /
+`ai-proxy-multi`; see [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)
+and [Supported Providers](#supported-providers)). Diagram authoring rules:
 [`workflows/WORKFLOW-CREATING-DIAGRAMS.md`](workflows/WORKFLOW-CREATING-DIAGRAMS.md).
 
 ### Sample deployments in this repo
@@ -247,6 +164,28 @@ retries on failure, health checks, and provider-level routing rules.
 ---
 
 ## Plugins
+
+### Request path (one federated cloud request)
+
+```mermaid
+flowchart TB
+    Client[Client]
+    Route["/opencode_federated/*"]
+    Policy[Policy plugins]
+    Proxy[Proxy plugins]
+    Upstream[Cloud upstream]
+    OpenBao[(OpenBao)]
+
+    Client --> Route --> Policy --> Proxy --> Upstream
+    OpenBao -.->|key lookup| Policy
+```
+
+Policy = `key-resolver`, `key-meta`, `redact`, `limit-count` (access phase).
+Proxy = `proxy-rewrite`, upstream proxy, `proxy-buffering`. Telemetry plugins
+run after the upstream responds; see [ClickHouse Tables](#clickhouse-tables).
+
+`/opencode/*` skips `key-resolver`; `/llamafile/*` skips auth and targets a
+local upstream (see [sample deployments](#sample-deployments-in-this-repo)).
 
 Eight plugins on the passthrough and llamafile routes, nine on the federated
 route (federated adds `key-resolver`), ordered by Nginx phase priority:
@@ -313,6 +252,25 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 
 ## Configuration
 
+### Routes and config (control plane)
+
+```mermaid
+flowchart TB
+    J2[apisix.yaml.j2]
+    YAML[apisix.yaml]
+    Seed[seed-routes.sh]
+    Etcd[(etcd)]
+    Routes[APISIX routes]
+    Admin["Admin API :9180"]
+
+    J2 --> YAML --> Seed --> Etcd --> Routes
+    Admin -.->|route CRUD| Etcd
+```
+
+Traditional/etcd mode: routes live in etcd, seeded from the rendered
+`conf/apisix.yaml` on stack start. Admin API and built-in dashboard:
+`http://localhost:9180/ui/`.
+
 ### Key Files
 
 - `conf/config.yaml`: APISIX traditional/etcd mode: plugin list, shared dicts, env vars, Admin API, Prometheus port
@@ -345,6 +303,24 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 
 ### ClickHouse Tables
 
+Telemetry runs in response/log phases after the upstream returns:
+
+```mermaid
+flowchart TB
+    Response[Upstream response]
+    Tele[Telemetry plugins]
+    CH[(ClickHouse)]
+    Vector[Vector]
+
+    Response --> Tele
+    Tele -->|usage_log| CH
+    Tele -->|request_log| Vector
+    Vector --> CH
+```
+
+`sse-usage` writes `usage_log` directly; `http-logger` ships full
+request/response metadata to Vector, which inserts `request_log`.
+
 | Table | Written By | Key Columns |
 |-------|-----------|-------------|
 | `request_log` | Vector (from http-logger) | `request_id`, model, status, req_body, resp_body, identity columns |
@@ -353,6 +329,25 @@ make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
 | `billing_discrepancies` | v2 reconciler (deferred) | gateway_tokens, provider_tokens, divergence |
 
 ### Grafana Dashboards
+
+```mermaid
+flowchart TB
+    Plugin[prometheus plugin]
+    Export["APISIX :9100"]
+    Prom[(Prometheus)]
+    Grafana[Grafana]
+    CH[(ClickHouse)]
+
+    Plugin --> Export
+    Prom -.->|scrape| Export
+    Grafana -.->|PromQL| Prom
+    Grafana -.->|SQL queries| CH
+```
+
+The `prometheus` plugin exports request metrics at `:9100`. Prometheus
+scrapes every 15s (`conf/prometheus.yml`). Grafana uses **Prometheus** for
+ops panels (latency, error rate) and **ClickHouse** for cost and usage.
+Grafana only queries data; it does not write.
 
 Three provisioned dashboards (default: `now-7d` lookback, `5s` refresh):
 
