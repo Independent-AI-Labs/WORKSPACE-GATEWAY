@@ -105,25 +105,39 @@ flowchart TB
     Policy[Policy plugins]
     Proxy[Proxy plugins]
     Upstream[Cloud upstream]
-    Tele[Telemetry plugins]
-    CH[(ClickHouse)]
-    Vector[Vector]
     OpenBao[(OpenBao)]
 
-    Client --> Route --> Policy --> Proxy --> Upstream --> Tele
-    Tele -->|usage_log| CH
-    Tele -->|request_log| Vector
-    Vector --> CH
+    Client --> Route --> Policy --> Proxy --> Upstream
     OpenBao -.->|key lookup| Policy
 ```
 
 `/opencode/*` skips `key-resolver`; `/llamafile/*` skips auth and targets
 a local upstream (see sample deployments table below).
 
+### Diagram 3: Telemetry and logging (response phase)
+
+```mermaid
+flowchart TB
+    Response[Upstream response]
+    Tele[Telemetry plugins]
+    CH[(ClickHouse)]
+    Vector[Vector]
+
+    Response --> Tele
+    Tele -->|usage_log| CH
+    Tele -->|request_log| Vector
+    Vector --> CH
+```
+
+`sse-usage` and `http-logger` run in response/log phases after the upstream
+returns. Diagram 3 is separate from Diagram 2 so the request spine stays
+a single downward chain.
+
 ### How it works
 
-Diagram 1 = who talks to whom. Diagram 2 = one happy-path request spine
-(top to bottom). Each new provider is a relay route + upstream node (or
+Diagram 1 = who talks to whom. Diagram 2 = request through the gateway to
+upstream. Diagram 3 = telemetry after the upstream responds. Each new
+provider is a relay route + upstream node (or
 `ai-proxy` / `ai-proxy-multi` for native multi-provider LB; see
 [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)).
 

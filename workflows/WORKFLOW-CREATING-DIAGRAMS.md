@@ -12,6 +12,7 @@ and agents.
 |---------|-----|
 | Who talks to whom at system scope | System context diagram |
 | How one request flows through plugins | Request path diagram |
+| Where usage/request logs land after upstream responds | Telemetry and logging diagram |
 | Auth or key decision logic | Decision flow diagram |
 | Which routes/upstreams ship in this repo | Sample deployments table |
 
@@ -37,10 +38,21 @@ Example: README **Diagram 1: System context**.
 - **Audience:** implementers
 - **Message:** single happy-path spine for **one** route prefix
 - **Include:** plugin phases only when showing one federated/cloud path
-- **Budget:** ≤10 nodes
+- **Exclude:** telemetry sinks (ClickHouse, Vector), Grafana, etcd
+- **Budget:** ≤7 nodes
 - **Caption:** note how other prefixes differ (e.g. skip `key-resolver`)
 
 Example: README **Diagram 2: Request path**.
+
+### Telemetry and logging
+
+- **Audience:** implementers tracing usage or request logs
+- **Message:** response-phase plugins to storage (one path per sink)
+- **Start from:** upstream response or telemetry plugin node, not the client
+- **Budget:** ≤6 nodes
+- **Keep separate** from the request-path diagram
+
+Example: README **Diagram 3: Telemetry and logging**.
 
 ### Decision flow
 
@@ -116,7 +128,7 @@ above or below the Mermaid block (see README Architecture section).
 - [ ] Single spine; no spider fan-in/out
 - [ ] Arrow direction matches real data flow (writes solid, reads/config dashed)
 - [ ] Legend present if mixing solid and dashed
-- [ ] Node count within budget (≤7 context, ≤10 request path)
+- [ ] Node count within budget (≤7 context, ≤7 request path, ≤6 telemetry)
 - [ ] Rendered at [mermaid.live](https://mermaid.live) or GitHub preview
 - [ ] Prose references diagram numbers instead of re-narrating every arrow
 - [ ] `make check` / markdown link checks pass
@@ -133,7 +145,8 @@ above or below the Mermaid block (see README Architecture section).
 
 | Anti-pattern | Fix |
 |--------------|-----|
-| One canvas with routes + plugins + etcd + Vector + Grafana | Split into context + request path (+ optional decision flow) |
+| One canvas with routes + plugins + etcd + Vector + Grafana | Split into context + request path + telemetry (+ optional decision flow) |
+| Request path diagram includes ClickHouse/Vector branches | Diagram 2 = gateway spine only; Diagram 3 = telemetry sinks |
 | Naming one vendor as the headline upstream in a multi-provider gateway doc | Generic "Cloud LLM APIs" node; vendor in sample table |
 | `### Current deployment (this repo)` | `### Sample deployments in this repo` |
 | `Upstream today` column | `Sample upstream` |
