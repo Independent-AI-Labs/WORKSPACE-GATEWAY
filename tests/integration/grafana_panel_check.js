@@ -11,7 +11,7 @@
  * Dashboards (split from the original gateway-overview):
  *   - gateway-cost-usage:       p3, p8, p15 (all ClickHouse)
  *   - gateway-ops-health:       p1, p2, p4, p5, p7, p9, p10, p11, p12, p13, p14 (mixed CH + Prom)
- *   - gateway-cost-leaderboard: p20 (ClickHouse stat panel, ranked tiles like p3)
+ *   - gateway-cost-leaderboard: p20, p21 (ClickHouse stat panels, ranked tiles like p3)
  *
  * Usage:
  *   node grafana_panel_check.js [--url http://localhost:3030]
@@ -77,6 +77,7 @@ const dashboards = [
     title: 'Gateway Cost Leaderboard',
     panels: [
       { id: 20, title: 'Top Clients by Cost & Tokens',      type: 'stat',         checks: [] },
+      { id: 21, title: 'Top Models by Cost & Tokens',       type: 'stat',         checks: [] },
     ],
   },
 ];

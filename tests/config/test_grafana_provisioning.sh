@@ -152,12 +152,12 @@ LB_UID=$(jq -r '.uid' "$LEADERBOARD_FILE")
 assert_eq "Cost Leaderboard uid" "gateway-cost-leaderboard" "$LB_UID"
 
 LB_PANELS=$(jq '.panels | length' "$LEADERBOARD_FILE")
-assert_eq "Cost Leaderboard has 1 panel" "1" "$LB_PANELS"
+assert_eq "Cost Leaderboard has 2 panels" "2" "$LB_PANELS"
 
-# ── Total panel count across all 3 dashboards (14 original + 1 new leaderboard = 15) ──
+# ── Total panel count across all 3 dashboards (14 original + 2 leaderboard = 16) ──
 
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS))
-assert_eq "Total panels across 3 dashboards" "15" "$TOTAL_PANELS"
+assert_eq "Total panels across 3 dashboards" "16" "$TOTAL_PANELS"
 
 # ── Templating identical across all 3 dashboards (shared filter header) ──
 
@@ -233,14 +233,14 @@ done
 assert_eq "No \$__conditionalAll macros in any dashboard" "0" "$COND_ALL_TOTAL"
 
 # ── ClickHouse panels use \${api_key:singlequote} directly ────────────
-# Original 9 CH panels (now 3 in cost-usage + 6 in ops-health) + 1 new in leaderboard = 10
+# Original 9 CH panels (now 3 in cost-usage + 6 in ops-health) + 2 in leaderboard = 11
 
 CH_APIKEY_TOTAL=0
 for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
     c=$(jq '[.panels[] | select(.datasource.uid == "clickhouse") | select([.targets[].rawSql? | select(. != null) | select(test("\\$\\{api_key:singlequote\\}"))] | length > 0)] | length' "$df")
     CH_APIKEY_TOTAL=$((CH_APIKEY_TOTAL + c))
 done
-assert_eq "ClickHouse panels with \${api_key:singlequote} (all 3 dashboards)" "10" "$CH_APIKEY_TOTAL"
+assert_eq "ClickHouse panels with \${api_key:singlequote} (all 3 dashboards)" "11" "$CH_APIKEY_TOTAL"
 
 # ── p3 Token Usage stat: 5 tiles, one per category (in cost-usage) ────
 
@@ -438,5 +438,44 @@ echo "$P20_SQL" | grep -q "row_number() OVER () = 1, '#C9A44C'" && { echo "[PASS
 echo "$P20_SQL" | grep -q "row_number() OVER () = 2, '#A8A9AD'" && { echo "[PASS] p20 SQL bakes in matte silver for rank 2"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing silver color in SQL"; fail=$((fail+1)); }
 echo "$P20_SQL" | grep -q "row_number() OVER () = 3, '#B07A3C'" && { echo "[PASS] p20 SQL bakes in matte bronze for rank 3"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing bronze color in SQL"; fail=$((fail+1)); }
 echo "$P20_SQL" | grep -q 'multiIf' && { echo "[PASS] p20 uses multiIf for Mil/K formatting (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing multiIf formatting"; fail=$((fail+1)); }
+
+# ── p21 Leaderboard panel (in cost-leaderboard) ───────────────────────
+
+P21_TITLE=$(jq -r '[.panels[] | select(.id == 21)][0].title' "$LEADERBOARD_FILE")
+assert_eq "p21 title is Top Models by Cost & Tokens" "Top Models by Cost & Tokens" "$P21_TITLE"
+
+P21_TYPE=$(jq -r '[.panels[] | select(.id == 21)][0].type' "$LEADERBOARD_FILE")
+assert_eq "p21 is a stat panel (like p20)" "stat" "$P21_TYPE"
+
+P21_TGT=$(jq '[.panels[] | select(.id == 21)][0].targets | length' "$LEADERBOARD_FILE")
+assert_eq "p21 has 1 target (ranked CTE)" "1" "$P21_TGT"
+
+P21_CM=$(jq -r '[.panels[] | select(.id == 21)][0].options.colorMode' "$LEADERBOARD_FILE")
+assert_eq "p21 colorMode is background_solid" "background_solid" "$P21_CM"
+P21_TM=$(jq -r '[.panels[] | select(.id == 21)][0].options.textMode' "$LEADERBOARD_FILE")
+assert_eq "p21 textMode is value_and_name (like p20)" "value_and_name" "$P21_TM"
+P21_OR=$(jq -r '[.panels[] | select(.id == 21)][0].options.orientation' "$LEADERBOARD_FILE")
+assert_eq "p21 orientation is horizontal (like p20)" "horizontal" "$P21_OR"
+P21_GM=$(jq -r '[.panels[] | select(.id == 21)][0].options.graphMode' "$LEADERBOARD_FILE")
+assert_eq "p21 graphMode is none (like p20)" "none" "$P21_GM"
+
+P21_DEF=$(jq -r '[.panels[] | select(.id == 21)][0].fieldConfig.defaults.color.fixedColor' "$LEADERBOARD_FILE" | tr '[:lower:]' '[:upper:]')
+assert_eq "p21 default background is white" "#FFFFFF" "$P21_DEF"
+
+P21_OVR=$(jq -r '[.panels[] | select(.id == 21)][0].fieldConfig.overrides | length' "$LEADERBOARD_FILE")
+assert_eq "p21 has no field overrides (color from SQL)" "0" "$P21_OVR"
+
+P21_TRANS=$(jq -r '[.panels[] | select(.id == 21)][0].transformations[0].id' "$LEADERBOARD_FILE")
+assert_eq "p21 uses rowsToFields transformer" "rowsToFields" "$P21_TRANS"
+P21_COLOR_MAP=$(jq -r '[.panels[] | select(.id == 21)][0].transformations[0].options.mappings[] | select(.fieldName=="Color") | .handlerKey' "$LEADERBOARD_FILE")
+assert_eq "p21 maps Color column to color handler" "color" "$P21_COLOR_MAP"
+
+P21_SQL=$(jq -r '[.panels[] | select(.id == 21)][0].targets[0].rawSql' "$LEADERBOARD_FILE")
+echo "$P21_SQL" | grep -q 'GROUP BY model_name' && { echo "[PASS] p21 CTE groups by model_name"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing GROUP BY model_name"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q 'ORDER BY total_cost DESC' && { echo "[PASS] p21 CTE orders by total_cost DESC"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing ORDER BY total_cost DESC"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q "row_number() OVER () = 1, '#C9A44C'" && { echo "[PASS] p21 SQL bakes in matte gold for rank 1"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing gold color in SQL"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q "row_number() OVER () = 2, '#A8A9AD'" && { echo "[PASS] p21 SQL bakes in matte silver for rank 2"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing silver color in SQL"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q "row_number() OVER () = 3, '#B07A3C'" && { echo "[PASS] p21 SQL bakes in matte bronze for rank 3"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing bronze color in SQL"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q 'multiIf' && { echo "[PASS] p21 uses multiIf for Mil/K formatting (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing multiIf formatting"; fail=$((fail+1)); }
 
 summary

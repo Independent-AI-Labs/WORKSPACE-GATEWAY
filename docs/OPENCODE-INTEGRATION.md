@@ -436,7 +436,8 @@ The gateway observability stack provides 3 separate Grafana dashboards:
   breakdown, latency percentiles, avg latency by model, bandwidth, shared dict
   memory, stream abort rate, stream status. Mixed Prometheus + ClickHouse.
 - **Gateway Cost Leaderboard**: `http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s`
-  - top clients ranked by cost and token consumption (p20, ClickHouse table).
+  - top clients (p20) and top models (p21) ranked by cost and token consumption
+  (ClickHouse stat panels).
 
 All 3 dashboards share identical `templating` (api_key + model variables) and
 the same time range / refresh settings.

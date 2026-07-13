@@ -28,7 +28,7 @@ panel across the 3 gateway dashboards:
 |-----------|------|-----|--------|
 | Gateway Cost & Usage | `conf/grafana/dashboards/gateway-cost-usage.json` | `gateway-cost-usage` | p3, p8, p15 (all ClickHouse) |
 | Gateway Operations & Health | `conf/grafana/dashboards/gateway-ops-health.json` | `gateway-ops-health` | p1, p2, p4, p5, p7, p9, p10, p11, p12, p13, p14 (6 CH + 5 Prom) |
-| Gateway Cost Leaderboard | `conf/grafana/dashboards/gateway-cost-leaderboard.json` | `gateway-cost-leaderboard` | p20 (ClickHouse stat panel, 10 ranked tiles) |
+| Gateway Cost Leaderboard | `conf/grafana/dashboards/gateway-cost-leaderboard.json` | `gateway-cost-leaderboard` | p20, p21 (ClickHouse stat panels, 10 ranked tiles each) |
 
 It is the authoritative spec: tests verify against this document, not against
 the JSON structure alone.
@@ -660,11 +660,11 @@ These apply to every panel regardless of type:
 9. **All hex colors are brand palette:** teal `#70c1b3`, cerulean
    `#247ba0`, muted-teal `#8cada7`, gold `#ffe066`, bronze `#b7990d`,
    coral `#f25f5c`, celadon `#a5d0a8`, dark `#50514f`, cream `#f2f4cb`,
-   ink `#110b11`. The Cost Leaderboard (p20) additionally uses a controlled
+   ink `#110b11`. The Cost Leaderboard (p20, p21) additionally uses a controlled
    medal/neutral accent set outside the brand palette: white `#ffffff`
    (default tile background for ranks 4-10), matte gold `#c9a44c` (rank 1),
    matte silver `#a8a9ad` (rank 2), matte bronze `#b07a3c` (rank 3).
 10. **Dashboard time range:** `now-7d` to `now`, refresh `5s` (all 3 dashboards).
-11. **Panel count:** 15 panels total across 3 dashboards (10 ClickHouse,
+11. **Panel count:** 16 panels total across 3 dashboards (11 ClickHouse,
     5 Prometheus). Cost & Usage: 3 CH. Operations & Health: 6 CH + 5 Prom.
-    Cost Leaderboard: 1 CH (stat panel, 10 ranked tiles).
+    Cost Leaderboard: 2 CH (stat panels, 10 ranked tiles each).
