@@ -577,11 +577,11 @@ executable, and reference the correct CI scripts.
 |---|------|----------|
 | 1 | `.git/hooks/pre-commit` exists and is executable | Exit 0 |
 | 2 | `.git/hooks/pre-push` exists and is executable | Exit 0 |
-| 3 | `pre-commit` references `check-banned-words` | grep match |
-| 4 | `pre-commit` references `block-sensitive-files` | grep match |
-| 5 | `pre-commit` references `gitleaks` | grep match |
-| 6 | `pre-push` references `ci-check-push` | grep match |
-| 7 | `pre-push` references `check-dead-code` | grep match |
+| 3 | `.pre-commit-config.yaml` defines `check-banned-words` | grep match |
+| 4 | `.pre-commit-config.yaml` defines `block-sensitive-files` | grep match |
+| 5 | `.pre-commit-config.yaml` defines `gitleaks` | grep match |
+| 6 | `.pre-commit-config.yaml` defines `ci-check-push` (pre-push) | grep match |
+| 7 | `.pre-commit-config.yaml` defines `check-dead-code` (pre-push) | grep match |
 | 8 | `.pre-commit-config.yaml` exists | Exit 0 |
 | 9 | `banned_words.yaml` exists in CI repo | Exit 0 |
 

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CI_REPO="$REPO_ROOT/../CI"
+PRE_COMMIT_CONFIG="$REPO_ROOT/.pre-commit-config.yaml"
 
 pass=0
 fail=0
@@ -17,6 +18,16 @@ check() {
     else
         echo "[FAIL] $desc"
         fail=$((fail + 1))
+    fi
+}
+
+grep_config_ref() {
+    local pattern="$1"
+    local desc="$2"
+    if grep -qE "$pattern" "$PRE_COMMIT_CONFIG" 2>/dev/null; then
+        check "$desc" "0"
+    else
+        check "$desc" "1"
     fi
 }
 
@@ -35,28 +46,22 @@ else
     check "pre-push exists and is executable" "1"
 fi
 
-grep -q 'check-banned-words' "$PRE_COMMIT" 2>/dev/null
-check "pre-commit references check-banned-words" "$?"
-
-grep -q 'block-sensitive-files' "$PRE_COMMIT" 2>/dev/null
-check "pre-commit references block-sensitive-files" "$?"
-
-grep -q 'gitleaks' "$PRE_COMMIT" 2>/dev/null
-check "pre-commit references gitleaks" "$?"
-
-grep -q 'ci-check-push' "$PRE_PUSH" 2>/dev/null
-check "pre-push references ci-check-push" "$?"
-
-grep -q 'check-dead-code' "$PRE_PUSH" 2>/dev/null
-check "pre-push references check-dead-code" "$?"
-
-grep -q 'check-dependency-versions\|check_dependency_versions' "$PRE_COMMIT" 2>/dev/null
-check "pre-commit references check-dependency-versions" "$?"
-
-if [ -f "$REPO_ROOT/.pre-commit-config.yaml" ]; then
-    check ".pre-commit-config.yaml exists" "0"
-else
+if [ ! -f "$PRE_COMMIT_CONFIG" ]; then
     check ".pre-commit-config.yaml exists" "1"
+else
+    check ".pre-commit-config.yaml exists" "0"
+    grep_config_ref 'id: check-banned-words' \
+        "pre-commit config defines check-banned-words"
+    grep_config_ref 'id: block-sensitive-files' \
+        "pre-commit config defines block-sensitive-files"
+    grep_config_ref 'id: gitleaks' \
+        "pre-commit config defines gitleaks"
+    grep_config_ref 'id: ci-check-push' \
+        "pre-commit config defines ci-check-push (pre-push stage)"
+    grep_config_ref 'id: check-dead-code' \
+        "pre-commit config defines check-dead-code (pre-push stage)"
+    grep_config_ref 'id: check-dependency-versions' \
+        "pre-commit config defines check-dependency-versions"
 fi
 
 if [ -f "$CI_REPO/config/banned_words.yaml" ]; then
