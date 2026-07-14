@@ -1,5 +1,9 @@
 # WORKSPACE-GATEWAY - Managed services declaration
-# Read by ami/cli_components/status_systemd.py for orphan detection.
+# Read by workspace/cli/status_systemd.py for orphan detection.
+
+compose_services:
+  gateway-compose:
+    compose_file: res/docker/docker-compose.yml
 
 podman_pods:
   gateway:
@@ -7,3 +11,7 @@ podman_pods:
       - docker_apisix_1
       - docker_clickhouse_1
       - docker_vector_1
+      - gw-etcd
+      - gw-grafana
+      - gw-prometheus
+      - gw-openbao

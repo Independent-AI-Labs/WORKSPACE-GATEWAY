@@ -1,0 +1,195 @@
+---
+# WORKSPACE-GATEWAY - Compose stack systemd provisioning
+#
+# Tags: deploy, start, stop, restart, status, undeploy
+- name: WORKSPACE-GATEWAY Compose Stack
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    project_root: '{{ playbook_dir | dirname | dirname }}'
+    compose_file: '{{ project_root }}/res/docker/docker-compose.yml'
+    gateway_unit: gateway-compose.service
+    systemd_dir: '{{ ansible_env.HOME }}/.config/systemd/user'
+    venv_compose: '{{ project_root }}/.venv/bin/podman-compose'
+
+  tasks:
+    - name: Resolve project root
+      tags: [always]
+      block:
+        - name: Get absolute project path
+          ansible.builtin.command: realpath {{ project_root }}
+          register: resolved_root
+          changed_when: false
+
+        - name: Set resolved paths
+          ansible.builtin.set_fact:
+            project_root: '{{ resolved_root.stdout }}'
+            compose_file: '{{ resolved_root.stdout }}/res/docker/docker-compose.yml'
+            venv_compose: '{{ resolved_root.stdout }}/.venv/bin/podman-compose'
+
+    - name: Detect container runtime
+      tags: [always, deploy, start, restart]
+      block:
+        - name: Find podman
+          ansible.builtin.command: which podman
+          register: podman_check
+          changed_when: false
+
+        - name: Fail if podman missing
+          ansible.builtin.fail:
+            msg: 'podman not on PATH'
+          when: podman_check.rc != 0
+
+        - name: Check venv podman-compose
+          ansible.builtin.stat:
+            path: '{{ venv_compose }}'
+          register: compose_stat
+
+        - name: Fail if podman-compose missing
+          ansible.builtin.fail:
+            msg: 'Run make install in WORKSPACE-GATEWAY first (missing {{ venv_compose }})'
+          when: not compose_stat.stat.exists
+
+        - name: Set runtime facts
+          ansible.builtin.set_fact:
+            podman_path: '{{ podman_check.stdout }}'
+            podman_bin_dir: '{{ podman_check.stdout | dirname }}'
+            compose_cmd: '{{ venv_compose }}'
+
+    - name: Deploy gateway compose stack
+      tags: [deploy, start, restart]
+      block:
+        - name: Ensure systemd user directory exists
+          ansible.builtin.file:
+            path: '{{ systemd_dir }}'
+            state: directory
+            mode: '0755'
+
+        - name: Enable systemd user linger
+          tags: [deploy]
+          ansible.builtin.command: loginctl enable-linger {{ ansible_user_id }}
+          register: linger_result
+          changed_when: linger_result.rc == 0
+          failed_when: linger_result.rc != 0
+
+        - name: Install gateway systemd unit
+          ansible.builtin.template:
+            src: templates/gateway-compose.service.j2
+            dest: '{{ systemd_dir }}/{{ gateway_unit }}'
+            mode: '0644'
+
+        - name: Reload systemd user daemon
+          ansible.builtin.systemd:
+            daemon_reload: true
+            scope: user
+
+        - name: Enable and start gateway compose
+          ansible.builtin.systemd:
+            name: '{{ gateway_unit }}'
+            enabled: true
+            state: restarted
+            scope: user
+
+        - name: Run post-start health checks
+          ansible.builtin.shell: |
+            set -euo pipefail
+            if [ -f '{{ project_root }}/.env' ]; then
+              set -a
+              # shellcheck disable=SC1091
+              . '{{ project_root }}/.env'
+              set +a
+            fi
+            ansible-playbook '{{ project_root }}/res/ansible/dev.yml' --tags start
+          environment:
+            HOME: '{{ ansible_env.HOME }}'
+          register: post_start_health
+          changed_when: false
+          failed_when: post_start_health.rc != 0
+
+        - name: Gateway deployed
+          ansible.builtin.debug:
+            msg: |
+              Gateway compose running (systemd user: {{ gateway_unit }}).
+                Logs : journalctl --user -u {{ gateway_unit }} -f
+                Stop : make gateway-stop
+
+    - name: Stop gateway before restart
+      tags: [restart]
+      ansible.builtin.systemd:
+        name: '{{ gateway_unit }}'
+        state: stopped
+        scope: user
+      register: restart_stop
+      failed_when: >
+        restart_stop.failed
+        and 'Could not find the requested service' not in (restart_stop.msg | default(''))
+
+    - name: Stop gateway compose
+      tags: [stop, undeploy]
+      ansible.builtin.systemd:
+        name: '{{ gateway_unit }}'
+        state: stopped
+        scope: user
+      register: stop_gateway
+      failed_when: >
+        stop_gateway.failed
+        and 'Could not find the requested service' not in (stop_gateway.msg | default(''))
+
+    - name: Show gateway status
+      tags: [status, never]
+      block:
+        - name: Check gateway service
+          ansible.builtin.command: systemctl --user is-active {{ gateway_unit }}
+          register: gateway_status
+          failed_when: gateway_status.rc not in [0, 3]
+          changed_when: false
+
+        - name: List gateway containers
+          ansible.builtin.command:
+            argv:
+              - podman
+              - ps
+              - --filter
+              - name=gw-
+              - --format
+              - 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Ports{{ "}}" }}'
+          register: gateway_containers
+          changed_when: false
+
+        - name: Display status
+          ansible.builtin.debug:
+            msg: |
+              Gateway status:
+                Unit       : {{ gateway_status.stdout | default('not installed') }}
+                Containers :
+              {{ gateway_containers.stdout | default('(none)') | indent(2, first=False) }}
+                Logs       : journalctl --user -u {{ gateway_unit }} -f
+
+    - name: Undeploy gateway compose
+      tags: [undeploy, never]
+      block:
+        - name: Disable gateway service
+          ansible.builtin.systemd:
+            name: '{{ gateway_unit }}'
+            enabled: false
+            state: stopped
+            scope: user
+          register: undeploy_stop
+          failed_when: >
+            undeploy_stop.failed
+            and 'Could not find the requested service' not in (undeploy_stop.msg | default(''))
+
+        - name: Remove gateway unit file
+          ansible.builtin.file:
+            path: '{{ systemd_dir }}/{{ gateway_unit }}'
+            state: absent
+
+        - name: Reload systemd user daemon
+          ansible.builtin.systemd:
+            daemon_reload: true
+            scope: user
+
+        - name: Gateway undeployed
+          ansible.builtin.debug:
+            msg: Gateway compose undeployed.

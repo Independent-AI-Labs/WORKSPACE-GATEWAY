@@ -79,7 +79,7 @@ services:
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
     ports:
-      - "8080:8080"
+      - "18080:8080"
     depends_on:
       - clickhouse
     restart: unless-stopped

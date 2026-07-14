@@ -20,6 +20,7 @@ COMPOSE_CMD := $(VENV_BIN)/podman-compose -f $(COMPOSE_FILE)
 export COMPOSE_HTTP_TIMEOUT := 10
 ANSIBLE_PLAYBOOK := ansible-playbook
 ANSIBLE_DEV := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/dev.yml
+ANSIBLE_COMPOSE := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/compose.yml
 
 # Node.js / Playwright for browser-based Grafana panel rendering tests.
 # Force-set (not ?=) so git hooks / CI get correct paths even when the
@@ -282,6 +283,32 @@ check-push: check ## Pre-push gate: check + E2E if API key available
 	else \
 		echo "=== OPENCODE_API_KEY not set, skipping E2E ==="; \
 	fi
+
+# =============================================================================
+# Boot persistence (systemd user unit via Ansible)
+# =============================================================================
+.PHONY: gateway-deploy gateway-start gateway-stop gateway-restart gateway-status gateway-undeploy gateway-logs
+
+gateway-deploy: ## Install + enable gateway compose on boot (systemd user + linger)
+	$(ANSIBLE_COMPOSE) --tags deploy
+
+gateway-start: ## Start gateway compose via systemd
+	$(ANSIBLE_COMPOSE) --tags start
+
+gateway-stop: ## Stop gateway compose via systemd
+	$(ANSIBLE_COMPOSE) --tags stop
+
+gateway-restart: ## Restart gateway compose via systemd
+	$(ANSIBLE_COMPOSE) --tags restart
+
+gateway-status: ## Show gateway systemd + container status
+	$(ANSIBLE_COMPOSE) --tags status
+
+gateway-undeploy: ## Disable + remove gateway compose systemd unit
+	$(ANSIBLE_COMPOSE) --tags undeploy
+
+gateway-logs: ## Tail gateway compose logs
+	journalctl --user -u gateway-compose -f
 
 # =============================================================================
 # Cleanup

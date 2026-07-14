@@ -255,7 +255,7 @@
             Prometheus:         http://localhost:9092
             APISIX metrics:     http://localhost:9100/apisix/prometheus/metrics
             ClickHouse:         http://localhost:8123
-            Vector:             http://localhost:8080/ingest
+            Vector:             http://localhost:18080/ingest
             OpenBao:            http://localhost:8201
             etcd:               http://localhost:2379
       tags: [start]

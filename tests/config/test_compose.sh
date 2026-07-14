@@ -164,8 +164,8 @@ VECTOR_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.vector.volumes[]')
 HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" || true)
 assert_eq "Vector mounts vector.toml" "1" "$HAS_VECTOR_TOML"
 
-VECTOR_PORT_8080=$(echo "$JSON_DATA" | jq '[.services.vector.ports[] | select(. == "8080:8080")] | length')
-assert_eq "Vector exposes port 8080" "1" "$VECTOR_PORT_8080"
+VECTOR_PORT_18080=$(echo "$JSON_DATA" | jq '[.services.vector.ports[] | select(. == "18080:8080")] | length')
+assert_eq "Vector exposes host port 18080 (container 8080)" "1" "$VECTOR_PORT_18080"
 
 VECTOR_CMD=$(echo "$JSON_DATA" | jq -r '[.services.vector.command[] | select(. == "/etc/vector/vector.toml")] | length')
 assert_eq "Vector command specifies vector.toml config" "1" "$VECTOR_CMD"
