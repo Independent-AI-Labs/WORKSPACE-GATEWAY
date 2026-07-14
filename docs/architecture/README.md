@@ -36,6 +36,6 @@ Configuration, Key Management), not duplicated here.
 | [`COST-CALC-LUA.md`](../COST-CALC-LUA.md) | Cost calculation and model normalization |
 | [`PLUGIN-REDACT-LUA.md`](../PLUGIN-REDACT-LUA.md) | Redact plugin deep spec |
 | [`OPENCODE-INTEGRATION.md`](../OPENCODE-INTEGRATION.md) | opencode provider wiring |
-| [`workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../../workflows/WORKFLOW-CREATING-DIAGRAMS.md) | Diagram authoring rules |
+| [`../../../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../../../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md) | Diagram authoring rules |
 
 **Last updated:** 2026-07-13

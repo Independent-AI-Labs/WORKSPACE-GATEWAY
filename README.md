@@ -97,7 +97,7 @@ Deeper flows are diagrammed in the section that owns each concern:
 Each new provider is a relay route + upstream node (or `ai-proxy` /
 `ai-proxy-multi`; see [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)
 and [Supported Providers](#supported-providers)). Diagram authoring rules:
-[`workflows/WORKFLOW-CREATING-DIAGRAMS.md`](workflows/WORKFLOW-CREATING-DIAGRAMS.md).
+[`../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md).
 
 ### Sample deployments in this repo
 
@@ -502,7 +502,7 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 
 ## Documentation
 
-- **[`workflows/WORKFLOW-CREATING-DIAGRAMS.md`](workflows/WORKFLOW-CREATING-DIAGRAMS.md)** : How we author and review architecture diagrams
+- **[`../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md)** : How we author and review architecture diagrams
 - **[`docs/architecture/README.md`](docs/architecture/README.md)** : Architecture hub: components, plugins, data flows, schema
 - **[`docs/TEST-PLAN.md`](docs/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
 - **[`docs/DASHBOARD-REQUIREMENTS.md`](docs/DASHBOARD-REQUIREMENTS.md)** : Authoritative Grafana dashboard spec (16 panels across 3 dashboards)
