@@ -26,4 +26,4 @@ hooks:
 
 overrides:
   - check-dependency-versions:
-    entry: "../CI/.venv/bin/python -m ci.check_dependency_versions res/docker/docker-compose.yml"
+    entry: "bash -c 'source ../CI/lib/checks.sh && CI_CONFIG_DIR=\"$CI_CONFIG_DIR\" CI_PROJECT_ROOT=\"$CI_PROJECT_ROOT\" exec uv run --project ../CI --no-sync python -m ci.check_dependency_versions res/docker/docker-compose.yml'"

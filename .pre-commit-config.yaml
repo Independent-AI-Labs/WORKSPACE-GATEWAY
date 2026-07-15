@@ -42,7 +42,7 @@ repos:
         always_run: true
       - id: check-markdown-docs
         name: "Check Markdown Docs"
-        entry: "../CI/.venv/bin/python -m ci.check_markdown_docs --check-remote "$@""
+        entry: "bash -c 'source ../CI/lib/checks.sh && CI_CONFIG_DIR=\"$CI_CONFIG_DIR\" CI_PROJECT_ROOT=\"$CI_PROJECT_ROOT\" exec uv run --project ../CI --no-sync python -m ci.check_markdown_docs --check-remote \"$@\"' --"
         language: system
         pass_filenames: true
         always_run: false
@@ -54,13 +54,13 @@ repos:
         always_run: true
       - id: check-required-hooks-present
         name: "Check Required Hooks Present"
-        entry: "../CI/.venv/bin/python -m ci.check_required_hooks_present"
+        entry: "bash -c 'source ../CI/lib/checks.sh && CI_CONFIG_DIR=\"$CI_CONFIG_DIR\" CI_PROJECT_ROOT=\"$CI_PROJECT_ROOT\" exec uv run --project ../CI --no-sync python -m ci.check_required_hooks_present'"
         language: system
         pass_filenames: false
         always_run: true
       - id: check-dependency-versions
         name: "Check Dependency Versions"
-        entry: "../CI/.venv/bin/python -m ci.check_dependency_versions res/docker/docker-compose.yml"
+        entry: "bash -c 'source ../CI/lib/checks.sh && CI_CONFIG_DIR=\"$CI_CONFIG_DIR\" CI_PROJECT_ROOT=\"$CI_PROJECT_ROOT\" exec uv run --project ../CI --no-sync python -m ci.check_dependency_versions res/docker/docker-compose.yml'"
         language: system
         pass_filenames: false
         always_run: true
@@ -112,7 +112,7 @@ repos:
         stages: [pre-push]
       - id: check-dead-code
         name: "Check Dead Code"
-        entry: "../CI/.venv/bin/python -m ci.check_dead_code"
+        entry: "bash -c 'source ../CI/lib/checks.sh && CI_CONFIG_DIR=\"$CI_CONFIG_DIR\" CI_PROJECT_ROOT=\"$CI_PROJECT_ROOT\" exec uv run --project ../CI --no-sync python -m ci.check_dead_code'"
         language: system
         pass_filenames: false
         always_run: true
