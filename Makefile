@@ -200,6 +200,10 @@ dev-test: ## Run full test suite against running stack
 dev-sanity: ## Quick sanity check: one request through the gateway
 	$(ANSIBLE_DEV) --tags sanity
 
+# =============================================================================
+# ClickHouse Migrations
+# =============================================================================
+
 .PHONY: ch-migrate ch-migrate-status
 ch-migrate: ## Apply pending ClickHouse schema migrations (golang-migrate via compose)
 	@$(COMPOSE_CMD) run --rm migrate up
@@ -207,11 +211,16 @@ ch-migrate: ## Apply pending ClickHouse schema migrations (golang-migrate via co
 ch-migrate-status: ## Show ClickHouse schema migration status (golang-migrate version)
 	@$(COMPOSE_CMD) run --rm migrate version
 
+# =============================================================================
+# Model Sync
+# =============================================================================
+
 sync-models: ## Sync models from gateway into opencode config
 	bash $(REPO_ROOT)/res/scripts/sync-opencode-models.sh
 
+# OpenBao-backed virtual key management
 # =============================================================================
-# Key Management (OpenBao-backed virtual keys)
+# Key Management
 # =============================================================================
 .PHONY: issue-key list-keys revoke-key
 
@@ -284,8 +293,9 @@ check-push: check ## Pre-push gate: check + E2E if API key available
 		echo "=== OPENCODE_API_KEY not set, skipping E2E ==="; \
 	fi
 
+# Boot persistence via systemd user unit + Ansible
 # =============================================================================
-# Boot persistence (systemd user unit via Ansible)
+# Boot Persistence
 # =============================================================================
 .PHONY: gateway-deploy gateway-start gateway-stop gateway-restart gateway-status gateway-undeploy gateway-logs
 

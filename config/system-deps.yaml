@@ -33,7 +33,7 @@ requires:
 
   - check_cmd: xxd
     apt_package: xxd
-    description: xxd (fallback hex generation in issue-key.sh)
+    description: xxd (alternate hex generation in issue-key.sh)
 
   # uv is bootstrapped via script, not apt. Check presence only.
   - check_cmd: uv
