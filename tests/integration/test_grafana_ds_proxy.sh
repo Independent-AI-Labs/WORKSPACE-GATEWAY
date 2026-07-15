@@ -19,6 +19,7 @@ GRAFANA_URL="http://localhost:3030"
 GRAFANA_AUTH="admin:admin"
 CH_UID="clickhouse"
 PROM_UID="prometheus"
+CH_URL="http://localhost:8123"
 
 pass=0; fail=0; skip=0
 rp() { echo "[PASS] $1"; pass=$((pass+1)); }
@@ -34,6 +35,27 @@ fi
 
 echo "=== Grafana Datasource Proxy Tests ==="
 echo ""
+
+# Deterministic ClickHouse rows for T1-T5 (fresh CI stacks have no telemetry).
+ch_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" 2>/dev/null || echo "000")
+if [ "$ch_code" = "200" ]; then
+    if bash "$REPO_ROOT/res/scripts/seed-clickhouse-dashboard-data.sh" --clickhouse-url "$CH_URL"; then
+        echo "[INFO] ClickHouse dashboard seed data ready"
+    else
+        echo "[FAIL] ClickHouse dashboard seed failed"
+        exit 1
+    fi
+else
+    echo "[SKIP] ClickHouse not reachable (HTTP $ch_code)"
+    exit 0
+fi
+echo ""
+
+# Dashboard time range (matches ops-health default: now-7d).
+FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
+    date -u -d "@$(($(date +%s)-604800))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
+    date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
+TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Find which dashboard file contains a panel with the given title
 find_panel_file_by_title() {
@@ -81,19 +103,19 @@ get_panel_format() {
 ds_query() {
     local ds_uid="$1"; local sql="$2"; local fmt="$3"; local qt="$4"
 
-    # Step 1: Replace $__timeFilter(col) with time range using sed (no quotes in replacement)
+    # Step 1: $__timeFilter -- match dashboard default (now-7d) and r.timestamp alias.
     sql=$(printf '%s' "$sql" | sed \
-        -e 's|\$__timeFilter(r\.timestamp)|r.timestamp >= now() - INTERVAL 24 HOUR|g' \
-        -e 's|\$__timeFilter(timestamp)|timestamp >= now() - INTERVAL 24 HOUR|g')
+        -e "s|\$__timeFilter(r\.timestamp)|r.timestamp >= toDateTime('$FROM_TS') AND r.timestamp <= toDateTime('$TO_TS')|g" \
+        -e "s|\$__timeFilter(timestamp)|timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS')|g")
 
     # Step 2: Replace ${api_key:singlequote} and ${model:singlequote} with sentinel tokens
     sql=$(printf '%s' "$sql" | sed \
         -e 's|\${api_key:singlequote}|APIKEYPLACEHOLDER|g' \
         -e 's|\${model:singlequote}|MODELPLACEHOLDER|g')
 
-    # Step 3: Replace sentinel tokens with actual subqueries using bash (handles quotes)
+    # Step 3: Expand "All" variables the same way Grafana templating does.
     local all_keys_sub="(SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') FROM llm_gateway.request_log)"
-    local all_models_sub="(SELECT DISTINCT model FROM llm_gateway.usage_log WHERE model != '')"
+    local all_models_sub="(SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != ''))"
     sql="${sql//APIKEYPLACEHOLDER/$all_keys_sub}"
     sql="${sql//MODELPLACEHOLDER/$all_models_sub}"
 

@@ -1,10 +1,14 @@
 # Multi-tenant LLM Gateway on APISIX
 
-Apache APISIX gateway for shared LLM traffic with per-tenant keys, spend
-limits, and **PII redaction**. Cloud backends run through ai-proxy or relay
-configuration, including OpenAI, Anthropic, Gemini, Bedrock, and others,
-with usage, cost, and health tracked in ClickHouse and Grafana; this repo
-ships sample routes to OpenCode and llamafile.
+Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
+**spend limits**, **PII redaction**, and built-in **safety and moderation**
+pipelines.
+
+Cloud backends run through ai-proxy or relay configuration, including OpenAI,
+Anthropic, Gemini, Bedrock, and others, with usage, cost, and health tracked
+in ClickHouse and Grafana.
+
+This repo ships sample routes to OpenCode and llamafile.
 
 **Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
 The gateway itself is provider-agnostic: add relay routes or swap to
@@ -21,6 +25,7 @@ The gateway itself is provider-agnostic: add relay routes or swap to
 - [Architecture](#architecture)
 - [Supported Providers](#supported-providers)
 - [Features](#features)
+- [Work in progress](#work-in-progress)
 - [Plugins](#plugins)
 - [Key Management](#key-management)
 - [Configuration](#configuration)
@@ -155,6 +160,37 @@ retries on failure, health checks, and provider-level routing rules.
 | SSE streaming support | `proxy-buffering` disabled per-route | Config |
 | Grafana dashboards (3) | Cost & Usage, Ops & Health, Cost Leaderboard: 7d lookback, 5s refresh | Config |
 | Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL |
+
+---
+
+## Work in progress
+
+### Built-in safety and moderation (gateway plugins)
+
+**Status:** WIP. Target: APISIX plugins on the federated request path that score
+assistant behavior and enforce moderation policy before or after upstream relay,
+alongside existing `redact` and `key-resolver` policy plugins.
+
+**POC benchmark (WORKSPACE-VM):** the
+[`llamafile transcript classifier`](../../benchmarks/llamafile/transcript_classifier/README.md)
+benchmark replays OpenCode SQLite sessions turn-by-turn against a local llamafile
+server. Each step sends a rolling 32K transcript window to a small classifier model
+and expects YAML-only scores across seven behavioral categories (instruction
+adherence, task understanding, sincerity, malicious intent, competence, safety
+boundaries, clarity). KV cache reuse via pinned `id_slot` and `cache_prompt` keeps
+incremental moderation affordable at gateway latency budgets.
+
+Run the POC from the WORKSPACE-VM repo root (llamafile server must be up):
+
+```bash
+make -f Makefile.llamafile benchmark-llamafile-transcript-classifier
+```
+
+Config and categories:
+[`benchmarks/llamafile/transcript_classifier/benchmark.yaml`](../../benchmarks/llamafile/transcript_classifier/benchmark.yaml).
+This repo already exposes llamafile via `relay-llamafile` (`/llamafile/*`); the WIP
+work wires the classifier/moderator call pattern into APISIX as first-class plugins
+with ClickHouse audit rows alongside `usage_log`.
 
 ---
 

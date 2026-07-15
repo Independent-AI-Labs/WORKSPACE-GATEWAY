@@ -18,19 +18,31 @@ GATEWAY_SECRET="secret/gateway/keys/vgw-gateway-key"
 
 mkdir -p "$BAO_DATA" "$KEYS_DIR"
 
+bao_api_ready() {
+    local hc
+    hc=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "${BAO_ADDR}/v1/sys/health")
+    case "$hc" in
+        200|429|501|503) return 0 ;;
+        *)
+            echo "[openbao] WARN: health check HTTP $hc" >&2
+            return 1
+            ;;
+    esac
+}
+
+bao_seal_status_json() {
+    curl -sS --connect-timeout 2 "${BAO_ADDR}/v1/sys/seal-status"
+}
+
 # ─── 1. Start OpenBao server (background) ────────────────────────────────────
 bao server -config=/openbao/config/openbao.hcl &
 BAO_PID=$!
 
 # ─── 2. Wait for API to respond ──────────────────────────────────────────────
-# bao status returns exit code 2 when sealed/uninitialized : that's fine,
-# we just need the HTTP endpoint to be reachable (any JSON response).
+# /v1/sys/health returns 200/429/501/503 once the HTTP listener is up.
 echo "[openbao] Waiting for API..."
 for i in $(seq 1 60); do
-    if STATUS_OUT="$(bao status -format=json)"; then
-        :
-    fi
-    if echo "$STATUS_OUT" | jq -e 'has("initialized")' >/dev/null 2>&1; then
+    if bao_api_ready; then
         break
     fi
     if [ "$i" -eq 60 ]; then
@@ -42,9 +54,7 @@ done
 echo "[openbao] API is reachable."
 
 # ─── 3. Initialise on first start, load saved keys on restart ───────────────
-if INIT_JSON="$(bao status -format=json)"; then
-    :
-fi
+INIT_JSON="$(bao_seal_status_json)"
 INIT_STATUS="$(echo "$INIT_JSON" | jq -r '.initialized // false')"
 
 if [ "$INIT_STATUS" = "false" ]; then
@@ -63,10 +73,8 @@ else
 fi
 
 # ─── 4. Unseal if sealed ─────────────────────────────────────────────────────
-SEALED="true"
-if SEALED="$(bao status -format=json | jq -r '.sealed // true')"; then
-    :
-fi
+SEAL_JSON="$(bao_seal_status_json)"
+SEALED="$(echo "$SEAL_JSON" | jq -r '.sealed // true')"
 if [ "$SEALED" = "true" ]; then
     echo "[openbao] Unsealing..."
     bao operator unseal "$UNSEAL_KEY" >/dev/null
