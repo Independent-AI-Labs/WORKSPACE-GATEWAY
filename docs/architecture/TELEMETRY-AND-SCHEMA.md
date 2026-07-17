@@ -77,7 +77,7 @@ Upstream API comparison deferred. See [`OPEN-ISSUES.md`](OPEN-ISSUES.md).
 ## Grafana
 
 16 panels across 3 dashboards. Authoritative spec:
-[`DASHBOARD-REQUIREMENTS.md`](../DASHBOARD-REQUIREMENTS.md). Joins use
+[`SPEC-DASHBOARD.md`](../specifications/SPEC-DASHBOARD.md). Joins use
 `request_id` (not ASOF on key_id + timestamp).
 
 ## Prometheus

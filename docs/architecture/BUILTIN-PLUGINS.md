@@ -2,7 +2,7 @@
 
 Configuration truth: [`conf/apisix.yaml`](../../conf/apisix.yaml) and
 [`conf/config.yaml`](../../conf/config.yaml). User guide:
-[`BUILTIN-PLUGINS.md`](../BUILTIN-PLUGINS.md).
+[`SPEC-GATEWAY-CORE.md`](../specifications/SPEC-GATEWAY-CORE.md).
 
 ## request-id
 

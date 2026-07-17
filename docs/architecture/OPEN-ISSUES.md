@@ -30,7 +30,7 @@ limits from OpenBao are not wired in config today.
 
 **[OPEN]** `sse_usage_lib.count_tokens` uses a byte-range heuristic
 (~10-20% error for CJK vs provider counts). See
-[`COST-CALC-LUA.md`](../COST-CALC-LUA.md).
+[`SPEC-COST-CALC.md`](../specifications/SPEC-COST-CALC.md).
 
 ## Fixed changelog (summary)
 

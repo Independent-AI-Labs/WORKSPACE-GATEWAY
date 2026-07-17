@@ -100,7 +100,7 @@ Deeper flows are diagrammed in the section that owns each concern:
 (telemetry, metrics, route config), [Key Management](#key-management) (auth).
 
 Each new provider is a relay route + upstream node (or `ai-proxy` /
-`ai-proxy-multi`; see [`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)
+`ai-proxy-multi`; see [`docs/specifications/SPEC-ENTERPRISE-AUTH.md`](docs/specifications/SPEC-ENTERPRISE-AUTH.md)
 and [Supported Providers](#supported-providers)). Diagram authoring rules:
 [`../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md).
 
@@ -115,9 +115,9 @@ and [Supported Providers](#supported-providers)). Diagram authoring rules:
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3). Swap the upstream node in `apisix.yaml.j2`
 to point at any other compatible API. Additional providers = new relay
-route + upstream node; see [`docs/PROVIDER-XAI-GROK.md`](docs/PROVIDER-XAI-GROK.md)
-for the xAI Grok draft spec and [`docs/PROVIDER-MOONSHOT-KIMI.md`](docs/PROVIDER-MOONSHOT-KIMI.md)
-for the Moonshot Kimi draft spec.
+route + upstream node; see [`docs/specifications/SPEC-PROVIDER-XAI.md`](docs/specifications/SPEC-PROVIDER-XAI.md)
+for the xAI Grok draft spec and [`docs/specifications/SPEC-PROVIDER-KIMI.md`](docs/specifications/SPEC-PROVIDER-KIMI.md)
+for the Moonshot Kimi spec.
 
 ---
 
@@ -391,7 +391,7 @@ Three provisioned dashboards (default: `now-7d` lookback, `5s` refresh):
 
 The leaderboard shows top clients (p20) and top models (p21) by cost and
 tokens. After editing dashboard JSON, run `make dev-restart-grafana` to
-reload provisioning. See [`docs/DASHBOARD-REQUIREMENTS.md`](docs/DASHBOARD-REQUIREMENTS.md).
+reload provisioning. See [`docs/specifications/SPEC-DASHBOARD.md`](docs/specifications/SPEC-DASHBOARD.md).
 
 ---
 
@@ -490,7 +490,7 @@ make dev-test      # Same as test, via Ansible
 5. CI hook verification: pre-commit and pre-push hooks present and wired
 6. E2E: real Go API calls (gated behind `RUN_LIVE_API_TESTS=1`)
 
-See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
+See [`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md) for the full strategy.
 
 ---
 
@@ -540,23 +540,16 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 ## Documentation
 
 - **[`../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md)** : How we author and review architecture diagrams
+- **[`docs/README.md`](docs/README.md)** : Documentation hub: full tree and reading order
 - **[`docs/architecture/README.md`](docs/architecture/README.md)** : Architecture hub: components, plugins, data flows, schema
-- **[`docs/TEST-PLAN.md`](docs/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
-- **[`docs/DASHBOARD-REQUIREMENTS.md`](docs/DASHBOARD-REQUIREMENTS.md)** : Authoritative Grafana dashboard spec (16 panels across 3 dashboards)
-- **[`docs/COST-CALC-LUA.md`](docs/COST-CALC-LUA.md)** : Cost calculation module and token pricing paths
-- **[`docs/PROPOSAL-LLM-GATEWAY-v3.md`](docs/PROPOSAL-LLM-GATEWAY-v3.md)** : Architecture rationale, Kong-to-APISIX pivot, billing contract
-- **[`docs/PLUGIN-FOUNDATION.md`](docs/PLUGIN-FOUNDATION.md)** : APISIX custom Lua plugin development foundation
-- **[`docs/PLUGIN-REDACT-LUA.md`](docs/PLUGIN-REDACT-LUA.md)** : Redact plugin specification
-- **[`docs/BUILTIN-PLUGINS.md`](docs/BUILTIN-PLUGINS.md)** : Built-in plugin configuration guide
-- **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** : Deployment and operations guide
-- **[`docs/OPENCODE-INTEGRATION.md`](docs/OPENCODE-INTEGRATION.md)** : OpenCode Go integration specifics
-- **[`docs/PROVIDER-XAI-GROK.md`](docs/PROVIDER-XAI-GROK.md)** : xAI Grok provider integration spec (draft)
-- **[`docs/PROVIDER-MOONSHOT-KIMI.md`](docs/PROVIDER-MOONSHOT-KIMI.md)** : Moonshot Kimi provider integration spec (draft)
-
-### v2 Specs (Deferred)
-
-- **[`docs/PLUGIN-SEMANTIC-CACHE.md`](docs/PLUGIN-SEMANTIC-CACHE.md)** : Redis VSS semantic cache
-- **[`docs/PLUGIN-REDACT-ENGINE.md`](docs/PLUGIN-REDACT-ENGINE.md)** : Rust NER sidecar (ONNX BERT-tiny)
+- **[`docs/requirements/`](docs/requirements/)** : Functional/non-functional requirements (REQ-*, RFC 2119)
+- **[`docs/specifications/`](docs/specifications/)** : Implementation specifications (SPEC-*), one per REQ
+- **[`docs/runbooks/RUNBOOK-DEPLOYMENT.md`](docs/runbooks/RUNBOOK-DEPLOYMENT.md)** : Deployment and operations runbook
+- **[`docs/runbooks/RUNBOOK-KEYS.md`](docs/runbooks/RUNBOOK-KEYS.md)** : Gateway key lifecycle (issue/list/revoke)
+- **[`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)** : Client provider login script usage
+- **[`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
+- **[`docs/reference/OPENCODE-SERVER-API.md`](docs/reference/OPENCODE-SERVER-API.md)** : Upstream opencode server API reference
+- **[`docs/proposals/ADR-001-APISIX-PIVOT.md`](docs/proposals/ADR-001-APISIX-PIVOT.md)** : Architecture rationale, Kong-to-APISIX pivot
 
 ---
 

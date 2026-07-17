@@ -67,4 +67,4 @@ Destroyed only by `make dev-clean`.
 |---------|-----|
 | Telemetry + schema | [`TELEMETRY-AND-SCHEMA.md`](TELEMETRY-AND-SCHEMA.md) |
 | Metrics + Grafana | [`README.md` Grafana](../../README.md#grafana-dashboards) |
-| Dashboard panels | [`DASHBOARD-REQUIREMENTS.md`](../DASHBOARD-REQUIREMENTS.md) |
+| Dashboard panels | [`SPEC-DASHBOARD.md`](../specifications/SPEC-DASHBOARD.md) |

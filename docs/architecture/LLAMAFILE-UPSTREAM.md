@@ -37,4 +37,4 @@ stack unreachable.
 ## opencode provider
 
 `workspace-gw-llamafile` synced by `make sync-models`. See
-[`OPENCODE-INTEGRATION.md`](../OPENCODE-INTEGRATION.md).
+[`SPEC-PROVIDER-SYNC.md`](../specifications/SPEC-PROVIDER-SYNC.md).
