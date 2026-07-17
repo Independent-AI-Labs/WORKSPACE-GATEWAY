@@ -46,6 +46,7 @@ the 2026-07-12/13 dashboard and provider work.
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | Deployment infrastructure: docker-compose stack, `config.yaml`, `apisix.yaml`, custom Docker image, ClickHouse schema, Vector pipeline, reconciler job, health checks. |
 | [`OPENCODE-INTEGRATION.md`](OPENCODE-INTEGRATION.md) | opencode integration: server API reference, provider/model selection, APISIX relay config, telemetry hooks, Grafana URLs, OpenAI compatibility assessment. |
 | [`PROVIDER-XAI-GROK.md`](PROVIDER-XAI-GROK.md) | xAI Grok provider integration spec (draft): routes, auth, cost calc. |
+| [`PROVIDER-MOONSHOT-KIMI.md`](PROVIDER-MOONSHOT-KIMI.md) | Moonshot Kimi provider integration spec (draft): OAuth device-code auth, routes, plugin spec, client usage. |
 
 ## Reading Order
 

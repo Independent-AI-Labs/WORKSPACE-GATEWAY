@@ -1,0 +1,26 @@
+---
+id: workspace-gw-llamafile
+name: "Workspace GW (llamafile)"
+route: "/llamafile/v1"
+npm: "@ai-sdk/openai-compatible"
+auth:
+  type: none
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+model_source:
+  type: llamafile
+  endpoint: "/llamafile/v1/models"
+  backup_models:
+    - id: "/zip/MiniCPM5-1B-Q8_0.gguf"
+      name: "MiniCPM5"
+      limit:
+        context: 131072
+        output: 131072
+      cost:
+        input: 0
+        output: 0
+      tool_call: true
+      reasoning: false
+cost_source: none

@@ -1,17 +1,36 @@
 # Provider Spec: xAI Grok (OAuth PKCE + API Proxy)
 
 > **SCOPE NOTE:** This document covers the full xAI Grok provider integration
-> with the WORKSPACE-GATEWAY: OAuth 2.0 PKCE authentication flow (browser-based
-> login, token exchange, ahead-of-expiry refresh) and API proxying to `api.x.ai`.
-> The xAI `/v1/chat/completions` endpoint is **fully OpenAI-compatible** ,  the
-> existing `sse-usage.lua` / `sse_usage_lib.lua` parser and `cost_calc.lua`
-> module require **zero changes** to support xAI.
+> with the WORKSPACE-GATEWAY: OAuth 2.0 PKCE authentication (browser loopback,
+> manual paste, device code), automatic token refresh, and API proxying to
+> `api.x.ai`. The xAI `/v1/chat/completions` endpoint is **fully
+> OpenAI-compatible**: the existing `sse-usage.lua` / `sse_usage_lib.lua`
+> parser and `cost_calc.lua` module require **zero changes** to support xAI.
 
-**Document ID:** AMI-PROP-LLMGW-PROVIDER-XAI-GROK-v1.0
+**Document ID:** AMI-PROP-LLMGW-PROVIDER-XAI-GROK-v1.1
 **Status:** Draft
 **Date:** 2026-07-12
-**Parent:** `docs/architecture/README.md`
+**Parent:** `docs/architecture/README.md` / `docs/ARCHITECTURE.md`
 **Companion:** `docs/COST-CALC-LUA.md`, `docs/PLUGIN-FOUNDATION.md`
+
+### Sources of truth (protocol)
+
+| Priority | Source | Use for |
+|----------|--------|---------|
+| 1 | [xai-org/grok-build](https://github.com/xai-org/grok-build) `crates/codegen/xai-grok-shell/src/auth/` | Authorize, exchange, refresh, device code, paste race |
+| 2 | Official guide `02-authentication.md` (in grok-build) | Product UX, external auth provider, precedence |
+| 3 | [ele-yufo/grokcli](https://github.com/ele-yufo/grokcli) | Secondary; many constants match, some “quirks” are **wrong** vs official |
+
+**Corrections vs earlier draft (v1.0 / grokcli folklore):**
+
+| Claim (v1.0) | Official reality |
+|--------------|------------------|
+| Must echo `code_challenge` on token exchange | **No**: only `code_verifier` (RFC 7636) |
+| Must send `plan=generic` on authorize | **No**: not in official authorize URL |
+| Fixed port `56121` always | Prod uses **ephemeral** port; `56121` only local-dev |
+| `referrer=grokcli` | Official default **`grok-build`** |
+| Client `api_key` = `vgw-` virtual key | Client `api_key` = **xAI `access_token` JWT** |
+| Callback hosted on gateway public URL | Official always uses **loopback** `127.0.0.1` |
 
 ---
 
@@ -19,72 +38,85 @@
 
 ### 1.1 Why xAI Grok
 
-xAI's Grok models (grok-4, grok-4.3, grok-4.5) are top-tier reasoning
-models with native web search, code execution, and vision capabilities. The API
-is priced competitively and accessible via both API keys and OAuth (SuperGrok /
-X Premium+ subscription).
+xAI's Grok models (grok-4, grok-4.3, grok-4.5) are edge-class reasoning
+models with native web search, code execution, and vision. The API is priced
+competitively and accessible via API keys and OAuth (SuperGrok / X Premium+).
 
 ### 1.2 Two API surfaces
 
-xAI exposes two inference endpoints:
-
 | Endpoint | Request shape | Response shape | Status |
 |----------|--------------|----------------|--------|
-| `POST /v1/chat/completions` | `messages[]` (OpenAI format) | `choices[].message` (OpenAI format) | Legacy, fully supported |
-| `POST /v1/responses` | `input[]` (xAI native) | `output[].content[].output_text` | Recommended by xAI |
+| `POST /v1/chat/completions` | `messages[]` (OpenAI format) | `choices[].message` (OpenAI format) | Fully supported; usage-tracked |
+| `POST /v1/responses` | `input[]` (xAI native) | `output[].content[].output_text` | Proxied; not usage-tracked by current parser |
 
-**The `/v1/chat/completions` endpoint is fully OpenAI-compatible.** This means:
+**`/v1/chat/completions` is fully OpenAI-compatible** (messages, SSE deltas,
+`usage.*`, `prompt_tokens_details.cached_tokens`,
+`completion_tokens_details.reasoning_tokens`, `reasoning_content`,
+`data: [DONE]`). Existing `sse_usage_lib.lua` / `cost_calc.lua` need **no
+changes**. xAI’s proprietary `cost_in_usd_ticks` is ignored; Pathway B prices
+from `models.dev`.
 
-- `messages` array with `role`/`content` objects → identical to OpenAI
-- `choices[0].delta.content` for SSE streaming → identical to OpenAI
-- `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens` → identical
-- `usage.prompt_tokens_details.cached_tokens` → identical
-- `usage.completion_tokens_details.reasoning_tokens` → identical
-- `choices[0].delta.reasoning_content` → xAI extension, **already handled by parser**
-- `data: [DONE]` stream terminator → identical
-- OpenAI SDK, OpenAI-compatible clients, and all existing tooling work as-is
+### 1.3 Primary path: OAuth + proxy (NOT console API keys)
 
-The `/v1/responses` endpoint uses different field names (`input` instead of
-`messages`, `output` instead of `choices`, `input_tokens` instead of
-`prompt_tokens`) and is **not** handled by the existing parser. It is accessible
-through the proxy but usage tracking applies only to the OpenAI-compatible path.
+**OAuth is the product.** Full stack stays in scope:
 
-### 1.3 Why OAuth PKCE (not just API keys)
+1. Browser / device-code OAuth against `auth.x.ai` (PKCE + refresh)
+2. Gateway stores `refresh_token` in OpenBao and refreshes proactively
+3. Gateway proxies `/grok/*` → `api.x.ai/v1/*` with a live Bearer JWT
+4. Client talks only to the gateway (`base_url=http://gateway:9080/grok`)
 
-xAI supports two auth mechanisms:
+| Mechanism | What the client sends as Bearer | Who refreshes | Role |
+|-----------|----------------------------------|---------------|------|
+| **OAuth session (primary)** | xAI **`access_token` JWT** from the OAuth handshake | **Gateway** (OpenBao holds `refresh_token`) | SuperGrok / Premium+ subscription path |
+| Console API key (optional side door) | `xai-...` from console.x.ai | N/A | Optional passthrough only: **not** a replacement for OAuth |
 
-1. **API keys** (`xai-...`): Simple bearer tokens from the xAI console.
-2. **OAuth 2.0 with PKCE**: Used by the official Grok CLI (`grokcli`). Enables
-   authentication using an existing SuperGrok / X Premium+ subscription without
-   generating a separate API key. The OAuth bearer is a JWT with automatic
-   refresh.
+**Naming trap (read carefully):** OpenAI-compatible clients label their credential
+slot `api_key` / `apiKey`. That is the **HTTP header field**, not “you must use
+an xAI console API key.” After OAuth, the value pasted there is the **OAuth
+`access_token` JWT**. Example:
 
-This implementation supports **both**. The primary flow is OAuth PKCE (matching
-grokcli's approach). API key passthrough also works via the existing
-`key-resolver` plugin on a separate route, or by sending a direct `xai-*` key
-through the Grok route (bypasses `xai-auth`, forwarded as-is).
+```python
+OpenAI(base_url="http://gateway:9080/grok", api_key="<oauth access_token JWT>")
+#                                      ^^^^^^^ SDK parameter name
+#                                              value = OAuth token, not xai-...
+```
 
-### 1.4 SSE usage tracking compatibility
+**Not used for Grok OAuth:** `vgw-*` virtual keys, `key-resolver`, or
+`secret/data/gateway/keys/`. That system remains for other providers
+(`/opencode_federated/*`). Grok OAuth is a separate plugin and storage path.
 
-The existing `sse_usage_lib.lua` parser handles xAI's response format
-**without changes**. Field-by-field verification:
+### 1.4 Client workflow (dead simple: still full OAuth)
 
-| Parser reads | xAI `/v1/chat/completions` sends | Match |
-|---|---|---|
-| `usage.prompt_tokens` | `prompt_tokens` | exact |
-| `usage.completion_tokens` | `completion_tokens` | exact |
-| `usage.total_tokens` | `total_tokens` | exact |
-| `usage.prompt_tokens_details.cached_tokens` | `prompt_tokens_details.cached_tokens` | exact |
-| `usage.completion_tokens_details.reasoning_tokens` | `completion_tokens_details.reasoning_tokens` | exact |
-| `choices[1].delta.reasoning_content` | `choices[0].delta.reasoning_content` | exact |
-| `obj.model` | `model` | exact |
-| `payload == "[DONE]"` | `data: [DONE]` | exact |
+Same wire shape as any OpenAI-compatible client: no custom portal, no
+Virtual/Own key UI. OAuth handshake once; then normal Bearer traffic forever.
 
-The only gap is cost: xAI reports `cost_in_usd_ticks` (proprietary integer)
-instead of `estimated_cost`, so upstream-reported cost is always 0. This is
-already handled by `cost_calc.lua` Pathway B ,  it computes cost from
-`models.dev` pricing data, which includes xAI models (grok-4, grok-4.3,
-grok-4.5, etc.).
+```
+1. Admin (or tooling) starts an OAuth handshake and gives the user a way to
+   finish xAI login (login URL + paste path, or device-code URL + user_code).
+2. User authenticates on real xAI pages (auth.x.ai / accounts.x.ai only).
+3. User receives the OAuth access_token JWT and pastes it into the client's
+   normal credential slot (often named api_key). Base URL =
+   http://gateway:9080/grok
+4. Gateway holds refresh_token, refreshes proactively, proxies every request
+   to api.x.ai until refresh fails → user re-runs handshake once.
+```
+
+**There is no login portal to code**: only redirect / device-code plumbing and
+a minimal “here is your OAuth access_token” page (or JSON for scripts).
+
+### 1.5 Official client extras (optional later)
+
+Official `grok` (grok-build) also supports:
+
+- **Device code**: best remote UX (no loopback paste)
+- **External auth provider**: subprocess: stderr = UX, stdout = token JSON
+- **Enterprise OIDC**: customer IdP
+- Coding proxy `https://cli-chat-proxy.grok.com/v1` + session header
+  `X-XAI-Token-Auth: xai-grok-cli` for some session features
+
+v1 of this gateway targets **`api.x.ai` + Bearer access_token or `xai-` key**.
+Device code is in scope for remote users. Coding-proxy parity is out of scope
+for v1.
 
 ---
 
@@ -92,185 +124,182 @@ grok-4.5, etc.).
 
 ```mermaid
 graph TB
-    subgraph "Browser OAuth Flow"
-        BROWSER["User Browser"]
-        LOGIN["GET /grok/auth/login?token=vgw-xxx"]
-        CALLBACK["GET /grok/auth/callback?code=...&state=..."]
+    subgraph handshake [OAuth Handshake]
+        ADMIN["Admin / script"]
+        USER["User Browser"]
+        LOGIN["GET /grok/auth/login?session=..."]
+        COMPLETE["POST/GET /grok/auth/complete"]
+        DEVICE["POST /grok/auth/device"]
     end
 
-    subgraph "APISIX Gateway"
-        XAUTH["xai-auth plugin<br/>priority: 2560<br/>OAuth dance + token injection"]
-        PRW["proxy-rewrite<br/>/grok/* → /v1/*"]
-        KM["key-meta<br/>priority: 2530"]
-        SU["sse-usage<br/>priority: 2400"]
+    subgraph apisix [APISIX Gateway]
+        XAUTH["xai-auth priority 2560"]
+        PRW["proxy-rewrite /grok/* to /v1/*"]
+        KM["key-meta 2530"]
+        SU["sse-usage 2400"]
     end
 
-    subgraph "Storage"
-        OPENBAO["OpenBao<br/>secret/data/gateway/xai-pkce/{state}<br/>secret/data/gateway/xai-tokens/{key}"]
+    subgraph storage [OpenBao]
+        PKCE["xai-pkce/{state}"]
+        TOK["xai-tokens/{token_hash}"]
+        SESS["xai-sessions/{session_id}"]
     end
 
-    subgraph "xAI Origin"
-        XAUTH_SVC["auth.x.ai<br/>OAuth 2.0<br/>OIDC discovery"]
-        XAPI["api.x.ai<br/>/v1/chat/completions"]
+    subgraph xai [xAI]
+        AUTH["auth.x.ai OIDC"]
+        API["api.x.ai"]
     end
 
-    BROWSER -->|"1. open login URL"| LOGIN
-    LOGIN -->|"2. 302 redirect"| XAUTH_SVC
-    BROWSER -->|"3. login + consent"| XAUTH_SVC
-    XAUTH_SVC -->|"4. redirect back with code"| CALLBACK
-    CALLBACK -->|"5. exchange code"| XAUTH_SVC
-    XAUTH_SVC -->|"6. tokens"| XAUTH
-    XAUTH -->|"7. store tokens"| OPENBAO
-
-    subgraph "Client API Flow"
-        CLIENT["Client<br/>(opencode, curl, SDK)"]
+    subgraph client [Client]
+        APP["OpenCode / SDK / curl"]
     end
 
-    CLIENT -->|"POST /grok/chat/completions<br/>Authorization: Bearer vgw-xxx"| XAUTH
-    XAUTH -->|"8. load tokens"| OPENBAO
-    XAUTH -->|"9. check JWT exp, refresh"| OPENBAO
-    XAUTH -->|"10. swap Bearer"| PRW
-    PRW -->|"11. /v1/chat/completions"| XAPI
+    ADMIN -->|"issue login or device start"| LOGIN
+    USER -->|"1. open authorize URL"| AUTH
+    AUTH -->|"2. redirect 127.0.0.1/callback?code="| USER
+    USER -->|"3. paste callback URL"| COMPLETE
+    COMPLETE -->|"4. exchange code"| AUTH
+    COMPLETE -->|"5. store tokens"| TOK
+    COMPLETE -->|"6. show access_token"| USER
+
+    DEVICE -->|"device code + poll"| AUTH
+    DEVICE --> TOK
+
+    APP -->|"Bearer access_token"| XAUTH
+    XAUTH --> TOK
+    XAUTH -->|"refresh if near exp"| AUTH
+    XAUTH --> PRW --> API
+    XAUTH --> KM
+    PRW --> SU
 ```
 
-### 2.1 Container Topology
+### 2.1 Container topology
 
-The Grok route reuses the existing gateway container topology (§2 of
-`docs/architecture/README.md`). No new containers are needed. The `xai-auth` plugin runs
-inside the APISIX Lua worker process alongside the existing plugins.
+Reuses existing gateway topology (APISIX, OpenBao, Vector, ClickHouse). No new
+containers. `xai-auth` runs in the APISIX Lua worker.
 
-```mermaid
-graph LR
-    CLIENT["Clients"] -->|":9080"| APISIX
-    APISIX -->|"HTTPS"| XAI["api.x.ai:443"]
-    APISIX -->|"HTTP"| OPENBAO["openbao:8200"]
-    APISIX -->|"POST"| VECTOR["vector:8080"]
-    VECTOR -->|"INSERT"| CH["clickhouse:8123"]
-```
-
-### 2.2 Three Routes
+### 2.2 Routes
 
 | Route ID | URI | Upstream | Auth | Purpose |
 |----------|-----|----------|------|---------|
-| `xai-auth-login` | `/grok/auth/login` | none (no proxy) | xai-auth (initiate) | OAuth login redirect |
-| `xai-auth-callback` | `/grok/auth/callback` | none (no proxy) | xai-auth (exchange) | OAuth callback receiver |
-| `relay-grok` | `/grok/*` | `api.x.ai:443` (HTTPS) | xai-auth (inject) | API proxy with token injection |
+| `xai-auth-login` | `/grok/auth/login` | none | xai-auth | Start PKCE; 302 to auth.x.ai |
+| `xai-auth-complete` | `/grok/auth/complete` | none | xai-auth | Accept pasted callback URL / code; exchange; return access_token |
+| `xai-auth-device` | `/grok/auth/device` | none | xai-auth | Device-code start + (optional) poll helper |
+| `relay-grok` | `/grok/*` | `api.x.ai:443` | xai-auth | Proxy with session refresh or `xai-` passthrough |
+
+Optional local helper: a process on the user’s machine binding
+`127.0.0.1:<port>/callback` and forwarding the code to
+`/grok/auth/complete`: same race as official `grok` (loopback vs paste).
+Gateway **does not** require a public non-loopback `redirect_uri` for the
+shared official `CLIENT_ID`.
+
+### 2.3 Two strings (do not conflate)
+
+| String | Who picks it | Where used | Role |
+|--------|--------------|------------|------|
+| **session_id** | Admin / tooling | `?session=` on login/complete/device | Handshake correlation, audit labels only |
+| **access_token** | xAI OAuth response | Client `api_key` / `Authorization: Bearer` | Runtime credential; gateway lookup key |
+
+`session_id` is **never** required on API calls after handshake. `vgw-` is
+**not** part of this flow.
 
 ---
 
-## 3. OAuth 2.0 PKCE Flow
+## 3. OAuth 2.0 PKCE (official protocol)
 
-### 3.1 Protocol Constants
+### 3.1 Protocol constants
 
-Derived from the official grokcli implementation (`grokcli/auth/oauth.py`):
+From official `xai-grok-shell` `auth/config.rs` + `oidc/protocol.rs`:
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `CLIENT_ID` | `b1a00492-073a-47ea-816f-4c329264a828` | grokcli's registered client |
+| `CLIENT_ID` | `b1a00492-073a-47ea-816f-4c329264a828` | Same public client as official `grok` / grokcli |
 | `ISSUER` | `https://auth.x.ai` | OIDC issuer |
-| `DISCOVERY_URL` | `https://auth.x.ai/.well-known/openid-configuration` | OIDC discovery document |
+| `DISCOVERY_URL` | `https://auth.x.ai/.well-known/openid-configuration` | |
 | `DEFAULT_AUTH_ENDPOINT` | `https://auth.x.ai/oauth2/authorize` | Fallback if discovery fails |
 | `DEFAULT_TOKEN_ENDPOINT` | `https://auth.x.ai/oauth2/token` | Fallback if discovery fails |
-| `SCOPE` | `openid profile email offline_access grok-cli:access api:access` | Required scopes |
-| `REDIRECT_PORT` | `56121` | Loopback redirect port (configurable) |
-| `REDIRECT_PATH` | `/grok/auth/callback` | Callback path on gateway |
-| `AUTHORIZE_PLAN` | `generic` | Mandatory ,  without it, xAI rejects loopback OAuth |
-| `AUTHORIZE_REFERRER` | `grokcli` | Attribution parameter |
-| `REFRESH_SKEW` | `300` seconds | Proactive refresh window (5 minutes before expiry) |
+| `DEVICE_CODE_URL` | `https://auth.x.ai/oauth2/device/code` | RFC 8628 |
+| `SCOPE` (min API) | `openid profile email offline_access grok-cli:access api:access` | Official default also adds conversations/workspaces scopes |
+| `SCOPE` (official full) | min + `conversations:read conversations:write workspaces:read workspaces:write` | Use full when matching official CLI |
+| `REDIRECT_HOST` | `127.0.0.1` | Loopback only for this client_id |
+| `REDIRECT_PATH` | `/callback` | Official path (not `/grok/auth/callback`) |
+| `AUTHORIZE_REFERRER` | `grok-build` | Attribution; overridable (e.g. `workspace-gateway`) |
+| `REFRESH_SKEW` | `300` seconds | Matches `GROK_AUTH_EARLY_INVALIDATION_SECS` default |
 
-### 3.2 PKCE Primitives
+**Removed (not official):** `plan=generic`, fixed mandatory `56121` in production,
+echo of `code_challenge` / `code_challenge_method` on token exchange.
 
-The gateway implements RFC 7636 PKCE in pure Lua (no external dependencies):
+### 3.2 PKCE primitives (pure Lua)
 
-**Code Verifier** (43-128 chars, URL-safe random):
 ```lua
--- xai_pkce.lua
+-- xai_pkce.lua  (aligned with official generate_pkce: 32 random bytes)
 function M.generate_verifier()
-    -- 64 random bytes → base64url → trim to 128 chars
-    local random = resty.random.bytes(64)
-    return ngx.encode_base64(random):gsub("+", "-"):gsub("/", "_"):gsub("=", ""):sub(1, 128)
+    local random = require("resty.random").bytes(32)
+    return ngx.encode_base64(random):gsub("+", "-"):gsub("/", "_"):gsub("=", "")
 end
-```
 
-**Code Challenge** (SHA-256 S256, base64url no-pad):
-```lua
--- xai_pkce.lua
 function M.code_challenge(verifier)
-    local sha = resty.sha256:new()
+    local sha = require("resty.sha256"):new()
     sha:update(verifier)
-    local digest = sha:final()
-    return ngx.encode_base64(digest):gsub("+", "-"):gsub("/", "_"):gsub("=", "")
+    return ngx.encode_base64(sha:final()):gsub("+", "-"):gsub("/", "_"):gsub("=", "")
 end
-```
 
-**Random State** (32-char hex):
-```lua
--- xai_pkce.lua
 function M.random_state()
-    return resty随机.hex(16)  -- 16 bytes = 32 hex chars
+    return require("resty.random").hex(16)
 end
 ```
 
-### 3.3 Login Sequence
+### 3.3 Authorize URL (official shape)
+
+```
+{authorization_endpoint}
+  ?response_type=code
+  &client_id={CLIENT_ID}
+  &redirect_uri=http://127.0.0.1:{port}/callback
+  &scope={SCOPE}
+  &code_challenge={S256}
+  &code_challenge_method=S256
+  &state={state}
+  &nonce={nonce}
+  &referrer={AUTHORIZE_REFERRER}
+  # optional: principal_type, principal_id (team preselect)
+```
+
+**No `plan=` parameter.**
+
+`port` is chosen at login start: bind preference `56121` if free, else OS
+ephemeral; store exact `redirect_uri` in PKCE state (must match token exchange).
+
+### 3.4 Login sequence (browser + paste)
 
 ```mermaid
 sequenceDiagram
-    participant U as User Browser
-    participant G as Gateway<br/>xai-auth plugin
+    participant U as User
+    participant G as Gateway
     participant OB as OpenBao
     participant X as auth.x.ai
 
-    U->>G: GET /grok/auth/login?token=vgw-abc
-    G->>G: generate code_verifier + code_challenge
-    G->>G: generate state + nonce
-    G->>OB: PUT secret/data/gateway/xai-pkce/{state}<br/>{verifier, challenge, virtual_key: "vgw-abc"}
-    Note over OB: TTL: 300 seconds
-    G-->>U: 302 Redirect to<br/>https://auth.x.ai/oauth2/authorize<br/>?response_type=code<br/>&client_id=b1a00492-...<br/>&redirect_uri=http://gateway:9080/grok/auth/callback<br/>&scope=openid profile email ...<br/>&code_challenge={S256_challenge}<br/>&code_challenge_method=S256<br/>&state={state}<br/>&nonce={nonce}<br/>&plan=generic<br/>&referrer=grokcli
+    U->>G: GET /grok/auth/login?session=alice
+    G->>G: PKCE + state + nonce + redirect_uri
+    G->>OB: PUT xai-pkce/{state} TTL 300s
+    G-->>U: 302 authorize URL or HTML with URL + paste instructions
 
-    U->>X: Login with X account
-    X-->>U: Redirect to callback
-    U->>G: GET /grok/auth/callback?code=AUTH_CODE&state=STATE
+    U->>X: Login on real xAI pages
+    X-->>U: Redirect 127.0.0.1:{port}/callback?code=&state=
+    Note over U: Localhost often fails remotely: user copies full URL
+
+    U->>G: GET/POST /grok/auth/complete?session=alice body or query=callback URL
+    G->>OB: GET xai-pkce/{state}
+    G->>X: POST token exchange standard PKCE
+    X-->>G: access_token refresh_token id_token expires_in
+    G->>OB: store tokens keyed by token_hash + sub + session_id
+    G-->>U: access_token for api_key field
 ```
 
-### 3.4 Callback Sequence
-
-```mermaid
-sequenceDiagram
-    participant U as User Browser
-    participant G as Gateway<br/>xai-auth plugin
-    participant OB as OpenBao
-    participant X as auth.x.ai
-
-    U->>G: GET /grok/auth/callback?code=AUTH_CODE&state=STATE
-    G->>OB: GET secret/data/gateway/xai-pkce/{state}
-    OB-->>G: {verifier, challenge, virtual_key}
-
-    Note over G,X: xAI quirk: echo code_challenge<br/>+ code_challenge_method<br/>alongside code_verifier
-
-    G->>X: POST /oauth2/token<br/>grant_type=authorization_code<br/>&code=AUTH_CODE<br/>&redirect_uri=...<br/>&client_id=b1a00492-...<br/>&code_verifier=VERIFIER<br/>&code_challenge=CHALLENGE<br/>&code_challenge_method=S256
-    X-->>G: {access_token, refresh_token,<br/>id_token, expires_in, token_type}
-
-    G->>OB: GET secret/data/gateway/xai-tokens/{vgw-abc}
-    Note over G: Load existing tokens to<br/>preserve refresh_token if<br/>xAI omits it in response
-    OB-->>G: existing tokens (or nil)
-
-    G->>G: normalize_tokens(response, existing)
-    G->>OB: PUT secret/data/gateway/xai-tokens/{vgw-abc}<br/>{tokens, discovery, account, updated_at}
-
-    G->>OB: DELETE secret/data/gateway/xai-pkce/{state}
-
-    G-->>U: 200 HTML<br/>"Grok Authenticated"<br/>"Account: {email}"<br/>"You can close this tab."
-```
-
-### 3.5 Token Exchange ,  xAI Quirk
-
-xAI's token endpoint requires the `code_challenge` and
-`code_challenge_method` to be **echoed back** alongside `code_verifier` during
-the token exchange. This is non-standard (most OIDC providers do not require
-this) and must be handled explicitly:
+### 3.5 Token exchange: standard PKCE only
 
 ```lua
--- xai_tokens.lua
+-- xai_tokens.lua  (official exchange_code fields only)
 function M.exchange_code(httpc, params)
     local form = ngx.encode_args({
         grant_type = "authorization_code",
@@ -278,34 +307,59 @@ function M.exchange_code(httpc, params)
         redirect_uri = params.redirect_uri,
         client_id = params.client_id,
         code_verifier = params.code_verifier,
-        code_challenge = params.code_challenge,       -- echoed back
-        code_challenge_method = "S256",               -- echoed back
+        -- DO NOT send code_challenge or code_challenge_method here
     })
-    -- POST to token_endpoint ...
+    -- POST to token_endpoint, Accept application/json
 end
 ```
 
-Without echoing these fields, xAI returns a token exchange error.
-
-### 3.6 Token Refresh
+### 3.6 Token refresh
 
 ```lua
--- xai_tokens.lua
 function M.refresh(httpc, params)
     local form = ngx.encode_args({
         grant_type = "refresh_token",
         client_id = params.client_id,
         refresh_token = params.refresh_token,
+        -- optional: principal_type, principal_id for team tokens
     })
-    -- POST to token_endpoint ...
-    -- Per xAI contract: response may omit refresh_token.
-    -- Caller keeps the previous one in that case.
+    -- Response may omit refresh_token → keep previous
 end
 ```
 
-Token refresh is triggered proactively in the `access` phase of the proxy
-route (§4.3). The gateway never waits for a 401 ,  it checks JWT `exp` and
-refreshes 300 seconds before expiry.
+Proactive refresh in proxy `access` phase when JWT `exp` (or `expires_at`) is
+within `skew_seconds` (default 300). Never wait for 401 unless early-refresh path
+missed (optional reactive retry is a later enhancement).
+
+### 3.7 Device code (primary remote path)
+
+```
+POST {ISSUER}/oauth2/device/code
+  client_id, scope, referrer=grok-build
+→ device_code, user_code, verification_uri, interval, expires_in
+
+Poll token endpoint:
+  grant_type=urn:ietf:params:oauth:grant-type:device_code
+  device_code, client_id
+```
+
+Gateway endpoints:
+
+1. `POST /grok/auth/device` with optional `session` → returns JSON
+   `{ verification_uri, user_code, device_code, interval, expires_in }`
+2. `POST /grok/auth/device/poll` with `device_code` + optional `session` → on
+   success stores tokens and returns `{ access_token, expires_in, account }`
+
+Admin can email: “Open {verification_uri}, enter {user_code}.” No paste of
+localhost required.
+
+### 3.8 Manual paste parsing
+
+Port official / grokcli `parse_pasted_callback`:
+
+- Full URL `http://127.0.0.1:.../callback?code=...&state=...`
+- Query fragment `?code=...&state=...`
+- Bare opaque `code` (state check skipped when empty)
 
 ---
 
@@ -314,28 +368,15 @@ refreshes 300 seconds before expiry.
 ### 4.1 Manifest
 
 ```lua
--- plugins/custom/xai-auth.lua
-local core = require("apisix.core")
-local cjson = require("cjson.safe")
-local http = require("resty.http")
-local pkce = require("apisix.plugins.xai_pkce")
-local jwt_lib = require("apisix.plugins.xai_jwt")
-local oidc = require("apisix.plugins.xai_oidc")
-local tokens = require("apisix.plugins.xai_tokens")
-
 local plugin_name = "xai-auth"
-
 local plugin = {
-    version = 0.1,
-    priority = 2560,     -- runs before key-meta (2530), after key-resolver (2555)
+    version = 0.2,
+    priority = 2560,  -- before key-meta (2530), after key-resolver (2555) if both present
     name = plugin_name,
 }
 ```
 
-**Priority placement**: 2560 ensures `xai-auth` executes before `key-meta`
-(2530) and `sse-usage` (2400), but after `key-resolver` (2555) if both are on
-the same route (they won't be ,  the Grok route uses `xai-auth` instead of
-`key-resolver`).
+Grok routes use **`xai-auth` only**: not `key-resolver`.
 
 ### 4.2 Schema
 
@@ -343,708 +384,490 @@ the same route (they won't be ,  the Grok route uses `xai-auth` instead of
 plugin.schema = {
     type = "object",
     properties = {
-        openbao_addr = {
-            type = "string",
-            default = "http://openbao:8200",
-        },
-        openbao_token_env = {
-            type = "string",
-            default = "OPENBAO_TOKEN",
-        },
+        openbao_addr = { type = "string", default = "http://openbao:8200" },
+        openbao_token_env = { type = "string", default = "OPENBAO_TOKEN" },
         client_id = {
             type = "string",
             default = "b1a00492-073a-47ea-816f-4c329264a828",
         },
-        redirect_host = {
-            type = "string",
-            default = "127.0.0.1",
-        },
-        redirect_port = {
-            type = "integer",
-            default = 56121,
-        },
-        base_url = {
-            type = "string",
-            default = "https://api.x.ai/v1",
-        },
-        cache_ttl = {
-            type = "integer",
-            default = 300,
-        },
-        skew_seconds = {
-            type = "integer",
-            default = 300,
-        },
+        issuer = { type = "string", default = "https://auth.x.ai" },
+        referrer = { type = "string", default = "grok-build" },
         scope = {
             type = "string",
             default = "openid profile email offline_access grok-cli:access api:access",
         },
+        preferred_redirect_port = { type = "integer", default = 56121 },
+        cache_ttl = { type = "integer", default = 300 },
+        skew_seconds = { type = "integer", default = 300 },
+        pkce_ttl = { type = "integer", default = 300 },
     },
 }
 ```
 
-### 4.3 Phase Handlers
+### 4.3 Phase handlers
 
-| Phase | Path Match | Behavior |
-|-------|-----------|----------|
-| `init` | ,  | Warm up OIDC discovery cache via `ngx.timer.at(0, ...)` |
-| `access` | `/grok/auth/login` | Initiate OAuth: generate PKCE + state, store in OpenBao, 302 redirect |
-| `access` | `/grok/auth/callback` | Exchange code for tokens, store in OpenBao, return success HTML |
-| `access` | `/grok/*` (proxy) | Resolve virtual key → load tokens → check JWT exp → refresh if near-expiry → inject Bearer → set gateway headers → set ctx.consumer |
+| Phase | Path | Behavior |
+|-------|------|----------|
+| `init` |: | Warm OIDC discovery into `ngx.shared.xai_cache` |
+| `access` | `/grok/auth/login` | PKCE + store state + 302 or HTML with authorize URL |
+| `access` | `/grok/auth/complete` | Parse paste, exchange, store, return access_token |
+| `access` | `/grok/auth/device` | Request device code |
+| `access` | `/grok/auth/device/poll` | Poll until tokens; store; return access_token |
+| `access` | `/grok/*` (proxy) | Resolve Bearer → session refresh or `xai-` passthrough |
 
-#### 4.3.1 Init Phase (OIDC Discovery Warmup)
+#### 4.3.1 Login
 
-```lua
-function plugin.init()
-    local ok, err = ngx.timer.at(0, function(premature)
-        if premature then return end
-        local httpc = http.new()
-        httpc:set_timeout(10000)
-        oidc.discover(httpc)
-    end)
-    if not ok then
-        core.log.warn("xai-auth: OIDC discovery warmup failed: ", err)
-    end
-end
+1. Read optional `session` query param (session_id).
+2. Generate verifier, challenge, state, nonce; pick `redirect_uri`.
+3. Store in OpenBao `secret/data/gateway/xai-pkce/{state}`:
+   `{ verifier, challenge, session_id, redirect_uri, nonce, created_at }` TTL 300s.
+4. Build authorize URL; `ngx.redirect` or return HTML listing URL + complete
+   instructions (not a branded portal).
+
+#### 4.3.2 Complete (paste)
+
+1. Accept callback via query, form body, or JSON: `url` or `code` + optional `state`.
+2. Load PKCE by `state` (or by `session` if bare code + single pending: prefer state).
+3. `exchange_code` (standard PKCE only).
+4. `normalize_tokens`; extract account from `id_token` / access JWT (`sub`, `email`).
+5. Persist OpenBao records (see §6); delete PKCE state.
+6. Response:
+   - `Accept: application/json` → `{ "access_token", "expires_in", "account", "session_id" }`
+   - Else minimal HTML: show **access_token** as the value for the client’s
+     `api_key` field (copy-friendly). Do **not** show or invent a `vgw-` key.
+
+#### 4.3.3 Proxy
+
+```
+Authorization: Bearer <credential>
 ```
 
-OIDC discovery results are cached in `ngx.shared.xai_cache` with a 1-hour TTL.
-The discovery fetch is validated to ensure endpoints are HTTPS on `x.ai` or
-`*.x.ai` (security pin ,  prevents token theft via discovery poisoning).
+| Credential | Behavior |
+|------------|----------|
+| Starts with `xai-` | Passthrough Bearer to `api.x.ai` (API key path). Set `X-Gateway-Key-Id` to hash of key. |
+| JWT / other (OAuth access_token) | Lookup OpenBao by `sha256(credential)` **or** JWT `sub` (and accept **stale** issued access_token as session handle after refresh rotated the live token). If expiring within skew → refresh, update store. Set upstream `Authorization: Bearer <fresh access_token>`. |
+| Missing / unknown | `401` with hint to re-run login/device flow. |
 
-#### 4.3.2 Login Handler (access phase)
+Headers for downstream plugins:
 
-```lua
-function plugin.access(conf, ctx)
-    local uri = ngx.var.uri
+- `X-Gateway-Key-Id`: token_hash or `xai-` key hash
+- `X-Gateway-User-Id`: email or sub from token record
+- `X-Gateway-Tenant-Id`: optional from session metadata
+- `ctx.consumer.username` = key id for logging
 
-    if uri == "/grok/auth/login" then
-        return handle_login(conf, ctx)
-    elseif uri == "/grok/auth/callback" then
-        return handle_callback(conf, ctx)
-    end
+**No request body rewrite.** Only Authorization (and gateway meta headers).
 
-    -- proxy route: resolve + inject
-    return handle_proxy(conf, ctx)
-end
-```
+When access_token is rotated on refresh, **keep accepting the original
+access_token string** the user put in `api_key` (index aliases: original hash
+→ record). Re-auth only when refresh fails (`invalid_grant` / 401).
 
-**Login handler flow:**
+#### 4.3.4 Errors
 
-1. Extract `virtual_key` from query param `token`
-2. Generate `code_verifier`, `code_challenge` (S256), `state`, `nonce`
-3. Store `{verifier, challenge, virtual_key}` in OpenBao at
-   `secret/data/gateway/xai-pkce/{state}` with 300s TTL
-4. Build authorize URL with all required params including `plan=generic` and
-   `referrer=grokcli`
-5. Return `ngx.redirect(authorize_url, 302)`
+| Condition | Status | Body |
+|-----------|--------|------|
+| Missing code / invalid paste | 400 | `xai-auth: invalid callback input` |
+| PKCE state expired | 400 | `xai-auth: login session expired` |
+| Token exchange failed | 502 | `xai-auth: token exchange failed: …` |
+| Not authenticated (proxy) | 401 | `xai-auth: not authenticated` |
+| Refresh failed (invalid grant) | 401 | `xai-auth: re-authenticate` |
+| Refresh 403 / entitlement | 403 | `xai-auth: subscription does not include API access` |
+| OpenBao down | 503 | `xai-auth: cannot reach token store` |
 
-#### 4.3.3 Callback Handler (access phase)
+### 4.4 Supporting modules
 
-**Callback handler flow:**
-
-1. Extract `code` and `state` from query params
-2. Load PKCE data from OpenBao: `secret/data/gateway/xai-pkce/{state}`
-3. Call `tokens.exchange_code()` with echoed `code_challenge`
-4. Load existing tokens from OpenBao (to preserve refresh_token if xAI omits it)
-5. Normalize and store tokens at `secret/data/gateway/xai-tokens/{virtual_key}`
-6. Delete PKCE state entry
-7. Return HTML success page
-
-```html
-<html><body style="font-family:system-ui">
-  <h2>Grok Authenticated</h2>
-  <p>Account: {email}</p>
-  <p>Key: <code>{virtual_key}</code></p>
-  <p>You can close this tab.</p>
-</body></html>
-```
-
-#### 4.3.4 Proxy Handler (access phase)
-
-**Proxy handler flow:**
-
-1. Extract virtual key from `Authorization: Bearer vgw-xxx`
-2. Load tokens from OpenBao: `secret/data/gateway/xai-tokens/{virtual_key}`
-3. Decode access_token JWT → extract `exp` claim
-4. If `exp <= now + skew_seconds`: call `tokens.refresh()`, update stored tokens
-5. Swap `Authorization` header: `Bearer vgw-xxx` → `Bearer xai_eyJ...`
-6. Set gateway metadata headers:
-   - `X-Gateway-Key-Id`: virtual key
-   - `X-Gateway-Tenant-Id`: from token record
-   - `X-Gateway-User-Id`: from token record (email from id_token)
-7. Set `ctx.consumer = { username = virtual_key }` for downstream plugins
-
-**No request body transformation** ,  the OpenAI-compatible request passes
-through unchanged. Only the `Authorization` header is modified.
-
-### 4.4 Error Handling
-
-| Condition | HTTP Status | Response Body |
-|-----------|-------------|---------------|
-| Missing `token` param on login | 400 | `{"error":"xai-auth: missing token parameter"}` |
-| PKCE state not found (expired) | 400 | `{"error":"xai-auth: login session expired, please try again"}` |
-| Token exchange failed | 502 | `{"error":"xai-auth: token exchange failed: {detail}"}` |
-| Missing Authorization header on proxy | 401 | `{"error":"xai-auth: missing Authorization header"}` |
-| Virtual key not found (no tokens stored) | 401 | `{"error":"xai-auth: not authenticated, visit /grok/auth/login?token={key}"}` |
-| Token refresh failed (401 from xAI) | 401 | `{"error":"xai-auth: token refresh failed, re-authenticate"}` |
-| Token refresh failed (403 tier denied) | 403 | `{"error":"xai-auth: subscription does not include API access"}` |
-| OpenBao unreachable | 503 | `{"error":"xai-auth: cannot reach token store"}` |
+| File | Role |
+|------|------|
+| `xai_pkce.lua` | Verifier, challenge, state |
+| `xai_jwt.lua` | Decode claims (no verify for exp/sub), `is_expiring` |
+| `xai_oidc.lua` | Discovery + HTTPS `*.x.ai` pin + cache |
+| `xai_tokens.lua` | Exchange, refresh, normalize, OpenBao CRUD, token_hash |
 
 ---
 
-## 5. Utility Libraries
+## 5. Module details
 
-### 5.1 xai_pkce.lua ,  PKCE Primitives
+### 5.1 xai_jwt.lua
 
-**File**: `plugins/custom/xai_pkce.lua`
-**Lines**: ~40
-**Dependencies**: `resty.random`, `resty.string`, `resty.sha256`, `ngx.encode_base64`
+| Function | Returns |
+|----------|---------|
+| `decode_claims(token)` | table or `{}` (base64url payload, no signature verify) |
+| `is_expiring(token, skew)` | true if `exp <= now + skew` or unparseable with force-refresh policy |
+| `token_hash(token)` | hex sha256 of raw token string |
 
-| Function | Returns | Notes |
-|----------|---------|-------|
-| `generate_verifier()` | string (128 chars) | `resty.random.bytes(64)` → base64url → trim |
-| `code_challenge(verifier)` | string (43 chars) | SHA-256 S256, base64url no-pad |
-| `random_state()` | string (32 chars) | `resty随机.hex(16)` |
+### 5.2 xai_oidc.lua
 
-**Test coverage**: `tests/lua/test_xai_pkce.lua`
+| Function | Behavior |
+|----------|----------|
+| `discover(httpc)` | GET discovery; pin endpoints to HTTPS on `x.ai` / `*.x.ai`; cache 1h in `xai_cache` |
+| Fallbacks | Hardcoded authorize + token endpoints if discovery fails |
 
-### 5.2 xai_jwt.lua ,  JWT Decode (No Verify)
+### 5.3 xai_tokens.lua
 
-**File**: `plugins/custom/xai_jwt.lua`
-**Lines**: ~50
-**Dependencies**: `cjson.safe`, `ngx.decode_base64`
-
-The gateway only needs to **read** JWT claims (specifically `exp`), not verify
-signatures. xAI issues the JWT; the gateway trusts it because it was obtained
-through the OAuth code exchange. Token refresh is triggered proactively based
-on `exp`, so the 401 reactive path is a safety net, not the primary mechanism.
-
-| Function | Returns | Notes |
-|----------|---------|-------|
-| `decode_claims(token)` | table `{exp, iat, ...}` or `{}` | Split on `.`, base64url-decode payload |
-| `is_expiring(token, skew)` | boolean | `true` if `exp <= now + skew` or token invalid |
-
-**Test coverage**: `tests/lua/test_xai_jwt.lua`
-
-### 5.3 xai_oidc.lua ,  OIDC Discovery
-
-**File**: `plugins/custom/xai_oidc.lua`
-**Lines**: ~80
-**Dependencies**: `resty.http`, `ngx.shared.xai_cache`, `cjson.safe`
-
-| Function | Returns | Notes |
-|----------|---------|-------|
-| `discover(httpc)` | `{authorization_endpoint, token_endpoint}` | Cached 1h in `xai_cache` dict |
-| `build_authorize_url(params)` | URL string | Includes `plan=generic`, `referrer=grokcli` |
-| `validate_endpoint(url, field)` | url or raises | Pins to HTTPS on `x.ai` / `*.x.ai` |
-
-**Security pin**: All OIDC endpoints are validated to be HTTPS on `x.ai` or
-`*.x.ai`. If the discovery document is tampered with (MITM), the gateway
-rejects the endpoints rather than sending the refresh token to a hostile host.
-This matches grokcli's `validate_endpoint()` behavior.
-
-**Hardcoded fallbacks** (used when discovery fails):
-```lua
-local DEFAULT_AUTHORIZATION_ENDPOINT = "https://auth.x.ai/oauth2/authorize"
-local DEFAULT_TOKEN_ENDPOINT = "https://auth.x.ai/oauth2/token"
-```
-
-**Test coverage**: `tests/lua/test_xai_oidc.lua`
-
-### 5.4 xai_tokens.lua ,  Token Lifecycle + OpenBao Storage
-
-**File**: `plugins/custom/xai_tokens.lua`
-**Lines**: ~120
-**Dependencies**: `resty.http`, `cjson.safe`, OpenBao HTTP API
-
-| Function | Returns | Notes |
-|----------|---------|-------|
-| `exchange_code(httpc, params)` | token payload table | POST form-encoded, echoes code_challenge |
-| `refresh(httpc, params)` | token payload table | POST form-encoded, preserves refresh_token |
-| `normalize_tokens(payload, previous)` | normalized table | `{access_token, refresh_token, id_token, token_type, expires_in}` |
-| `store_tokens(virtual_key, tokens, discovery)` | ok/nil, err | PUT to OpenBao KVv2 |
-| `load_tokens(virtual_key)` | tokens table or nil | GET from OpenBao KVv2 |
-| `clear_tokens(virtual_key)` | ok/nil, err | DELETE from OpenBao KVv2 |
-
-### 5.5 Shared Dict
-
-```yaml
-# conf/config.yaml
-nginx_config:
-  http:
-    custom_lua_shared_dict:
-      xai_cache: 5m    # OIDC discovery cache (1h TTL, ~1KB entry)
-```
+| Function | Behavior |
+|----------|----------|
+| `exchange_code` | Standard PKCE form (no challenge echo) |
+| `refresh` | Preserve refresh_token if omitted |
+| `normalize_tokens(payload, previous)` | access, refresh, id_token, token_type, expires_in |
+| `store_session(...)` | Write token_hash primary + sub + session indexes |
+| `load_by_bearer(token)` | Hash lookup then sub lookup |
+| `clear_session(...)` | Delete on permanent refresh failure |
 
 ---
 
-## 6. OpenBao Storage Schema
+## 6. OpenBao storage
 
-### 6.1 PKCE State (short-lived)
+### 6.1 PKCE pending
 
-**Path**: `secret/data/gateway/xai-pkce/{state}`
-**TTL**: 300 seconds (auto-expired by OpenBao)
-**Write**: On login initiation
-**Read**: On callback
-**Delete**: After successful token exchange
+**Path:** `secret/data/gateway/xai-pkce/{state}`  
+**TTL:** 300s  
 
 ```json
 {
-  "data": {
-    "code_verifier": "aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789_-abcdef",
-    "code_challenge": "XyZ123-abc456_def789",
-    "virtual_key": "vgw-abc123",
-    "created_at": "2026-07-12T17:30:00Z"
-  }
+  "verifier": "...",
+  "challenge": "...",
+  "session_id": "alice",
+  "redirect_uri": "http://127.0.0.1:56121/callback",
+  "nonce": "...",
+  "created_at": "..."
 }
 ```
 
-### 6.2 OAuth Tokens (persistent)
+### 6.2 OAuth session (persistent)
 
-**Path**: `secret/data/gateway/xai-tokens/{virtual_key}`
-**TTL**: None (persistent until deleted)
-**Write**: On successful callback and on refresh
-**Read**: On every proxy request
+**Primary path:** `secret/data/gateway/xai-tokens/{token_hash}`  
+where `token_hash = sha256(access_token_as_issued_to_user)`.
 
 ```json
 {
-  "data": {
-    "tokens": {
-      "access_token": "eyJhbGci...",
-      "refresh_token": "dGhpcyBpcyBh...",
-      "id_token": "eyJhbGci...",
-      "token_type": "Bearer",
-      "expires_in": 3600
-    },
-    "discovery": {
-      "authorization_endpoint": "https://auth.x.ai/oauth2/authorize",
-      "token_endpoint": "https://auth.x.ai/oauth2/token"
-    },
-    "account": {
-      "email": "user@example.com",
-      "user_id": "12345678"
-    },
-    "base_url": "https://api.x.ai/v1",
-    "last_refresh": "2026-07-12T18:30:00Z",
-    "last_auth_error": null,
-    "updated_at": "2026-07-12T18:30:00Z"
-  }
+  "tokens": {
+    "access_token": "eyJ...",
+    "refresh_token": "...",
+    "id_token": "...",
+    "token_type": "Bearer",
+    "expires_in": 3600
+  },
+  "issued_access_token_hash": "...",
+  "live_access_token_hash": "...",
+  "sub": "user-sub",
+  "session_id": "alice",
+  "account": { "email": "...", "user_id": "..." },
+  "discovery": {
+    "authorization_endpoint": "https://auth.x.ai/oauth2/authorize",
+    "token_endpoint": "https://auth.x.ai/oauth2/token"
+  },
+  "client_id": "b1a00492-073a-47ea-816f-4c329264a828",
+  "updated_at": "..."
 }
 ```
 
-### 6.3 Token Refresh Race Handling
+**Secondary index (optional KVv2 path):**  
+`secret/data/gateway/xai-tokens-by-sub/{sub}` → points at primary key  
+`secret/data/gateway/xai-sessions/{session_id}` → points at primary key  
 
-Multiple concurrent requests may detect expiry simultaneously. The refresh
-cycle is:
+On refresh: update `tokens.access_token` and `live_access_token_hash`; **keep**
+`issued_access_token_hash` so the user’s unchanged `api_key` still resolves.
 
-1. Read tokens from OpenBao (fast, local-ish)
-2. Decode JWT, check `exp`
-3. If expiring: refresh via HTTP to xAI token endpoint
-4. Write updated tokens back to OpenBao
+### 6.3 Refresh race
 
-**Race condition**: Two concurrent requests both read "expiring" tokens. Both
-refresh. The second refresh uses a refresh_token that was already rotated by
-the first. xAI rejects it → 401.
-
-**Mitigation**: The `access` phase does NOT refresh synchronously on every
-request. Instead:
-
-1. Check `exp` from the cached JWT in `ngx.shared.xai_cache` (set by the
-   previous request's handler).
-2. Only if the cached check says "expiring", proceed to the full OpenBao read +
-   refresh cycle.
-3. After refresh, update the shared dict cache with the new `exp`.
-
-This reduces (but does not eliminate) concurrent refreshes. For absolute
-correctness, a Lua `resty.lock` on the virtual key can serialize refreshes.
-The pragmatic approach is to accept the rare race ,  the worst case is one
-request gets a 401 and the client retries (grokcli's reactive refresh pattern).
+Concurrent requests near expiry may both refresh. Prefer `resty.lock` on
+`token_hash` / `sub` for serialization. If xAI rotates refresh_token, second
+refresh may 401: clear session and return 401 re-auth.
 
 ---
 
-## 7. Route Configuration
+## 7. Configuration
 
-### 7.1 conf/apisix.yaml
+### 7.1 Routes (sketch)
 
 ```yaml
 routes:
-  # ... existing routes ...
-
-  # OAuth login redirect
   - id: xai-auth-login
     uri: /grok/auth/login
     plugins:
       xai-auth:
-        openbao_addr: "http://openbao:8200"
         openbao_token_env: "OPENBAO_TOKEN"
-        redirect_host: "127.0.0.1"
-        redirect_port: 56121
+        referrer: "grok-build"
 
-  # OAuth callback
-  - id: xai-auth-callback
-    uri: /grok/auth/callback
+  - id: xai-auth-complete
+    uri: /grok/auth/complete
+    methods: [GET, POST]
     plugins:
-      xai-auth:
-        openbao_addr: "http://openbao:8200"
-        openbao_token_env: "OPENBAO_TOKEN"
+      xai-auth: {}
 
-  # Grok API proxy
+  - id: xai-auth-device
+    uris:
+      - /grok/auth/device
+      - /grok/auth/device/poll
+    methods: [POST, GET]
+    plugins:
+      xai-auth: {}
+
   - id: relay-grok
     uri: /grok/*
+    plugins:
+      xai-auth: {}
+      proxy-rewrite:
+        regex_uri: ["^/grok/(.*)", "/v1/$1"]
+      key-meta: {}
+      limit-count: {}
+      redact: {}
+      sse-usage: {}
+      # ... existing stack plugins as other relays
     upstream:
       type: roundrobin
       scheme: https
-      pass_host: node
       nodes:
         "api.x.ai:443": 1
-    plugins:
-      proxy-rewrite:
-        regex_uri: ["^/grok/(.*)", "/v1/$1"]
-      xai-auth:
-        openbao_addr: "http://openbao:8200"
-        openbao_token_env: "OPENBAO_TOKEN"
-        base_url: "https://api.x.ai/v1"
-        redirect_port: 56121
-      key-meta: {}
-      limit-count:
-        count: 100
-        time_window: 60
-        rejected_code: 429
-        key_type: var
-        key: http_x_key_hash
-        policy: local
-      prometheus:
-        prefer_name: true
-      request-id:
-        header_name: X-Request-Id
-        include_in_response: true
-      http-logger:
-        uri: "http://vector:8080/ingest"
-        method: POST
-        content_type: "application/json"
-        batch_max_size: 1
-        include_req_body: true
-        include_resp_body: true
-        max_req_body_bytes: 262144
-        max_resp_body_bytes: 1048576
-      proxy-buffering:
-        disable: true
-      redact:
-        patterns_file: "/etc/apisix/redact-patterns.json"
-      sse-usage:
-        clickhouse_addr: "http://clickhouse:8123"
+      pass_host: node
 ```
 
-### 7.2 conf/config.yaml Changes
+### 7.2 Shared dict
 
 ```yaml
-plugins:
-  # ... existing plugins ...
-  - xai-auth
-
-nginx_config:
-  http:
-    custom_lua_shared_dict:
-      # ... existing dicts ...
-      xai_cache: 5m
-  envs:
-    # ... existing envs ...
-    - XAI_CLIENT_ID
+# conf/config.yaml nginx_config.http_configuration_snippet or lua_shared_dict
+# xai_cache 5m
 ```
 
-### 7.3 .env Additions
+### 7.3 Env
 
 ```
-# xAI Grok OAuth
-XAI_CLIENT_ID=b1a00492-073a-47ea-816f-4c329264a828
-XAI_REDIRECT_HOST=127.0.0.1
-XAI_REDIRECT_PORT=56121
+OPENBAO_TOKEN=...
+XAI_CLIENT_ID=b1a00492-073a-47ea-816f-4c329264a828   # optional override
+XAI_OAUTH_REFERRER=grok-build
 ```
 
-### 7.4 Docker Compose Volume Mounts
+### 7.4 Docker volume mounts
 
-```yaml
-# res/docker/docker-compose.yml → apisix service volumes
-- ../../plugins/custom/xai-auth.lua:/usr/local/apisix/apisix/plugins/xai-auth.lua:ro
-- ../../plugins/custom/xai_pkce.lua:/usr/local/apisix/apisix/plugins/xai_pkce.lua:ro
-- ../../plugins/custom/xai_jwt.lua:/usr/local/apisix/apisix/plugins/xai_jwt.lua:ro
-- ../../plugins/custom/xai_oidc.lua:/usr/local/apisix/apisix/plugins/xai_oidc.lua:ro
-- ../../plugins/custom/xai_tokens.lua:/usr/local/apisix/apisix/plugins/xai_tokens.lua:ro
-```
+Mount `xai-auth.lua`, `xai_pkce.lua`, `xai_jwt.lua`, `xai_oidc.lua`,
+`xai_tokens.lua` into APISIX plugins path (same pattern as existing custom
+plugins).
 
 ---
 
-## 8. Client Usage
+## 8. Client usage
 
-### 8.1 First-Time Authentication
+### 8.1 One-time OAuth (browser + paste)
 
 ```bash
-# 1. Open this URL in your browser (one-time per virtual key)
-open "http://gateway:9080/grok/auth/login?token=vgw-abc"
+SESSION=alice
 
-# 2. Log in with your X / SuperGrok account at auth.x.ai
+# 1. Start login (open printed/redirected URL in browser)
+curl -sS "http://gateway:9080/grok/auth/login?session=$SESSION"
 
-# 3. See "Grok Authenticated" page ,  done
+# 2. After xAI login, browser lands on 127.0.0.1/callback?... (may fail to load)
+#    Copy the full URL from the address bar.
+
+# 3. Complete handshake: get access_token
+curl -sS -X POST "http://gateway:9080/grok/auth/complete?session=$SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"http://127.0.0.1:56121/callback?code=...&state=..."}'
+# → {"access_token":"eyJ...","expires_in":3600,"account":{...}}
 ```
 
-### 8.2 API Requests
+### 8.2 One-time OAuth (device code: preferred remote)
 
 ```bash
-# OpenAI-compatible chat completions
-curl http://gateway:9080/grok/chat/completions \
-  -H "Authorization: Bearer vgw-abc" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "grok-4",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
+curl -sS -X POST "http://gateway:9080/grok/auth/device?session=alice"
+# → verification_uri, user_code, device_code, interval
 
-# With OpenAI Python SDK
+# User opens verification_uri, enters user_code on any device.
+
+curl -sS -X POST "http://gateway:9080/grok/auth/device/poll" \
+  -d "device_code=..."
+# → access_token
+```
+
+### 8.3 Ongoing API requests (OAuth access_token as Bearer)
+
+Primary path after handshake. The JWT is what clients usually put in a
+parameter named `api_key`: it is still the **OAuth session token**, not a
+console `xai-` key.
+
+```bash
+export GROK_OAUTH_ACCESS_TOKEN='eyJ...'   # from /auth/complete or device poll
+
+curl http://gateway:9080/grok/chat/completions \
+  -H "Authorization: Bearer $GROK_OAUTH_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"grok-4","messages":[{"role":"user","content":"Hello"}],"stream":true}'
+```
+
+```python
 from openai import OpenAI
 client = OpenAI(
     base_url="http://gateway:9080/grok",
-    api_key="vgw-abc",
+    # SDK calls this "api_key"; value is the OAuth JWT from the handshake.
+    api_key=os.environ["GROK_OAUTH_ACCESS_TOKEN"],
 )
-response = client.chat.completions.create(
-    model="grok-4",
-    messages=[{"role": "user", "content": "Hello"}],
-)
+```
 
-# With OpenAI JavaScript SDK
-import OpenAI from "openai";
+```javascript
 const client = new OpenAI({
-    baseURL: "http://gateway:9080/grok",
-    apiKey: "vgw-abc",
+  baseURL: "http://gateway:9080/grok",
+  apiKey: process.env.GROK_OAUTH_ACCESS_TOKEN, // OAuth JWT, not xai-...
 });
-const response = await client.chat.completions.create({
-    model: "grok-4",
-    messages: [{ role: "user", content: "Hello" }],
-});
-
-# xAI Responses API (native, also works)
-curl http://gateway:9080/grok/responses \
-  -H "Authorization: Bearer vgw-abc" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "grok-4",
-    "input": [{"role": "user", "content": "Hello"}],
-    "stream": true
-  }'
 ```
 
-### 8.3 What Gets Proxied
+Gateway on every request: load session by token hash/sub → refresh if near
+expiry → proxy to `api.x.ai` with a fresh Bearer. Client never sees refresh.
 
-The `proxy-rewrite` plugin strips the `/grok/` prefix and adds `/v1/`:
+### 8.4 Optional: console API key passthrough (secondary only)
 
-| Client sends | Gateway proxies to |
-|---|---|
-| `POST /grok/chat/completions` | `POST api.x.ai/v1/chat/completions` |
-| `POST /grok/responses` | `POST api.x.ai/v1/responses` |
-| `GET /grok/models` | `GET api.x.ai/v1/models` |
-| `POST /grok/images/generations` | `POST api.x.ai/v1/images/generations` |
+Only if someone already has an `xai-...` key from console.x.ai. **Does not
+replace OAuth.** Gateway forwards Bearer unchanged; no refresh_token storage.
 
-All xAI API endpoints are accessible through the `/grok/*` prefix.
-
-### 8.4 Token Lifecycle (Invisible to Client)
-
-```
-Client sends request with Bearer vgw-abc
-  → xai-auth loads tokens from OpenBao
-  → xai-auth decodes JWT, checks exp
-  → If expiring within 300s: refresh via xAI token endpoint
-  → Swap Bearer to xAI access_token
-  → Proxy to api.x.ai
-  → Client sees standard OpenAI-compatible response
+```bash
+curl http://gateway:9080/grok/chat/completions \
+  -H "Authorization: Bearer xai-..." \
+  ...
 ```
 
-The client never sees the xAI access token. Refresh happens transparently.
+### 8.5 What gets proxied
 
----
-
-## 9. Security Considerations
-
-### 9.1 Endpoint Pinning
-
-All OIDC endpoints are validated to be HTTPS on `x.ai` or `*.x.ai`. The
-`validate_endpoint()` function rejects any endpoint on a different host or
-scheme, preventing:
-
-- Token theft via DNS rebinding
-- Refresh token exfiltration via manipulated discovery document
-- Redirect to hostile token endpoint
-
-### 9.2 PKCE State TTL
-
-PKCE state entries expire after 300 seconds in OpenBao. If the user does not
-complete the OAuth flow within 5 minutes, the state is invalidated and a new
-login must be initiated. This prevents replay attacks.
-
-### 9.3 Redirect URI Exact Match
-
-The `redirect_uri` sent in the authorize request must exactly match what xAI
-has registered for the client. The gateway constructs it from config:
-
-```
-http://{redirect_host}:{redirect_port}/grok/auth/callback
-```
-
-xAI rejects mismatched redirect URIs at the token endpoint.
-
-### 9.4 Token Storage
-
-Tokens are stored in OpenBao KVv2 with the same security properties as the
-existing virtual keys:
-
-- Encrypted at rest (OpenBao file storage with seal key)
-- Access controlled by `OPENBAO_TOKEN` (service token with scoped policy)
-- Owner-only file permissions on the OpenBao data directory
-
-### 9.5 No Token Logging
-
-The `xai-auth` plugin never logs tokens. The `redact` plugin (priority 2500)
-scans request/response bodies for JWT patterns and redacts them. The
-`Authorization` header is not included in http-logger payloads (APISIX default
-log format does not log request headers unless explicitly configured).
-
-### 9.6 Refresh Token Rotation
-
-When xAI rotates the refresh token on refresh, the gateway stores the new one.
-The previous refresh_token is discarded. If a concurrent request uses the old
-refresh_token, xAI returns 401 and the gateway logs the error (the client
-retries).
-
----
-
-## 10. Observability
-
-### 10.1 ClickHouse Usage Tracking
-
-xAI requests flow through the same logging pipeline as opencode and llamafile:
-
-| Table | Writer | xAI-specific behavior |
-|-------|--------|----------------------|
-| `request_log` | Vector (http-logger) | Route `relay-grok` in `event_id`; model extracted by VRL |
-| `usage_log` | sse-usage plugin | Tokens extracted from OpenAI-compatible response; `cost_source = 'computed'` (models.dev) |
-| `billing_ledger` | billing_ledger_mv | Auto-populated from usage_log INSERT |
-
-### 10.2 Cost Computation
-
-xAI's `/v1/chat/completions` does not report cost in a parseable format (uses
-`cost_in_usd_ticks`, a proprietary integer). The gateway always takes
-**Pathway B** (computed cost) for xAI requests:
-
-```
-cost_source = 'computed'
-cost = compute_cost(tokens, models.dev_pricing[req_model])
-```
-
-xAI models in `models.dev` include `grok-4`, `grok-4.3`, `grok-4.5`, and
-variants with separate input/output/reasoning/cache rates.
-
-### 10.3 Prometheus Metrics
-
-The `relay-grok` route carries `prometheus: { prefer_name: true }`, so all
-standard APISIX metrics (request count, latency, bandwidth) are exported with
-the route name `relay-grok`. The Grafana dashboards filter by route_id.
-
----
-
-## 11. Failure Modes
-
-| Scenario | Behavior | User sees |
-|----------|----------|-----------|
-| User closes browser before callback | PKCE state expires in 300s | Must re-open login URL |
-| xAI OAuth returns 403 (tier denied) | Callback page shows error | "Subscription does not include API access" |
-| Token refresh fails (401) | Stored tokens cleared, request returns 401 | Client sees 401, must re-authenticate |
-| Token refresh fails (403) | Stored tokens preserved, request returns 403 | "Subscription does not include API access" |
-| OpenBao unreachable | Request returns 503 | "Cannot reach token store" |
-| xAI API returns error | Error passes through to client | Standard xAI error response |
-| Callback URL unreachable from browser | Browser shows connection error | User must ensure gateway port is exposed |
-| OIDC discovery fails | Falls back to hardcoded endpoints | No user-visible impact |
-
----
-
-## 12. Implementation Plan
-
-### 12.1 New Files (5 Lua modules + 4 test files)
-
-| File | Lines (est.) | Purpose |
-|------|-------------|---------|
-| `plugins/custom/xai_pkce.lua` | ~40 | PKCE code_verifier, code_challenge, state generation |
-| `plugins/custom/xai_jwt.lua` | ~50 | JWT decode (no verify), expiry check |
-| `plugins/custom/xai_oidc.lua` | ~80 | OIDC discovery, authorize URL builder, endpoint validation |
-| `plugins/custom/xai_tokens.lua` | ~120 | Token exchange, refresh, normalize, OpenBao CRUD |
-| `plugins/custom/xai-auth.lua` | ~250 | APISIX plugin: login, callback, proxy handlers |
-| `tests/lua/test_xai_pkce.lua` | ~60 | PKCE primitive tests |
-| `tests/lua/test_xai_jwt.lua` | ~80 | JWT decode + expiry tests |
-| `tests/lua/test_xai_oidc.lua` | ~50 | URL builder + validation tests |
-| `tests/lua/test_xai_tokens.lua` | ~60 | normalize_tokens + store/load mock tests |
-
-### 12.2 Modified Files
-
-| File | Change |
-|------|--------|
-| `conf/apisix.yaml` | Add 3 routes (login, callback, relay-grok) |
-| `conf/apisix.yaml.j2` | Same 3 routes with Jinja2 templating |
-| `conf/config.yaml` | Add `xai-auth` to plugins list, `xai_cache: 5m` shared dict, `XAI_CLIENT_ID` env |
-| `.env.example` | Add `XAI_CLIENT_ID`, `XAI_REDIRECT_HOST`, `XAI_REDIRECT_PORT` |
-| `res/docker/docker-compose.yml` | Add 5 volume mounts for new Lua files |
-
-### 12.3 Implementation Order
-
-1. `xai_pkce.lua` + `test_xai_pkce.lua` ,  smallest, no dependencies
-2. `xai_jwt.lua` + `test_xai_jwt.lua` ,  small, no dependencies
-3. `xai_oidc.lua` + `test_xai_oidc.lua` ,  needs `resty.http`, `ngx.shared`
-4. `xai_tokens.lua` + `test_xai_tokens.lua` ,  needs `resty.http`, OpenBao
-5. `xai-auth.lua` ,  orchestrates 1-4, APISIX plugin glue
-6. Config changes (apisix.yaml, config.yaml, docker-compose.yml, .env)
-7. Integration tests (`tests/integration/test_grok_e2e.sh`)
-
-### 12.4 Test Plan
-
-| Test | Type | What it validates |
-|------|------|-------------------|
-| `test_xai_pkce.lua` | Lua unit | Verifier length, challenge is base64url S256, state is hex |
-| `test_xai_jwt.lua` | Lua unit | Decode known JWT, expiry check, malformed handling |
-| `test_xai_oidc.lua` | Lua unit | Authorize URL contains all required params, endpoint validation |
-| `test_xai_tokens.lua` | Lua unit | normalize_tokens preserves refresh_token, exchange form encoding |
-| `test_apisix_yaml.sh` | Config | 3 new routes present, correct upstream, xai-auth plugin configured |
-| `test_config_yaml.sh` | Config | xai-auth in plugins list, xai_cache dict present |
-| `test_compose.sh` | Config | 5 new volume mounts for xai plugin files |
-| `test_grok_e2e.sh` | Integration | Login redirect → callback → token stored → proxy request succeeds |
-
----
-
-## 13. Out of Scope (v1)
-
-- **API key passthrough route**: A separate `/grok_apikey/*` route using the
-  existing `key-resolver` plugin for xAI API keys. Can be added later by
-  creating a route that points at `api.x.ai` with `key-resolver` configured
-  to resolve to xAI API keys stored in OpenBao.
-- **Responses API usage tracking**: The `/v1/responses` endpoint uses different
-  field names (`input_tokens` instead of `prompt_tokens`). Adding parser
-  support is a v1.1 change.
-- **Server-side conversation storage**: xAI's Responses API supports `store:
-  true` and `previous_response_id` for stateful conversations. This works
-  through the proxy as-is (opaque passthrough) but is not actively managed
-  by the gateway.
-- **Multi-user token isolation**: v1 stores one token set per virtual key. If
-  multiple users share a virtual key, they share the OAuth token. A v2 could
-  map user identity to separate token sets.
-
----
-
-## 14. References
-
-| Source | Used for |
+| Client | Upstream |
 |--------|----------|
-| [grokcli](https://github.com/ele-yufo/grokcli) | OAuth PKCE flow, OIDC constants, xAI quirks |
-| [xAI API Docs](https://docs.x.ai/docs/api-reference) | Endpoint formats, request/response schemas |
-| [xAI Chat Completions](https://docs.x.ai/developers/rest-api-reference/inference/chat) | OpenAI-compatible endpoint verification |
-| [xAI Responses API](https://docs.x.ai/developers/model-capabilities/text/generate-text) | Native endpoint format, migration guide |
-| [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636) | PKCE specification |
-| `sse_usage_lib.lua` | Parser field compatibility verification (§1.4) |
-| `cost_calc.lua` | Cost computation pathway for xAI models |
-| `key-resolver.lua` | Pattern reference for OpenBao integration |
+| `POST /grok/chat/completions` | `POST https://api.x.ai/v1/chat/completions` |
+| `POST /grok/responses` | `POST https://api.x.ai/v1/responses` |
+| `GET /grok/models` | `GET https://api.x.ai/v1/models` |
+
+### 8.6 Token lifecycle (invisible to client after step 3)
+
+```
+Client Bearer <issued access_token>
+  → xai-auth load session by hash/sub
+  → if near expiry: refresh, update live token in OpenBao
+  → upstream Bearer <fresh access_token>
+  → client keeps same api_key string forever until re-auth
+```
+
+---
+
+## 9. Security
+
+### 9.1 Endpoint pinning
+
+OIDC discovery endpoints must be HTTPS on `x.ai` or `*.x.ai`. Reject others
+before sending refresh tokens.
+
+### 9.2 PKCE state TTL
+
+300s; single-use delete after exchange.
+
+### 9.3 Redirect URI
+
+Exact match between authorize and token exchange. Loopback
+`http://127.0.0.1:{port}/callback` only for the public official client_id.
+Do not claim a gateway public host as redirect_uri without a registered
+client.
+
+### 9.4 Token storage
+
+OpenBao KVv2; same operational security as other gateway secrets. Never log
+access/refresh tokens (`redact` plugin).
+
+### 9.5 Refresh rotation
+
+If refresh_token rotates, store new; concurrent use of old may force re-auth.
+
+### 9.6 Access token as session handle
+
+The client-held string is a secret. Treat equally to API keys (HTTPS only,
+no logs). Hash for OpenBao path / key-meta identity.
+
+---
+
+## 10. Usage / cost
+
+Unchanged: OpenAI-compatible path → `sse-usage` → Vector → ClickHouse.
+`cost_source = computed` via `models.dev` for xAI models. No
+`estimated_cost` from upstream.
+
+---
+
+## 11. Failure modes
+
+| Scenario | Behavior |
+|----------|----------|
+| User closes browser mid-login | PKCE TTL expires; restart login |
+| Paste wrong URL | 400 invalid callback |
+| Device code expired | Poll error; start new device flow |
+| Refresh invalid_grant | Clear session; 401 re-auth |
+| Subscription/tier 403 | 403; do not clear unnecessarily |
+| OpenBao down | 503 |
+| Stale access_token in client after refresh | Still works via issued hash / sub index |
+
+---
+
+## 12. Implementation plan
+
+### 12.1 Deliverables
+
+| Artifact | Notes |
+|----------|-------|
+| `plugins/custom/xai_pkce.lua` | |
+| `plugins/custom/xai_jwt.lua` | |
+| `plugins/custom/xai_oidc.lua` | |
+| `plugins/custom/xai_tokens.lua` | Standard PKCE exchange |
+| `plugins/custom/xai-auth.lua` | login, complete, device, proxy |
+| Unit tests under `tests/lua/` | pkce, jwt, normalize, paste parse |
+| Integration `tests/integration/test_grok_*.sh` | Mock token endpoint where possible |
+| Route config | apisix / seed-routes |
+| `.env.example` | XAI_* vars |
+
+### 12.2 Build order
+
+1. `xai_pkce` + `xai_jwt` + unit tests  
+2. `xai_oidc` discovery pin  
+3. `xai_tokens` exchange/refresh/normalize (no challenge echo)  
+4. `xai-auth` login + complete  
+5. `xai-auth` proxy lookup + refresh  
+6. Device code endpoints  
+7. Routes + e2e against real auth only in manual/dev  
+
+### 12.3 Out of scope v1
+
+- `vgw-` / `key-resolver` integration for OAuth  
+- Public non-loopback redirect_uri registration  
+- `cli-chat-proxy.grok.com` + `X-XAI-Token-Auth`  
+- Enterprise customer OIDC  
+- Full official external-auth-provider binary (can wrap complete later)  
+- `/v1/responses` usage parser  
+
+### 12.4 Optional: official `grok` external auth provider
+
+A small script for `GROK_AUTH_PROVIDER_COMMAND` that:
+
+1. Starts device or login flow against this gateway  
+2. Prints status URLs on **stderr**  
+3. Prints JSON `{access_token, refresh_token?, expires_in, issuer}` on **stdout**
+
+Then official `grok` uses gateway-brokered tokens without a portal. Refresh:
+re-run with `GROK_AUTH_EXPIRED=1` (gateway re-issues fresh access_token from
+stored refresh, or returns error if re-auth needed).
+
+---
+
+## 13. Admin runbook (copy-paste)
+
+```bash
+# Preferred remote: device code
+curl -sS -X POST "http://gateway:9080/grok/auth/device?session=alice" | tee /tmp/device.json
+# Tell user: open verification_uri, enter user_code
+curl -sS -X POST "http://gateway:9080/grok/auth/device/poll" \
+  -H "Content-Type: application/json" \
+  -d @/tmp/device.json
+# Give user the access_token → api_key; base_url=http://gateway:9080/grok
+
+# Local/browser: login + paste
+open "http://gateway:9080/grok/auth/login?session=alice"
+# After login, paste callback URL into complete
+```
+
+---
+
+## 14. Revision history
+
+| Version | Date | Notes |
+|---------|------|-------|
+| v1.0 | 2026-07-12 | Initial draft from grokcli reverse-engineering (`vgw-` swap, plan=generic, challenge echo) |
+| v1.1 | 2026-07-12 | Aligned to official xai-org/grok-build; OAuth access_token in client credential slot (not vgw-); device code; standard PKCE; console xai- key remains optional passthrough only |

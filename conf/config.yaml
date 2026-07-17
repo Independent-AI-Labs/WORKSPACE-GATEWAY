@@ -23,6 +23,8 @@ deployment:
 plugins:
   - key-resolver
   - key-meta
+  - kimi-auth
+  - provider-sync
   - ai-rate-limiting
   - proxy-buffering
   - proxy-rewrite

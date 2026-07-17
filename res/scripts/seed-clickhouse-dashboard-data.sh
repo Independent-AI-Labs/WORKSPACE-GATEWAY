@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 ch_query() {
-    curl -sf --max-time 30 -X POST "$CH_URL/" --data-binary "$1"
+    curl -sSf --max-time 30 -X POST "$CH_URL/" --data-binary "$1"
 }
 
 ch_exec() {
@@ -37,8 +37,8 @@ ch_exec() {
 echo "[INFO] Seeding ClickHouse dashboard integration data ($SEED_ROW_COUNT rows)..."
 
 # Remove prior seed rows so counts stay deterministic across repeated runs.
-ch_exec "ALTER TABLE llm_gateway.request_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" >/dev/null
-ch_exec "ALTER TABLE llm_gateway.usage_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" >/dev/null
+ch_exec "ALTER TABLE llm_gateway.request_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
+ch_exec "ALTER TABLE llm_gateway.usage_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
 
 # request_log: >100 rows, mixed status codes (200/401/404/500), populated model/key.
 ch_exec "INSERT INTO llm_gateway.request_log (
@@ -60,7 +60,7 @@ SELECT
     concat('${SEED_RID_PREFIX}', toString(number)) AS request_id,
     0.05 + (number % 10) * 0.01 AS upstream_response_time_s,
     now() - INTERVAL (number % 45) MINUTE AS timestamp
-FROM numbers(${SEED_ROW_COUNT})" >/dev/null
+FROM numbers(${SEED_ROW_COUNT})" 1>&2
 
 # usage_log: matching request_id rows for model filter + ASOF JOIN panels.
 ch_exec "INSERT INTO llm_gateway.usage_log (
@@ -77,7 +77,7 @@ SELECT
     150 AS total_tokens,
     0.001 AS cost,
     now() - INTERVAL (number % 45) MINUTE AS timestamp
-FROM numbers(${SEED_ROW_COUNT})" >/dev/null
+FROM numbers(${SEED_ROW_COUNT})" 1>&2
 
 seed_count=$(ch_exec "SELECT count() FROM llm_gateway.request_log WHERE request_id LIKE '${SEED_RID_PREFIX}%' FORMAT TabSeparated")
 err_count=$(ch_exec "SELECT countIf(status >= 400) FROM llm_gateway.request_log WHERE request_id LIKE '${SEED_RID_PREFIX}%' FORMAT TabSeparated")

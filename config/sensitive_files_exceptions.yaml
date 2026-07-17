@@ -1,2 +1,4 @@
 safe_exceptions:
   - config.yaml
+  - workspace-gw-kimi-private.yaml
+  - workspace-gw-private.yaml

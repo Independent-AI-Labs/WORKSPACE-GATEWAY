@@ -1,27 +1,37 @@
--- plugins/custom/cost_calc.lua   (repo source path)
--- Deployed to: /usr/local/apisix/apisix/plugins/cost_calc.lua  (flat, no custom/ subdir)
--- Required as: require("apisix.plugins.cost_calc")
--- Pure module, NOT an APISIX plugin. Required by sse-usage.lua in init() and log phase.
--- No plugin = no schema, no priority, no phase bindings.
+--plugins/custom/cost_calc.lua   (repo source path)
+--Deployed to: /usr/local/apisix/apisix/plugins/cost_calc.lua  (flat, no custom/ subdir)
+--Required as: require("apisix.plugins.cost_calc")
+--Pure module, NOT an APISIX plugin. Required by sse-usage.lua in init() and log phase.
+--No plugin = no schema, no priority, no phase bindings.
 --
--- Dependency strategy: APISIX/OpenResty-specific modules (apisix.core,
--- cjson.safe, resty.http) and the ngx global are deferred-required inside the
--- functions that use them, NOT at module top level. This keeps compute_cost
--- and resolve_cost (upstream + unknown branches) loadable and runnable in
--- plain LuaJIT without the nginx worker runtime, so the unit test suite
--- (tests/config/test_cost_calc.sh) runs with zero dependency injection.
+--Dependency strategy: APISIX/OpenResty-specific modules (apisix.core,
+--cjson.safe, resty.http) and the ngx global are deferred-required inside the
+--functions that use them, NOT at module top level. This keeps compute_cost
+--and resolve_cost (upstream + unknown branches) loadable and runnable in
+--plain LuaJIT without the nginx worker runtime, so the unit test suite
+--(tests/config/test_cost_calc.sh) runs with zero dependency injection.
 
 local M = {}
 
 local SHARED_DICT = "gateway-cache"
 local PRICING_KEY_PREFIX = "pricing:"
 local TS_KEY = "pricing:ts"
+local PROVIDER_SYNC_TS_KEY = "providers:ts"
 local LOCK_KEY = "pricing:lock"
 local TTL_SECONDS = 3600
 local STALE_SECONDS = 86400
 local DEFAULT_URL = "https://models.dev/api.json"
 local FETCH_TIMEOUT = 10000
 local LOCK_TTL = 30
+
+local PROVIDER_SYNC_DEFAULT_CONF = {
+    providers_dir = "/usr/local/apisix/conf/providers",
+    models_dev_url = "https://models.dev/api.json",
+    ttl_seconds = 3600,
+    stale_seconds = 86400,
+    sync_timeout = 10000,
+    warmup_on_init = true,
+}
 
 M.TTL_SECONDS = TTL_SECONDS
 M.STALE_SECONDS = STALE_SECONDS
@@ -36,6 +46,14 @@ end
 
 local function get_core()
     return require("apisix.core")
+end
+
+local function get_provider_sync()
+    local ok, mod = pcall(require, "apisix.plugins.provider-sync")
+    if ok then return mod end
+    ok, mod = pcall(require, "provider-sync")
+    if ok then return mod end
+    return nil
 end
 
 local function normalize_key(model_id)
@@ -187,11 +205,30 @@ function M.get_pricing(model_id)
 
     local raw = dict:get(PRICING_KEY_PREFIX .. key)
     if not raw then
-        local ts_str = dict:get(TS_KEY)
-        if not ts_str then
-            M.warmup()
+        --If provider-sync has already populated the cache, a missing price
+        --means this model is not catalogued. Avoid duplicating the fetch.
+        local provider_sync_ts = dict:get(PROVIDER_SYNC_TS_KEY)
+        if provider_sync_ts then
+            return nil, "miss"
         end
-        return nil, "miss"
+
+        --Provider-sync has not run yet. Try to trigger it once; if it is not
+        --available, use the existing direct models.dev fetch.
+        local provider_sync = get_provider_sync()
+        if provider_sync and provider_sync.sync then
+            local ok, err = pcall(provider_sync.sync, PROVIDER_SYNC_DEFAULT_CONF)
+            if ok then
+                raw = dict:get(PRICING_KEY_PREFIX .. key)
+                if not raw then
+                    return nil, "miss"
+                end
+            end
+        end
+
+        if not raw then
+            M.warmup()
+            return nil, "miss"
+        end
     end
 
     local cjson = require("cjson.safe")
@@ -203,7 +240,7 @@ function M.get_pricing(model_id)
     local price
     if decoded[1] then
         price = decoded[1]
-    elseif type(decoded.input) == "number" then
+    elseif type(decoded) == "table" and type(decoded.input) == "number" then
         price = decoded
     else
         return nil, "miss"

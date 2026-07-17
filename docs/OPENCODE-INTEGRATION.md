@@ -204,7 +204,77 @@ command are stored in `~/.local/share/opencode/auth.json`.
 
 ---
 
-## 4. APISIX Route Configuration
+## 3.5 Provider-Managed Client Setup (provider-sync)
+
+The gateway now exposes a generic provider-sync service that builds
+OpenCode provider blocks from `conf/providers/*.yaml` and live model
+metadata. A thin client script fetches the block, performs any required
+authentication, and writes it into the local OpenCode config.
+
+### 3.5.1 Gateway Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /gateway/providers` | List all configured providers with `id`, `name`, and `auth_type`. |
+| `GET /gateway/providers/{id}` | Return the full enriched provider definition. |
+| `GET /gateway/providers/{id}/opencode` | Return a ready-to-use OpenCode provider block. |
+| `POST /gateway/providers/sync` | Re-fetch `models.dev` and refresh the cache. |
+
+These endpoints are public but rate-limited via `limit-count`.
+
+### 3.5.2 Client Login Script
+
+`res/scripts/opencode-provider-login.sh` installs a provider into the
+local OpenCode configuration:
+
+```bash
+bash res/scripts/opencode-provider-login.sh \
+  --provider-id workspace-gw-kimi-oauth \
+  --gateway http://localhost:9080 \
+  --session alice \
+  --config-file ~/.config/opencode/opencode.jsonc \
+  --auth-file ~/.local/share/opencode/auth.json
+```
+
+The script:
+
+1. Fetches `GET /gateway/providers/{id}/opencode`.
+2. Performs OAuth device flow when `auth_type == "oauth"` using the
+   `auth_route` returned by the gateway.
+3. Prompts for an API key when `auth_type == "api_key"` or `"virtual_key"`.
+4. Merges the returned provider block into `opencode.jsonc` without
+   destroying other providers.
+5. Writes the credential into `auth.json`.
+
+For Kimi OAuth specifically, the provider ID is `workspace-gw-kimi-oauth`.
+
+### 3.5.3 Generated OpenCode Config Snippet
+
+After running the login script, the OpenCode config contains the
+provider block built by the gateway:
+
+```jsonc
+{
+  "provider": {
+    "workspace-gw-kimi-oauth": {
+      "name": "Workspace GW (Kimi OAuth)",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://localhost:9080/kimi",
+        "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
+      },
+      "models": { "kimi-k2.7-code": { ... } }
+    }
+  }
+}
+```
+
+The `baseURL` is derived from the provider's gateway `route`, and the
+model/pricing metadata comes from the gateway-managed cache.
+
+---
+
+## 5. APISIX Route Configuration
 
 ### 4.1 Two Routes to OpenCode Go
 
@@ -480,15 +550,19 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
    `workspace-gw-own` (own key, baseURL
    `http://localhost:9080/opencode/v1`). `npm` is
    `@ai-sdk/openai-compatible`.
-3. **Telemetry pipeline**: APISIX `http-logger` to Vector to ClickHouse.
+3. **Provider-sync service**: public gateway endpoints
+   (`/gateway/providers*`) and the `opencode-provider-login.sh` client
+   script that installs gateway-managed providers (including Kimi OAuth)
+   into the local OpenCode config.
+4. **Telemetry pipeline**: APISIX `http-logger` to Vector to ClickHouse.
    Prometheus scrapes APISIX metrics endpoint at `apisix:9100`. Grafana
    dashboards at `localhost:3030` (Cost & Usage, Operations & Health,
    Cost Leaderboard).
-4. **PII redaction**: custom Lua `redact` plugin on both OpenCode Go
+5. **PII redaction**: custom Lua `redact` plugin on both OpenCode Go
    routes.
-5. **Rate limiting**: `limit-count` plugin, per-key RPM (federated route: variable limits from OpenBao). Tier 3 token/cost budget in custom Lua via shared dict.
-6. **SSE pass-through**: `proxy-buffering` plugin with `disable: true`.
-7. **Path rewriting**: `proxy-rewrite` rewrites both route prefixes to
+6. **Rate limiting**: `limit-count` plugin, per-key RPM (federated route: variable limits from OpenBao). Tier 3 token/cost budget in custom Lua via shared dict.
+7. **SSE pass-through**: `proxy-buffering` plugin with `disable: true`.
+8. **Path rewriting**: `proxy-rewrite` rewrites both route prefixes to
    `/zen/go/` before forwarding upstream.
 
 ### What We Do NOT Build
@@ -496,8 +570,12 @@ See `PLUGIN-REDACT-LUA.md` for full plugin spec.
 - No format conversion in APISIX (OpenCode Go handles all
   provider-specific wire format negotiation).
 - No direct connections to individual LLM providers (OpenAI, Anthropic,
-  Google, etc.). OpenCode Go is the only upstream.
-- No OAuth flows in APISIX (opencode handles OAuth natively).
+  Google, etc.). OpenCode Go is the only upstream for the OpenCode Go
+  relay routes.
+- No OAuth flows on the OpenCode Go relay routes (`/opencode/*` and
+  `/opencode_federated/*`). Kimi OAuth is handled by the separate
+  `kimi-auth` plugin on `/kimi/auth/*` and consumed by the
+  provider-sync client script.
 - No tool execution in APISIX (opencode's agent loop handles it).
 - No session management in APISIX (opencode's server handles it).
 

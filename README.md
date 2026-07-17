@@ -116,7 +116,8 @@ In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3). Swap the upstream node in `apisix.yaml.j2`
 to point at any other compatible API. Additional providers = new relay
 route + upstream node; see [`docs/PROVIDER-XAI-GROK.md`](docs/PROVIDER-XAI-GROK.md)
-for the xAI Grok draft spec.
+for the xAI Grok draft spec and [`docs/PROVIDER-MOONSHOT-KIMI.md`](docs/PROVIDER-MOONSHOT-KIMI.md)
+for the Moonshot Kimi draft spec.
 
 ---
 
@@ -550,6 +551,7 @@ See [`docs/TEST-PLAN.md`](docs/TEST-PLAN.md) for the full strategy.
 - **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** : Deployment and operations guide
 - **[`docs/OPENCODE-INTEGRATION.md`](docs/OPENCODE-INTEGRATION.md)** : OpenCode Go integration specifics
 - **[`docs/PROVIDER-XAI-GROK.md`](docs/PROVIDER-XAI-GROK.md)** : xAI Grok provider integration spec (draft)
+- **[`docs/PROVIDER-MOONSHOT-KIMI.md`](docs/PROVIDER-MOONSHOT-KIMI.md)** : Moonshot Kimi provider integration spec (draft)
 
 ### v2 Specs (Deferred)
 

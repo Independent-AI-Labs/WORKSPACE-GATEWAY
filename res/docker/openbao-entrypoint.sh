@@ -20,7 +20,7 @@ mkdir -p "$BAO_DATA" "$KEYS_DIR"
 
 bao_api_ready() {
     local hc
-    hc=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "${BAO_ADDR}/v1/sys/health")
+    hc=$(curl -sS -f -w "%{http_code}" --connect-timeout 2 "${BAO_ADDR}/v1/sys/health")
     case "$hc" in
         200|429|501|503) return 0 ;;
         *)
@@ -77,7 +77,7 @@ SEAL_JSON="$(bao_seal_status_json)"
 SEALED="$(echo "$SEAL_JSON" | jq -r '.sealed // true')"
 if [ "$SEALED" = "true" ]; then
     echo "[openbao] Unsealing..."
-    bao operator unseal "$UNSEAL_KEY" >/dev/null
+    bao operator unseal "$UNSEAL_KEY" 1>&2
     echo "[openbao] Unsealed."
 fi
 
@@ -85,7 +85,7 @@ fi
 export BAO_TOKEN="$ROOT_TOKEN"
 
 # ─── 6. Enable KV v2 at secret/ if not already mounted ───────────────────────
-if bao secrets list -format=json | jq -e '."secret/"' >/dev/null 2>&1; then
+if _secret=$(bao secrets list -format=json | jq -e '."secret/"'); then
     echo "[openbao] KV v2 already mounted at secret/."
 else
     echo "[openbao] Enabling KV v2 at secret/..."
@@ -95,16 +95,16 @@ fi
 # ─── 7. Create fixed-ID token for external services (APISIX key-resolver) ────
 # The token ID matches OPENBAO_TOKEN from .env so APISIX can use it directly
 # without needing to discover the random root token.
-if bao token lookup "$EXPECTED_TOKEN" >/dev/null 2>&1; then
+if _token=$(bao token lookup "$EXPECTED_TOKEN"); then
     echo "[openbao] Service token already exists (${EXPECTED_TOKEN:0:8}...)."
 else
     echo "[openbao] Creating fixed-ID service token..."
-    bao token create -id="$EXPECTED_TOKEN" -policy=root -ttl=0 -orphan >/dev/null
+    bao token create -id="$EXPECTED_TOKEN" -policy=root -ttl=0 -orphan 1>&2
     echo "[openbao] Service token created (${EXPECTED_TOKEN:0:8}...)."
 fi
 
 # ─── 8. Provision gateway virtual key (idempotent) ───────────────────────────
-if bao kv get "$GATEWAY_SECRET" >/dev/null 2>&1; then
+if _gateway_key=$(bao kv get "$GATEWAY_SECRET"); then
     echo "[openbao] Gateway key already provisioned."
 else
     UPSTREAM_KEY="${OPENCODE_API_KEY:-}"

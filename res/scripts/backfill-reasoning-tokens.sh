@@ -39,7 +39,7 @@ DB="$DATABASE"
 
 ch() {
   local sql="$1"
-  curl -sf --max-time 30 "$CH_URL/" --data-binary "$sql" 2>&1
+  curl -sSf --max-time 30 "$CH_URL/" --data-binary "$sql"
 }
 
 esc() {
@@ -72,10 +72,10 @@ echo "[backfill] ClickHouse: $CH_URL"
 echo "[backfill] Dry run: $DRY_RUN, Limit: $LIMIT, Days: $DAYS"
 
 CUTOFF=""
-if date -u -d "@$(( $(date +%s) - DAYS * 86400 ))" +%Y-%m-%dT%H:%M:%S >/dev/null 2>&1; then
-  CUTOFF=$(date -u -d "@$(( $(date +%s) - DAYS * 86400 ))" +%Y-%m-%dT%H:%M:%S)
-elif date -u -v-"$DAYS"d +%Y-%m-%dT%H:%M:%S >/dev/null 2>&1; then
-  CUTOFF=$(date -u -v-"$DAYS"d +%Y-%m-%dT%H:%M:%S)
+if CUTOFF=$(date -u -d "@$(( $(date +%s) - DAYS * 86400 ))" +%Y-%m-%dT%H:%M:%S); then
+  :
+elif CUTOFF=$(date -u -v-"$DAYS"d +%Y-%m-%dT%H:%M:%S); then
+  :
 else
   CUTOFF=$(date -u -d "$DAYS days ago" +%Y-%m-%dT%H:%M:%S)
 fi

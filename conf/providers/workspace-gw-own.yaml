@@ -1,0 +1,16 @@
+---
+id: workspace-gw-own
+name: "Workspace GW (Own Key)"
+route: "/opencode/v1"
+npm: "@ai-sdk/openai-compatible"
+auth:
+  type: none
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+model_source:
+  type: gateway
+  endpoint: "/opencode_federated/v1/models"
+  api_key: "vgw-gateway-key"
+cost_source: opencode

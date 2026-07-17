@@ -86,6 +86,262 @@ routes:
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
 
+  - id: relay-kimi
+    uri: /kimi/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "api.kimi.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/kimi/(.*)", "/coding/v1/$1"]
+      kimi-auth: {}
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
+  - id: relay-kimi-v1
+    uri: /kimi/v1/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "api.kimi.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/kimi/v1/(.*)", "/coding/v1/$1"]
+      kimi-auth: {}
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
+  - id: relay-kimi-federated
+    uri: /kimi-federated/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "api.kimi.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/kimi-federated/(.*)", "/coding/v1/$1"]
+      key-resolver:
+        openbao_addr: "http://openbao:8200"
+        openbao_token_env: "OPENBAO_TOKEN"
+        upstream_key_env: "KIMI_API_KEY"
+        key_prefix: "secret/data/gateway/keys/"
+        cache_ttl: 5
+        virtual_key_prefix: "vgw-"
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
+  - id: relay-kimi-federated-v1
+    uri: /kimi-federated/v1/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "api.kimi.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/kimi-federated/v1/(.*)", "/coding/v1/$1"]
+      key-resolver:
+        openbao_addr: "http://openbao:8200"
+        openbao_token_env: "OPENBAO_TOKEN"
+        upstream_key_env: "KIMI_API_KEY"
+        key_prefix: "secret/data/gateway/keys/"
+        cache_ttl: 5
+        virtual_key_prefix: "vgw-"
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
+  - id: relay-kimi-key
+    uri: /kimi-key/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "api.kimi.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/kimi-key/(.*)", "/coding/v1/$1"]
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
+  - id: relay-kimi-key-v1
+    uri: /kimi-key/v1/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "api.kimi.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/kimi-key/v1/(.*)", "/coding/v1/$1"]
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+
   - id: relay-llamafile
     uri: /llamafile/*
     upstream:
@@ -124,5 +380,28 @@ routes:
         key_type: var
         key: remote_addr
         policy: local
+
+  - id: gateway-provider-sync
+    uri: /gateway/providers*
+    upstream:
+      type: roundrobin
+      scheme: http
+      pass_host: pass
+      nodes:
+        "127.0.0.1:9080": 1
+    plugins:
+      provider-sync: {}
+      limit-count:
+        count: 60
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: remote_addr
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
 
 #END

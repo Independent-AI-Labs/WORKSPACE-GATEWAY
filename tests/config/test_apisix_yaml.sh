@@ -42,7 +42,7 @@ fi
 assert_eq "Valid YAML (parseable)" "ok" "ok"
 
 ROUTE_COUNT=$(echo "$JSON_DATA" | jq '.routes | length')
-assert_eq "Exactly 3 routes" "3" "$ROUTE_COUNT"
+assert_eq "Exactly 10 routes" "10" "$ROUTE_COUNT"
 
 # --- relay-opencode (passthrough, no key-resolver) ---
 OC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode")][0]')
@@ -259,5 +259,224 @@ assert_eq "relay-llamafile: limit-count plugin present" "true" "$LF_HAS_LIMIT_CO
 
 LF_LIMIT_KEY=$(echo "$LF_ROUTE" | jq -r '.plugins["limit-count"].key')
 assert_eq "relay-llamafile: limit-count key is remote_addr (per IP)" "remote_addr" "$LF_LIMIT_KEY"
+
+# --- relay-kimi (OAuth only to api.kimi.com) ---
+KIMI_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-kimi")][0]')
+
+KIMI_ID=$(echo "$KIMI_ROUTE" | jq -r '.id')
+assert_eq "relay-kimi: id is relay-kimi" "relay-kimi" "$KIMI_ID"
+
+KIMI_URI=$(echo "$KIMI_ROUTE" | jq -r '.uri')
+assert_eq "relay-kimi: uri is /kimi/*" "/kimi/*" "$KIMI_URI"
+
+KIMI_SCHEME=$(echo "$KIMI_ROUTE" | jq -r '.upstream.scheme')
+assert_eq "relay-kimi: upstream scheme is https" "https" "$KIMI_SCHEME"
+
+KIMI_NODE=$(echo "$KIMI_ROUTE" | jq -r '.upstream.nodes | keys[0]')
+assert_eq "relay-kimi: upstream node is api.kimi.com:443" "api.kimi.com:443" "$KIMI_NODE"
+
+KIMI_HAS_KIMI_AUTH=$(echo "$KIMI_ROUTE" | jq '.plugins | has("kimi-auth")')
+assert_eq "relay-kimi: kimi-auth plugin present" "true" "$KIMI_HAS_KIMI_AUTH"
+
+KIMI_HAS_PROXY_REWRITE=$(echo "$KIMI_ROUTE" | jq '.plugins | has("proxy-rewrite")')
+assert_eq "relay-kimi: proxy-rewrite plugin present" "true" "$KIMI_HAS_PROXY_REWRITE"
+
+KIMI_REWRITE_REGEX=$(echo "$KIMI_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-kimi: proxy-rewrite regex strips /kimi/" "^/kimi/(.*)" "$KIMI_REWRITE_REGEX"
+
+KIMI_REWRITE_REPLACE=$(echo "$KIMI_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-kimi: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_REWRITE_REPLACE"
+
+KIMI_HAS_KEY_META=$(echo "$KIMI_ROUTE" | jq '.plugins | has("key-meta")')
+assert_eq "relay-kimi: key-meta plugin present" "true" "$KIMI_HAS_KEY_META"
+
+KIMI_HAS_SSE_USAGE=$(echo "$KIMI_ROUTE" | jq '.plugins | has("sse-usage")')
+assert_eq "relay-kimi: sse-usage plugin present" "true" "$KIMI_HAS_SSE_USAGE"
+
+KIMI_HAS_LIMIT_COUNT=$(echo "$KIMI_ROUTE" | jq '.plugins | has("limit-count")')
+assert_eq "relay-kimi: limit-count plugin present" "true" "$KIMI_HAS_LIMIT_COUNT"
+
+KIMI_LIMIT_KEY=$(echo "$KIMI_ROUTE" | jq -r '.plugins["limit-count"].key')
+assert_eq "relay-kimi: limit-count key is http_x_key_hash" "http_x_key_hash" "$KIMI_LIMIT_KEY"
+
+KIMI_HAS_PROMETHEUS=$(echo "$KIMI_ROUTE" | jq '.plugins | has("prometheus")')
+assert_eq "relay-kimi: prometheus plugin present" "true" "$KIMI_HAS_PROMETHEUS"
+
+KIMI_HAS_HTTP_LOGGER=$(echo "$KIMI_ROUTE" | jq '.plugins | has("http-logger")')
+assert_eq "relay-kimi: http-logger plugin present" "true" "$KIMI_HAS_HTTP_LOGGER"
+
+KIMI_HAS_REQUEST_ID=$(echo "$KIMI_ROUTE" | jq '.plugins | has("request-id")')
+assert_eq "relay-kimi: request-id plugin present" "true" "$KIMI_HAS_REQUEST_ID"
+
+KIMI_HAS_PROXY_BUFFERING=$(echo "$KIMI_ROUTE" | jq '.plugins | has("proxy-buffering")')
+assert_eq "relay-kimi: proxy-buffering plugin present" "true" "$KIMI_HAS_PROXY_BUFFERING"
+
+KIMI_HAS_REDACT=$(echo "$KIMI_ROUTE" | jq '.plugins | has("redact")')
+assert_eq "relay-kimi: redact plugin present" "true" "$KIMI_HAS_REDACT"
+
+# --- relay-kimi-v1 (OpenAI-SDK-style /kimi/v1/* paths) ---
+KIMI_V1_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-kimi-v1")][0]')
+
+KIMI_V1_ID=$(echo "$KIMI_V1_ROUTE" | jq -r '.id')
+assert_eq "relay-kimi-v1: id is relay-kimi-v1" "relay-kimi-v1" "$KIMI_V1_ID"
+
+KIMI_V1_URI=$(echo "$KIMI_V1_ROUTE" | jq -r '.uri')
+assert_eq "relay-kimi-v1: uri is /kimi/v1/*" "/kimi/v1/*" "$KIMI_V1_URI"
+
+KIMI_V1_SCHEME=$(echo "$KIMI_V1_ROUTE" | jq -r '.upstream.scheme')
+assert_eq "relay-kimi-v1: upstream scheme is https" "https" "$KIMI_V1_SCHEME"
+
+KIMI_V1_NODE=$(echo "$KIMI_V1_ROUTE" | jq -r '.upstream.nodes | keys[0]')
+assert_eq "relay-kimi-v1: upstream node is api.kimi.com:443" "api.kimi.com:443" "$KIMI_V1_NODE"
+
+KIMI_V1_HAS_KIMI_AUTH=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("kimi-auth")')
+assert_eq "relay-kimi-v1: kimi-auth plugin present" "true" "$KIMI_V1_HAS_KIMI_AUTH"
+
+KIMI_V1_HAS_PROXY_REWRITE=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("proxy-rewrite")')
+assert_eq "relay-kimi-v1: proxy-rewrite plugin present" "true" "$KIMI_V1_HAS_PROXY_REWRITE"
+
+KIMI_V1_REWRITE_REGEX=$(echo "$KIMI_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-kimi-v1: proxy-rewrite regex strips /kimi/v1/" "^/kimi/v1/(.*)" "$KIMI_V1_REWRITE_REGEX"
+
+KIMI_V1_REWRITE_REPLACE=$(echo "$KIMI_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-kimi-v1: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_V1_REWRITE_REPLACE"
+
+KIMI_V1_HAS_KEY_META=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("key-meta")')
+assert_eq "relay-kimi-v1: key-meta plugin present" "true" "$KIMI_V1_HAS_KEY_META"
+
+KIMI_V1_HAS_SSE_USAGE=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("sse-usage")')
+assert_eq "relay-kimi-v1: sse-usage plugin present" "true" "$KIMI_V1_HAS_SSE_USAGE"
+
+KIMI_V1_HAS_LIMIT_COUNT=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("limit-count")')
+assert_eq "relay-kimi-v1: limit-count plugin present" "true" "$KIMI_V1_HAS_LIMIT_COUNT"
+
+KIMI_V1_LIMIT_KEY=$(echo "$KIMI_V1_ROUTE" | jq -r '.plugins["limit-count"].key')
+assert_eq "relay-kimi-v1: limit-count key is http_x_key_hash" "http_x_key_hash" "$KIMI_V1_LIMIT_KEY"
+
+KIMI_V1_HAS_PROMETHEUS=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("prometheus")')
+assert_eq "relay-kimi-v1: prometheus plugin present" "true" "$KIMI_V1_HAS_PROMETHEUS"
+
+KIMI_V1_HAS_HTTP_LOGGER=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("http-logger")')
+assert_eq "relay-kimi-v1: http-logger plugin present" "true" "$KIMI_V1_HAS_HTTP_LOGGER"
+
+KIMI_V1_HAS_REQUEST_ID=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("request-id")')
+assert_eq "relay-kimi-v1: request-id plugin present" "true" "$KIMI_V1_HAS_REQUEST_ID"
+
+KIMI_V1_HAS_PROXY_BUFFERING=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("proxy-buffering")')
+assert_eq "relay-kimi-v1: proxy-buffering plugin present" "true" "$KIMI_V1_HAS_PROXY_BUFFERING"
+
+KIMI_V1_HAS_REDACT=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("redact")')
+assert_eq "relay-kimi-v1: redact plugin present" "true" "$KIMI_V1_HAS_REDACT"
+
+# --- relay-kimi-federated (virtual-key API-key proxy to api.kimi.com) ---
+KIMI_FED_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-kimi-federated")][0]')
+
+KIMI_FED_ID=$(echo "$KIMI_FED_ROUTE" | jq -r '.id')
+assert_eq "relay-kimi-federated: id is relay-kimi-federated" "relay-kimi-federated" "$KIMI_FED_ID"
+
+KIMI_FED_URI=$(echo "$KIMI_FED_ROUTE" | jq -r '.uri')
+assert_eq "relay-kimi-federated: uri is /kimi-federated/*" "/kimi-federated/*" "$KIMI_FED_URI"
+
+KIMI_FED_NODE=$(echo "$KIMI_FED_ROUTE" | jq -r '.upstream.nodes | keys[0]')
+assert_eq "relay-kimi-federated: upstream node is api.kimi.com:443" "api.kimi.com:443" "$KIMI_FED_NODE"
+
+KIMI_FED_HAS_KEY_RESOLVER=$(echo "$KIMI_FED_ROUTE" | jq '.plugins | has("key-resolver")')
+assert_eq "relay-kimi-federated: key-resolver plugin present" "true" "$KIMI_FED_HAS_KEY_RESOLVER"
+
+KIMI_FED_KEY_RESOLVER_ENV=$(echo "$KIMI_FED_ROUTE" | jq -r '.plugins["key-resolver"].upstream_key_env')
+assert_eq "relay-kimi-federated: key-resolver upstream_key_env is KIMI_API_KEY" "KIMI_API_KEY" "$KIMI_FED_KEY_RESOLVER_ENV"
+
+KIMI_FED_KEY_RESOLVER_PREFIX=$(echo "$KIMI_FED_ROUTE" | jq -r '.plugins["key-resolver"].virtual_key_prefix')
+assert_eq "relay-kimi-federated: key-resolver virtual_key_prefix is vgw-" "vgw-" "$KIMI_FED_KEY_RESOLVER_PREFIX"
+
+KIMI_FED_HAS_KIMI_AUTH=$(echo "$KIMI_FED_ROUTE" | jq '.plugins | has("kimi-auth")')
+assert_eq "relay-kimi-federated: no kimi-auth plugin (virtual-key, not OAuth)" "false" "$KIMI_FED_HAS_KIMI_AUTH"
+
+KIMI_FED_REWRITE_REGEX=$(echo "$KIMI_FED_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-kimi-federated: proxy-rewrite regex strips /kimi-federated/" "^/kimi-federated/(.*)" "$KIMI_FED_REWRITE_REGEX"
+
+KIMI_FED_REWRITE_REPLACE=$(echo "$KIMI_FED_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-kimi-federated: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_FED_REWRITE_REPLACE"
+
+# --- relay-kimi-federated-v1 (OpenAI-SDK-style /kimi-federated/v1/* paths) ---
+KIMI_FED_V1_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-kimi-federated-v1")][0]')
+
+KIMI_FED_V1_ID=$(echo "$KIMI_FED_V1_ROUTE" | jq -r '.id')
+assert_eq "relay-kimi-federated-v1: id is relay-kimi-federated-v1" "relay-kimi-federated-v1" "$KIMI_FED_V1_ID"
+
+KIMI_FED_V1_URI=$(echo "$KIMI_FED_V1_ROUTE" | jq -r '.uri')
+assert_eq "relay-kimi-federated-v1: uri is /kimi-federated/v1/*" "/kimi-federated/v1/*" "$KIMI_FED_V1_URI"
+
+KIMI_FED_V1_HAS_KEY_RESOLVER=$(echo "$KIMI_FED_V1_ROUTE" | jq '.plugins | has("key-resolver")')
+assert_eq "relay-kimi-federated-v1: key-resolver plugin present" "true" "$KIMI_FED_V1_HAS_KEY_RESOLVER"
+
+KIMI_FED_V1_HAS_KIMI_AUTH=$(echo "$KIMI_FED_V1_ROUTE" | jq '.plugins | has("kimi-auth")')
+assert_eq "relay-kimi-federated-v1: no kimi-auth plugin (virtual-key, not OAuth)" "false" "$KIMI_FED_V1_HAS_KIMI_AUTH"
+
+KIMI_FED_V1_REWRITE_REGEX=$(echo "$KIMI_FED_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-kimi-federated-v1: proxy-rewrite regex strips /kimi-federated/v1/" "^/kimi-federated/v1/(.*)" "$KIMI_FED_V1_REWRITE_REGEX"
+
+KIMI_FED_V1_REWRITE_REPLACE=$(echo "$KIMI_FED_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-kimi-federated-v1: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_FED_V1_REWRITE_REPLACE"
+
+# --- relay-kimi-key (explicit API-key passthrough to api.kimi.com) ---
+KIMI_KEY_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-kimi-key")][0]')
+
+KIMI_KEY_ID=$(echo "$KIMI_KEY_ROUTE" | jq -r '.id')
+assert_eq "relay-kimi-key: id is relay-kimi-key" "relay-kimi-key" "$KIMI_KEY_ID"
+
+KIMI_KEY_URI=$(echo "$KIMI_KEY_ROUTE" | jq -r '.uri')
+assert_eq "relay-kimi-key: uri is /kimi-key/*" "/kimi-key/*" "$KIMI_KEY_URI"
+
+KIMI_KEY_NODE=$(echo "$KIMI_KEY_ROUTE" | jq -r '.upstream.nodes | keys[0]')
+assert_eq "relay-kimi-key: upstream node is api.kimi.com:443" "api.kimi.com:443" "$KIMI_KEY_NODE"
+
+KIMI_KEY_HAS_KIMI_AUTH=$(echo "$KIMI_KEY_ROUTE" | jq '.plugins | has("kimi-auth")')
+assert_eq "relay-kimi-key: no kimi-auth plugin (passthrough)" "false" "$KIMI_KEY_HAS_KIMI_AUTH"
+
+KIMI_KEY_REWRITE_REGEX=$(echo "$KIMI_KEY_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-kimi-key: proxy-rewrite regex strips /kimi-key/" "^/kimi-key/(.*)" "$KIMI_KEY_REWRITE_REGEX"
+
+KIMI_KEY_REWRITE_REPLACE=$(echo "$KIMI_KEY_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-kimi-key: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_KEY_REWRITE_REPLACE"
+
+# --- relay-kimi-key-v1 (OpenAI-SDK-style /kimi-key/v1/* paths) ---
+KIMI_KEY_V1_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-kimi-key-v1")][0]')
+
+KIMI_KEY_V1_ID=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.id')
+assert_eq "relay-kimi-key-v1: id is relay-kimi-key-v1" "relay-kimi-key-v1" "$KIMI_KEY_V1_ID"
+
+KIMI_KEY_V1_URI=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.uri')
+assert_eq "relay-kimi-key-v1: uri is /kimi-key/v1/*" "/kimi-key/v1/*" "$KIMI_KEY_V1_URI"
+
+KIMI_KEY_V1_HAS_KIMI_AUTH=$(echo "$KIMI_KEY_V1_ROUTE" | jq '.plugins | has("kimi-auth")')
+assert_eq "relay-kimi-key-v1: no kimi-auth plugin (passthrough)" "false" "$KIMI_KEY_V1_HAS_KIMI_AUTH"
+
+KIMI_KEY_V1_REWRITE_REGEX=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-kimi-key-v1: proxy-rewrite regex strips /kimi-key/v1/" "^/kimi-key/v1/(.*)" "$KIMI_KEY_V1_REWRITE_REGEX"
+
+KIMI_KEY_V1_REWRITE_REPLACE=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-kimi-key-v1: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_KEY_V1_REWRITE_REPLACE"
+
+# --- gateway-provider-sync (provider catalog and client config API) ---
+PROVIDER_SYNC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "gateway-provider-sync")][0]')
+
+PROVIDER_SYNC_ID=$(echo "$PROVIDER_SYNC_ROUTE" | jq -r '.id')
+assert_eq "gateway-provider-sync: id is gateway-provider-sync" "gateway-provider-sync" "$PROVIDER_SYNC_ID"
+
+PROVIDER_SYNC_URI=$(echo "$PROVIDER_SYNC_ROUTE" | jq -r '.uri')
+assert_eq "gateway-provider-sync: uri is /gateway/providers*" "/gateway/providers*" "$PROVIDER_SYNC_URI"
+
+PROVIDER_SYNC_HAS_PLUGIN=$(echo "$PROVIDER_SYNC_ROUTE" | jq '.plugins | has("provider-sync")')
+assert_eq "gateway-provider-sync: provider-sync plugin present" "true" "$PROVIDER_SYNC_HAS_PLUGIN"
+
+PROVIDER_SYNC_LIMIT_COUNT=$(echo "$PROVIDER_SYNC_ROUTE" | jq '.plugins["limit-count"].count')
+assert_eq "gateway-provider-sync: limit-count count is 60" "60" "$PROVIDER_SYNC_LIMIT_COUNT"
+
+PROVIDER_SYNC_LIMIT_WINDOW=$(echo "$PROVIDER_SYNC_ROUTE" | jq '.plugins["limit-count"].time_window')
+assert_eq "gateway-provider-sync: limit-count time_window is 60" "60" "$PROVIDER_SYNC_LIMIT_WINDOW"
+
+PROVIDER_SYNC_LIMIT_KEY=$(echo "$PROVIDER_SYNC_ROUTE" | jq -r '.plugins["limit-count"].key')
+assert_eq "gateway-provider-sync: limit-count key is remote_addr" "remote_addr" "$PROVIDER_SYNC_LIMIT_KEY"
 
 summary

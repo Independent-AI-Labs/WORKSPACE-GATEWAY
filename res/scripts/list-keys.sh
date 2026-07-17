@@ -24,7 +24,7 @@ echo "=== Listing gateway keys from OpenBao ==="
 echo "  OpenBao: $OPENBAO_ADDR"
 echo ""
 
-KEY_LISTING=$(curl -sf \
+KEY_LISTING=$(curl -sSf \
   -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
   -X LIST \
   "${OPENBAO_ADDR}/v1/secret/metadata/gateway/keys/") || {
@@ -46,7 +46,7 @@ printf "%-40s %-12s %-12s %-8s %-20s\n" "KEY_ID" "TENANT" "USER" "ACTIVE" "CREAT
 printf "%-40s %-12s %-12s %-8s %-20s\n" "----------------------------------------" "------------" "------------" "--------" "--------------------"
 
 for KEY_ID in $KEYS; do
-  KEY_DATA=$(curl -sf \
+  KEY_DATA=$(curl -sSf \
     -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
     "${OPENBAO_ADDR}/v1/secret/data/gateway/keys/${KEY_ID}") || {
     echo "  WARN: failed to fetch data for ${KEY_ID}: curl exit $?" >&2

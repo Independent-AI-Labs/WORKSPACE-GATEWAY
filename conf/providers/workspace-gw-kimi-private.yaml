@@ -1,0 +1,19 @@
+---
+id: workspace-gw-kimi-private
+name: "Workspace GW (Kimi Virtual Key)"
+route: "/kimi-federated"
+npm: "@ai-sdk/openai-compatible"
+auth:
+  type: virtual_key
+  api_key: "vgw-kimi-key"
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+model_source:
+  type: models_dev_provider
+  provider: moonshotai
+  normalize:
+    strip_prefix: "moonshotai/"
+    lowercase: true
+cost_source: moonshotai

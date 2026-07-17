@@ -1,5 +1,13 @@
 # Cost Calculator Module Specification - APISIX Custom Lua Module
 
+> **SCOPE NOTE (2026-07-17):** This module now integrates with the gateway's
+> `provider-sync` plugin. `provider-sync` owns the provider catalog, enriches
+> models from `models.dev`, and writes per-model `pricing:*` entries into the
+> same `gateway-cache` used by `cost_calc`. `cost_calc.get_pricing()` prefers
+> those entries; if the provider-sync catalog is not yet populated, it falls back
+> to the legacy direct `models.dev` fetch. This removes duplicate fetches and
+> keeps gateway pricing consistent with the client config.
+>
 > **SCOPE NOTE (2026-07-09):** This document is accurate for the cost
 > calculator module itself. The token counts fed to it come from
 > `sse_usage_lib.extract_tokens()`, which uses `ceil(#text/4)` as a fallback
@@ -108,22 +116,30 @@ to operators. Computing cost at the gateway:
                                  APISIX worker (LuaJIT, in-process)
 +-------------------------------------------------------------------------------------------------+
 |                                                                                                 |
-|  plugin.init() (once per worker, called by APISIX plugin.lua:263):                             |
-|    cost_calc.warmup()  ────►  ngx.timer.at(0, fetch_and_cache)   ← cosocket-capable context     |
-|                                   │                                                             |
-|                                   ▼                                                             |
-|                          resty.http GET https://models.dev/api.json                             |
-|                                   │                                                             |
-|                                   ▼                                                             |
-|                          flatten + write to ngx.shared.dict "gateway-cache"                     |
-|                          keys: "pricing:<model_id>"  ─► {input, output, cache_read,             |
-|                                                          cache_write, reasoning}                |
-|                          key:  "pricing:ts"          ─► unix_seconds                             |
+|  provider-sync plugin (init()):                                                                 |
+|    - reads conf/providers/*.yaml                                                                |
+|    - fetches models.dev/api.json                                                                |
+|    - writes providers:raw, providers:enriched, providers:ts                                     |
+|    - also writes pricing:<model_id> entries to gateway-cache                                    |
+|                                         │                                                       |
+|                                         ▼                                                       |
+|  plugin.init() (sse-usage):          cost_calc.warmup()  ────►  ngx.timer.at(0, fetch_and_cache) │
+|  (once per worker, called by APISIX plugin.lua:263):                 │                          │
+|                                      │ (fallback only if provider-sync catalog missing)         │
+|                                      ▼                                                          │
+|                           resty.http GET https://models.dev/api.json                            │
+|                                      │                                                          │
+|                                      ▼                                                          │
+|                          flatten + write to ngx.shared.dict "gateway-cache"                     │
+|                          keys: "pricing:<model_id>"  ─► {input, output, cache_read,             │
+|                                                          cache_write, reasoning}                │
+|                          key:  "pricing:ts"          ─► unix_seconds                             │
+|                          key:  "providers:ts"        ─► unix_seconds (provider-sync owner)      │
 |                                                                                                 |
 |  sse-usage.log (per request, after SSE stream finishes):                                       |
 |    tokens  = sse_lib.extract_tokens(ctx.sse_usage)   ──► pt, ct, tt, cached, reasoning          |
 |    sse_cost = ctx.sse_cost                            ──► 0 or >0 from upstream                  |
-|    req_model = ctx.sse_req_model                      ──► "glm-5.2" (request body, canonical)   |
+|    req_model = ctx.sse_req_model                      ──► "glm-5.2" (request body, canonical)   │
 |                                                                                                 |
 |    ┌────────────────────────────────────────────────────────────────────────────────────────┐    |
 |    │  if sse_cost > 0 then                                                                  │    |
@@ -135,13 +151,13 @@ to operators. Computing cost at the gateway:
 |    │          source    = "computed"                            ── Pathway B (success)        │    |
 |    │      else                                                                              │    |
 |    │          final_cost = 0                                                                │    |
-|    │          source    = "unknown"                             ── Pathway B (no pricing)    │    |
+|    │          source    = "unknown"                             ── Pathway B (no pricing)    │    │
 |    │      end                                                                               │    |
 |    │  end                                                                                   │    |
 |    └────────────────────────────────────────────────────────────────────────────────────────┘    |
 |                                                                                                 |
 |    INSERT INTO llm_gateway.usage_log                                                            |
-|        (..., cost, cost_source) VALUES (..., final_cost, source_enum)                           |
+|        (..., cost, cost_source) VALUES (..., final_cost, source_enum)                           │
 |                                                                                                 |
 +-------------------------------------------------------------------------------------------------+
                                    │
@@ -190,13 +206,23 @@ local M = {}
 
 local SHARED_DICT = "gateway-cache"        -- configured in conf/config.yaml → custom_lua_shared_dict
 local PRICING_KEY_PREFIX = "pricing:"      -- pricing:<model_id>
-local TS_KEY = "pricing:ts"                -- last successful fetch (unix seconds)
+local TS_KEY = "pricing:ts"                -- last successful direct fetch (unix seconds)
+local PROVIDER_SYNC_TS_KEY = "providers:ts" -- set by provider-sync plugin; signals shared catalog is owner
 local LOCK_KEY = "pricing:lock"            -- fetch lock (NX + 30s expiry)
 local TTL_SECONDS = 3600                   -- 1 hour fresh
 local STALE_SECONDS = 86400                -- 24 hours usable-if-fetch-fails
 local DEFAULT_URL = "https://models.dev/api.json"
 local FETCH_TIMEOUT = 10000
 local LOCK_TTL = 30
+
+local PROVIDER_SYNC_DEFAULT_CONF = {
+    providers_dir = "/usr/local/apisix/conf/providers",
+    models_dev_url = "https://models.dev/api.json",
+    ttl_seconds = 3600,
+    stale_seconds = 86400,
+    sync_timeout = 10000,
+    warmup_on_init = true,
+}
 
 M.TTL_SECONDS = TTL_SECONDS
 M.STALE_SECONDS = STALE_SECONDS
@@ -212,6 +238,14 @@ end
 
 local function get_core()
     return require("apisix.core")
+end
+
+local function get_provider_sync()
+    local ok, mod = pcall(require, "apisix.plugins.provider-sync")
+    if ok then return mod end
+    ok, mod = pcall(require, "provider-sync")
+    if ok then return mod end
+    return nil
 end
 
 return M
@@ -299,10 +333,21 @@ Synchronous shared-dict lookup. No cosocket, no I/O, microseconds.
 |-----------|------|-------|
 | `model_id` | string | The canonical model name from the request body (e.g. `"glm-5.2"`, `"frank/GLM-5.2"`, `"GLM-5.2"`). |
 
-Internally normalizes the key the same way §4.2 step 5 does. If the entry is
-missing OR past `TTL_SECONDS` AND `pricing:ts` is older than `STALE_SECONDS`,
-triggers a background refresh via `M.warmup()` and returns whatever is in the
-cache (stale-if-error semantics, see §7).
+Internally normalizes the key the same way §4.2 step 5 does. The lookup is now
+provider-sync aware:
+
+1. Read `pricing:<normalized_key>`.
+2. If the entry is missing and `providers:ts` is set, the provider-sync catalog
+   owns pricing and has not catalogued this model. Return `nil, "miss"`
+   without triggering a redundant fetch.
+3. If the entry is missing and `providers:ts` is NOT set, attempt to trigger
+   `provider-sync.sync()` once. If the plugin is available and succeeds, retry
+   the lookup.
+4. If provider-sync is unavailable or its sync failed, fall back to the legacy
+   `M.warmup()` direct fetch path.
+
+If the entry exists but is past `TTL_SECONDS`, a background refresh is triggered
+via `M.warmup()` and the existing value is returned with status `"stale"`.
 
 Returns:
 - `pricing_table, "fresh"` - entry exists and is within TTL.
@@ -562,16 +607,34 @@ is available regardless of whether the stream completed. If the body is empty
 or unparseable, `req_model` falls back to the upstream-echoed `ctx.sse_model`,
 which is then normalized by `get_pricing` (§4.3).
 
+### 6.4 `plugins/custom/provider-sync.lua` - shared catalog owner
+
+`provider-sync` is the primary owner of the provider catalog and model pricing.
+During its sync routine it populates the same `pricing:<model_id>` keys that
+`cost_calc` reads. This means `sse-usage.lua` does not strictly need to call
+`cost_calc.warmup()` in `plugin.init()` when `provider-sync` is present,
+because `provider-sync.init()` already warms the shared catalog. The `warmup()`
+call is kept as a safe fallback for deployments where `provider-sync` is not
+loaded.
+
+`cost_calc` discovers `provider-sync` lazily via `pcall(require, ...)` and only
+triggers it once per cold-cache scenario. If the plugin is not available,
+`cost_calc` falls back to the legacy direct `models.dev` fetch. This keeps the
+module self-contained while integrating with the new shared catalog when
+available.
+
 ---
 
 ## 7. Cache Strategy and Failure Modes
 
 ### 7.1 Freshness ladder
 
-| State | `pricing:ts` age | `pricing:<model>` age | Behavior |
-|-------|------------------|------------------------|----------|
+| State | `pricing:ts` / `providers:ts` age | `pricing:<model>` age | Behavior |
+|-------|------------------------------------|------------------------|----------|
 | Fresh | < 1h | < 1h | Served directly. No refresh. |
 | Stale | > 1h | < 24h | Served. Background `warmup()` triggered on next `get_pricing` call. |
+| Provider-sync owns pricing | `providers:ts` set, model missing | n/a | `get_pricing` returns `nil, "miss"` without a redundant fetch. |
+| Cold, no provider-sync | missing | missing | `get_pricing` tries `provider-sync.sync()` once; if unavailable, falls back to `warmup()`. |
 | Expired | > 24h (or missing) | > 24h (or missing) | `get_pricing` returns `nil, "miss"`. Caller records `source = "unknown"`, `cost = 0`. Background `warmup()` triggered. |
 | Fetch in flight | n/a | n/a | `pricing:lock` held. Other workers skip spawn. Stale cache still served. |
 

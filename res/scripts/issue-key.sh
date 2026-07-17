@@ -90,15 +90,12 @@ echo "  Tenant:   $TENANT_ID"
 echo "  User:     $USER_ID"
 echo "  OpenBao:  $OPENBAO_ADDR"
 
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST \
+if ! curl -sS -f -X POST \
   -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "$JSON_PAYLOAD" \
-  "${OPENBAO_ADDR}/v1/secret/data/gateway/keys/${KEY_ID}")
-
-if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
-  echo "ERROR: OpenBao write failed with HTTP $HTTP_CODE" >&2
+  "${OPENBAO_ADDR}/v1/secret/data/gateway/keys/${KEY_ID}"; then
+  echo "ERROR: OpenBao write failed" >&2
   exit 1
 fi
 

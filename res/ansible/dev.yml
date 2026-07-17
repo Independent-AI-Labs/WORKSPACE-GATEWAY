@@ -260,12 +260,12 @@
             etcd:               http://localhost:2379
       tags: [start]
 
-    - name: Sync models from gateway into opencode config
+    - name: Trigger provider model sync on the gateway
       ansible.builtin.shell: |
         if [ -f {{ project_root }}/.env ]; then
           set -a; . {{ project_root }}/.env; set +a
         fi
-        bash {{ project_root }}/res/scripts/sync-opencode-models.sh
+        curl -sS -X POST http://localhost:9080/gateway/providers/sync
       args:
         chdir: "{{ project_root }}"
       register: sync_result

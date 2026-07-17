@@ -18,7 +18,7 @@ CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 
 query_clickhouse() {
     local sql="$1"
-    curl -sf --max-time 10 "$CH_URL/" --data-binary "$sql" 2>&1
+    curl -sSf --max-time 10 "$CH_URL/" --data-binary "$sql"
 }
 
 GATEWAY_TOTALS=$(query_clickhouse "

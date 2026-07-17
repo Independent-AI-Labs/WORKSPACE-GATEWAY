@@ -1,0 +1,19 @@
+---
+id: workspace-gw-kimi-oauth
+name: "Workspace GW (Kimi OAuth)"
+route: "/kimi"
+npm: "@ai-sdk/openai-compatible"
+auth:
+  type: oauth
+  plugin: kimi-auth
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+model_source:
+  type: models_dev_provider
+  provider: moonshotai
+  normalize:
+    strip_prefix: "moonshotai/"
+    lowercase: true
+cost_source: moonshotai

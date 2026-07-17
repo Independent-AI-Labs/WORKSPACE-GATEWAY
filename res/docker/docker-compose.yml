@@ -11,9 +11,15 @@ services:
     volumes:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
       - ../../conf/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ../../conf/providers:/usr/local/apisix/conf/providers:ro
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
       - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
       - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
+      - ../../plugins/custom/kimi-auth.lua:/usr/local/apisix/apisix/plugins/kimi-auth.lua:ro
+      - ../../plugins/custom/kimi_jwt.lua:/usr/local/apisix/apisix/plugins/kimi_jwt.lua:ro
+      - ../../plugins/custom/kimi_device.lua:/usr/local/apisix/apisix/plugins/kimi_device.lua:ro
+      - ../../plugins/custom/kimi_tokens.lua:/usr/local/apisix/apisix/plugins/kimi_tokens.lua:ro
+      - ../../plugins/custom/provider-sync.lua:/usr/local/apisix/apisix/plugins/provider-sync.lua:ro
       - ../../plugins/custom/sse-usage.lua:/usr/local/apisix/apisix/plugins/sse-usage.lua:ro
       - ../../plugins/custom/sse_usage_lib.lua:/usr/local/apisix/apisix/plugins/sse_usage_lib.lua:ro
       - ../../plugins/custom/cost_calc.lua:/usr/local/apisix/apisix/plugins/cost_calc.lua:ro
