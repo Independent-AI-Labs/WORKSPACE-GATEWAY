@@ -34,7 +34,7 @@ HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" || tru
 assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" || true)
-assert_eq "Copies plugins/custom/ (key-resolver + key-meta + kimi-auth + kimi_jwt + kimi_device + kimi_tokens + provider-sync + sse-usage + sse_usage_lib + cost_calc + redact + redact_lib)" "12" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (key-resolver + key-meta + kimi-auth + kimi_jwt + kimi_device + kimi_tokens + provider-sync + provider_sync_catalog + sse-usage + sse_usage_lib + cost_calc + redact + redact_lib)" "13" "$HAS_CUSTOM_PLUGINS"
 
 HAS_KEY_RESOLVER=$(grep -c 'key-resolver.lua' "$DOCKERFILE" || true)
 assert_eq "Copies key-resolver.lua" "1" "$HAS_KEY_RESOLVER"
@@ -56,6 +56,9 @@ assert_eq "Copies kimi_tokens.lua" "1" "$HAS_KIMI_TOKENS"
 
 HAS_PROVIDER_SYNC=$(grep -c 'provider-sync.lua' "$DOCKERFILE" || true)
 assert_eq "Copies provider-sync.lua" "1" "$HAS_PROVIDER_SYNC"
+
+HAS_PROVIDER_SYNC_CATALOG=$(grep -c 'provider_sync_catalog.lua' "$DOCKERFILE" || true)
+assert_eq "Copies provider_sync_catalog.lua" "1" "$HAS_PROVIDER_SYNC_CATALOG"
 
 HAS_SSE_USAGE=$(grep -c 'sse-usage.lua' "$DOCKERFILE" || true)
 assert_eq "Copies sse-usage.lua" "1" "$HAS_SSE_USAGE"

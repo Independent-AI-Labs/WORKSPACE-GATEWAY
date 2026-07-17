@@ -7,6 +7,7 @@ COPY plugins/custom/kimi_jwt.lua /usr/local/apisix/apisix/plugins/kimi_jwt.lua
 COPY plugins/custom/kimi_device.lua /usr/local/apisix/apisix/plugins/kimi_device.lua
 COPY plugins/custom/kimi_tokens.lua /usr/local/apisix/apisix/plugins/kimi_tokens.lua
 COPY plugins/custom/provider-sync.lua /usr/local/apisix/apisix/plugins/provider-sync.lua
+COPY plugins/custom/provider_sync_catalog.lua /usr/local/apisix/apisix/plugins/provider_sync_catalog.lua
 COPY plugins/custom/sse-usage.lua /usr/local/apisix/apisix/plugins/sse-usage.lua
 COPY plugins/custom/sse_usage_lib.lua /usr/local/apisix/apisix/plugins/sse_usage_lib.lua
 COPY plugins/custom/cost_calc.lua /usr/local/apisix/apisix/plugins/cost_calc.lua

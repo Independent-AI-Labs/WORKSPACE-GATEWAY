@@ -1,12 +1,9 @@
 --plugins/custom/provider_sync_catalog.lua
 --Internal catalog logic for provider-sync.
---Loaded by provider-sync.lua and tests as a plain Lua module.
-
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
 
 local M = {}
-
 local SHARED_DICT = "gateway-cache"
 local KEY_RAW = "providers:raw"
 local KEY_ENRICHED = "providers:enriched"
@@ -453,6 +450,13 @@ function M.sync(conf)
     for provider_id, provider in pairs(providers) do
         local copy = cjson.decode(cjson.encode(provider)) or {}
         copy.models = enrich_provider_models(provider, models_dev)
+        local aliases = provider.model_aliases
+        if aliases and type(aliases) == "table" then
+            for a, t in pairs(aliases) do
+                local m = copy.models[t]
+                if m then copy.models[a] = cjson.decode(cjson.encode(m)) end
+            end
+        end
         enriched[provider_id] = copy
     end
 

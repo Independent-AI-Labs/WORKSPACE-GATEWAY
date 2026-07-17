@@ -16,4 +16,6 @@ model_source:
   normalize:
     strip_prefix: "moonshotai/"
     lowercase: true
+model_aliases:
+  kimi-for-coding: kimi-k2.7-code
 cost_source: moonshotai
