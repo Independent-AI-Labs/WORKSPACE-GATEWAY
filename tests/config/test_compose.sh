@@ -177,8 +177,14 @@ assert_eq "APISIX mounts provider-sync.lua" "1" "$HAS_PROVIDER_SYNC_MOUNT"
 HAS_PROVIDER_SYNC_CATALOG_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_catalog.lua" || true)
 assert_eq "APISIX mounts provider_sync_catalog.lua" "1" "$HAS_PROVIDER_SYNC_CATALOG_MOUNT"
 
+HAS_MODEL_REGISTRY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "model_registry.lua" || true)
+assert_eq "APISIX mounts model_registry.lua" "1" "$HAS_MODEL_REGISTRY_MOUNT"
+
+HAS_PROVIDER_SYNC_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_pricing.lua" || true)
+assert_eq "APISIX mounts provider_sync_pricing.lua" "1" "$HAS_PROVIDER_SYNC_PRICING_MOUNT"
+
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
-assert_eq "APISIX has 17 volume mounts (4 config + 13 plugins)" "17" "$APISIX_VOLUME_COUNT"
+assert_eq "APISIX has 19 volume mounts (4 config + 15 plugins)" "19" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || true)

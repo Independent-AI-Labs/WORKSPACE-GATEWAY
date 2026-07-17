@@ -1,0 +1,38 @@
+---
+# Canonical model registry - SINGLE SOURCE OF TRUTH for model identity.
+#
+# Canonical ids are models.dev-style bare ids (e.g. "glm-5.2",
+# "kimi-k2.7-code"). Every alias listed under a model maps to its
+# canonical id everywhere: usage_log.model, request_log.model,
+# billing_ledger.model_name, and the pricing cache key.
+#
+# This file is codegenned into:
+#   plugins/custom/model_registry.lua   (Lua, used by APISIX plugins)
+#   conf/vector.toml GENERATED block    (VRL, request_log pipeline)
+# by res/scripts/gen-model-registry.sh. NEVER edit generated outputs by
+# hand; edit this file and re-run the generator. CI fails on drift.
+models:
+  glm-5.2:
+    aliases:
+      - frank/glm-5.2
+      - glm-5p2
+      - accounts/fireworks/models/glm-5p2
+      - z-ai/glm-5.2
+  glm-5.1:
+    aliases:
+      - glm-5p1
+      - accounts/fireworks/models/glm-5p1
+      - z-ai/glm-5.1
+  glm-5:
+    aliases:
+      - glm-5p0
+      - accounts/fireworks/models/glm-5p0
+      - z-ai/glm-5
+  kimi-k2.7-code:
+    aliases:
+      - kimi-for-coding
+      - k3
+      - moonshotai/kimi-k2.7-code
+  minicpm5-1b-q8_0.gguf:
+    aliases:
+      - /zip/minicpm5-1b-q8_0.gguf

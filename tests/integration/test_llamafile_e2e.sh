@@ -148,13 +148,13 @@ if [ -n "$U_RID" ]; then
         upstream|computed|unknown) assert_eq "usage_log cost_source is valid enum" "$U_COST_SOURCE" "$U_COST_SOURCE" ;;
         *) assert_eq "usage_log cost_source is valid enum" "upstream|computed|unknown" "$U_COST_SOURCE" ;;
     esac
-    # Model must be normalized by cost_calc.normalize_key(): lowercase, last
-    # path segment (provider prefix stripped). The local model id is
-    # /zip/<name>.gguf -> <name>.gguf lowercased.
+    # Model must be canonicalized by model_registry.canonical(): lowercase,
+    # last path segment (provider prefix stripped). The local model id is
+    # /zip/<name>.gguf -> <name>.gguf lowercased (registry alias).
     assert_eq "usage_log.model is populated (non-empty)" "yes" "$([ -n "$U_MODEL" ] && echo yes || echo no)"
     assert_eq "usage_log.model is normalized (lowercase)" "true" "$([ "$U_MODEL" = "$(printf '%s' "$U_MODEL" | tr 'A-Z' 'a-z')" ] && echo true || echo false)"
     EXPECTED_NORM=$(printf '%s' "$MODEL_ID" | sed 's|.*/||' | tr 'A-Z' 'a-z')
-    assert_eq "usage_log.model matches normalize_key(model id)" "$EXPECTED_NORM" "$U_MODEL"
+    assert_eq "usage_log.model matches canonical(model id)" "$EXPECTED_NORM" "$U_MODEL"
     assert_eq "usage_log tokens persisted > 0 (prompt)" "true" "$([ "${U_PROMPT:-0}" -gt 0 ] && echo true || echo false)"
     assert_eq "usage_log tokens persisted > 0 (total)" "true" "$([ "${U_TOTAL:-0}" -gt 0 ] && echo true || echo false)"
 fi

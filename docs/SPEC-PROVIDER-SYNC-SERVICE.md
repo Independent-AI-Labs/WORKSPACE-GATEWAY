@@ -148,7 +148,7 @@ Each YAML file MUST contain exactly one provider document. The filename is not a
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cost_source` | string | `none` | Identifier used for cost calculation attribution (e.g., `moonshotai`). |
+| `cost_source` | string | `none` | models.dev provider id whose prices apply to this provider (e.g., `moonshotai`, `opencode`). During sync, models without a cost are filled from `models.dev[cost_source].models`; this is the ONLY pricing source - there is no cross-provider merge. |
 | `context_limit_pct` | integer | 100 | Percentage of the upstream `limit.context` to expose to the client. |
 | `context_limit_ceiling` | integer | 0 (no ceiling) | Maximum context tokens to expose; `0` means no cap. |
 | `options.headers` | object | `{}` | Static headers the client should send to the gateway route. |
@@ -280,7 +280,7 @@ All successful JSON responses include the `Content-Type: application/json` heade
 6. Normalize model IDs using `model_source.normalize` (`strip_prefix`, `lowercase`).
 7. Apply `context_limit_pct` and `context_limit_ceiling` to each model's `limit.context`.
 8. Serialize and store `providers:raw`, `providers:enriched`, and `providers:ts` in `gateway-cache`.
-9. Populate `cost_calc`'s legacy `pricing:*` keys from the enriched model costs so existing plugins can read them without changes.
+9. Populate `pricing:*` keys from the enriched model costs, keyed by CANONICAL model id (`model_registry.canonical()`), iterating providers in sorted order with first-writer-wins. `provider-sync` is the sole writer of these keys; `cost_calc` is read-only.
 10. Release the lock.
 
 ### 8.6 Model Entry Transformation
@@ -533,14 +533,15 @@ The gateway must present itself as the official Kimi CLI when talking to Kimi in
 
 ### 13.1 `cost_calc.lua`
 
-`cost_calc.lua` has been refactored to use the shared provider catalog populated by `provider-sync` instead of fetching `models.dev` on its own.
+`cost_calc.lua` is a read-only pricing consumer; `provider-sync` is the sole pricing writer.
 
 Specific behavior:
-- `provider-sync` writes per-model `pricing:*` entries into `gateway-cache` whenever it enriches providers. These entries include the same cost shape `cost_calc` has always used.
-- `cost_calc.get_pricing()` reads `pricing:<normalized_model_id>` first.
-- If the price is missing **and** `providers:ts` is set, `cost_calc` returns a miss without triggering another fetch. This prevents duplicate `models.dev` traffic when the provider-sync catalog is already in use.
-- If `providers:ts` is not set (provider-sync has not run yet), `cost_calc` tries to call `provider-sync.sync()` once. If the plugin is unavailable, it uses the existing `cost_calc.warmup()` / direct `models.dev` fetch path.
-- `cost_calc.warmup()` remains for backward compatibility; it spawns the existing direct fetch only when the provider-sync path is not available.
+- `provider-sync` writes per-model `pricing:*` entries into `gateway-cache` whenever it enriches providers, keyed by **canonical model id** from `conf/model-registry.yaml` (codegenned to `model_registry.lua`; CI fails on drift). Every alias of a model therefore resolves to the same price.
+- Missing model costs are filled from the provider's declared `cost_source` (a models.dev provider id, e.g. `opencode`, `moonshotai`). There is no cross-provider cheapest-wins merge; the writer iterates providers in sorted order, first writer wins per canonical key.
+- `cost_calc.get_pricing()` canonicalizes the requested model and reads `pricing:<canonical_id>`.
+- If the price is missing **and** `providers:ts` is set, `cost_calc` returns a miss without triggering another fetch.
+- If `providers:ts` is not set (provider-sync has not run yet), `cost_calc` calls `provider-sync.sync()` once. There is no direct models.dev fetch path in `cost_calc` (removed in v1.3).
+- Historical rows with alias model strings are merged to canonical ids by `res/scripts/dedupe-model-history.sh`; the verbatim string is preserved in `usage_log.model_raw` / `billing_ledger.model_raw` (migration `000005_add_model_raw`).
 
 This removes duplicate HTTP traffic to `models.dev` and ensures pricing is consistent between the gateway (`sse-usage`) and the client config.
 

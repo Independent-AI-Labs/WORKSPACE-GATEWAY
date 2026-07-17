@@ -3,6 +3,7 @@ local cjson = require("cjson.safe")
 local http = require("resty.http")
 local sse_lib = require("apisix.plugins.sse_usage_lib")
 local cost_calc = require("apisix.plugins.cost_calc")
+local model_registry = require("apisix.plugins.model_registry")
 local resty_sha256 = require("resty.sha256")
 
 local plugin_name = "sse-usage"
@@ -14,9 +15,20 @@ local plugin = {
 }
 
 function plugin.init()
-    local ok, err = cost_calc.warmup()
+    --provider-sync is the sole pricing/catalog writer; trigger it at
+    --startup so the pricing cache is warm before the first request.
+    local ok, provider_sync = pcall(require, "apisix.plugins.provider-sync")
     if not ok then
-        core.log.warn("sse-usage: cost_calc.warmup() failed: ", err or "unknown")
+        core.log.warn("sse-usage: provider-sync module not available")
+        return
+    end
+    if provider_sync and provider_sync.sync then
+        --The catalog owns all sync defaults (providers dir, models.dev
+        --URL, TTLs); callers pass an empty conf.
+        local sok, err = pcall(provider_sync.sync, {})
+        if not sok then
+            core.log.warn("sse-usage: provider-sync initial sync failed: ", err or "unknown")
+        end
     end
 end
 
@@ -170,12 +182,13 @@ function plugin.log(conf, ctx)
         end
     end
 
-    --Canonicalize model to lowercase suffix (e.g. "frank/GLM-5.2" ->
-    --"glm-5.2") so usage_log.model matches request_log.model for the
-    --same request. Mirrors cost_calc.normalize_key and the Vector VRL
-    --remap (conf/vector.toml) so the Grafana model variable UNION
-    --doesn't produce duplicate entries.
-    model = cost_calc.normalize_key(model)
+    --Canonicalize model via the single-source-of-truth registry
+    --(conf/model-registry.yaml -> model_registry.lua). The verbatim
+    --string is preserved in model_raw for audit. The same mapping is
+    --codegenned into conf/vector.toml so request_log.model is
+    --canonical too and the Grafana model variable UNION stays clean.
+    local model_raw = model
+    model = model_registry.canonical(model)
 
     local route_id = ctx.route_id or ""
     --Use ngx.var.start_time (Nginx $start_time, seconds.millis string), same source Vector reads.
@@ -222,6 +235,7 @@ function plugin.log(conf, ctx)
         event_id = event_id,
         request_id = request_id,
         model = model,
+        model_raw = model_raw,
         prompt_tokens = pt,
         completion_tokens = ct,
         total_tokens = tt,

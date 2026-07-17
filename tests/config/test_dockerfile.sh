@@ -34,7 +34,10 @@ HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" || tru
 assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" || true)
-assert_eq "Copies plugins/custom/ (key-resolver + key-meta + kimi-auth + kimi_jwt + kimi_device + kimi_tokens + provider-sync + provider_sync_catalog + sse-usage + sse_usage_lib + cost_calc + redact + redact_lib)" "13" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (key-resolver + key-meta + kimi-auth + kimi_jwt + kimi_device + kimi_tokens + provider-sync + provider_sync_catalog + provider_sync_pricing + sse-usage + sse_usage_lib + cost_calc + model_registry + redact + redact_lib)" "15" "$HAS_CUSTOM_PLUGINS"
+
+HAS_MODEL_REGISTRY=$(grep -c 'model_registry.lua' "$DOCKERFILE" || true)
+assert_eq "Copies model_registry.lua" "1" "$HAS_MODEL_REGISTRY"
 
 HAS_KEY_RESOLVER=$(grep -c 'key-resolver.lua' "$DOCKERFILE" || true)
 assert_eq "Copies key-resolver.lua" "1" "$HAS_KEY_RESOLVER"

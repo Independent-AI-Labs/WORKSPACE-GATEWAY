@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.usage_log (
     event_id                  String,
     request_id                String DEFAULT '',
     model                     LowCardinality(String) DEFAULT '',
+    model_raw                 LowCardinality(String) DEFAULT '',
     prompt_tokens             UInt32 DEFAULT 0,
     completion_tokens         UInt32 DEFAULT 0,
     total_tokens              UInt32 DEFAULT 0,
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger (
     user_id           String,
     provider          LowCardinality(String),
     model_name        LowCardinality(String),
+    model_raw         LowCardinality(String) DEFAULT '',
     route_name        LowCardinality(String),
     consumer_group    LowCardinality(String),
     request_mode      LowCardinality(String),
@@ -171,6 +173,12 @@ ALTER TABLE llm_gateway.usage_log
 ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS request_id      String DEFAULT '' AFTER event_id;
 
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS model_raw       LowCardinality(String) DEFAULT '' AFTER model;
+
+ALTER TABLE llm_gateway.billing_ledger
+    ADD COLUMN IF NOT EXISTS model_raw       LowCardinality(String) DEFAULT '' AFTER model_name;
+
 -- billing_ledger write pipeline: Materialized View populates billing_ledger
 -- automatically from every usage_log INSERT. Columns only available in
 -- request_log (tenant_id, user_id, provider, route_name, llm_latency_ms,
@@ -188,6 +196,7 @@ SELECT
     ''                      AS user_id,
     'opencode'              AS provider,
     model                   AS model_name,
+    model_raw               AS model_raw,
     ''                      AS route_name,
     ''                      AS consumer_group,
     if(is_stream = 1, 'stream', 'batch')  AS request_mode,

@@ -6,8 +6,8 @@ set -euo pipefail
 # End-to-end cost / billing-ledger test through the LOCAL llamafile upstream.
 # Sends one non-streaming chat request via /llamafile/*, then asserts the
 # resulting usage_log row has a valid cost_source enum value, a populated cost
-# column, and (because cost_calc.normalize_key strips the provider prefix) a
-# normalized model value. Also asserts billing_ledger_mv carries the matching
+# column, and (because model_registry.canonical strips the provider prefix) a
+# canonical model value. Also asserts billing_ledger_mv carries the matching
 # row (the MV fires automatically on usage_log INSERT).
 #
 # Uses the llamafile route exclusively. There is NO fallback path. If the
@@ -119,18 +119,20 @@ case "$U_COST_SOURCE" in
         assert_eq "usage_log cost_source is a valid enum" "upstream|computed|unknown" "$U_COST_SOURCE" ;;
 esac
 
-# Local llamafile model id (/zip/<name>.gguf) is not in models.dev pricing,
-# so cost_source == "unknown" is the EXPECTED happy path here. cost must be 0.
-if [ "$U_COST_SOURCE" = "unknown" ]; then
-    assert_eq "usage_log cost == 0 for unknown-source model (no hallucinated cost)" "0" "$U_COST"
+# Local llamafile model is priced 0/0 by the provider catalog (free local
+# model), so cost_source is "computed" (or "unknown" if the catalog has no
+# entry); cost must be 0 either way - no hallucinated cost.
+if [ "$U_COST_SOURCE" = "unknown" ] || [ "$U_COST_SOURCE" = "computed" ]; then
+    assert_eq "usage_log cost == 0 for zero-priced local model (no hallucinated cost)" "0" "$U_COST"
 else
-    assert_eq "usage_log cost > 0 for known-source model" "true" "$([ "$U_COST" != "0" ] && echo true || echo false)"
+    assert_eq "usage_log cost > 0 for upstream-cost model" "true" "$([ "$U_COST" != "0" ] && echo true || echo false)"
 fi
 
-# Model must be normalized by cost_calc.normalize_key(): lowercase + last
-# path segment (provider prefix stripped).
+# Model must be canonicalized by model_registry.canonical(): lowercase + last
+# path segment (provider prefix stripped); registry aliases collapse to the
+# canonical id.
 EXPECTED_NORM=$(printf '%s' "$MODEL_ID" | sed 's|.*/||' | tr 'A-Z' 'a-z')
-assert_eq "usage_log.model matches normalize_key(model id)" "$EXPECTED_NORM" "$U_MODEL"
+assert_eq "usage_log.model matches canonical(model id)" "$EXPECTED_NORM" "$U_MODEL"
 assert_eq "usage_log.prompt_tokens > 0" "true" "$([ "${U_PROMPT:-0}" -gt 0 ] && echo true || echo false)"
 assert_eq "usage_log.total_tokens > 0" "true" "$([ "${U_TOTAL:-0}" -gt 0 ] && echo true || echo false)"
 

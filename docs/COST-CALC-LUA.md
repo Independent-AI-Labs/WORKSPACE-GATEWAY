@@ -1,12 +1,27 @@
 # Cost Calculator Module Specification - APISIX Custom Lua Module
 
-> **SCOPE NOTE (2026-07-17):** This module now integrates with the gateway's
-> `provider-sync` plugin. `provider-sync` owns the provider catalog, enriches
-> models from `models.dev`, and writes per-model `pricing:*` entries into the
-> same `gateway-cache` used by `cost_calc`. `cost_calc.get_pricing()` prefers
-> those entries; if the provider-sync catalog is not yet populated, it falls back
-> to the legacy direct `models.dev` fetch. This removes duplicate fetches and
-> keeps gateway pricing consistent with the client config.
+> **ARCHITECTURE UPDATE (2026-07-17, v1.3):** `cost_calc` is now a
+> **read-only pricing consumer**. The legacy `warmup()` / `fetch_and_cache()`
+> / `normalize_key()` writer path described in §4.1, §4.2, §6 and §7 is
+> **removed**:
+> - `provider-sync` (`provider_sync_catalog.lua`) is the **sole writer** of
+>   `pricing:*` keys, keyed by **canonical model id**
+>   (`model_registry.canonical()`), with deterministic sorted-provider,
+>   first-writer-wins semantics. This fixes the §18.3 collision/14%
+>   overcharge permanently (no cross-provider cheapest-wins merge).
+> - Model identity is owned by `conf/model-registry.yaml`, codegenned to
+>   `plugins/custom/model_registry.lua` and the `conf/vector.toml`
+>   GENERATED block by `res/scripts/gen-model-registry.sh`. CI fails on
+>   drift (`tests/config/test_model_registry.sh`).
+> - Each provider's YAML `cost_source` names the models.dev provider id
+>   whose prices apply to it (e.g. `opencode`, `moonshotai`);
+>   `provider-sync` fills missing model costs from that source only.
+> - The module exposes only `get_pricing`, `compute_cost`, `resolve_cost`.
+>   On a cache miss it triggers `provider-sync.sync()` once; there is no
+>   models.dev fallback fetch in this module.
+> - Historical alias rows are merged by
+>   `res/scripts/dedupe-model-history.sh` (supersedes
+>   `backfill-provider-costs.sh`).
 >
 > **SCOPE NOTE (2026-07-09):** This document is accurate for the cost
 > calculator module itself. The token counts fed to it come from
@@ -250,6 +265,9 @@ end
 
 return M
 ```
+
+> **(v1.3) Outdated below:** §4 describes the removed writer path. The
+> module now exposes only `get_pricing`, `compute_cost`, `resolve_cost`.
 
 The module exposes five functions (`warmup`, `fetch_and_cache`,
 `get_pricing`, `compute_cost`, `resolve_cost`) plus the three source-string

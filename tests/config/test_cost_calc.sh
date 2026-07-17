@@ -57,12 +57,14 @@ end
 -- Test 2: module returns a table
 check("Module returns a table", type(M) == "table")
 
--- Test 3: exposes the five functions
-check("Exposes warmup", type(M.warmup) == "function")
-check("Exposes fetch_and_cache", type(M.fetch_and_cache) == "function")
+-- Test 3: exposes the three read-only functions (provider-sync is the
+-- sole pricing writer; cost_calc no longer fetches models.dev)
 check("Exposes get_pricing", type(M.get_pricing) == "function")
 check("Exposes compute_cost", type(M.compute_cost) == "function")
 check("Exposes resolve_cost", type(M.resolve_cost) == "function")
+check("Does NOT expose warmup (writer path removed)", type(M.warmup) == "nil")
+check("Does NOT expose fetch_and_cache (writer path removed)", type(M.fetch_and_cache) == "nil")
+check("Does NOT expose normalize_key (registry owns identity)", type(M.normalize_key) == "nil")
 
 -- Test 4: exposes the three source constants
 check("SOURCE_UPSTREAM == upstream", M.SOURCE_UPSTREAM == "upstream")
@@ -93,25 +95,6 @@ check("compute_cost reasoning-set == 2.6", math.abs(t9 - 2.6) < 1e-9)
 local t9b = M.compute_cost({pt=1e6, ct=0, cached=0, reasoning=0}, {input=1, output=2, provider="vercel"})
 check("compute_cost ignores provider field", math.abs(t9b - 1.0) < 1e-9)
 
--- Test 9c: pricing collision fix - sort by input rate, cheapest wins
-local prices = {
-    {input=1.4, output=4.4, provider="vercel"},
-    {input=1.1, output=3.3, provider="alibaba-cn"},
-    {input=1.4, output=4.4, provider="novita-ai"},
-    {input=0,   output=0,   provider="alibaba-token-plan-cn"},
-}
-table.sort(prices, function(a, b) return (a.input or 0) < (b.input or 0) end)
-check("Collision fix: cheapest provider sorted first (alibaba-token-plan-cn)", prices[1].provider == "alibaba-token-plan-cn")
-check("Collision fix: cheapest input rate is 0", prices[1].input == 0)
-
--- Test 9d: without sort, pairs order is non-deterministic; with sort it's stable
-local prices2 = {
-    {input=1.4, output=4.4, provider="vercel"},
-    {input=1.1, output=3.3, provider="alibaba-cn"},
-}
-table.sort(prices2, function(a, b) return (a.input or 0) < (b.input or 0) end)
-check("Collision fix: alibaba-cn (1.1) before vercel (1.4)", prices2[1].provider == "alibaba-cn")
-
 -- Test 10: Pathway A - upstream cost > 0 wins
 local fc10, src10 = M.resolve_cost(0.5, {pt=1e6, ct=0, cached=0, reasoning=0}, "glm-5.2")
 check("resolve_cost upstream cost == 0.5", math.abs(fc10 - 0.5) < 1e-9)
@@ -129,18 +112,6 @@ check("resolve_cost returns exactly 2 values", c == nil and a ~= nil and b ~= ni
 local a2, b2, c2 = M.resolve_cost(0, {pt=1, ct=1, cached=0, reasoning=0}, "x")
 check("resolve_cost miss returns exactly 2 values", c2 == nil and a2 ~= nil and b2 ~= nil)
 
--- Test 13: normalize_key exposes module function
-check("Exposes normalize_key", type(M.normalize_key) == "function")
-
--- Test 14: normalize_key strips provider prefix and lowercases
-check("normalize_key frank/GLM-5.2 -> glm-5.2", M.normalize_key("frank/GLM-5.2") == "glm-5.2")
-check("normalize_key vercel/zai/glm-5.2 -> glm-5.2", M.normalize_key("vercel/zai/glm-5.2") == "glm-5.2")
-check("normalize_key GLM-5.2 -> glm-5.2", M.normalize_key("GLM-5.2") == "glm-5.2")
-check("normalize_key glm-5.2 -> glm-5.2", M.normalize_key("glm-5.2") == "glm-5.2")
-check("normalize_key empty -> empty", M.normalize_key("") == "")
-check("normalize_key nil -> empty", M.normalize_key(nil) == "")
-check("normalize_key upstream/Model-X -> model-x", M.normalize_key("upstream/Model-X") == "model-x")
-
 io.stderr:write(string.format("\nLUA_RESULTS:%d,%d\n", pass, fail))
 LUAEOF
 )
@@ -149,8 +120,10 @@ LUAEOF
 # available). The module requires zero dependency injection thanks to
 # deferred requires.
 podman cp "$MODULE_FILE" docker_apisix_1:/tmp/cost_calc_check.lua >/dev/null 2>&1
+podman cp "$REPO_ROOT/plugins/custom/model_registry.lua" docker_apisix_1:/tmp/model_registry.lua >/dev/null 2>&1
 
 LUA_OUTPUT=$(podman exec docker_apisix_1 luajit -e "
+package.path = '/tmp/?.lua;' .. package.path
 COST_CALC_MODULE = '/tmp/cost_calc_check.lua'
 $(echo "$TEST_LUA" | sed 's/^/  /')
 " 2>&1) || true

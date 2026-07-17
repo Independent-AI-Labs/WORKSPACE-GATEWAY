@@ -89,8 +89,17 @@ assert_eq "Remap does not read request_id from top-level logger field (regressio
 HAS_MODEL_NORM=$(grep -c 'downcase(model_raw)' "$VECTOR_TOML" || true)
 assert_eq "Remap normalizes model to lowercase" "1" "$HAS_MODEL_NORM"
 
-HAS_MODEL_SUFFIX=$(grep -c "parse_regex(model_norm" "$VECTOR_TOML" || true)
-assert_eq "Remap strips provider prefix from model" "1" "$HAS_MODEL_SUFFIX"
+HAS_MODEL_SUFFIX=$(grep -c "parse_regex(model_lower" "$VECTOR_TOML" || true)
+assert_eq "Remap strips provider prefix from model (generated block)" "1" "$HAS_MODEL_SUFFIX"
+
+HAS_GEN_BEGIN=$(grep -c '# BEGIN GENERATED MODEL CANONICALIZATION' "$VECTOR_TOML" || true)
+assert_eq "Remap model canonicalization is codegen-marked (BEGIN)" "1" "$HAS_GEN_BEGIN"
+
+HAS_GEN_END=$(grep -c '# END GENERATED MODEL CANONICALIZATION' "$VECTOR_TOML" || true)
+assert_eq "Remap model canonicalization is codegen-marked (END)" "1" "$HAS_GEN_END"
+
+HAS_ALIAS_MAP=$(grep -c 'model_alias_map = {' "$VECTOR_TOML" || true)
+assert_eq "Remap uses generated alias map" "1" "$HAS_ALIAS_MAP"
 
 HAS_RETRY=$(grep -c 'retry_attempts' "$VECTOR_TOML" || true)
 assert_eq "ClickHouse sink has retry_attempts" "1" "$HAS_RETRY"

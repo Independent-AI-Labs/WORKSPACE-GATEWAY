@@ -3,6 +3,7 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
 
+
 local M = {}
 local SHARED_DICT = "gateway-cache"
 local KEY_RAW = "providers:raw"
@@ -405,27 +406,13 @@ local function enrich_provider_models(provider, models_dev)
     end
 end
 
-local function populate_pricing_cache(enriched)
-    local dict = get_dict()
-    if not dict then
-        return
-    end
-    for provider_id, provider in pairs(enriched) do
-        if provider.models and type(provider.models) == "table" then
-            for model_id, model in pairs(provider.models) do
-                if model.cost then
-                    local price = {
-                        provider = provider_id,
-                        input = model.cost.input or 0,
-                        output = model.cost.output or 0,
-                        cache_read = model.cost.cache_read or 0,
-                        cache_write = model.cost.cache_write or 0,
-                        fetched_at = ngx.time(),
-                    }
-                    dict:set("pricing:" .. model_id, cjson.encode(price), DEFAULT_STALE)
-                end
-            end
-        end
+local pricing
+do
+    local ok, mod = pcall(require, "apisix.plugins.provider_sync_pricing")
+    if ok then
+        pricing = mod
+    else
+        pricing = require("provider_sync_pricing")
     end
 end
 
@@ -435,13 +422,21 @@ function M.sync(conf)
         return nil, "shared dict not found"
     end
 
+    --Defaults live here so callers never need to know the models.dev URL
+    --or the providers dir; the catalog is the single owner of its config.
+    conf = conf or {}
+    local providers_dir = conf.providers_dir or DEFAULT_PROVIDERS_DIR
+    local models_dev_url = conf.models_dev_url or DEFAULT_MODELS_DEV_URL
+    local sync_timeout = conf.sync_timeout or DEFAULT_SYNC_TIMEOUT
+    local stale_seconds = conf.stale_seconds or DEFAULT_STALE
+
     local lock_added = dict:add(KEY_LOCK, "1", 30)
     if not lock_added then
         return nil, "sync already in progress"
     end
 
-    local providers = load_providers(conf.providers_dir)
-    local models_dev, md_err = fetch_models_dev(conf.models_dev_url, conf.sync_timeout)
+    local providers = load_providers(providers_dir)
+    local models_dev, md_err = fetch_models_dev(models_dev_url, sync_timeout)
     if not models_dev then
         core.log.warn("provider_sync: models.dev fetch failed: ", md_err or "unknown")
     end
@@ -457,15 +452,16 @@ function M.sync(conf)
                 if m then copy.models[a] = cjson.decode(cjson.encode(m)) end
             end
         end
+        pricing.apply_cost_source(provider, copy.models, models_dev)
         enriched[provider_id] = copy
     end
 
-    dict:set(KEY_RAW, cjson.encode(providers), conf.stale_seconds)
-    dict:set(KEY_ENRICHED, cjson.encode(enriched), conf.stale_seconds)
-    dict:set(KEY_TS, tostring(ngx.time()), conf.stale_seconds)
+    dict:set(KEY_RAW, cjson.encode(providers), stale_seconds)
+    dict:set(KEY_ENRICHED, cjson.encode(enriched), stale_seconds)
+    dict:set(KEY_TS, tostring(ngx.time()), stale_seconds)
     dict:delete(KEY_LOCK)
 
-    populate_pricing_cache(enriched)
+    pricing.populate_pricing_cache(enriched)
 
     return {
         providers_loaded = (function()

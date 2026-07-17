@@ -24,6 +24,8 @@ services:
       - ../../plugins/custom/sse-usage.lua:/usr/local/apisix/apisix/plugins/sse-usage.lua:ro
       - ../../plugins/custom/sse_usage_lib.lua:/usr/local/apisix/apisix/plugins/sse_usage_lib.lua:ro
       - ../../plugins/custom/cost_calc.lua:/usr/local/apisix/apisix/plugins/cost_calc.lua:ro
+      - ../../plugins/custom/model_registry.lua:/usr/local/apisix/apisix/plugins/model_registry.lua:ro
+      - ../../plugins/custom/provider_sync_pricing.lua:/usr/local/apisix/apisix/plugins/provider_sync_pricing.lua:ro
       - ../../plugins/custom/redact.lua:/usr/local/apisix/apisix/plugins/redact.lua:ro
       - ../../plugins/custom/redact_lib.lua:/usr/local/apisix/apisix/plugins/redact_lib.lua:ro
     env_file:
