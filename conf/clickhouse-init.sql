@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.request_log (
     event_id                  String DEFAULT '',
     provider                  LowCardinality(String),
     model                     LowCardinality(String) DEFAULT '',
+    model_raw                 LowCardinality(String) DEFAULT '',
     stream                    Bool DEFAULT false,
     method                    LowCardinality(String),
     uri                       String,

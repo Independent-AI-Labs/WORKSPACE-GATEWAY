@@ -18,7 +18,7 @@ model_raw = to_string!(req_parsed.model || "")
 # Algorithm mirrors plugins/custom/model_registry.lua M.canonical:
 # exact lowercase hit, else last-slash-segment hit, else last segment.
 model_lower = downcase(model_raw)
-model_alias_map = { "/zip/minicpm5-1b-q8_0.gguf": "minicpm5-1b-q8_0.gguf", "accounts/fireworks/models/glm-5p0": "glm-5", "accounts/fireworks/models/glm-5p1": "glm-5.1", "accounts/fireworks/models/glm-5p2": "glm-5.2", "frank/glm-5.2": "glm-5.2", "glm-5": "glm-5", "glm-5.1": "glm-5.1", "glm-5.2": "glm-5.2", "glm-5p0": "glm-5", "glm-5p1": "glm-5.1", "glm-5p2": "glm-5.2", "k3": "kimi-k2.7-code", "kimi-for-coding": "kimi-k2.7-code", "kimi-k2.7-code": "kimi-k2.7-code", "minicpm5-1b-q8_0.gguf": "minicpm5-1b-q8_0.gguf", "moonshotai/kimi-k2.7-code": "kimi-k2.7-code", "z-ai/glm-5": "glm-5", "z-ai/glm-5.1": "glm-5.1", "z-ai/glm-5.2": "glm-5.2" }
+model_alias_map = { "/zip/minicpm5-1b-q8_0.gguf": "minicpm5-1b-q8_0.gguf", "accounts/fireworks/models/glm-5p0": "glm-5", "accounts/fireworks/models/glm-5p1": "glm-5.1", "accounts/fireworks/models/glm-5p2": "glm-5.2", "frank/glm-5.2": "glm-5.2", "glm-5": "glm-5", "glm-5.1": "glm-5.1", "glm-5.2": "glm-5.2", "glm-5p0": "glm-5", "glm-5p1": "glm-5.1", "glm-5p2": "glm-5.2", "k3": "kimi-k3", "kimi-for-coding": "kimi-k2.7-code", "kimi-k2.7-code": "kimi-k2.7-code", "kimi-k3": "kimi-k3", "minicpm5-1b-q8_0.gguf": "minicpm5-1b-q8_0.gguf", "moonshotai/kimi-k2.7-code": "kimi-k2.7-code", "moonshotai/kimi-k3": "kimi-k3", "z-ai/glm-5": "glm-5", "z-ai/glm-5.1": "glm-5.1", "z-ai/glm-5.2": "glm-5.2" }
 model_canon = get(model_alias_map, [model_lower]) ?? null
 if model_canon == null {
   model_seg_caps = parse_regex(model_lower, r'(?P<model>[^/]+)$') ?? null
@@ -27,6 +27,7 @@ if model_canon == null {
 }
 # END GENERATED MODEL CANONICALIZATION
 .model = model_canon
+.model_raw = model_raw
 .stream = to_string!(req_parsed.stream || false) == "true"
 
 .method = to_string!(.request.method || "")

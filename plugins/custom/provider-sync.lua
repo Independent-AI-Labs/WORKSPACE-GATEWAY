@@ -15,11 +15,12 @@ local function load_catalog()
     if ok then
         return mod
     end
+    local first_err = mod
     ok, mod = pcall(require, "provider_sync_catalog")
     if ok then
         return mod
     end
-    return nil, mod
+    return nil, tostring(first_err) .. " | plain require: " .. tostring(mod)
 end
 
 local catalog, catalog_err = load_catalog()

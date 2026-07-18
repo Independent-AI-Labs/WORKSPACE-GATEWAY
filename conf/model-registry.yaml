@@ -31,8 +31,11 @@ models:
   kimi-k2.7-code:
     aliases:
       - kimi-for-coding
-      - k3
       - moonshotai/kimi-k2.7-code
+  kimi-k3:
+    aliases:
+      - k3
+      - moonshotai/kimi-k3
   minicpm5-1b-q8_0.gguf:
     aliases:
       - /zip/minicpm5-1b-q8_0.gguf

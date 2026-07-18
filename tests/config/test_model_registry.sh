@@ -65,7 +65,8 @@ check("glm-5p2 -> glm-5.2", "glm-5.2", r.canonical("glm-5p2"))
 check("z-ai/glm-5.2 -> glm-5.2", "glm-5.2", r.canonical("z-ai/glm-5.2"))
 check("glm-5p1 -> glm-5.1", "glm-5.1", r.canonical("glm-5p1"))
 check("kimi-for-coding -> kimi-k2.7-code", "kimi-k2.7-code", r.canonical("kimi-for-coding"))
-check("k3 -> kimi-k2.7-code", "kimi-k2.7-code", r.canonical("k3"))
+check("k3 -> kimi-k3", "kimi-k3", r.canonical("k3"))
+check("moonshotai/kimi-k3 -> kimi-k3", "kimi-k3", r.canonical("moonshotai/kimi-k3"))
 check("moonshotai/kimi-k2.7-code -> kimi-k2.7-code", "kimi-k2.7-code", r.canonical("moonshotai/kimi-k2.7-code"))
 check("/zip/MiniCPM5-1B-Q8_0.gguf -> minicpm5-1b-q8_0.gguf", "minicpm5-1b-q8_0.gguf", r.canonical("/zip/MiniCPM5-1B-Q8_0.gguf"))
 
@@ -73,6 +74,7 @@ check("/zip/MiniCPM5-1B-Q8_0.gguf -> minicpm5-1b-q8_0.gguf", "minicpm5-1b-q8_0.g
 check("glm-5.2 stays glm-5.2", "glm-5.2", r.canonical("glm-5.2"))
 check("GLM-5.2 -> glm-5.2", "glm-5.2", r.canonical("GLM-5.2"))
 check("kimi-k2.7-code stays", "kimi-k2.7-code", r.canonical("kimi-k2.7-code"))
+check("kimi-k3 stays", "kimi-k3", r.canonical("kimi-k3"))
 
 -- last-segment alias hit (unknown provider prefix + known alias)
 check("someprovider/kimi-for-coding -> kimi-k2.7-code", "kimi-k2.7-code", r.canonical("someprovider/kimi-for-coding"))
