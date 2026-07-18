@@ -158,6 +158,17 @@ dev-rebuild: dev-stop _compose-build _compose-up ## Rebuild images and restart
 dev-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|vector|openbao|prometheus)
 	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make dev-restart-service SVC=grafana" >&2; exit 1; }
 	echo "=== Recreating service: $(SVC) ==="
+	if [ "$(SVC)" = "apisix" ]; then \
+		echo "=== Draining apisix gracefully (SIGQUIT; in-flight streams finish, $${DRAIN_TIMEOUT:-300}s max) ==="; \
+		timeout "$${DRAIN_TIMEOUT:-300}" $(COMPOSE_CMD) stop apisix; \
+		drain_rc=$$?; \
+		if [ $$drain_rc -ne 0 ]; then \
+			echo "=== WARN: graceful drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
+			podman stop -t 5 docker_apisix_1; \
+			force_rc=$$?; \
+			if [ $$force_rc -ne 0 ]; then echo "=== ERROR: forced stop failed (rc=$$force_rc) ===" >&2; exit 1; fi; \
+		fi; \
+	fi; \
 	timeout 120 $(COMPOSE_CMD) up -d --force-recreate --no-deps $(SVC); \
 	rc=$$?; \
 	if [ $$rc -ne 0 ]; then echo "=== ERROR: recreate $(SVC) failed (rc=$$rc) ===" >&2; exit 1; fi

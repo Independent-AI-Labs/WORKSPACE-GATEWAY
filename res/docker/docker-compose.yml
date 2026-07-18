@@ -34,6 +34,11 @@ services:
       - vector
       - openbao
       - etcd
+    # Graceful shutdown: SIGQUIT makes nginx stop accepting and finish
+    # in-flight requests (incl. long-lived SSE streams) before exiting.
+    # SIGKILL only as last resort after the grace period.
+    stop_signal: SIGQUIT
+    stop_grace_period: 300s
     restart: unless-stopped
     networks:
       - gateway
