@@ -1,4 +1,5 @@
 safe_exceptions:
+  - .markdown_docs_exceptions.yaml
   - config.yaml
   - workspace-gw-kimi-private.yaml
   - workspace-gw-private.yaml

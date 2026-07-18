@@ -1,6 +1,7 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
 local http = require("resty.http")
+local pool_lib = require("apisix.plugins.upstream_pool_lib")
 
 local plugin_name = "key-resolver"
 
@@ -28,6 +29,10 @@ plugin.schema = {
         key_prefix = {
             type = "string",
             default = "secret/data/gateway/keys/",
+        },
+        pool_prefix = {
+            type = "string",
+            default = "secret/data/gateway/upstream-pools/",
         },
         cache_ttl = {
             type = "integer",
@@ -61,13 +66,12 @@ local function extract_bearer(auth_header)
     return auth_header:match("^%s*[Bb]earer%s+(.+)%s*$")
 end
 
-local function fetch_key_from_openbao(conf, token)
+local function openbao_get(conf, path)
     local openbao_token = os.getenv(conf.openbao_token_env)
     if not openbao_token or openbao_token == "" then
         return nil, "openbao token env var not set: " .. conf.openbao_token_env
     end
 
-    local path = conf.key_prefix .. token
     local url = conf.openbao_addr .. "/v1/" .. path
 
     local httpc = http.new()
@@ -83,7 +87,7 @@ local function fetch_key_from_openbao(conf, token)
     end
 
     if res.status == 404 then
-        return nil, "key not found in openbao"
+        return nil, "not found in openbao: " .. path
     end
 
     if res.status ~= 200 then
@@ -101,6 +105,141 @@ local function fetch_key_from_openbao(conf, token)
     end
 
     return data.data, nil
+end
+
+local function openbao_put(conf, path, record)
+    local openbao_token = os.getenv(conf.openbao_token_env)
+    if not openbao_token or openbao_token == "" then
+        return "openbao token env var not set: " .. conf.openbao_token_env
+    end
+
+    local url = conf.openbao_addr .. "/v1/" .. path
+    local payload = cjson.encode({data = record})
+    if not payload then
+        return "openbao payload encode failed"
+    end
+
+    local httpc = http.new()
+    local res, err = httpc:request_uri(url, {
+        method = "POST",
+        headers = {["X-Vault-Token"] = openbao_token, ["Content-Type"] = "application/json"},
+        body = payload,
+        timeout = 3000,
+        ssl_verify = false,
+    })
+
+    if not res then
+        return "openbao request failed: " .. (err or "unknown")
+    end
+
+    if res.status < 200 or res.status >= 300 then
+        return "openbao write returned status " .. res.status .. ": " .. (res.body or "")
+    end
+
+    return nil
+end
+
+local function fetch_key_from_openbao(conf, token)
+    return openbao_get(conf, conf.key_prefix .. token)
+end
+
+local function resolve_pool(conf, pool_name)
+    local shared = ngx.shared.key_cache
+    if not shared then
+        return nil, "key_cache shared dict not configured"
+    end
+
+    local cache_key = "p:" .. pool_name
+    local cached = shared:get(cache_key)
+    if cached then
+        local entry = cjson.decode(cached)
+        if entry then
+            return entry, nil
+        end
+    end
+
+    local pool_data, err = openbao_get(conf, (conf.pool_prefix or "secret/data/gateway/upstream-pools/") .. pool_name)
+    if not pool_data then
+        return nil, err
+    end
+
+    local encoded = cjson.encode(pool_data)
+    if encoded then
+        shared:set(cache_key, encoded, conf.cache_ttl)
+    end
+
+    return pool_data, nil
+end
+
+local function pool_key_unavailable(pool_state, marker_prefix, key_id)
+    if not pool_state then
+        return false
+    end
+    if pool_state:get("dis:" .. marker_prefix .. ":" .. key_id) then
+        return true
+    end
+    if pool_state:get("cd:" .. marker_prefix .. ":" .. key_id) then
+        return true
+    end
+    return false
+end
+
+local function disable_pool_key_in_openbao(premature, conf, pool_name, key_id)
+    if premature then
+        return
+    end
+    local prefix = conf.pool_prefix or "secret/data/gateway/upstream-pools/"
+    local pool, err = openbao_get(conf, prefix .. pool_name)
+    if not pool then
+        core.log.error("key-resolver: pool disable fetch failed for ", pool_name, ": ", err)
+        return
+    end
+    local updated, merr = pool_lib.mark_disabled(pool, key_id)
+    if not updated then
+        core.log.error("key-resolver: pool disable mark failed for ", pool_name, "/", key_id, ": ", merr)
+        return
+    end
+    local werr = openbao_put(conf, prefix .. pool_name, updated)
+    if werr then
+        core.log.error("key-resolver: pool disable write failed for ", pool_name, ": ", werr)
+        return
+    end
+    local shared = ngx.shared.key_cache
+    if shared then
+        shared:delete("p:" .. pool_name)
+    end
+    core.log.warn("key-resolver: pool key disabled in openbao: ", pool_name, "/", key_id)
+end
+
+local function select_pool_key(conf, ctx, pool_name)
+    local pool, err = resolve_pool(conf, pool_name)
+    if not pool then
+        return nil, "pool fetch failed: " .. (err or "unknown"), 503
+    end
+
+    local pool_state = ngx.shared.pool_state
+    if not pool_state then
+        core.log.error("key-resolver: pool_state shared dict not configured")
+    end
+
+    --- Pool epoch (bumped on every management write) namespaces the in-memory
+    --- markers so `pool-key.sh reset` re-enabled keys are not shadowed by
+    --- stale per-worker disable markers.
+    local epoch = tonumber(pool.epoch) or 0
+    local marker_prefix = pool_name .. ":" .. epoch
+
+    local entry, serr = pool_lib.select_sticky(pool, function(key_id)
+        return pool_key_unavailable(pool_state, marker_prefix, key_id)
+    end)
+    if not entry then
+        return nil, "upstream pool '" .. pool_name .. "' exhausted (" .. (serr or "no available keys")
+            .. ") - rotated keys are cooling down or disabled, retry later", 503
+    end
+
+    ctx.upstream_pool_name = pool_name
+    ctx.upstream_pool_marker_prefix = marker_prefix
+    ctx.upstream_pool_key_id = entry.id
+    return entry.key, nil, nil
 end
 
 local function resolve_key(conf, ctx, token)
@@ -172,11 +311,21 @@ function plugin.access(conf, ctx)
         return 401, {error = "key-resolver: key revoked"}
     end
 
-    local upstream_key = key_data.upstream_key
-    if not upstream_key or upstream_key == "" then
-        upstream_key = os.getenv(conf.upstream_key_env)
+    local upstream_key
+    local pool_name = key_data.upstream_pool
+    if pool_name and pool_name ~= "" then
+        local k, perr, pstatus = select_pool_key(conf, ctx, pool_name)
+        if not k then
+            return pstatus or 503, {error = "key-resolver: " .. (perr or "pool unavailable")}
+        end
+        upstream_key = k
+    else
+        upstream_key = key_data.upstream_key
         if not upstream_key or upstream_key == "" then
-            return 500, {error = "key-resolver: upstream key not configured"}
+            upstream_key = os.getenv(conf.upstream_key_env)
+            if not upstream_key or upstream_key == "" then
+                return 500, {error = "key-resolver: upstream key not configured"}
+            end
         end
     end
 
@@ -230,6 +379,49 @@ function plugin.access(conf, ctx)
     ctx.consumer = {
         username = key_id,
     }
+end
+
+function plugin.header_filter(conf, ctx)
+    local pool_name = ctx.upstream_pool_name
+    local key_id = ctx.upstream_pool_key_id
+    local marker_prefix = ctx.upstream_pool_marker_prefix or pool_name
+    if not pool_name or not key_id then
+        return
+    end
+
+    local status = ngx.status
+    local pool_state = ngx.shared.pool_state
+    if not pool_state then
+        return
+    end
+
+    --- Pool record is read from the cache populated during access (no network
+    --- I/O in header_filter). On cache miss, fall back to pool defaults.
+    local pool
+    local shared = ngx.shared.key_cache
+    if shared then
+        local cached = shared:get("p:" .. pool_name)
+        if cached then
+            pool = cjson.decode(cached)
+        end
+    end
+
+    if pool_lib.status_in(pool_lib.disable_on(pool), status) then
+        pool_state:set("dis:" .. marker_prefix .. ":" .. key_id, 1)
+        ngx.header["X-Gateway-Upstream-Rotated"] = "disabled:" .. key_id
+        core.log.warn("key-resolver: upstream key hard-disabled (status ", status, "): ",
+            pool_name, "/", key_id)
+        local ok, err = ngx.timer.at(0, disable_pool_key_in_openbao, conf, pool_name, key_id)
+        if not ok then
+            core.log.error("key-resolver: failed to schedule pool disable write: ", err)
+        end
+    elseif pool_lib.status_in(pool_lib.cooldown_on(pool), status) then
+        local cooldown_s = pool_lib.cooldown_s(pool)
+        pool_state:set("cd:" .. marker_prefix .. ":" .. key_id, 1, cooldown_s)
+        ngx.header["X-Gateway-Upstream-Rotated"] = "cooldown:" .. key_id
+        core.log.warn("key-resolver: upstream key cooling down ", cooldown_s, "s (status ",
+            status, "): ", pool_name, "/", key_id)
+    end
 end
 
 return plugin

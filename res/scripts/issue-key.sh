@@ -14,6 +14,7 @@ set -euo pipefail
 #   --tenant ID               Tenant ID (default: default)
 #   --user ID                 User ID (default: agent)
 #   --upstream-key KEY        Upstream API key (default: empty = use OPENCODE_API_KEY env)
+#   --pool NAME               Named upstream key pool (auto-rotation; takes precedence over --upstream-key)
 #   --rate-limit-rpm N        Per-key request RPM (default: 100)
 #   --rate-limit-window S     RPM time window in seconds (default: 60)
 #   --token-budget N          Per-key token budget per window (default: 0 = unlimited)
@@ -37,6 +38,7 @@ KEY_ID=""
 TENANT_ID="default"
 USER_ID="agent"
 UPSTREAM_KEY=""
+UPSTREAM_POOL=""
 RATE_LIMIT_RPM=""
 RATE_LIMIT_WINDOW=""
 TOKEN_BUDGET=""
@@ -50,6 +52,7 @@ while [ $# -gt 0 ]; do
     --tenant)              TENANT_ID="$2"; shift 2 ;;
     --user)                USER_ID="$2"; shift 2 ;;
     --upstream-key)        UPSTREAM_KEY="$2"; shift 2 ;;
+    --pool)                UPSTREAM_POOL="$2"; shift 2 ;;
     --rate-limit-rpm)      RATE_LIMIT_RPM="$2"; shift 2 ;;
     --rate-limit-window)   RATE_LIMIT_WINDOW="$2"; shift 2 ;;
     --token-budget)        TOKEN_BUDGET="$2"; shift 2 ;;
@@ -80,7 +83,7 @@ BUDGET_WINDOW="${BUDGET_WINDOW:-86400}"
 BUDGET_TYPE="${BUDGET_TYPE:-tokens}"
 
 JSON_PAYLOAD=$(cat <<EOF
-{"data":{"virtual_key":"${KEY_ID}","upstream_key":"${UPSTREAM_KEY}","tenant_id":"${TENANT_ID}","user_id":"${USER_ID}","active":true,"created_at":"${CREATED_AT}","rate_limit_rpm":${RATE_LIMIT_RPM},"rate_limit_window":${RATE_LIMIT_WINDOW},"token_budget":${TOKEN_BUDGET},"cost_budget":${COST_BUDGET},"budget_window":${BUDGET_WINDOW},"budget_type":"${BUDGET_TYPE}"}}
+{"data":{"virtual_key":"${KEY_ID}","upstream_key":"${UPSTREAM_KEY}","upstream_pool":"${UPSTREAM_POOL}","tenant_id":"${TENANT_ID}","user_id":"${USER_ID}","active":true,"created_at":"${CREATED_AT}","rate_limit_rpm":${RATE_LIMIT_RPM},"rate_limit_window":${RATE_LIMIT_WINDOW},"token_budget":${TOKEN_BUDGET},"cost_budget":${COST_BUDGET},"budget_window":${BUDGET_WINDOW},"budget_type":"${BUDGET_TYPE}"}}
 EOF
 )
 

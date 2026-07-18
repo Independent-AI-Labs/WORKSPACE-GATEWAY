@@ -72,4 +72,5 @@ nginx_config:
       key_cache: 5m
       gateway-cache: 2m
       quota_counters: 5m
+      pool_state: 5m
     proxy_buffering: "on"

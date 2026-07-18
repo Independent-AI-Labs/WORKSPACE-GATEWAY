@@ -233,10 +233,14 @@ sync-models: ## Trigger provider model sync on the gateway
 # =============================================================================
 # Key Management
 # =============================================================================
-.PHONY: issue-key list-keys revoke-key
+.PHONY: issue-key list-keys revoke-key pool-key
 
-issue-key: ## Issue a new virtual gateway key (use KEY_ID=, TENANT_ID=, USER_ID=)
-	bash $(REPO_ROOT)/res/scripts/issue-key.sh $(if $(KEY_ID),--key-id $(KEY_ID)) $(if $(TENANT_ID),--tenant $(TENANT_ID)) $(if $(USER_ID),--user $(USER_ID)) $(if $(UPSTREAM_KEY),--upstream-key $(UPSTREAM_KEY))
+issue-key: ## Issue a new virtual gateway key (use KEY_ID=, TENANT_ID=, USER_ID=, POOL=)
+	bash $(REPO_ROOT)/res/scripts/issue-key.sh $(if $(KEY_ID),--key-id $(KEY_ID)) $(if $(TENANT_ID),--tenant $(TENANT_ID)) $(if $(USER_ID),--user $(USER_ID)) $(if $(UPSTREAM_KEY),--upstream-key $(UPSTREAM_KEY)) $(if $(POOL),--pool $(POOL))
+
+pool-key: ## Manage upstream key pools (ARGS='create kimi', 'add kimi k1 sk-...', 'list', 'reset kimi')
+	if [ -z "$(ARGS)" ]; then echo "ERROR: ARGS required. Usage: make pool-key ARGS='list'" >&2; exit 1; fi
+	bash $(REPO_ROOT)/res/scripts/pool-key.sh $(ARGS)
 
 list-keys: ## List all virtual gateway keys
 	bash $(REPO_ROOT)/res/scripts/list-keys.sh

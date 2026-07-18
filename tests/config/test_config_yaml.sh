@@ -98,6 +98,9 @@ assert_eq "gateway-cache shared dict size is 2m" "2m" "$GATEWAY_CACHE_SIZE"
 HAS_QUOTA_DICT=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("quota_counters")')
 assert_eq "custom_lua_shared_dict has quota_counters" "true" "$HAS_QUOTA_DICT"
 
+HAS_POOL_DICT=$(echo "$JSON_DATA" | jq '.nginx_config.http.custom_lua_shared_dict | has("pool_state")')
+assert_eq "custom_lua_shared_dict has pool_state" "true" "$HAS_POOL_DICT"
+
 PLUGINS_RATE=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "limit-count")] | length')
 assert_eq "limit-count in plugins list" "1" "$PLUGINS_RATE"
 
