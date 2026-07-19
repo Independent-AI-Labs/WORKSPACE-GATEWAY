@@ -8,5 +8,5 @@ npm_excludes:
   - marked
   - eslint
   - typescript
-  - "@types/node"
-  - "@types/dompurify"
+  - '@types/node'
+  - '@types/dompurify'

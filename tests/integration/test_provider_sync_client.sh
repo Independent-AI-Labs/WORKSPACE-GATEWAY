@@ -237,6 +237,16 @@ test_client_no_auth_kimi_own() {
     else
         record_fail "kimi-own config expected enriched models, got $model_count"
     fi
+    local alias
+    for alias in kimi-for-coding kimi-for-coding-highspeed k3; do
+        local alias_cost
+        alias_cost=$(jq -r ".provider.\"workspace-gw-kimi-own\".models.\"$alias\".cost.input // \"__missing__\"" "$CONFIG_FILE" 2>/dev/null || echo "__missing__")
+        if [ "$alias_cost" != "__missing__" ]; then
+            record_pass "kimi-own alias $alias present with cost (input=$alias_cost)"
+        else
+            record_fail "kimi-own alias $alias missing or has no cost"
+        fi
+    done
 }
 
 # --- Test: virtual_key provider with piped API key ---

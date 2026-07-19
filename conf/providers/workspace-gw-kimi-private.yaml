@@ -18,4 +18,6 @@ model_source:
     lowercase: true
 model_aliases:
   kimi-for-coding: kimi-k2.7-code
+  kimi-for-coding-highspeed: kimi-k2.7-code-highspeed
+  k3: kimi-k3
 cost_source: moonshotai
