@@ -18,7 +18,11 @@ COMPOSE_CMD := $(VENV_BIN)/podman-compose -f $(COMPOSE_FILE)
 # Fail fast: cap podman-compose's internal HTTP timeout at 10s (default 60s
 # causes indefinite hangs when containers fail to start - see podman #10922).
 export COMPOSE_HTTP_TIMEOUT := 10
-ANSIBLE_PLAYBOOK := ansible-playbook
+# User-configurable (env or CLI override); defaults to CI's boot bin
+ANSIBLE_PLAYBOOK ?= $(CI_DIR)/.boot-linux/bin/ansible-playbook
+# Containment: uv-managed interpreters live inside CI's boot dir, never in
+# $HOME/.local/share/uv/python (no unsanctioned HOME/system resources)
+export UV_PYTHON_INSTALL_DIR := $(CI_DIR)/.boot-linux/python
 ANSIBLE_DEV := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/dev.yml
 ANSIBLE_COMPOSE := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/compose.yml
 
@@ -54,7 +58,7 @@ preflight: ## Verify environment
 	test -d "$(CI_DIR)" || { echo "ERROR: CI directory not found at $(CI_DIR)" >&2; exit 1; }
 	test -f "$(CI_DIR)/scripts/generate-hooks" || { echo "ERROR: generate-hooks missing" >&2; exit 1; }
 	command -v podman 1>&2 || { echo "ERROR: podman not on PATH" >&2; exit 1; }
-	command -v ansible-playbook 1>&2 || { echo "ERROR: ansible-playbook not on PATH" >&2; exit 1; }
+	test -x "$(ANSIBLE_PLAYBOOK)" || { echo "ERROR: ansible-playbook not found at $(ANSIBLE_PLAYBOOK)" >&2; echo "Provision (operator, elevated): sudo make -C $(CI_DIR) install-ansible, or set ANSIBLE_PLAYBOOK=/path/to/ansible-playbook" >&2; exit 1; }
 	test -f "$(VENV_BIN)/podman-compose" || { echo "ERROR: run 'make install' first" >&2; exit 1; }
 	echo "Preflight OK"
 
@@ -71,7 +75,7 @@ setup: bootstrap-podman ## Create .venv with podman-compose
 	echo "=== Setup complete ==="
 	_podman="$$(command -v podman)" || _podman="NOT FOUND"; echo "  podman: $$_podman"
 	echo "  podman-compose: $(VENV_BIN)/podman-compose"
-	_ansible="$$(command -v ansible-playbook)" || _ansible="NOT FOUND"; echo "  ansible: $$_ansible"
+	echo "  ansible: $(ANSIBLE_PLAYBOOK)"
 
 install: setup install-hooks ## Full install: podman + .venv + hooks + images
 	$(MAKE) _compose-build
@@ -262,7 +266,7 @@ lint: ## Lint shell scripts and validate YAML
 	done
 	echo "=== Validating YAML ==="
 	tmpfile=$$(mktemp); trap 'rm -f $$tmpfile' EXIT; \
-	for f in conf/*.yaml res/docker/*.yml res/ansible/*.yml; do \
+	for f in conf/*.yaml res/docker/*.yml res/ansible/*.yml tests/*.yml; do \
 		[ -f "$$f" ] || continue; \
 		echo "  checking $$f"; \
 		podman run --rm \

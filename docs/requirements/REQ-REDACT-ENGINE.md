@@ -123,8 +123,8 @@ sidecar so that CPU-bound neural inference never blocks an nginx worker.
 | Q | Resolution |
 |---|------------|
 | Model source for BERT-tiny NER int8 | Vendor quantized `xtremedistil-l12-h384-uncased` or fine-tune BERT-tiny on CoNLL-2003 |
-| `tokenizers` crate native dependency | Ships pre-built for x86_64-linux; hand-rolled WordPiece (~500 LoC) is the fallback |
-| NER-vs-`body_filter` race | Accepted; best-effort enrichment, regex-only fallback |
+| `tokenizers` crate native dependency | Ships pre-built for x86_64-linux; if the pre-built binary is unusable the engine does not ship (explicit build failure, no hand-rolled substitute) |
+| NER-vs-`body_filter` race | Accepted; regex coverage is the authoritative baseline and NER enrichment applies only when it completes before `body_filter` |
 
 ## 7. Verification Matrix
 

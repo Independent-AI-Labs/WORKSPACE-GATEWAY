@@ -84,14 +84,11 @@ function plugin.body_filter(conf, ctx)
 
         if complete ~= "" then
             if ctx.sse_is_stream then
-                local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(complete)
+                local usage, model, done, cost = sse_lib.scan_sse_for_usage(complete)
                 if done then ctx.sse_completed = true end
                 if usage then ctx.sse_usage = usage end
                 if model and model ~= "" then ctx.sse_model = model end
                 if cost and cost > 0 then ctx.sse_cost = cost end
-                if reasoning_text and reasoning_text ~= "" then
-                    ctx.sse_reasoning_text = (ctx.sse_reasoning_text or "") .. reasoning_text
-                end
             else
                 local usage, model, cost = sse_lib.parse_json_usage(complete)
                 if usage then
@@ -106,14 +103,11 @@ function plugin.body_filter(conf, ctx)
     if eof then
         if ctx.sse_buffer and ctx.sse_buffer ~= "" then
             if ctx.sse_is_stream then
-                local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(ctx.sse_buffer)
+                local usage, model, done, cost = sse_lib.scan_sse_for_usage(ctx.sse_buffer)
                 if done then ctx.sse_completed = true end
                 if usage then ctx.sse_usage = usage end
                 if model and model ~= "" then ctx.sse_model = model end
                 if cost and cost > 0 then ctx.sse_cost = cost end
-                if reasoning_text and reasoning_text ~= "" then
-                    ctx.sse_reasoning_text = (ctx.sse_reasoning_text or "") .. reasoning_text
-                end
             else
                 local usage, model, cost = sse_lib.parse_json_usage(ctx.sse_buffer)
                 if usage then
@@ -158,7 +152,7 @@ function plugin.log(conf, ctx)
 
     local is_stream = ctx.sse_is_stream and 1 or 0
 
-    local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(ctx.sse_usage, ctx.sse_reasoning_text)
+    local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(ctx.sse_usage)
     local model = ctx.sse_model or ""
     local sse_cost = tonumber(ctx.sse_cost) or 0
     local req_model = ctx.sse_req_model or model
@@ -169,8 +163,8 @@ function plugin.log(conf, ctx)
         req_model
     )
 
-    --For SSE streams that aborted early (no usage chunk received), fall
-    --back to the request body to get the model so abort rows remain
+    --For SSE streams that aborted early (no usage chunk received), the
+    --request body is the model source of record so abort rows remain
     --filterable by the dashboard model variable.
     if model == "" then
         local req_body = ngx.req.get_body_data()

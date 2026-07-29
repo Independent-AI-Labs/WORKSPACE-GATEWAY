@@ -7,11 +7,16 @@
 
 > Intended APISIX plugin configurations for optional enterprise hardening:
 > `openid-connect` (bearer-only OIDC), `ldap-auth` (legacy AD, Kerberos in v2
-> via `forward-auth`), `ai-proxy` (single-provider canonical translation),
-> and `ai-proxy-multi` (weighted multi-provider failover). These are
-> configuration-only designs using built-in plugins; they are not part of the
-> deployed gateway (`conf/apisix.yaml`) and are marked "future, not deployed"
-> in the source docs. Nothing here exists in the codebase yet.
+> via `forward-auth`), and `ai-proxy` (single-provider canonical
+> translation). These are configuration-only designs using built-in plugins;
+> they are not part of the deployed gateway (`conf/apisix.yaml`) and are
+> marked "future, not deployed" in the source docs. Nothing here exists in
+> the codebase yet.
+>
+> `ai-proxy-multi` weighted failover was removed from scope (see
+> REQ-ENTERPRISE-AUTH FR-4): requests bind to one explicit upstream and
+> failures return explicit errors. Upstream API-key quota exhaustion is
+> handled by upstream key pools (implemented).
 
 ---
 
@@ -26,10 +31,10 @@
 
 ## 1. Overview
 
-The enterprise profile adds a corporate identity layer and multi-provider AI
-routing on top of the gateway using only APISIX built-in plugins. It replaces
-what earlier architectures did with Kong Enterprise plugins and custom Rust
-Proxy-Wasm filters. The deployed gateway's routes and auth model
+The enterprise profile adds a corporate identity layer and single-provider
+AI translation on top of the gateway using only APISIX built-in plugins. It
+replaces what earlier architectures did with Kong Enterprise plugins and
+custom Rust Proxy-Wasm filters. The deployed gateway's routes and auth model
 (`key-resolver`, `kimi-auth`, shared-key passthrough) are unchanged; this
 profile defines additional routes for enterprise environments.
 
@@ -53,8 +58,9 @@ inline.
 
 ### 2.4 Streaming-aware routing
 
-SSE routes disable proxy buffering; failover only happens before the first
-SSE event.
+SSE routes disable proxy buffering. Each request binds to one explicit
+upstream; an upstream failure returns an explicit error to the client (no
+transparent re-routing).
 
 ## 3. System Diagram
 
@@ -67,10 +73,8 @@ APISIX route: /v1/chat/completions (enterprise profile)
   |      claims_to_header: tenant_id->X-Tenant-ID, sub->X-User-ID, groups->X-Routing-Tier
   |-- proxy-buffering: disabled (SSE)
   |-- redact (custom Lua, existing)
-  |-- ai-proxy-multi
-  |      targets: openai gpt-4o (w70,p1) / azure prod-deployment (w30,p1)
-  |                / gpt-4o-mini (w100,p2 fallback)
-  |      fallback_strategy: http_429, active health checks /v1/models
+  |-- ai-proxy
+  |      provider: openai gpt-4o (single explicit target)
   |-- limit-count
   v
 Upstream LLM providers
@@ -162,50 +166,15 @@ built-in injection if the plugin supports it; otherwise a ~20-line
 `access`-phase Lua filter parses the body, checks `stream == true`, and injects
 `stream_options.include_usage = true` if absent.
 
-## 7. `ai-proxy-multi` Configuration (Failover)
+## 7. Multi-Provider Failover (REMOVED FROM SCOPE)
 
-```yaml
-plugins:
-  ai-proxy-multi:
-    provider: openai
-    targets:
-      - provider: openai
-        model: gpt-4o
-        api_key: "{{vault:secret/ai/openai_key}}"
-        weight: 70
-        priority: 1
-      - provider: azure
-        model: prod-deployment
-        api_key: "{{vault:secret/ai/azure_key}}"
-        override_endpoint: "https://azure-us-east.openai.azure.com/openai/deployments/prod-deployment/chat/completions?api-version=2024-06-01"
-        weight: 30
-        priority: 1
-      - provider: openai
-        model: gpt-4o-mini
-        api_key: "{{vault:secret/ai/openai_key}}"
-        weight: 100
-        priority: 2
-    fallback_strategy: "http_429"
-    max_retries: 3
-    retry_on_failure_within_ms: 10000
-    max_stream_duration_ms: 120000
-    max_response_bytes: 10485760
-    health_check:
-      active:
-        type: http
-        http_path: "/v1/models"
-        healthy_interval: 30
-        unhealthy_interval: 5
-```
-
-Failover semantics:
-
-| Case | Behavior |
-|------|----------|
-| Non-streaming | full retry across targets within `max_retries`, before any client bytes |
-| Streaming | failover only before first SSE event; then connection committed |
-| `fallback_strategy` | `rate_limiting` (429 only), `http_429` (429 + rate-limit headers), `http_5xx` |
-| Health checks | active HTTP probes; unhealthy targets removed from rotation |
+No `ai-proxy-multi` configuration is provided. The gateway does not perform
+silent cross-provider failover: each request binds to one explicit upstream
+(§6) and an upstream failure returns an explicit error to the client.
+Upstream API-key quota/rate-limit exhaustion is handled by upstream key
+pools with sticky selection and explicit rotation on 429/402/403
+(implemented; see [KEY-MANAGEMENT](../architecture/KEY-MANAGEMENT.md) and
+[RUNBOOK-KEYS](../runbooks/RUNBOOK-KEYS.md)).
 
 ## 8. Enterprise Route Example (from DEPLOYMENT.md §4.1)
 
@@ -233,15 +202,11 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
         stream_mode: buffer
         on_error: closed
-      ai-proxy-multi:
+      ai-proxy:
         provider: openai
-        targets:
-          - { provider: openai, model: gpt-4o, api_key: "{{vault:secret/ai/openai_key}}", weight: 70, priority: 1 }
-          - { provider: azure, model: prod-deployment, api_key: "{{vault:secret/ai/azure_key}}", weight: 30, priority: 1 }
-        fallback_strategy: "http_429"
-        max_retries: 3
-        retry_on_failure_within_ms: 10000
-        max_stream_duration_ms: 120000
+        model: gpt-4o
+        api_key: "{{vault:secret/ai/openai_key}}"
+        pass_through_body: true
       limit-count:
         count: 100
         time_window: 60
@@ -254,8 +219,8 @@ routes:
 - **Cold-start JWKS failure:** 401 (fail closed), not a silent passthrough.
 - **AD attribute mapping:** delegated to `forward-auth` or a Lua filter; never
   inline in `ldap-auth`.
-- **Committed SSE streams:** mid-stream provider failure cannot fail over;
-  the client must handle termination and reconnect.
+- **Committed SSE streams:** each request binds to one upstream; a mid-stream
+  provider failure terminates the stream and the client must reconnect.
 - **Config examples target standalone `apisix.yaml` or ADC/Admin API**;
   adoption into this repo's etcd-backed `role: traditional` deployment would
   apply them via the Admin API/ADC.
@@ -276,7 +241,7 @@ routes:
 | `ldap-auth` config | Not implemented | grep `ldap-auth` in `conf/`: no match |
 | Kerberos `forward-auth` service | Not implemented | no `forward-auth` references or Kerberos service in repo |
 | `ai-proxy` config | Not implemented | grep `ai-proxy` in `conf/apisix.yaml`: no match |
-| `ai-proxy-multi` config | Not implemented | grep `ai-proxy-multi` in `conf/`: no match |
+| `ai-proxy-multi` config | Removed from scope | replaced by upstream key pools (implemented) |
 | Claims-to-header injection | Not implemented | no `claims_to_header` in `conf/` |
 | `stream_options` filter | Not implemented | no `stream_options` references in `plugins/custom/` |
 | Tests | Not implemented | no `tests/**` referencing openid/ldap/ai-proxy/kerberos |

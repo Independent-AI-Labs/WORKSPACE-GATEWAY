@@ -172,7 +172,7 @@ Downstream headers: `X-Gateway-Key-Id`, `X-Gateway-User-Id`, optional
 |----------------|------|
 | `plugins/custom/xai_pkce.lua` | verifier (32 random bytes, base64url), S256 challenge, hex state |
 | `plugins/custom/xai_jwt.lua` | `decode_claims` (no signature verify), `is_expiring(token, skew)`, `token_hash` (hex sha256) |
-| `plugins/custom/xai_oidc.lua` | discovery with HTTPS `*.x.ai` pinning, 1h cache in `xai_cache`, hardcoded fallbacks |
+| `plugins/custom/xai_oidc.lua` | discovery with HTTPS `*.x.ai` pinning, 1h cache in `xai_cache`; discovery failure fails the request explicitly |
 | `plugins/custom/xai_tokens.lua` | exchange, refresh, `normalize_tokens`, OpenBao CRUD, index aliases |
 
 ## 8. OpenBao Storage

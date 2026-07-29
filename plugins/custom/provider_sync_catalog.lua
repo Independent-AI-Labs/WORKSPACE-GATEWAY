@@ -17,7 +17,7 @@ local DEFAULT_TTL = 3600
 local DEFAULT_STALE = 86400
 local DEFAULT_SYNC_TIMEOUT = 10000
 local DEFAULT_WARMUP = true
-local DEFAULT_BACKUP_LIMIT = 8192
+local DEFAULT_OUTPUT_LIMIT = 8192
 
 local KIMI_USER_AGENT = "Kimi CLI (Linux 6.17.0-35-generic x64)"
 local GENERIC_USER_AGENT = "WORKSPACE-GW/0.1"
@@ -28,7 +28,7 @@ M.DEFAULT_TTL = DEFAULT_TTL
 M.DEFAULT_STALE = DEFAULT_STALE
 M.DEFAULT_SYNC_TIMEOUT = DEFAULT_SYNC_TIMEOUT
 M.DEFAULT_WARMUP = DEFAULT_WARMUP
-M.DEFAULT_BACKUP_LIMIT = DEFAULT_BACKUP_LIMIT
+M.DEFAULT_OUTPUT_LIMIT = DEFAULT_OUTPUT_LIMIT
 M.KIMI_USER_AGENT = KIMI_USER_AGENT
 M.GENERIC_USER_AGENT = GENERIC_USER_AGENT
 
@@ -235,7 +235,7 @@ local function build_model_entry(model, model_id, normalize, pct, ceiling)
     if model.limit then
         entry.limit = {
             context = scale_limit(model.limit.context, pct, ceiling),
-            output = model.limit.output or DEFAULT_BACKUP_LIMIT,
+            output = model.limit.output or DEFAULT_OUTPUT_LIMIT,
         }
     end
 
@@ -314,31 +314,26 @@ local function extract_model_ids(data)
     return ids
 end
 
-local function build_models_from_endpoint(provider, data, backup_models)
+--model_metadata is a static metadata overlay keyed by model id. It never
+--substitutes for the endpoint: it only enriches ids the endpoint reported.
+local function build_models_from_endpoint(provider, data, model_metadata)
     local pct = provider.context_limit_pct or 100
     local ceiling = provider.context_limit_ceiling
     local models = {}
 
-    local backup_models_by_id = {}
-    if backup_models and type(backup_models) == "table" then
-        for _, f in ipairs(backup_models) do
+    local metadata_by_id = {}
+    if model_metadata and type(model_metadata) == "table" then
+        for _, f in ipairs(model_metadata) do
             if f.id then
-                backup_models_by_id[f.id] = f
+                metadata_by_id[f.id] = f
             end
         end
     end
 
     local ids = extract_model_ids(data)
-    if #ids == 0 and backup_models then
-        for _, f in ipairs(backup_models) do
-            if f.id then
-                table.insert(ids, f.id)
-            end
-        end
-    end
 
     for _, model_id in ipairs(ids) do
-        local f = backup_models_by_id[model_id] or {}
+        local f = metadata_by_id[model_id] or {}
         local entry = {
             name = f.name or model_id,
             reasoning = f.reasoning or false,
@@ -348,7 +343,7 @@ local function build_models_from_endpoint(provider, data, backup_models)
         if f.limit then
             entry.limit = {
                 context = scale_limit(f.limit.context, pct, ceiling),
-                output = f.limit.output or DEFAULT_BACKUP_LIMIT,
+                output = f.limit.output or DEFAULT_OUTPUT_LIMIT,
             }
         end
         if f.cost then
@@ -381,24 +376,30 @@ local function enrich_provider_models(provider, models_dev)
     elseif source_type == "gateway" or source_type == "llamafile" then
         local endpoint = source.endpoint
         local api_key = source.api_key
-        local backup_models = source.backup_models
-        if endpoint then
-            local full_url = endpoint
-            if endpoint:sub(1, 1) == "/" then
-                full_url = "http://localhost:9080" .. endpoint
-            end
-            local data, err = fetch_gateway_models(full_url, api_key, 10000)
-            if data then
-                return build_models_from_endpoint(provider, data, backup_models)
-            else
-                core.log.warn("provider_sync: failed to fetch models from ", full_url,
-                              " for provider ", provider.id, ": ", err or "unknown")
-            end
+        local model_metadata = source.model_metadata
+        if not endpoint then
+            core.log.error("provider_sync: provider ", provider.id,
+                           " has source type ", source_type, " but no endpoint")
+            return {}
         end
-        if backup_models then
-            return build_models_from_endpoint(provider, {}, backup_models)
+        local full_url = endpoint
+        if endpoint:sub(1, 1) == "/" then
+            full_url = "http://localhost:9080" .. endpoint
         end
-        return {}
+        local data, err = fetch_gateway_models(full_url, api_key, 10000)
+        if not data then
+            core.log.error("provider_sync: failed to fetch models from ", full_url,
+                           " for provider ", provider.id, ": ", err or "unknown",
+                           "; provider will sync with zero models")
+            return {}
+        end
+        local models = build_models_from_endpoint(provider, data, model_metadata)
+        if not next(models) then
+            core.log.error("provider_sync: endpoint ", full_url,
+                           " for provider ", provider.id,
+                           " returned zero model ids; provider will sync with zero models")
+        end
+        return models
     else
         core.log.warn("provider_sync: unknown model_source type ", source_type,
                       " for provider ", provider.id)

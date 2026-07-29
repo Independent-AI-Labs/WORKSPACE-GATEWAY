@@ -67,7 +67,7 @@ Hub: [`architecture/README.md`](architecture/README.md)  -  reading order for
 | Document | Scope |
 |----------|-------|
 | [`runbooks/RUNBOOK-DEPLOYMENT.md`](runbooks/RUNBOOK-DEPLOYMENT.md) | Deploy and operate the stack |
-| [`runbooks/RUNBOOK-KEYS.md`](runbooks/RUNBOOK-KEYS.md) | Issue, list, revoke virtual keys |
+| [`runbooks/RUNBOOK-KEYS.md`](runbooks/RUNBOOK-KEYS.md) | Issue, list, revoke virtual keys; manage upstream key pools |
 | [`runbooks/RUNBOOK-CLIENT-LOGIN.md`](runbooks/RUNBOOK-CLIENT-LOGIN.md) | Client login flows (opencode provider login) |
 
 ### testplans/

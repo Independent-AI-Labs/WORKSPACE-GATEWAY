@@ -118,9 +118,9 @@ against the pure modules. Assert-based, non-zero exit on failure.
 - `restore_with_key`: single/multiple token re-hydration; unknown token and
   empty text pass through unchanged.
 
-**sse_usage_lib** (`test_sse_usage_lib.lua`, 45 assertions): SSE usage parsing
-across complete, truncated, and chunked event streams; CJK-aware token
-estimation.
+**sse_usage_lib** (`test_sse_usage_lib.lua`): SSE usage parsing
+across complete, truncated, and chunked event streams; token counts are
+upstream-reported only (no estimation; unreported dimensions assert to 0).
 
 **kimi_jwt / provider_sync** (`test_kimi_jwt.lua`, `test_provider_sync.lua`):
 JWT claim decoding/expiry/token-hash helpers; provider-sync catalog/pricing

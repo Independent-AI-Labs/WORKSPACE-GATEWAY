@@ -94,6 +94,8 @@ Rotation semantics (`key-resolver.lua`, sticky selection):
 Management: `res/scripts/pool-key.sh`
 (`create|add|remove|list|enable|disable|reset`), e.g.
 `bash res/scripts/pool-key.sh create kimi && bash res/scripts/pool-key.sh add kimi k1 sk-...`.
+Full operational procedures are in
+[`docs/runbooks/RUNBOOK-KEYS.md`](../runbooks/RUNBOOK-KEYS.md).
 Attach a pool to a virtual key with `issue-key.sh --pool <name>`.
 Disabled keys are re-enabled with `pool-key.sh enable <pool> <key_id>` or
 `reset <pool>`.

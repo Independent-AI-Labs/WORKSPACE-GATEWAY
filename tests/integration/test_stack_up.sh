@@ -3,7 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$REPO_ROOT/res/docker/docker-compose.yml"
+
+# Test-isolated compose (no container_name fields; -p gw-test keeps prod safe)
+TEST_COMPOSE_FILE="$SCRIPT_DIR/../docker-compose.test.yml"
+TEST_PROJECT="gw-test"
+TEST_COMPOSE="podman-compose -p $TEST_PROJECT -f $TEST_COMPOSE_FILE"
+
 DOCKERFILE="$REPO_ROOT/res/docker/Dockerfile.apisix"
 IMAGE_TAG="workspace-gateway-apisix:local"
 
@@ -45,7 +50,7 @@ teardown() {
         return 0
     fi
     echo "[INFO] Tearing down stack..."
-    podman-compose -f "$COMPOSE_FILE" down || echo "[WARN] teardown: podman-compose down failed (rc=$?)"
+    $TEST_COMPOSE down || echo "[WARN] teardown: podman-compose down failed (rc=$?)"
     if [ "$fail" -gt 0 ]; then
         echo "test_stack_up: $pass passed, $fail failed"
         exit 1
@@ -110,7 +115,7 @@ step2_start() {
     echo "[INFO] Creating external network if needed..."
     podman network create dataops_default 2>&1 || echo "  (network may already exist)"
     echo "[INFO] Starting stack..."
-    if podman-compose -f "$COMPOSE_FILE" up -d; then
+    if $TEST_COMPOSE up -d; then
         record_pass "Start stack"
         return 0
     fi
@@ -209,7 +214,7 @@ step10_teardown() {
         record_pass "Tear down deferred (KEEP_STACK_UP=1)"
         return 0
     fi
-    if podman-compose -f "$COMPOSE_FILE" down; then
+    if $TEST_COMPOSE down; then
         record_pass "Tear down stack"
         return 0
     fi

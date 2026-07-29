@@ -96,7 +96,7 @@ Remap stages:
 1. `provider = "opencode"`; parse request body JSON; `model_raw` = body `model`.
 2. **GENERATED canonicalization block** (from `conf/model-registry.yaml` via `res/scripts/gen-model-registry.sh`, never hand-edited): lowercase exact alias hit → last-slash-segment hit → last segment. Result in `.model`.
 3. `.stream`, `.method`, `.uri`, sizes; upstream latency ms → seconds.
-4. Tokens from `resp_parsed.usage`; SSE fallback: regex-extract `"usage":{...}` from `data:` payload.
+4. Tokens from `resp_parsed.usage` only. SSE streams have no parseable JSON body in this pipeline; their token columns are explicitly zero in `request_log` (authoritative SSE counts live in `usage_log` via the sse-usage plugin).
 5. Identity: `api_key_id` from consumer username; `key_id` = SHA-256(x-gateway-key-id or Bearer token)[:16]; tenant/user/session/parent-session/user-agent from headers.
 6. `event_id = route_id + "_" + to_int(start_time_ms / 1000)`; `request_id` from `x-request-id` header; timestamp formatted from `start_time` ms.
 
@@ -107,7 +107,7 @@ Remap stages:
 1. `init`  -  triggers `provider-sync.sync({})` so pricing cache is warm.
 2. `access`  -  captures request body `model` into `ctx.sse_req_model`.
 3. `header_filter`  -  enables tracking for `text/event-stream` (stream) or `application/json` (batch).
-4. `body_filter`  -  buffers via `sse_usage_lib.buffer_chunk`; scans complete lines (`scan_sse_for_usage` / `parse_json_usage`) for usage, model, `estimated_cost`, reasoning text; tracks `[DONE]` and upstream EOF.
+4. `body_filter`  -  buffers via `sse_usage_lib.buffer_chunk`; scans complete lines (`scan_sse_for_usage` / `parse_json_usage`) for usage, model, `estimated_cost`; tracks `[DONE]` and upstream EOF.
 5. `log`  -  computes `aborted` (0 completed, 1 client abort, 2 provider abort), extracts tokens via `sse_usage_lib.extract_tokens`, resolves cost via `cost_calc.resolve_cost`, canonicalizes model (`model_registry.canonical`, verbatim kept in `model_raw`), builds `event_id`/`request_id`/`key_id`, encodes a JSONEachRow entry and INSERTs into `usage_log` from `ngx.timer.at` with retries {0.1, 0.5, 2.0}s. Also increments the `quota_counters` shared dict when `ctx.quota_bucket_key` is set.
 
 ## 7. Reconciler

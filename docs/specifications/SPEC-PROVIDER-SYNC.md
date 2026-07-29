@@ -70,11 +70,12 @@ Keys are `pricing:<canonical_id>` via `model_registry.canonical()`, so every
 alias of a model resolves to the same price and alias-shaped keys cannot
 diverge. Providers are iterated in sorted order; first writer wins.
 
-### 2.4 Fail-soft enrichment
+### 2.4 Independent enrichment sources
 
 A failed models.dev fetch logs a warning and sync continues with an empty
-catalog so `gateway`/`llamafile` providers still populate from endpoints or
-`backup_models`.
+models.dev catalog so `gateway`/`llamafile` providers still populate from
+their own endpoints. Endpoint failures are explicit: empty model list plus
+an error log (FR-2.3).
 
 ## 3. Provider Definition Schema (`conf/providers/*.yaml`)
 
@@ -95,7 +96,7 @@ One provider document per file; `id` is authoritative.
 | `model_source.normalize` | object | no | `strip_prefix`, `lowercase` |
 | `model_source.endpoint` | string | for gateway/llamafile | `/models` endpoint; relative resolves to `http://localhost:9080` |
 | `model_source.api_key` | string | no | Bearer for endpoint fetch |
-| `model_source.backup_models` | list | no | Fallback model entries |
+| `model_source.model_metadata` | list | no | Static metadata overlay for endpoint-reported ids (never introduces ids) |
 | `model_aliases` | map | no | alias id -> real model id (deep-copied entry) |
 | `cost_source` | string | no (default `none`) | models.dev provider id used to fill missing costs |
 | `context_limit_pct` | int | no (100) | Context scaling percentage |
@@ -105,7 +106,7 @@ Deployed files (6): `workspace-gw-kimi-oauth` (oauth, moonshotai),
 `workspace-gw-kimi-private` (virtual_key, moonshotai),
 `workspace-gw-kimi-own` (none, moonshotai), `workspace-gw-private`
 (virtual_key, opencode), `workspace-gw-own` (none, opencode),
-`workspace-gw-llamafile` (none, `llamafile` source with `backup_models`,
+`workspace-gw-llamafile` (none, `llamafile` source with `model_metadata`,
 `cost_source: none`). All three Kimi providers alias
 `kimi-for-coding -> kimi-k2.7-code`.
 
@@ -152,7 +153,9 @@ From `plugins/custom/provider-sync.lua:32-67`:
    - `models_dev_provider`: build entries from `models_dev[provider].models`.
    - `gateway`/`llamafile`: fetch endpoint (relative paths prefixed with
      `http://localhost:9080`, `User-Agent: WORKSPACE-GW/0.1`, optional Bearer);
-     on failure or empty id list use `backup_models`.
+     on failure or empty id list, log an error and sync the provider with
+     zero models. `model_metadata` entries overlay metadata onto
+     endpoint-reported ids only.
    - Unknown source type: warn, empty model list.
 5. Apply `model_aliases`: copy the target entry under each alias id.
 6. `pricing.apply_cost_source(provider, models, models_dev)`: for each model
@@ -271,7 +274,7 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 | `plugins/custom/provider-sync.lua` | Plugin: schema, init warmup, HTTP routing | thin wrapper over catalog |
 | `plugins/custom/provider_sync_catalog.lua` | YAML load, enrichment, sync, cache | owns defaults and cache keys |
 | `plugins/custom/provider_sync_pricing.lua` | `pricing:*` writer + cost_source fill | split from catalog; sole writer |
-| `conf/providers/*.yaml` | 6 provider definitions | incl. `model_aliases`, `backup_models` |
+| `conf/providers/*.yaml` | 6 provider definitions | incl. `model_aliases`, `model_metadata` |
 | `conf/apisix.yaml` | `gateway-provider-sync` route | limit-count 60 RPM |
 | `res/scripts/opencode-provider-login.sh` | Client login | bash+curl+jq only |
 | `tests/lua/test_provider_sync.lua` | Unit tests | mock ngx + fixtures |

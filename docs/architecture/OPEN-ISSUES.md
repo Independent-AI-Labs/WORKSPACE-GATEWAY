@@ -26,16 +26,11 @@ a models.dev pricing snapshot lands in ClickHouse.
 `http_x_key_hash`) on opencode and federated routes. Per-key variable
 limits from OpenBao are not wired in config today.
 
-### CJK token estimation accuracy
-
-**[OPEN]** `sse_usage_lib.count_tokens` uses a byte-range heuristic
-(~10-20% error for CJK vs provider counts). See
-[`SPEC-COST-CALC.md`](../specifications/SPEC-COST-CALC.md).
-
 ## Fixed changelog (summary)
 
 | Date | Fix |
 |------|-----|
+| 2026-07 | Token estimation removed: `sse_usage_lib.count_tokens` byte heuristic deleted; token counts are upstream-reported only (unreported dimensions are explicit 0) |
 | 2026-07 | etcd traditional mode; Admin API + `${{ADMIN_KEY}}` |
 | 2026-07 | `request_id` in usage_log and request_log; `request-id` plugin |
 | 2026-07 | `event_id` integer-seconds; model canonicalization both paths |

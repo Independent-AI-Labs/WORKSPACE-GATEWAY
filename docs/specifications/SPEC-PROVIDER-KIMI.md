@@ -60,7 +60,7 @@ OAuth access-token JWT, `vgw-*` virtual key, or `sk-...` Moonshot key.
 Sessions are stored under `sha256(access_token_as_issued)`. Refresh updates the
 same record, so the client's stored credential keeps working indefinitely.
 
-### 2.3 No silent fallbacks
+### 2.3 Explicit error handling
 
 Missing header, `sk-` on `/kimi/*`, unknown session, and refresh failures all
 return explicit 4xx/5xx; nothing proxies unauthenticated.
@@ -126,8 +126,8 @@ record, return `{ access_token, expires_in, account: { sub }, session_id }`.
 
 **proxy:** extract bearer (401 `missing Authorization header`); reject `sk-`
 (401 `API keys are not accepted on /kimi; use /kimi-key`); load session by
-`sha256(bearer)` with JWT-`sub` fallback (401 `session not found; run device
-flow first`); if the live token expires within `refresh_threshold`, refresh
+`sha256(bearer)` only (401 `session not found; run device flow first` on
+miss); if the live token expires within `refresh_threshold`, refresh
 and update the same session key (401 `re-authenticate` + session delete on
 `invalid_grant`; 503 `token refresh failed` on transient error). Set:
 
@@ -211,7 +211,9 @@ client-held access token is a session secret treated like an API key.
 ## 8. Edge Cases & Decisions
 
 - `session_id` is correlation/audit metadata only; never required post-handshake.
-- A rotated access token still resolves via the JWT-`sub` fallback lookup.
+- Sessions resolve by issued-token hash only (2.2): refresh rewrites the same
+  record, so the client-held credential resolves for the session lifetime.
+  Any other bearer is an explicit 401.
 - If session storage fails after a successful refresh, the request proceeds
   with the fresh token (logged error) rather than failing.
 - `/v1/usages` responses are informational and not parsed for usage telemetry.

@@ -1,5 +1,7 @@
 # Multi-tenant LLM Gateway on APISIX
 
+![Gateway routes screenshot](res/gateway-screenshot.jpg)
+
 Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
 **spend limits**, **PII redaction**, and built-in **safety and moderation**
 pipelines.
@@ -12,7 +14,7 @@ This repo ships sample routes to OpenCode and llamafile.
 
 **Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
 The gateway itself is provider-agnostic: add relay routes or swap to
-`ai-proxy` / `ai-proxy-multi` for any OpenAI-compatible backend (see
+single-target `ai-proxy` for any OpenAI-compatible backend (see
 [Supported Providers](#supported-providers)).
 
 > Full technical reference: [`docs/architecture/README.md`](docs/architecture/README.md)
@@ -99,8 +101,8 @@ Deeper flows are diagrammed in the section that owns each concern:
 [Plugins](#plugins) (request path), [Configuration](#configuration)
 (telemetry, metrics, route config), [Key Management](#key-management) (auth).
 
-Each new provider is a relay route + upstream node (or `ai-proxy` /
-`ai-proxy-multi`; see [`docs/specifications/SPEC-ENTERPRISE-AUTH.md`](docs/specifications/SPEC-ENTERPRISE-AUTH.md)
+Each new provider is a relay route + upstream node (or single-target
+`ai-proxy`; see [`docs/specifications/SPEC-ENTERPRISE-AUTH.md`](docs/specifications/SPEC-ENTERPRISE-AUTH.md)
 and [Supported Providers](#supported-providers)). Diagram authoring rules:
 [`../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md).
 
@@ -110,6 +112,9 @@ and [Supported Providers](#supported-providers)). Diagram authoring rules:
 |-------|--------|------|-----------------|
 | `relay-opencode` | `/opencode/*` | Direct key passthrough | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-federated` | `/opencode_federated/*` | Virtual keys (`vgw-*`) via OpenBao | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
+| `relay-kimi` | `/kimi/*` | `kimi-auth` OAuth device flow | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
+| `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
+| `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile (`host.docker.internal:8765`) |
 
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
@@ -123,10 +128,11 @@ for the Moonshot Kimi spec.
 
 ## Supported Providers
 
-APISIX's built-in `ai-proxy` and `ai-proxy-multi` plugins support the
-following LLM provider backends. Swap the plain upstream proxy in
-`conf/apisix.yaml` for `ai-proxy` (single provider) or `ai-proxy-multi`
-(load balancing, retries, health checks across multiple providers).
+APISIX's built-in `ai-proxy` plugin supports the following LLM provider
+backends. Swap the plain upstream proxy in `conf/apisix.yaml` for
+single-target `ai-proxy`. Each route binds to one explicit upstream;
+upstream API-key quota exhaustion is handled by upstream key pools (see
+[Key Management](#key-management)).
 
 | Provider | Value | Default Endpoint | Since |
 |----------|-------|------------------|-------|
@@ -141,9 +147,6 @@ following LLM provider backends. Swap the plain upstream proxy in
 | AWS Bedrock | `bedrock` | `bedrock-runtime.{region}.amazonaws.com` (SigV4 signed) | 3.17 |
 | Any OpenAI-compatible | `openai-compatible` | custom (via `override.endpoint`) | 3.0 |
 
-**`ai-proxy-multi`** adds: load balancing across instances, automatic
-retries on failure, health checks, and provider-level routing rules.
-
 ---
 
 ## Features
@@ -153,6 +156,8 @@ retries on failure, health checks, and provider-level routing rules.
 | PII redaction (on-the-fly sensitive data anonymisation) + re-hydration | `redact`: regex + dictionary + Luhn, pure Lua | Custom |
 | Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
 | Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
+| Upstream key pool rotation | `key-resolver` + `upstream_pool_lib.lua`: sticky selection, auto-rotate on 429/402/403 | Custom |
+| Kimi OAuth device-code flow | `kimi-auth` + `kimi_device`/`kimi_jwt`/`kimi_tokens`: OpenBao session storage, transparent refresh | Custom |
 | SSE token extraction | `sse-usage`: buffers SSE, extracts usage, writes ClickHouse | Custom |
 | Per-key rate limiting (RPM) | `limit-count` + `key-meta` | Built-in + custom Lua |
 | Per-key token/cost budget | `key-resolver` + `sse-usage` + `ngx.shared` | Custom Lua |
@@ -259,25 +264,37 @@ flowchart TB
 Applies to `/opencode/*` and `/opencode_federated/*` only; `/llamafile/*`
 has no `Authorization` flow.
 
-### Two Key Modes
+### Key Modes
 
-1. **Virtual keys** (`vgw-*`): Used on the `/opencode_federated/*`
-   route. Stored in OpenBao (production file-storage mode with
-   persistent volumes). Resolved to an upstream provider API key. Can be
-   revoked, rate-limited per tenant, audited. Cached in `key_cache`
+1. **Virtual keys** (`vgw-*`): Used on the `/opencode_federated/*` and
+   `/kimi-federated/*` routes. Stored in OpenBao (production file-storage
+   mode with persistent volumes). Resolved to an upstream provider API key.
+   Can be revoked, rate-limited per tenant, audited. Cached in `key_cache`
    shared dict (5s TTL in dev, 300s in prod).
 
 2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): Used on the
-   `/opencode/*` route. Passed through to upstream as-is. No OpenBao
-   lookup. Users bring their own upstream provider API keys.
+   `/opencode/*` and `/kimi-key/*` routes. Passed through to upstream as-is.
+   No OpenBao lookup. Users bring their own upstream provider API keys.
+
+3. **Upstream key pools**: Named pools of upstream API keys shared by one or
+   more virtual keys. The `key-resolver` plugin selects keys sticky-style and
+   rotates on upstream quota/rate-limit responses (429 parks a key in cooldown,
+   402/403 hard-disables it in OpenBao). Create and attach pools via
+   `make pool-key` and `make issue-key POOL=...`. Details:
+   [`docs/runbooks/RUNBOOK-KEYS.md`](docs/runbooks/RUNBOOK-KEYS.md) +
+   [`docs/architecture/KEY-MANAGEMENT.md`](docs/architecture/KEY-MANAGEMENT.md).
 
 ### Commands
 
 ```bash
 make issue-key                              # Create vgw-<random hex> key
 make issue-key KEY_ID=my-key TENANT_ID=acme USER_ID=alice
+make issue-key KEY_ID=my-key POOL=kimi      # Attach key to upstream pool
 make list-keys                              # List all keys with metadata
 make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
+make pool-key ARGS='list'                   # List upstream key pools
+make pool-key ARGS='create kimi'            # Create a new pool
+make pool-key ARGS='add kimi k1 sk-...'     # Add a key to a pool
 ```
 
 ---
@@ -398,8 +415,10 @@ reload provisioning. See [`docs/specifications/SPEC-DASHBOARD.md`](docs/specific
 ## opencode Integration
 
 The gateway registers as `workspace-gw-private` (virtual key),
-`workspace-gw-own` (own key), and `workspace-gw-llamafile` (local LLM)
-custom providers in opencode.
+`workspace-gw-own` (own key), `workspace-gw-llamafile` (local LLM), and three
+Moonshot Kimi providers (`workspace-gw-kimi-oauth` for OAuth device flow,
+`workspace-gw-kimi-private` for virtual key, and `workspace-gw-kimi-own` for
+own key) as custom providers in opencode.
 
 ```bash
 # Sync all models from gateway into opencode config
@@ -410,11 +429,19 @@ This fetches `/opencode_federated/v1/models` from the gateway using the
 virtual gateway key, enriches each model with canonical metadata (name,
 context limit, capabilities, cost, modalities) from [models.dev](https://models.dev),
 and also fetches `/llamafile/v1/models` for the local llamafile upstream.
-It writes THREE provider entries into `~/.config/opencode/opencode.jsonc`:
+It writes provider entries into `~/.config/opencode/opencode.jsonc` for the
+OpenCode and Kimi access modes, plus llamafile:
 
 - `workspace-gw-private`: virtual-key mode (apiKey = `vgw-gateway-key`)
 - `workspace-gw-own`: own-key passthrough (no apiKey, client provides key)
 - `workspace-gw-llamafile`: no-auth local LLM (VM-hosted llamafile, no apiKey)
+- `workspace-gw-kimi-oauth`: OAuth device-flow (gateway-managed Kimi token)
+- `workspace-gw-kimi-private`: virtual-key mode for Kimi (`vgw-*`)
+- `workspace-gw-kimi-own`: own Moonshot key passthrough for Kimi
+
+For the OAuth providers, use the login script in
+[`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)
+which starts the device flow and prints the verification URL.
 
 The first two providers receive the full enriched model catalog so opencode
 does not drop them (opencode deletes providers with zero models). The
@@ -520,8 +547,12 @@ See [`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md) for the full st
 | Target | Description |
 |--------|-------------|
 | `make issue-key` | Create new `vgw-*` key in OpenBao |
+| `make issue-key KEY_ID=... POOL=...` | Create a key attached to an upstream key pool |
 | `make list-keys` | List all keys with metadata |
 | `make revoke-key KEY_ID=vgw-xxx` | Revoke a key |
+| `make pool-key ARGS='list'` | List upstream key pools |
+| `make pool-key ARGS='create kimi'` | Create a new upstream key pool |
+| `make pool-key ARGS='add kimi k1 sk-...'` | Add a key to an upstream pool |
 | `make sync-models` | Sync models from gateway to opencode config |
 
 ### Quality Gates
@@ -545,7 +576,7 @@ See [`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md) for the full st
 - **[`docs/requirements/`](docs/requirements/)** : Functional/non-functional requirements (REQ-*, RFC 2119)
 - **[`docs/specifications/`](docs/specifications/)** : Implementation specifications (SPEC-*), one per REQ
 - **[`docs/runbooks/RUNBOOK-DEPLOYMENT.md`](docs/runbooks/RUNBOOK-DEPLOYMENT.md)** : Deployment and operations runbook
-- **[`docs/runbooks/RUNBOOK-KEYS.md`](docs/runbooks/RUNBOOK-KEYS.md)** : Gateway key lifecycle (issue/list/revoke)
+- **[`docs/runbooks/RUNBOOK-KEYS.md`](docs/runbooks/RUNBOOK-KEYS.md)** : Gateway key lifecycle (issue/list/revoke) and upstream key pool management
 - **[`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)** : Client provider login script usage
 - **[`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
 - **[`docs/reference/OPENCODE-SERVER-API.md`](docs/reference/OPENCODE-SERVER-API.md)** : Upstream opencode server API reference

@@ -211,23 +211,10 @@ local function ensure_fresh_token(conf, bearer, session)
 end
 
 local function load_session_by_bearer(conf, bearer)
-    local session, err = tokens.load_session_by_bearer(conf, bearer)
-    if session then return session, nil end
-
-    --Bearer may be a rotated access_token; try looking up by JWT subject.
-    local sub = jwt.subject(bearer)
-    if sub then
-        --Subject index is optional; fall back gracefully if not present.
-        local sub_session, sub_err = tokens.load_session_by_bearer(conf, sub)
-        if sub_session then
-            return sub_session, nil
-        end
-        if sub_err and not sub_err:find("not found") then
-            return nil, sub_err
-        end
-    end
-
-    return nil, err or "session not found"
+    --Sessions resolve by sha256(issued access token) only. Refresh rewrites
+    --the same record, so the client-held credential resolves for the session
+    --lifetime; any other bearer is an explicit 401.
+    return tokens.load_session_by_bearer(conf, bearer)
 end
 
 function plugin.access(conf, ctx)

@@ -119,10 +119,15 @@ LUAEOF
 # Run the Lua test inside the APISIX container (the only place luajit is
 # available). The module requires zero dependency injection thanks to
 # deferred requires.
-podman cp "$MODULE_FILE" docker_apisix_1:/tmp/cost_calc_check.lua >/dev/null 2>&1
-podman cp "$REPO_ROOT/plugins/custom/model_registry.lua" docker_apisix_1:/tmp/model_registry.lua >/dev/null 2>&1
+APISIX_CONTAINER=$(podman ps --format '{{.Names}}' | grep -E 'apisix' | head -1)
+if [ -z "$APISIX_CONTAINER" ]; then
+    echo "[FAIL] No apisix container running"
+    exit 1
+fi
+podman cp "$MODULE_FILE" "$APISIX_CONTAINER":/tmp/cost_calc_check.lua >/dev/null 2>&1
+podman cp "$REPO_ROOT/plugins/custom/model_registry.lua" "$APISIX_CONTAINER":/tmp/model_registry.lua >/dev/null 2>&1
 
-LUA_OUTPUT=$(podman exec docker_apisix_1 luajit -e "
+LUA_OUTPUT=$(podman exec "$APISIX_CONTAINER" luajit -e "
 package.path = '/tmp/?.lua;' .. package.path
 COST_CALC_MODULE = '/tmp/cost_calc_check.lua'
 $(echo "$TEST_LUA" | sed 's/^/  /')

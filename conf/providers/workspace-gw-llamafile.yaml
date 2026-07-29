@@ -12,7 +12,7 @@ options:
 model_source:
   type: llamafile
   endpoint: "/llamafile/v1/models"
-  backup_models:
+  model_metadata:
     - id: "/zip/MiniCPM5-1B-Q8_0.gguf"
       name: "MiniCPM5"
       limit:

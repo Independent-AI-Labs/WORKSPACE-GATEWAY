@@ -1,4 +1,4 @@
-# RUNBOOK-KEYS: Gateway Virtual Key Lifecycle
+# RUNBOOK-KEYS: Gateway Virtual Key and Upstream Pool Lifecycle
 
 **Date:** 2026-07-17
 **Status:** Active
@@ -8,11 +8,13 @@
 
 ## Purpose
 
-Issue, list, and revoke virtual gateway keys (`vgw-*`) used on the federated
-routes. Keys are stored in OpenBao KV v2 at `secret/data/gateway/keys/<key_id>`
-and resolved at request time by the `key-resolver` plugin (cached in the
-`key_cache` shared dict). Architecture and KV record schema:
-[KEY-MANAGEMENT](../architecture/KEY-MANAGEMENT.md).
+Issue, list, and revoke virtual gateway keys (`vgw-*`), and manage named
+upstream key pools, used on the federated routes. Keys are stored in OpenBao
+KV v2 at `secret/data/gateway/keys/<key_id>` and resolved at request time by
+the `key-resolver` plugin (cached in the `key_cache` shared dict). Upstream
+pools are stored at `secret/data/gateway/upstream-pools/<pool>` and provide
+automatic key rotation on quota/rate-limit exhaustion. Architecture and KV
+record schema: [KEY-MANAGEMENT](../architecture/KEY-MANAGEMENT.md).
 
 ## Prerequisites
 
@@ -47,6 +49,7 @@ bash res/scripts/issue-key.sh \
 | `--tenant ID` | `default` | Tenant ID |
 | `--user ID` | `agent` | User ID |
 | `--upstream-key KEY` | empty | Upstream API key; empty = gateway uses `OPENCODE_API_KEY` env |
+| `--pool NAME` | empty | Named upstream key pool; takes precedence over `--upstream-key` |
 | `--rate-limit-rpm N` | `100` | Per-key requests per window |
 | `--rate-limit-window S` | `60` | RPM window seconds |
 | `--token-budget N` | `0` (unlimited) | Token budget per window |
@@ -85,7 +88,81 @@ Revocation is soft: the script reads the record, sets `active: false`, adds a
 for audit; the key is never deleted. Fails (exit 1) if the key does not exist
 or OpenBao is unreachable.
 
-### 4. Inspect a key record directly
+### 4. Manage upstream key pools
+
+Script: [`res/scripts/pool-key.sh`](../../res/scripts/pool-key.sh).
+Make target: `make pool-key ARGS='...'`.
+
+Upstream pools are collections of API keys that can be shared by multiple
+virtual keys. The gateway rotates automatically when a key returns a
+cooldown status (default 429) or disable status (default 402/403). See
+[KEY-MANAGEMENT](../architecture/KEY-MANAGEMENT.md) for the rotation
+semantics and OpenBao record schema.
+
+#### 4.1 Create a pool
+
+```bash
+bash res/scripts/pool-key.sh create kimi
+```
+
+Optional flags:
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--cooldown-s N` | `3600` | Seconds a key stays in cooldown after a cooldown status |
+| `--cooldown-on LIST` | `429` | Comma-separated statuses that trigger cooldown |
+| `--disable-on LIST` | `402,403` | Comma-separated statuses that permanently disable a key |
+
+#### 4.2 Add a key to a pool
+
+```bash
+bash res/scripts/pool-key.sh add kimi k1 sk-xxxxxxxxxxxxxxxx
+```
+
+`k1` is an arbitrary identifier for the key inside the pool. The same pool
+can be attached to many virtual keys; each virtual key gets the same
+rotation behavior.
+
+#### 4.3 List pools or a pool's keys
+
+```bash
+bash res/scripts/pool-key.sh list          # all pool names
+bash res/scripts/pool-key.sh list kimi     # keys inside pool "kimi"
+```
+
+#### 4.4 Enable or disable a key in a pool
+
+```bash
+bash res/scripts/pool-key.sh disable kimi k1
+bash res/scripts/pool-key.sh enable kimi k1
+```
+
+Disabling sets `active: false` in OpenBao and namespaces the gateway's
+in-memory cooldown markers by bumping the pool epoch. Enabling does the
+same in reverse.
+
+#### 4.5 Reset a pool
+
+```bash
+bash res/scripts/pool-key.sh reset kimi
+```
+
+Re-enables every key in the pool. Use this after an incident to clear
+all hard disables and cooldowns.
+
+#### 4.6 Attach a pool to a virtual key
+
+```bash
+bash res/scripts/issue-key.sh --key-id vgw-kimi-pool --pool kimi
+# or
+make issue-key KEY_ID=vgw-kimi-pool POOL=kimi
+```
+
+`--pool` takes precedence over `--upstream-key`. If the pool is empty or
+all keys are disabled, requests on that virtual key return `503 pool
+exhausted`.
+
+### 5. Inspect a key record directly
 
 ```bash
 curl -sS -H "X-Vault-Token: $OPENBAO_TOKEN" \
@@ -102,6 +179,10 @@ curl -sS -H "X-Vault-Token: $OPENBAO_TOKEN" \
    (route-configured, 5s in dev) expires.
 4. The record still exists in OpenBao with `active: false` and `revoked_at`
    set.
+5. For pools: create a pool, add two keys, issue a virtual key with
+   `--pool <name>`, and trigger a 429 from the upstream. Verify the pool
+   list shows the first key on cooldown (`active=true` but in
+   `pool_state`) and the next request uses the second key.
 
 ## Troubleshooting
 
@@ -113,3 +194,7 @@ curl -sS -H "X-Vault-Token: $OPENBAO_TOKEN" \
 | Revoked key still works | `key_cache` shared dict TTL not yet expired | Wait for TTL or `restart apisix` |
 | `unknown option` from issue-key.sh | Unsupported flag | Only the flags in the table above are accepted |
 | revoke-key: `key not found` | Key ID typo or never issued | Verify with list-keys |
+| `pool not found` from pool-key.sh | Wrong pool name or OpenBao path | Use `pool-key.sh list` to see existing pools |
+| `key id already exists in pool` | Duplicate key id in the same pool | Choose a unique key id or remove the existing one |
+| `503 pool exhausted` on requests | All keys in the pool are disabled or the pool is empty | Check `pool-key.sh list <pool>`; run `pool-key.sh reset <pool>` or add keys |
+| Rotated key still receiving traffic after reset | In-memory `pool_state` cache still namespaced by old epoch | Wait for cache TTL or restart apisix |

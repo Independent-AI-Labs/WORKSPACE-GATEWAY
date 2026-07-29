@@ -396,7 +396,7 @@ function plugin.header_filter(conf, ctx)
     end
 
     --- Pool record is read from the cache populated during access (no network
-    --- I/O in header_filter). On cache miss, fall back to pool defaults.
+    --- I/O in header_filter). On cache miss the pool defaults apply.
     local pool
     local shared = ngx.shared.key_cache
     if shared then

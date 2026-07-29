@@ -138,8 +138,10 @@ second digit, and accepts when the sum is divisible by 10.
   `redact_lib.load_patterns` and repopulate the cache.
 - Fail-closed (503 `redact: patterns file not loaded`) or fail-open with an
   error log when patterns cannot be loaded.
-- Read and JSON-parse the body; if unparseable or `messages` is absent, set
-  `X-Redact-Error: non-chat-body` and pass through.
+- Read and JSON-parse the body; if unparseable or `messages` is absent:
+  `on_error=closed` rejects with 400 `redact: request body is not parseable
+  chat JSON` (no PII may egress unredacted); `on_error=open` sets
+  `X-Redact-Error: non-chat-body` and passes through.
 - If `stream: true` and `stream_mode == "reject"`, return 400
   `redact: streaming rejected`.
 - Redact every string `content` and every `content[]` part with `text`.
@@ -159,9 +161,9 @@ transfer; do not set `Transfer-Encoding` manually) and set
 - `passthrough` + streaming request: return immediately (tokens leak to the
   client; never the default).
 - Otherwise accumulate `ctx.redact_buffer`, swallowing non-EOF chunks.
-- On EOF: streaming bodies get a whole-buffer `restore_with_key`;
-  non-streaming bodies are JSON-parsed and restored per
-  `choices[].message.content` (whole-buffer fallback on parse failure).
+- On EOF: a single whole-buffer `restore_with_key` over the raw body. One
+  restore path for every response shape (stream or JSON); restoration needs
+  no JSON structure, only the token map.
 - Emit the restored body as the final chunk and clear the buffer.
 
 ### 7.4 restore_with_key

@@ -22,7 +22,8 @@ VRL remap extracts:
 - `request_id` from APISIX log (via `request-id` plugin)
 - `model` canonicalized (lowercase suffix, same algorithm as Lua)
 - Identity headers (`x-gateway-key-id`, tenant, user, session)
-- Tokens from JSON body when parseable; SSE fallback via `parse_regex`
+- Tokens from JSON body only; SSE streams record explicit zeros here (the
+  sse-usage plugin writes their authoritative counts to `usage_log`)
 - `event_id` from route_id + integer-seconds start_time
 
 Sink: batch insert to `request_log` with retry/backpressure

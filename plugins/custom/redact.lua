@@ -85,11 +85,11 @@ function plugin.access(conf, ctx)
     if not body or body == "" then return end
 
     local ok, parsed = pcall(cjson.decode, body)
-    if not ok or not parsed then
-        core.response.set_header("X-Redact-Error", "non-chat-body")
-        return
-    end
-    if not parsed.messages then
+    if not ok or not parsed or not parsed.messages then
+        if conf.on_error == "closed" then
+            core.log.error("redact: request body is not parseable chat JSON; rejecting (on_error=closed)")
+            return 400, { error = "redact: request body is not parseable chat JSON" }
+        end
         core.response.set_header("X-Redact-Error", "non-chat-body")
         return
     end
@@ -158,26 +158,11 @@ function plugin.body_filter(conf, ctx)
         return
     end
 
+    --Single restore path for every response shape (stream or JSON): tokens
+    --are restored in the raw buffered body. Restoration needs no JSON
+    --structure; the token map is the only input.
     local full_body = ctx.redact_buffer
-    local new_body
-
-    if ctx.redact_stream then
-        new_body = redact_lib.restore_with_key(full_body, ctx.redact_token_map)
-    else
-        local ok, parsed = pcall(cjson.decode, full_body)
-        if ok and parsed.choices then
-            for _, ch in ipairs(parsed.choices) do
-                if ch.message and ch.message.content then
-                    ch.message.content = redact_lib.restore_with_key(
-                        ch.message.content, ctx.redact_token_map
-                    )
-                end
-            end
-            new_body = cjson.encode(parsed)
-        else
-            new_body = redact_lib.restore_with_key(full_body, ctx.redact_token_map)
-        end
-    end
+    local new_body = redact_lib.restore_with_key(full_body, ctx.redact_token_map)
 
     ngx.arg[1] = new_body
     ngx.arg[2] = true

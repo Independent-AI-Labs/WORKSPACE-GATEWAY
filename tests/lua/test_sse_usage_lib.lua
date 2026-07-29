@@ -60,13 +60,13 @@ end
 
 local function scan_sse_tests()
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage(
             'data: {"choices":[{"delta":{"content":"hi"}}],"usage":null}\n')
         check(usage == nil, "scan[1] null usage returns nil")
     end
 
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage(
             'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15},"model":"minimax-m3"}\n')
         check(usage ~= nil, "scan[2] usage found")
         if usage then
@@ -78,13 +78,13 @@ local function scan_sse_tests()
     end
 
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("data: [DONE]\n")
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage("data: [DONE]\n")
         check(usage == nil, "scan[3] DONE returns nil")
         check(done == true, "scan[3] done flag set")
     end
 
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage(
             'data: {"choices":[{"delta":{"content":"a"}}],"usage":null}\n' ..
             'data: {"choices":[{"delta":{"content":"b"}}],"usage":null}\n' ..
             'data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30},"model":"gpt-5"}\n' ..
@@ -98,36 +98,27 @@ local function scan_sse_tests()
     end
 
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("")
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage("")
         check(usage == nil, "scan[5] empty string returns nil")
     end
 
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("event: ping\ndata: not json\n")
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage("event: ping\ndata: not json\n")
         check(usage == nil, "scan[6] non-data lines ignored")
     end
 
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage("data: {bad json}\n")
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage("data: {bad json}\n")
         check(usage == nil, "scan[7] bad json returns nil")
     end
 
     do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage(
             'data: {"choices":[{"delta":{"reasoning_content":"Therefore,"}}],"usage":null}\n' ..
             'data: {"choices":[{"delta":{"reasoning_content":" we conclude"}}],"usage":null}\n' ..
             'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"reasoning_tokens":3},"model":"glm-5.2"}\n')
         check(usage ~= nil, "scan[8] reasoning usage found")
         assert_eq(usage.reasoning_tokens, 3, "scan[8] reasoning_tokens")
-        assert_eq(reasoning_text, "Therefore, we conclude", "scan[8] reasoning_text accumulated")
-    end
-
-    do
-        local usage, model, done, cost, reasoning_text = sse_lib.scan_sse_for_usage(
-            'data: {"choices":[{"delta":{"reasoning_content":"\xE4\xBD\xA0\xE5\xA5\xBD"}}],"usage":null}\n' ..
-            'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8},"model":"deepseek-v4"}\n')
-        check(usage ~= nil, "scan[9] CJK reasoning found")
-        assert_eq(reasoning_text, "\xE4\xBD\xA0\xE5\xA5\xBD", "scan[9] CJK reasoning_text")
     end
 end
 
@@ -226,47 +217,11 @@ local function extract_tokens_tests()
     end
 
     do
+        --No upstream-reported reasoning field: value is explicitly 0, never
+        --estimated from reasoning_content text.
         local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(
-            {prompt_tokens = 10, completion_tokens = 20, total_tokens = 30},
-            "Therefore, we conclude the answer is 42")
-        assert_eq(reasoning, 10, "tokens[8] reasoning from text fallback")
-    end
-end
-
-local function count_tokens_tests()
-    do
-        local n = sse_lib.count_tokens("")
-        assert_eq(n, 0, "count[1] empty string")
-    end
-
-    do
-        local n = sse_lib.count_tokens(nil)
-        assert_eq(n, 0, "count[2] nil")
-    end
-
-    do
-        local n = sse_lib.count_tokens("Hello world")
-        assert_eq(n, 3, "count[3] ASCII: ceil(11/4)=3")
-    end
-
-    do
-        local n = sse_lib.count_tokens("aaaaaaaaaaaaaaaaaaaa")
-        assert_eq(n, 5, "count[4] ASCII: ceil(20/4)=5")
-    end
-
-    do
-        --CJK chars: 6 bytes (3 bytes each), ceil(6/2)=3
-        local n = sse_lib.count_tokens("\xE4\xBD\xA0\xE5\xA5\xBD")
-        assert_eq(n, 3, "count[5] CJK: ceil(6/2)=3")
-    end
-
-    do
-        --4 CJK chars = 12 bytes + 5 ASCII bytes
-        local n = sse_lib.count_tokens("\xE4\xBD\xA0\xE5\xA5\xBD\xE4\xB8\x96\xE7\x95\x8C hello")
-        --ASCII: 6 bytes (space+h+e+l+l+o), ceil(6/4)=2
-        --CJK: 12 bytes, ceil(12/2)=6
-        --Total: 8
-        assert_eq(n, 8, "count[6] mixed CJK+ASCII: ceil(6/4)+ceil(12/2)=2+6=8")
+            {prompt_tokens = 10, completion_tokens = 20, total_tokens = 30})
+        assert_eq(reasoning, 0, "tokens[8] unreported reasoning is zero")
     end
 end
 
@@ -275,7 +230,6 @@ local function main()
     scan_sse_tests()
     parse_json_usage_tests()
     extract_tokens_tests()
-    count_tokens_tests()
 
     io.write(string.format("\n==== SSE usage lib tests: %d passed, %d failed ====\n", pass, fail))
     if fail > 0 then

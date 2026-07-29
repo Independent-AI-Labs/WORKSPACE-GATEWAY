@@ -12,6 +12,12 @@ fi
 
 export PATH="$PATH:$REPO_ROOT/.venv/bin"
 
+# Test-isolated compose file (no container_name fields; invoked with -p gw-test
+# so teardown can NEVER touch the production stack).
+TEST_COMPOSE_FILE="$SCRIPT_DIR/docker-compose.test.yml"
+TEST_PROJECT="gw-test"
+TEST_COMPOSE="podman-compose -p $TEST_PROJECT -f $TEST_COMPOSE_FILE"
+
 pass=0
 fail=0
 
@@ -70,7 +76,7 @@ fi
 if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ] && [ "${EXTERNAL_STACK:-0}" != "1" ]; then
     echo ""
     echo "[INFO] Tearing down test stack after all tests..."
-    podman-compose -f "$REPO_ROOT/res/docker/docker-compose.yml" down || echo "[WARN] teardown failed (rc=$?)"
+    $TEST_COMPOSE down || echo "[WARN] teardown failed (rc=$?)"
 elif [ "${EXTERNAL_STACK:-0}" = "1" ]; then
     echo ""
     echo "[INFO] Stack was already running: leaving it up."

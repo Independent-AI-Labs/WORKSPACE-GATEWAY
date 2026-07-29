@@ -3,7 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPOSE_FILE="$REPO_ROOT/res/docker/docker-compose.yml"
+
+# Test-isolated compose (no container_name fields; -p gw-test keeps prod safe)
+TEST_COMPOSE_FILE="$SCRIPT_DIR/../docker-compose.test.yml"
+TEST_PROJECT="gw-test"
+TEST_COMPOSE="podman-compose -p $TEST_PROJECT -f $TEST_COMPOSE_FILE"
 
 export PATH="$PATH:$REPO_ROOT/.venv/bin"
 
@@ -30,7 +34,7 @@ teardown() {
         exit 0
     fi
     echo "[INFO] Runner tearing down stack..."
-    podman-compose -f "$COMPOSE_FILE" down || echo "[WARN] teardown failed (rc=$?)"
+    $TEST_COMPOSE down || echo "[WARN] teardown failed (rc=$?)"
     echo ""
     echo "Integration tests: $pass passed, $fail failed"
     if [ "$fail" -gt 0 ]; then

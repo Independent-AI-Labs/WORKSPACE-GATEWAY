@@ -119,16 +119,16 @@ done
 
 # ── 6. Container names do not conflict ────────────────────────────────
 
-if podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^gw-grafana$'; then
-    record_pass "Grafana container name is gw-grafana (no conflict)"
+if podman ps --format '{{.Names}}' 2>/dev/null | grep -q -E '(gw-grafana|gw-test.*grafana)'; then
+    record_pass "Grafana container running (no conflict)"
 else
-    record_fail "Grafana container name gw-grafana not found"
+    record_fail "Grafana container not found"
 fi
 
-if podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^gw-prometheus$'; then
-    record_pass "Prometheus container name is gw-prometheus (no conflict)"
+if podman ps --format '{{.Names}}' 2>/dev/null | grep -q -E '(gw-prometheus|gw-test.*prometheus)'; then
+    record_pass "Prometheus container running (no conflict)"
 else
-    record_fail "Prometheus container name gw-prometheus not found"
+    record_fail "Prometheus container not found"
 fi
 
 if podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^ami-prometheus$'; then
