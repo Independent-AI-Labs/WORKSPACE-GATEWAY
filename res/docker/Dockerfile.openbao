@@ -1,6 +1,6 @@
 FROM docker.io/openbao/openbao:2.4.4
 
-RUN apk add --no-cache jq bash
+RUN apk add --no-cache curl jq bash
 
 COPY res/docker/openbao-entrypoint.sh /usr/local/bin/openbao-entrypoint.sh
 RUN chmod +x /usr/local/bin/openbao-entrypoint.sh

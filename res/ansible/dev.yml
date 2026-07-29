@@ -19,10 +19,10 @@
 #   sanity   - single curl request through gateway
 #
 # Makefile orchestrates multi-step flows:
-#   dev-start = _compose-build + _compose-up + ansible --tags start
-#   dev-stop = _compose-down (no ansible needed)
-#   dev-restart = dev-stop + dev-start
-#   dev-test = bash tests/run_all.sh (no ansible needed)
+#   gw-start   = systemd unit start + post-start health (this playbook --tags start)
+#   gw-stop    = systemd unit stop (res/ansible/compose.yml --tags stop)
+#   gw-restart = drain apisix (SIGQUIT) + gw-build + systemd restart (+ health)
+#   gw-test    = bash tests/run_all.sh (no ansible needed)
 
 - name: WORKSPACE-GATEWAY dev lifecycle
   hosts: localhost
@@ -75,17 +75,19 @@
       tags: always
 
 
-    # ── start: render apisix.yaml, then health checks + init + sync ──────
-    # NOTE: compose build/up/down are now Makefile targets (see header).
-    # This tag assumes the stack is already up via `make _compose-up`.
-    # APISIX standalone YAML mode polls apisix.yaml every 1s, so rendering
-    # the .j2 here (after compose-up) hot-reloads the llamafile route into
-    # the running APISIX without a container restart.
+# ── start: render apisix.yaml, health checks + init + sync ──────────
+# NOTE: compose build/up/down are now Makefile targets (see header).
+# This tag assumes the stack is already up via the systemd unit.
+# APISIX standalone YAML mode polls apisix.yaml every 1s, so rendering
+# the .j2 here (after compose-up) hot-reloads the llamafile route into
+# the running APISIX without a container restart.
+# Subtags: setup (one-time init tasks), health (service readiness checks).
+# Both run under --tags start; --tags health or --tags setup selects subset.
     - name: Capture llamafile upstream env vars (empty -> .j2 defaults apply)
       ansible.builtin.set_fact:
         LLAMAFILE_UPSTREAM_HOST: "{{ lookup('env', 'LLAMAFILE_UPSTREAM_HOST') }}"
         LLAMAFILE_UPSTREAM_PORT: "{{ lookup('env', 'LLAMAFILE_UPSTREAM_PORT') }}"
-      tags: [start]
+      tags: [start, setup]
 
     - name: Render conf/apisix.yaml from .j2 template (env-driven llamafile route)
       ansible.builtin.template:
@@ -93,19 +95,19 @@
         dest: "{{ project_root }}/conf/apisix.yaml"
         mode: '0644'
         backup: false
-      tags: [start]
+      tags: [start, setup]
 
     - name: Create external network dataops_default
       ansible.builtin.command: podman network create dataops_default
       register: net_create
       changed_when: net_create.rc == 0
       failed_when: net_create.rc != 0 and 'exists' not in (net_create.stderr | default(''))
-      tags: [start]
+      tags: [start, setup]
 
     - name: Show network create result
       ansible.builtin.debug:
         msg: "{{ net_create.stdout_lines | default([]) + (net_create.stderr_lines | default([])) }}"
-      tags: [start]
+      tags: [start, setup]
 
     - name: Wait for OpenBao to be ready (unsealed)
       ansible.builtin.uri:
@@ -117,7 +119,7 @@
       until: bao_health.status == 200
       retries: 30
       delay: 2
-      tags: [start]
+      tags: [start, health]
 
     - name: Wait for APISIX to be ready
       ansible.builtin.uri:
@@ -129,7 +131,7 @@
       until: apisix_health.status in [200, 404]
       retries: 15
       delay: 2
-      tags: [start]
+      tags: [start, health]
 
     - name: Wait for etcd to be ready
       ansible.builtin.uri:
@@ -141,7 +143,7 @@
       until: etcd_health.status == 200
       retries: 15
       delay: 2
-      tags: [start]
+      tags: [start, health]
 
     - name: Wait for APISIX Admin API to be ready
       ansible.builtin.uri:
@@ -155,7 +157,7 @@
       until: admin_health.status == 200
       retries: 15
       delay: 2
-      tags: [start]
+      tags: [start, health]
 
     - name: Seed routes from conf/apisix.yaml into Admin API (etcd)
       ansible.builtin.command: "{{ project_root }}/res/scripts/seed-routes.sh"
@@ -163,12 +165,12 @@
         chdir: "{{ project_root }}"
       register: seed_result
       changed_when: "'seeded' in (seed_result.stdout | default(''))"
-      tags: [start]
+      tags: [start, setup]
 
     - name: Show seed result
       ansible.builtin.debug:
         var: seed_result.stdout_lines
-      tags: [start]
+      tags: [start, setup]
 
     - name: Wait for ClickHouse to be ready
       ansible.builtin.uri:
@@ -180,7 +182,7 @@
       until: ch_health.status == 200
       retries: 15
       delay: 2
-      tags: [start]
+      tags: [start, health]
 
     - name: Run ClickHouse init SQL (idempotent)
       ansible.builtin.shell: >
@@ -188,12 +190,12 @@
         < {{ project_root }}/conf/clickhouse-init.sql
       register: ch_init
       changed_when: true
-      tags: [start]
+      tags: [start, setup]
 
     - name: Show ClickHouse init output
       ansible.builtin.debug:
         var: ch_init.stdout_lines
-      tags: [start]
+      tags: [start, setup]
 
     - name: Run ClickHouse schema migrations (golang-migrate via compose)
       ansible.builtin.command: "{{ compose_cmd }} run --rm migrate up"
@@ -201,12 +203,12 @@
         chdir: "{{ project_root }}"
       register: ch_migrate
       changed_when: "'no change' not in (ch_migrate.stdout | default(''))"
-      tags: [start]
+      tags: [start, setup]
 
     - name: Show schema migration output
       ansible.builtin.debug:
         var: ch_migrate.stdout_lines
-      tags: [start]
+      tags: [start, setup]
 
     - name: Wait for Prometheus metrics endpoint
       ansible.builtin.uri:
@@ -218,7 +220,7 @@
       until: prom_health.status == 200
       retries: 15
       delay: 2
-      tags: [start]
+      tags: [start, health]
 
     - name: Wait for gateway Prometheus to be ready
       ansible.builtin.uri:
@@ -230,7 +232,7 @@
       until: gw_prom_health.status == 200
       retries: 15
       delay: 2
-      tags: [start]
+      tags: [start, health]
 
     - name: Wait for Grafana to be ready
       ansible.builtin.uri:
@@ -242,7 +244,7 @@
       until: grafana_health.status == 200
       retries: 30
       delay: 3
-      tags: [start]
+      tags: [start, health]
 
     - name: Display stack endpoints
       ansible.builtin.debug:
@@ -258,7 +260,7 @@
             Vector:             http://localhost:18080/ingest
             OpenBao:            http://localhost:8201
             etcd:               http://localhost:2379
-      tags: [start]
+      tags: [start, health]
 
     - name: Trigger provider model sync on the gateway
       ansible.builtin.shell: |
@@ -270,12 +272,12 @@
         chdir: "{{ project_root }}"
       register: sync_result
       changed_when: true
-      tags: [start]
+      tags: [start, setup]
 
     - name: Show sync result
       ansible.builtin.debug:
         var: sync_result.stdout_lines
-      tags: [start]
+      tags: [start, setup]
 
 
     # ── status: show running containers + health ─────────────────────────

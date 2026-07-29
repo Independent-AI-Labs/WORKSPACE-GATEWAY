@@ -59,7 +59,7 @@ cosocket hostname resolution inside the container network.
 | `prometheus-data` | Prometheus TSDB |
 | `grafana-data` | Grafana state |
 
-Destroyed only by `make dev-clean`.
+Destroyed only by `make gw-clean`.
 
 ## Observability
 

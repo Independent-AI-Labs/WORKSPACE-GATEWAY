@@ -2,6 +2,8 @@
 # WORKSPACE-GATEWAY - Compose stack systemd provisioning
 #
 # Tags: deploy, start, stop, restart, status, undeploy
+# Makefile targets call these tags; health checks run from dev.yml
+# directly (no nested ansible-inception).
 - name: WORKSPACE-GATEWAY Compose Stack
   hosts: localhost
   gather_facts: true
@@ -29,7 +31,7 @@
             venv_compose: '{{ resolved_root.stdout }}/.venv/bin/podman-compose'
 
     - name: Detect container runtime
-      tags: [always, deploy, start, restart]
+      tags: [always]
       block:
         - name: Find podman
           ansible.builtin.command: which podman
@@ -57,8 +59,8 @@
             podman_bin_dir: '{{ podman_check.stdout | dirname }}'
             compose_cmd: '{{ venv_compose }}'
 
-    - name: Deploy gateway compose stack
-      tags: [deploy, start, restart]
+    - name: Deploy gateway systemd unit (one-time provisioning)
+      tags: [deploy]
       block:
         - name: Ensure systemd user directory exists
           ansible.builtin.file:
@@ -67,7 +69,6 @@
             mode: '0755'
 
         - name: Enable systemd user linger
-          tags: [deploy]
           ansible.builtin.command: loginctl enable-linger {{ ansible_user_id }}
           register: linger_result
           changed_when: linger_result.rc == 0
@@ -91,39 +92,20 @@
             state: restarted
             scope: user
 
-        - name: Run post-start health checks
-          ansible.builtin.shell: |
-            set -euo pipefail
-            if [ -f '{{ project_root }}/.env' ]; then
-              set -a
-              # shellcheck disable=SC1091
-              . '{{ project_root }}/.env'
-              set +a
-            fi
-            ansible-playbook '{{ project_root }}/res/ansible/dev.yml' --tags start
-          environment:
-            HOME: '{{ ansible_env.HOME }}'
-          register: post_start_health
-          changed_when: false
-          failed_when: post_start_health.rc != 0
+    - name: Start gateway compose (idempotent if already running)
+      tags: [start]
+      ansible.builtin.systemd:
+        name: '{{ gateway_unit }}'
+        state: started
+        scope: user
 
-        - name: Gateway deployed
-          ansible.builtin.debug:
-            msg: |
-              Gateway compose running (systemd user: {{ gateway_unit }}).
-                Logs : journalctl --user -u {{ gateway_unit }} -f
-                Stop : make gateway-stop
-
-    - name: Stop gateway before restart
+    - name: Restart gateway compose
       tags: [restart]
       ansible.builtin.systemd:
         name: '{{ gateway_unit }}'
-        state: stopped
+        state: restarted
         scope: user
-      register: restart_stop
-      failed_when: >
-        restart_stop.failed
-        and 'Could not find the requested service' not in (restart_stop.msg | default(''))
+        enabled: true
 
     - name: Stop gateway compose
       tags: [stop, undeploy]

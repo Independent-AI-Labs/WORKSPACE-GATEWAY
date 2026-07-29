@@ -16,4 +16,4 @@ project:
     accounting, PII redaction, and provider health across all upstream AI
     models.
   grafanaPort: 3030
-  startCommand: make gateway-start
+  startCommand: make gw-status

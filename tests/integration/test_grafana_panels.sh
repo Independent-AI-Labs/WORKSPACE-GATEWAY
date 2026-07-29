@@ -24,7 +24,7 @@ fi
 
 if ! podman ps --format '{{.Names}}' | grep -q -E '(gw-grafana|gw-test.*grafana)'; then
     echo "[FAIL] Grafana container is not running"
-    echo "       Run 'make dev-start' first"
+    echo "       Run 'make gw-start' first"
     exit 1
 fi
 

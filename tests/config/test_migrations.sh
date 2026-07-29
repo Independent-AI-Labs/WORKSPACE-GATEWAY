@@ -135,7 +135,7 @@ assert_contains "migrate service mounts conf/migrations read-only" "$compose_bod
 # ── (E) ansible orchestration integration ──────────────────────────────
 ansible_body="$(cat "$ANSIBLE_FILE" 2>/dev/null || echo "")"
 assert_contains "ansible runs golang-migrate via compose" "$ansible_body" "run --rm migrate up"
-assert_contains "ansible migration task tagged [start]" "$ansible_body" "tags: [start]"
+assert_contains "ansible migration task tagged [start]" "$ansible_body" "tags: [start"
 
 # line-order check: init.sql task MUST precede migration task
 init_line=$(grep -n "Run ClickHouse init SQL" "$ANSIBLE_FILE" | head -1 | cut -d: -f1)

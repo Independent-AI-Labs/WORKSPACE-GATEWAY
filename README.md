@@ -46,7 +46,7 @@ single-target `ai-proxy` for any OpenAI-compatible backend (see
 make install
 
 # 2. Start the gateway stack (APISIX + etcd + ClickHouse + Vector + OpenBao + Prometheus + Grafana)
-make dev-start
+make gw-start
 
 # 3. Send a request through the gateway
 KEY="$GATEWAY_API_KEY"  # vgw-gateway-key from .env (provisioned in OpenBao on start)
@@ -407,7 +407,7 @@ Three provisioned dashboards (default: `now-7d` lookback, `5s` refresh):
 | Gateway Cost Leaderboard | `http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s` |
 
 The leaderboard shows top clients (p20) and top models (p21) by cost and
-tokens. After editing dashboard JSON, run `make dev-restart-grafana` to
+tokens. After editing dashboard JSON, run `make gw-restart-grafana` to
 reload provisioning. See [`docs/specifications/SPEC-DASHBOARD.md`](docs/specifications/SPEC-DASHBOARD.md).
 
 ---
@@ -448,7 +448,7 @@ does not drop them (opencode deletes providers with zero models). The
 llamafile provider receives the model list from `/llamafile/v1/models`
 (or a default model id if the llamafile server is not running). MiniCPM5
 uses context `131072` (scaled to `104857` at 80%) with `tool_call: true`.
-The script runs automatically on `make dev-start` and `make dev-restart`
+The script runs automatically on `make gw-start` and `make gw-restart`
 via the Ansible playbook.
 
 Context limits are scaled by `CONTEXT_LIMIT_PCT` (default 80) from `.env`,
@@ -506,7 +506,7 @@ Result in opencode config:
 ```bash
 make test          # Run all stages (excludes live upstream API tests)
 make test-live     # Run all stages including live upstream API tests
-make dev-test      # Same as test, via Ansible
+make gw-test       # Same as test, against the running stack
 ```
 
 1. Lua unit tests via `resty` CLI inside the APISIX container
@@ -523,22 +523,30 @@ See [`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md) for the full st
 
 ## Make Targets
 
-### Dev Lifecycle (Ansible-managed)
+### Gateway Lifecycle (systemd-managed)
+
+The stack is owned by the systemd user unit `gateway-compose`
+(`make gw-deploy` installs it with linger). Start/stop/restart go through
+systemctl so an unmanaged compose stack never fights the unit's
+`Restart=always`.
 
 | Target | Description |
 |--------|-------------|
-| `make dev-start` | Build images, start stack, provision keys, health checks |
-| `make dev-stop` | Stop stack (keep volumes) |
-| `make dev-restart` | Stop + start |
-| `make dev-rebuild` | Stop + start (rebuilds images) |
-| `make dev-status` | Show containers + health |
-| `make dev-logs` | Tail container logs |
-| `make dev-clean` | Stop + destroy volumes (data loss) |
-| `make dev-shell` | Exec into APISIX container |
-| `make dev-sanity` | Single curl request through gateway |
-| `make dev-test` | Run full test suite via Ansible |
-| `make dev-restart-service SVC=name` | Recreate one service (apisix, vector, grafana, etc.) |
-| `make dev-restart-grafana` | Recreate Grafana, reload provisioning, sync dashboard defaults |
+| `make gw-build` | Build container images |
+| `make gw-start` | Start stack via systemd, provision keys, health checks |
+| `make gw-stop` | Stop stack via systemd (keep volumes) |
+| `make gw-restart` | Drain apisix (SIGQUIT, `DRAIN_TIMEOUT=300`), rebuild images, restart via systemd, verify health |
+| `make gw-verify` | Health report: status + one request through the gateway |
+| `make gw-status` | Show systemd unit + containers |
+| `make gw-logs` | Tail container logs |
+| `make gw-clean` | Stop via systemd + destroy volumes (data loss) |
+| `make gw-shell` | Exec into APISIX container |
+| `make gw-test` | Run full test suite against the running stack |
+| `make gw-restart-service SVC=name` | Recreate one service (apisix, vector, grafana, etc.) |
+| `make gw-restart-grafana` | Recreate Grafana, reload provisioning, sync dashboard defaults |
+| `make gw-deploy` | Install + enable gateway compose on boot (systemd user + linger) |
+| `make gw-undeploy` | Disable + remove gateway compose systemd unit |
+| `make gw-systemd-logs` | Tail gateway systemd unit logs |
 | `make ch-migrate` | Apply pending ClickHouse schema migrations |
 | `make ch-migrate-status` | Show ClickHouse migration version |
 

@@ -80,7 +80,7 @@ setup: bootstrap-podman ## Create .venv with podman-compose
 install: setup install-hooks ## Full install: podman + .venv + hooks + images
 	$(MAKE) _compose-build
 	echo "=== Install complete ==="
-	echo "Run 'make dev-start' to start the gateway stack."
+	echo "Run 'make gw-start' to start the gateway stack."
 
 install-ci: install-deps ## CI install: deps only, no hooks
 install-deps: setup ## Install project dependencies
@@ -97,42 +97,21 @@ init-check: ## Check system dependencies (report only, fail if any missing)
 	bash $(CI_DIR)/scripts/install-system-deps --check
 
 # =============================================================================
-# Dev Lifecycle
+# Gateway Lifecycle
 # =============================================================================
 # Compose operations (build/up/down) run directly from Makefile targets so
-# output streams live to the terminal. Ansible handles only health checks,
-# ClickHouse init SQL, and model sync.
+# output streams live to the terminal. The stack is owned by the systemd user
+# unit gateway-compose (Boot Persistence below): start/stop/restart go through
+# systemctl so an unmanaged compose stack never fights the unit's
+# Restart=always. Ansible handles health checks, ClickHouse init SQL, and
+# model sync.
 # =============================================================================
 
-.PHONY: _compose-build _compose-up _compose-down _compose-clean
+.PHONY: _compose-build _compose-down _compose-clean
 
 _compose-build:
 	echo "=== Building container images ==="
 	$(COMPOSE_CMD) build
-
-_compose-up:
-	echo "=== Starting gateway stack ==="
-	timeout 120 $(COMPOSE_CMD) up -d; \
-	rc=$$?; \
-	if [ $$rc -ne 0 ]; then \
-		echo "=== ERROR: podman-compose up failed (rc=$$rc) ===" >&2; \
-		podman ps -a --format "table {{.Names}}\t{{.Status}}" | grep -E "docker_|gw-"; \
-		exit 1; \
-	fi
-	echo "=== Verifying containers started ==="
-	expected="docker_apisix_1 docker_clickhouse_1 docker_vector_1 gw-etcd gw-grafana gw-prometheus gw-openbao"; \
-	missing=""; \
-	for c in $$expected; do \
-		if ! podman inspect -f '{{.State.Running}}' $$c | grep -q true; then \
-			missing="$$missing $$c"; \
-		fi; \
-	done; \
-	if [ -n "$$missing" ]; then \
-		echo "=== ERROR: containers not running:$$missing ===" >&2; \
-		podman ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "docker_|gw-"; \
-		exit 1; \
-	fi
-	echo "=== All containers running ==="
 
 _compose-down:
 	echo "=== Stopping gateway stack ==="
@@ -142,25 +121,36 @@ _compose-clean:
 	echo "=== Destroying volumes (data loss!) ==="
 	-$(COMPOSE_CMD) down -v
 
-.PHONY: dev-start dev-stop dev-restart dev-rebuild dev-restart-service dev-restart-grafana dev-logs dev-status \
-        dev-clean dev-shell dev-test dev-sanity
+.PHONY: gw-build gw-start gw-stop gw-restart gw-verify gw-status gw-logs gw-clean gw-shell gw-test \
+        gw-restart-service gw-restart-grafana
 
-dev-start: _compose-build _compose-up ## Start the gateway stack (build + up + health checks)
-	echo "=== Waiting for services to become healthy ==="
+gw-build: _compose-build ## Build container images
+
+gw-start: ## Start the gateway stack via systemd, then health checks + init + sync
+	$(ANSIBLE_COMPOSE) --tags start
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
 
-dev-stop: _compose-down ## Stop the gateway stack (keep volumes)
+gw-stop: ## Stop the gateway stack via systemd (keep volumes)
+	$(ANSIBLE_COMPOSE) --tags stop
 
-dev-restart: dev-stop dev-start ## Restart the gateway stack (stop + start)
-
-dev-rebuild: dev-stop _compose-build _compose-up ## Rebuild images and restart
-	echo "=== Waiting for services to become healthy ==="
+gw-restart: ## Drain apisix (SIGQUIT, DRAIN_TIMEOUT=300), rebuild images, restart via systemd, verify health
+	echo "=== Draining apisix (SIGQUIT; in-flight streams finish, $${DRAIN_TIMEOUT:-300}s max) ==="
+	timeout "$${DRAIN_TIMEOUT:-300}" $(COMPOSE_CMD) stop apisix; \
+	drain_rc=$$?; \
+	if [ $$drain_rc -ne 0 ]; then \
+		echo "=== WARN: graceful drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
+		podman stop -t 5 docker_apisix_1; \
+		force_rc=$$?; \
+		if [ $$force_rc -ne 0 ]; then echo "=== ERROR: forced stop failed (rc=$$force_rc) ===" >&2; exit 1; fi; \
+	fi
+	$(MAKE) gw-build
+	$(ANSIBLE_COMPOSE) --tags restart
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
 
-dev-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|vector|openbao|prometheus)
-	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make dev-restart-service SVC=grafana" >&2; exit 1; }
+gw-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|vector|openbao|prometheus)
+	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-restart-service SVC=grafana" >&2; exit 1; }
 	echo "=== Recreating service: $(SVC) ==="
 	if [ "$(SVC)" = "apisix" ]; then \
 		echo "=== Draining apisix gracefully (SIGQUIT; in-flight streams finish, $${DRAIN_TIMEOUT:-300}s max) ==="; \
@@ -178,8 +168,8 @@ dev-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|
 	if [ $$rc -ne 0 ]; then echo "=== ERROR: recreate $(SVC) failed (rc=$$rc) ===" >&2; exit 1; fi
 	echo "=== $(SVC) recreated ==="
 
-dev-restart-grafana: ## Recreate Grafana (pulls new image from compose), wait healthy, reload provisioning
-	$(MAKE) dev-restart-service SVC=grafana
+gw-restart-grafana: ## Recreate Grafana (pulls new image from compose), wait healthy, reload provisioning
+	$(MAKE) gw-restart-service SVC=grafana
 	echo "=== Waiting for Grafana health ==="
 	for i in 1 2 3 4 5 6 7 8 9 10 15 20; do \
 		if curl -sS -f --max-time 2 http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health; then \
@@ -197,23 +187,26 @@ dev-restart-grafana: ## Recreate Grafana (pulls new image from compose), wait he
 	echo "  http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s"
 	echo "=== Grafana upgrade complete ==="
 
-dev-logs: ## Tail container logs (Ctrl-C to stop)
+gw-verify: ## Health report: container/endpoint status + one request through the gateway
+	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(ANSIBLE_DEV) --tags status,sanity
+
+gw-status: ## Show gateway systemd + container status
+	$(ANSIBLE_COMPOSE) --tags status
+
+gw-logs: ## Tail container logs (Ctrl-C to stop)
 	$(COMPOSE_CMD) logs -f
 
-dev-status: ## Show running containers and health status
-	$(ANSIBLE_DEV) --tags status
+gw-clean: ## Stop stack via systemd and remove all volumes (data loss!)
+	-systemctl --user stop gateway-compose
+	$(MAKE) _compose-clean
 
-dev-clean: _compose-clean ## Stop stack and remove all volumes (data loss!)
-
-dev-shell: ## Exec into APISIX container shell
+gw-shell: ## Exec into APISIX container shell
 	podman exec -it docker_apisix_1 /bin/bash
 
-dev-test: ## Run full test suite against running stack
+gw-test: ## Run full test suite against running stack
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	bash tests/run_all.sh
-
-dev-sanity: ## Quick sanity check: one request through the gateway
-	$(ANSIBLE_DEV) --tags sanity
 
 # =============================================================================
 # ClickHouse Migrations
@@ -316,27 +309,17 @@ check-push: check ## Pre-push gate: check + E2E if API key available
 # =============================================================================
 # Boot Persistence
 # =============================================================================
-.PHONY: gateway-deploy gateway-start gateway-stop gateway-restart gateway-status gateway-undeploy gateway-logs
+.PHONY: gw-deploy gw-undeploy gw-systemd-logs
 
-gateway-deploy: ## Install + enable gateway compose on boot (systemd user + linger)
+gw-deploy: ## Install + enable gateway compose on boot (systemd user + linger), then health checks + init + sync
 	$(ANSIBLE_COMPOSE) --tags deploy
+	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(ANSIBLE_DEV) --tags start
 
-gateway-start: ## Start gateway compose via systemd
-	$(ANSIBLE_COMPOSE) --tags start
-
-gateway-stop: ## Stop gateway compose via systemd
-	$(ANSIBLE_COMPOSE) --tags stop
-
-gateway-restart: ## Restart gateway compose via systemd
-	$(ANSIBLE_COMPOSE) --tags restart
-
-gateway-status: ## Show gateway systemd + container status
-	$(ANSIBLE_COMPOSE) --tags status
-
-gateway-undeploy: ## Disable + remove gateway compose systemd unit
+gw-undeploy: ## Disable + remove gateway compose systemd unit
 	$(ANSIBLE_COMPOSE) --tags undeploy
 
-gateway-logs: ## Tail gateway compose logs
+gw-systemd-logs: ## Tail gateway systemd unit logs
 	journalctl --user -u gateway-compose -f
 
 # =============================================================================
