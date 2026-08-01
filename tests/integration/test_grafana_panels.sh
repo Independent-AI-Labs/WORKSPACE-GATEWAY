@@ -7,7 +7,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GRAFANA_URL="${GRAFANA_URL:-http://localhost:3030}"
 
 WORKSPACE_ROOT="${AMI_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
-NODE_BIN="${NODE_BIN:-$WORKSPACE_ROOT/.boot-linux/bin/node}"
+if [ -z "${NODE_BIN+x}" ]; then
+    NODE_BIN="$WORKSPACE_ROOT/.boot-linux/bin/node"
+fi
 NODE_PATH="${NODE_PATH:-$WORKSPACE_ROOT/node_modules}"
 export NODE_PATH
 
@@ -17,7 +19,7 @@ else
     set -a; source .env; set +a
 fi
 
-if ! command -v podman >/dev/null 2>&1; then
+if ! command -v podman 1>&2; then
     echo "[FAIL] podman not found on PATH"
     exit 1
 fi
@@ -43,7 +45,7 @@ if "$NODE_BIN" "$SCRIPT_DIR/grafana_panel_check.js" --url "$GRAFANA_URL"; then
     echo "[PASS] grafana_panel_check"
     exit 0
 else
-    rc=$?
-    echo "[FAIL] grafana_panel_check (rc=$rc)"
-    exit "$rc"
+    status=$?
+    echo "[FAIL] grafana_panel_check (status=$status)"
+    exit "$status"
 fi

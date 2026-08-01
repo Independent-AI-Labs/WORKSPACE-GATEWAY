@@ -60,14 +60,14 @@ else
     check "Streaming redaction request returns 200 (got $http_code)" "1"
 fi
 
-content_type=$(grep -i '^content-type:' "$headers_file" 2>/dev/null | tr -d '\r' || echo "")
+content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' || echo "")
 if grep -qi "text/event-stream" <<< "$content_type"; then
     check "Streaming response Content-Type is text/event-stream" "0"
 else
     check "Streaming response Content-Type is text/event-stream (got: $content_type)" "1"
 fi
 
-redact_header=$(grep -i '^x-redact-active:' "$headers_file" 2>/dev/null | tr -d '\r' || echo "")
+redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' || echo "")
 redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' || echo "")
 if [ "$redact_value" = "1" ]; then
     check "Streaming response has X-Redact-Active: 1 header" "0"

@@ -21,7 +21,7 @@ HTTP Basic Auth. Enabled when `OPENCODE_SERVER_PASSWORD` is set.
 | `Authorization` | `Basic base64(username:password)` |
 | Query `?auth_token=` | `base64(username:password)` |
 
-Username defaults to `opencode`. Override with `OPENCODE_SERVER_USERNAME`.
+Username is `opencode` unless `OPENCODE_SERVER_USERNAME` overrides it.
 No auth when password is unset (default).
 
 ## 2. Global

@@ -35,9 +35,11 @@ echo "=== Dashboard Query Integration Tests (extracted from JSON) ==="
 echo ""
 
 # ── Time range (last 7d) ───────────────────────────────────────────────
-FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
-    date -u -d "@$(($(date +%s)-604800))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
-    date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
+if ! FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S'); then
+    if ! FROM_TS=$(date -u -d "@$(($(date +%s)-604800))" '+%Y-%m-%d %H:%M:%S'); then
+        FROM_TS=$(date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
+    fi
+fi
 TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "[INFO] Time range: $FROM_TS to $TO_TS"
 
@@ -53,7 +55,7 @@ CH_KEY_LIST=$(echo "$ALL_KEYS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd, -)
 [ -z "$CH_KEY_LIST" ] && CH_KEY_LIST="'unknown'"
 PROM_KEY_REGEX=$(echo "$ALL_KEYS" | grep '.' | paste -sd '|' -)
 [ -z "$PROM_KEY_REGEX" ] && PROM_KEY_REGEX=".*"
-echo "[INFO] Keys: $(echo "$ALL_KEYS" | grep -c '.' || true)"
+echo "[INFO] Keys: $(echo "$ALL_KEYS" | grep -c '.' || echo "")"
 
 ALL_MODELS=$(curl -sf "$CH_URL/" --data-binary \
     "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model FORMAT TabSeparated" \
@@ -61,7 +63,7 @@ ALL_MODELS=$(curl -sf "$CH_URL/" --data-binary \
 [ -z "$ALL_MODELS" ] && ALL_MODELS="unknown"
 CH_MODEL_LIST=$(echo "$ALL_MODELS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd, -)
 [ -z "$CH_MODEL_LIST" ] && CH_MODEL_LIST="'unknown'"
-echo "[INFO] Models: $(echo "$ALL_MODELS" | grep -c '.' || true)"
+echo "[INFO] Models: $(echo "$ALL_MODELS" | grep -c '.' || echo "")"
 echo ""
 
 # ── Query extraction helpers (jq → dashboard JSON, all 3 files) ────────
@@ -71,7 +73,7 @@ find_panel_file() {
     local pid="$1"
     for df in "${ALL_DASHBOARDS[@]}"; do
         local n
-        n=$(jq --arg pid "$pid" '[.panels[] | select(.id == ($pid | tonumber))] | length' "$df" 2>/dev/null || echo 0)
+        n=$(jq --arg pid "$pid" '[.panels[] | select(.id == ($pid | tonumber))] | length' "$df" || echo 0)
         [ "$n" -gt 0 ] && { printf '%s' "$df"; return; }
     done
 }
@@ -143,10 +145,10 @@ exec_prom() {
     curl -sf --max-time 15 "$PROM_URL/api/v1/query?query=$encoded" || echo ""
 }
 
-prom_val() { echo "$1" | jq -r '.data.result[0].value[1] // empty' 2>/dev/null; }
-prom_cnt() { echo "$1" | jq -r '.data.result | length' 2>/dev/null; }
-prom_st()  { echo "$1" | jq -r '.status // "unknown"' 2>/dev/null; }
-in_range() { awk "BEGIN{exit !($1 >= $2 && $1 <= $3)}" 2>/dev/null; }
+prom_val() { echo "$1" | jq -r '.data.result[0].value[1] // empty'; }
+prom_cnt() { echo "$1" | jq -r '.data.result | length'; }
+prom_st()  { echo "$1" | jq -r '.status // "unknown"'; }
+in_range() { awk "BEGIN{exit !($1 >= $2 && $1 <= $3)}"; }
 
 # =====================================================================
 # Q1: All ClickHouse panel queries return HTTP 200
@@ -183,18 +185,18 @@ echo ""
 echo "--- Q3: p3 Value Ranges (>= 0) ---"
 for pair in "PT:total" "PI:input" "PC:cached" "PO:output" "PR:reasoning"; do
     var="${pair%%:*}"; name="${pair##*:}"; val="${!var}"
-    [ "$val" -ge 0 ] 2>/dev/null && rp "Q3: $name=$val (>=0)" || rf "Q3: $name=$val (negative)"
+    [ "$val" -ge 0 ] && rp "Q3: $name=$val (>=0)" || rf "Q3: $name=$val (negative)"
 done
 # Total cost from p15 refId=A (Cost Over Time -- sum all rows)
 TC=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}'); TC=${TC:-0}
-awk "BEGIN{exit !($TC >= 0)}" 2>/dev/null && rp "Q3: cost=$TC (>=0)" || rf "Q3: cost=$TC (negative)"
+awk "BEGIN{exit !($TC >= 0)}" && rp "Q3: cost=$TC (>=0)" || rf "Q3: cost=$TC (negative)"
 echo ""
 
 # =====================================================================
 # Q4: p3 format: "NN Mil ($X.XX)" or "NN K ($X.XX)" or "NN ($X.XX)"
 # =====================================================================
 echo "--- Q4: p3 Output Format ---"
-P3_FMT_ROW=$(exec_ch 3 A | head -1)
+P3_FMT_ROW=$(exec_ch 3 A | sed -n '1p')
 P3_LABELS=(Total Input Cached Output Reasoning)
 P3_IDX=0
 IFS=$'\t' read -r -a P3_COLS <<< "$P3_FMT_ROW"
@@ -232,12 +234,12 @@ P14CA=$(exec_ch 14 B | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
 P14PA=$(exec_ch 14 C | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
 # Total streams = count of all stream rows in usage_log
 P14T_SQL=$(sub_ch "SELECT count() FROM llm_gateway.usage_log WHERE \$__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (\${api_key:singlequote}) AND is_stream = 1")
-P14T=$(exec_ch_raw "$P14T_SQL" | head -1); P14T=${P14T:-0}
+P14T=$(exec_ch_raw "$P14T_SQL" | sed -n '1p'); P14T=${P14T:-0}
 P14S=$((P14C + P14CA + P14PA))
 P14DIFF=$((P14T - P14S))
 if [ "$P14DIFF" -lt 0 ]; then P14DIFF=$((-P14DIFF)); fi
-P14PCT=$(awk "BEGIN{if($P14T > 0) printf \"%.2f\", ($P14DIFF * 100.0 / $P14T); else print 0}" 2>/dev/null)
-P14OK=$(awk "BEGIN{print ($P14PCT <= 2.0) ? 1 : 0}" 2>/dev/null)
+P14PCT=$(awk "BEGIN{if($P14T > 0) printf \"%.2f\", ($P14DIFF * 100.0 / $P14T); else print 0}")
+P14OK=$(awk "BEGIN{print ($P14PCT <= 2.0) ? 1 : 0}")
 [ "$P14OK" = "1" ] && rp "Q6: comp($P14C)+cli($P14CA)+prov($P14PA)=$P14S≈total($P14T) diff=${P14DIFF} (${P14PCT}%)" \
     || rf "Q6: sum($P14S)!=total($P14T) diff=${P14DIFF} (${P14PCT}%)"
 echo ""
@@ -249,9 +251,9 @@ echo "--- Q7: p15 Cost Sum = Total Cost ---"
 P15S=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
 # Total cost = sum(cost) from usage_log with same filters
 P15T_SQL=$(sub_ch "SELECT round(sum(cost), 6) FROM llm_gateway.usage_log WHERE \$__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (\${api_key:singlequote}) AND model IN (\${model:singlequote})")
-P15T=$(exec_ch_raw "$P15T_SQL" | head -1); P15T=${P15T:-0}
-P7DIFF=$(awk "BEGIN{d=$P15S-$P15T; if(d<0)d=-d; print d}" 2>/dev/null)
-awk "BEGIN{exit !($P7DIFF < 0.01)}" 2>/dev/null && rp "Q7: cost_sum($P15S)~=total($P15T) diff=$P7DIFF" || rf "Q7: cost_sum($P15S)!=total($P15T) diff=$P7DIFF"
+P15T=$(exec_ch_raw "$P15T_SQL" | sed -n '1p'); P15T=${P15T:-0}
+P7DIFF=$(awk "BEGIN{d=$P15S-$P15T; if(d<0)d=-d; print d}")
+awk "BEGIN{exit !($P7DIFF < 0.01)}" && rp "Q7: cost_sum($P15S)~=total($P15T) diff=$P7DIFF" || rf "Q7: cost_sum($P15S)!=total($P15T) diff=$P7DIFF"
 echo ""
 
 # =====================================================================
@@ -264,15 +266,15 @@ P8D=$(exec_ch 8 A)
 P8S=$(echo "$P8D" | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
 # Compare against usage_log row count (p8 counts usage_log rows per model)
 P8T_SQL="SELECT count() FROM llm_gateway.usage_log WHERE timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS') AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ($CH_KEY_LIST) AND model IN ($CH_MODEL_LIST) FORMAT TabSeparated"
-P8T=$(exec_ch_raw "$P8T_SQL" | head -1); P8T=${P8T:-0}
+P8T=$(exec_ch_raw "$P8T_SQL" | sed -n '1p'); P8T=${P8T:-0}
 P8DIFF=$((P8T - P8S))
 if [ "$P8DIFF" -lt 0 ]; then P8DIFF=$((-P8DIFF)); fi
-P8PCT=$(awk "BEGIN{if($P8T > 0) printf \"%.2f\", ($P8DIFF * 100.0 / $P8T); else print 0}" 2>/dev/null)
-P8OK=$(awk "BEGIN{print ($P8PCT <= 2.0) ? 1 : 0}" 2>/dev/null)
+P8PCT=$(awk "BEGIN{if($P8T > 0) printf \"%.2f\", ($P8DIFF * 100.0 / $P8T); else print 0}")
+P8OK=$(awk "BEGIN{print ($P8PCT <= 2.0) ? 1 : 0}")
 [ "$P8OK" = "1" ] && rp "Q8: dist_sum($P8S)≈total($P8T) diff=${P8DIFF} (${P8PCT}%)" \
     || rf "Q8: dist_sum($P8S)!=total($P8T) diff=${P8DIFF} (${P8PCT}%)"
 echo "$P8D" | grep '.' | while IFS=$'\t' read -r m c; do
-    [ "$c" -gt 0 ] 2>/dev/null && rp "Q8: '$m' count=$c (>0)" || rf "Q8: '$m' count=$c (<=0)"
+    [ "$c" -gt 0 ] && rp "Q8: '$m' count=$c (>0)" || rf "Q8: '$m' count=$c (<=0)"
 done
 echo ""
 
@@ -301,7 +303,7 @@ while IFS=$'\t' read -r pid ref; do
     st=$(prom_st "$resp"); cnt=$(prom_cnt "$resp")
     if [ "$st" != "success" ]; then
         rf "Q10: p${pid}-${ref}: status=$st"
-    elif [ "$cnt" -lt 1 ] 2>/dev/null; then
+    elif [ "$cnt" -lt 1 ]; then
         rf "Q10: p${pid}-${ref}: success but 0 results (APISIX scraping broken?)"
     else
         rp "Q10: p${pid}-${ref}: success ($cnt results)"
@@ -315,13 +317,13 @@ echo ""
 # Q11: p4 Error Rate from ClickHouse in [0, 100], and > 0 if 4xx+5xx exist
 # =====================================================================
 echo "--- Q11: p4 Error Rate (ClickHouse, status >= 400) ---"
-P4V=$(exec_ch 4 A | head -1); P4V=${P4V:-0}
+P4V=$(exec_ch 4 A | sed -n '1p'); P4V=${P4V:-0}
 in_range "$P4V" 0 100 && rp "Q11: error_rate=$P4V in [0,100]" || rf "Q11: error_rate=$P4V out of range"
 # Cross-check: count 4xx+5xx errors directly
 P4ERR_SQL=$(sub_ch "SELECT countIf(status >= 400) FROM llm_gateway.request_log WHERE \$__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (\${api_key:singlequote})")
-P4ERR=$(exec_ch_raw "$P4ERR_SQL" | head -1); P4ERR=${P4ERR:-0}
-if [ "$P4ERR" -gt 0 ] 2>/dev/null; then
-    awk "BEGIN{exit !($P4V > 0)}" 2>/dev/null && rp "Q11: 4xx+5xx errors=$P4ERR, error_rate=$P4V (>0)" \
+P4ERR=$(exec_ch_raw "$P4ERR_SQL" | sed -n '1p'); P4ERR=${P4ERR:-0}
+if [ "$P4ERR" -gt 0 ]; then
+    awk "BEGIN{exit !($P4V > 0)}" && rp "Q11: 4xx+5xx errors=$P4ERR, error_rate=$P4V (>0)" \
         || rf "Q11: 4xx+5xx errors=$P4ERR but error_rate=$P4V (should be >0)"
 else
     rp "Q11: no 4xx+5xx errors in range, error_rate=$P4V (0 is correct)"
@@ -339,7 +341,7 @@ P99=$(prom_val "$(exec_prom 9 C)")
 if [ -z "$P50" ] || [ -z "$P95" ] || [ -z "$P99" ]; then
     rf "Q12: missing latency data (p50=$P50 p95=$P95 p99=$P99) -- APISIX histogram scraping broken"
 else
-    awk "BEGIN{exit !($P50 <= $P95 && $P95 <= $P99)}" 2>/dev/null && rp "Q12: p50($P50)<=p95($P95)<=p99($P99)" || rf "Q12: ordering broken (p50=$P50 p95=$P95 p99=$P99)"
+    awk "BEGIN{exit !($P50 <= $P95 && $P95 <= $P99)}" && rp "Q12: p50($P50)<=p95($P95)<=p99($P99)" || rf "Q12: ordering broken (p50=$P50 p95=$P95 p99=$P99)"
 fi
 echo ""
 
@@ -367,7 +369,7 @@ echo ""
 # use the api_key variable. No Prometheus (p1 is ClickHouse now).
 # =====================================================================
 echo "--- Q14: Single Key Filter (filtered < all, ClickHouse) ---"
-SK=$(echo "$ALL_KEYS" | head -1)
+SK=$(echo "$ALL_KEYS" | sed -n '1p')
 if [ -z "$SK" ] || [ "$SK" = "unknown" ]; then
     rf "Q14: no keys available (cannot test filter)"
 else
@@ -375,8 +377,8 @@ else
     # p1 Total Requests: single key vs all keys
     P1_SINGLE=$(exec_ch_raw "$(sub_ch "$(get_ch_sql 1 A)" "$SKL")")
     P1_SINGLE=${P1_SINGLE:-0}
-    P1_ALL=$(exec_ch 1 A | head -1); P1_ALL=${P1_ALL:-0}
-    [ "$P1_SINGLE" -lt "$P1_ALL" ] 2>/dev/null \
+    P1_ALL=$(exec_ch 1 A | sed -n '1p'); P1_ALL=${P1_ALL:-0}
+    [ "$P1_SINGLE" -lt "$P1_ALL" ] \
         && rp "Q14: p1 single_key($P1_SINGLE) < all_keys($P1_ALL)" \
         || rf "Q14: p1 single($P1_SINGLE) >= all($P1_ALL) -- filter not narrowing"
 
@@ -386,7 +388,7 @@ else
 SELECT total_tok FROM totals FORMAT TabSeparated"
     P3_SINGLE=$(exec_ch_raw "$(sub_ch "$P3_RAW_SQL" "$SKL" "$CH_MODEL_LIST")" | cut -f1)
     P3_SINGLE=${P3_SINGLE:-0}
-    [ "$P3_SINGLE" -lt "$PT" ] 2>/dev/null \
+    [ "$P3_SINGLE" -lt "$PT" ] \
         && rp "Q14: p3 single_key_tokens($P3_SINGLE) < all_tokens($PT)" \
         || rf "Q14: p3 single($P3_SINGLE) >= all($PT) -- filter not narrowing"
 
@@ -401,7 +403,7 @@ echo ""
 # Q15: Single model filter: no SQL error (HTTP 200)
 # =====================================================================
 echo "--- Q15: Single Model Filter (HTTP 200) ---"
-SM=$(echo "$ALL_MODELS" | head -1)
+SM=$(echo "$ALL_MODELS" | sed -n '1p')
 if [ -n "$SM" ] && [ "$SM" != "unknown" ]; then
     SML="'$SM'"
     for pid_ref in "3:A" "8:A" "15:A"; do
@@ -423,13 +425,13 @@ echo ""
 echo "--- Q16: Dashboard Macro Verification ---"
 CA=0
 for df in "${ALL_DASHBOARDS[@]}"; do
-    c=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$df" 2>/dev/null || echo 0)
+    c=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$df" || echo 0)
     CA=$((CA + c))
 done
 [ "$CA" = "0" ] && rp "Q16: no \$__conditionalAll (all 3 dashboards)" || rf "Q16: $CA conditionalAll macros found"
-AK=$(jq -r '[.templating.list[]|select(.name=="api_key")]|if length==0 then "error" else (.[0].allValue|if .==null or .=="" then "None" else . end) end' "$COST_USAGE_FILE" 2>/dev/null || echo "error")
+AK=$(jq -r '[.templating.list[]|select(.name=="api_key")]|if length==0 then "error" else (.[0].allValue|if .==null or .=="" then "None" else . end) end' "$COST_USAGE_FILE" || echo "error")
 [ "$AK" = "None" ] && rp "Q16: api_key no allValue" || rf "Q16: api_key allValue=$AK"
-MQ=$(jq -r '[.templating.list[]|select(.name=="model")]|if length==0 then "error" else (.[0].query|ascii_upcase|if test("UNION") then "union" else "single" end) end' "$COST_USAGE_FILE" 2>/dev/null || echo "error")
+MQ=$(jq -r '[.templating.list[]|select(.name=="model")]|if length==0 then "error" else (.[0].query|ascii_upcase|if test("UNION") then "union" else "single" end) end' "$COST_USAGE_FILE" || echo "error")
 [ "$MQ" = "union" ] && rp "Q16: model variable UNIONs both tables" || rf "Q16: model variable no UNION"
 echo ""
 

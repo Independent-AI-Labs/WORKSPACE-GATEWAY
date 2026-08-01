@@ -69,8 +69,8 @@ OPENBAO_VOLUME=$(echo "$JSON_DATA" | jq '[.volumes | has("openbao-data")] | any'
 assert_eq "OpenBao has persistent volume" "true" "$OPENBAO_VOLUME"
 
 PROMETHEUS_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.prometheus.image')
-PROMETHEUS_TAG=$(echo "$PROMETHEUS_IMAGE" | sed 's|.*:||' | sed 's/^v//')
-PROMETHEUS_REPO=$(echo "$PROMETHEUS_IMAGE" | sed 's|:.*||')
+PROMETHEUS_TAG=$(echo "$PROMETHEUS_IMAGE" | sed 's#.*:##' | sed 's/^v//')
+PROMETHEUS_REPO=$(echo "$PROMETHEUS_IMAGE" | sed 's#:.*##')
 assert_eq "Prometheus image repo is prom/prometheus" "prom/prometheus" "$PROMETHEUS_REPO"
 if version_ge "$PROMETHEUS_TAG" "3.13.0"; then
     echo "[PASS] Prometheus image tag >= 3.13.0 (got $PROMETHEUS_TAG)"
@@ -81,8 +81,8 @@ else
 fi
 
 GRAFANA_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.grafana.image')
-GRAFANA_TAG=$(echo "$GRAFANA_IMAGE" | sed 's|.*:||')
-GRAFANA_REPO=$(echo "$GRAFANA_IMAGE" | sed 's|:.*||')
+GRAFANA_TAG=$(echo "$GRAFANA_IMAGE" | sed 's#.*:##')
+GRAFANA_REPO=$(echo "$GRAFANA_IMAGE" | sed 's#:.*##')
 assert_eq "Grafana image repo is grafana/grafana-oss" "grafana/grafana-oss" "$GRAFANA_REPO"
 if version_ge "$GRAFANA_TAG" "13.0.2"; then
     echo "[PASS] Grafana image tag >= 13.0.2 (got $GRAFANA_TAG)"
@@ -138,60 +138,60 @@ APISIX_PORT_9180=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. 
 assert_eq "APISIX exposes port 9180 for Admin API + Dashboard" "1" "$APISIX_PORT_9180"
 
 APISIX_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.apisix.volumes[]')
-HAS_APISIX_YAML=$(echo "$APISIX_MOUNTS" | grep -c "apisix.yaml" || true)
+HAS_APISIX_YAML=$(echo "$APISIX_MOUNTS" | grep -c "apisix.yaml" || echo "")
 assert_eq "APISIX mounts apisix.yaml" "1" "$HAS_APISIX_YAML"
 
-HAS_CONFIG_YAML=$(echo "$APISIX_MOUNTS" | grep -c "config.yaml" || true)
+HAS_CONFIG_YAML=$(echo "$APISIX_MOUNTS" | grep -c "config.yaml" || echo "")
 assert_eq "APISIX mounts config.yaml" "1" "$HAS_CONFIG_YAML"
 
-HAS_REDACT_PATTERNS=$(echo "$APISIX_MOUNTS" | grep -c "redact-patterns.json" || true)
+HAS_REDACT_PATTERNS=$(echo "$APISIX_MOUNTS" | grep -c "redact-patterns.json" || echo "")
 assert_eq "APISIX mounts redact-patterns.json" "1" "$HAS_REDACT_PATTERNS"
 
-HAS_PROVIDERS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "conf/providers" || true)
+HAS_PROVIDERS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "conf/providers" || echo "")
 assert_eq "APISIX mounts conf/providers" "1" "$HAS_PROVIDERS_MOUNT"
 
-HAS_COST_CALC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "cost_calc.lua" || true)
+HAS_COST_CALC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "cost_calc.lua" || echo "")
 assert_eq "APISIX mounts cost_calc.lua" "1" "$HAS_COST_CALC_MOUNT"
 
-HAS_KEY_META_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "key-meta.lua" || true)
+HAS_KEY_META_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "key-meta.lua" || echo "")
 assert_eq "APISIX mounts key-meta.lua" "1" "$HAS_KEY_META_MOUNT"
 
-HAS_SSE_USAGE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "sse-usage.lua" || true)
+HAS_SSE_USAGE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "sse-usage.lua" || echo "")
 assert_eq "APISIX mounts sse-usage.lua" "1" "$HAS_SSE_USAGE_MOUNT"
 
-HAS_KIMI_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi-auth.lua" || true)
+HAS_KIMI_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi-auth.lua" || echo "")
 assert_eq "APISIX mounts kimi-auth.lua" "1" "$HAS_KIMI_AUTH_MOUNT"
 
-HAS_KIMI_JWT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_jwt.lua" || true)
+HAS_KIMI_JWT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_jwt.lua" || echo "")
 assert_eq "APISIX mounts kimi_jwt.lua" "1" "$HAS_KIMI_JWT_MOUNT"
 
-HAS_KIMI_DEVICE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_device.lua" || true)
+HAS_KIMI_DEVICE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_device.lua" || echo "")
 assert_eq "APISIX mounts kimi_device.lua" "1" "$HAS_KIMI_DEVICE_MOUNT"
 
-HAS_KIMI_TOKENS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_tokens.lua" || true)
+HAS_KIMI_TOKENS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_tokens.lua" || echo "")
 assert_eq "APISIX mounts kimi_tokens.lua" "1" "$HAS_KIMI_TOKENS_MOUNT"
 
-HAS_PROVIDER_SYNC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider-sync.lua" || true)
+HAS_PROVIDER_SYNC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider-sync.lua" || echo "")
 assert_eq "APISIX mounts provider-sync.lua" "1" "$HAS_PROVIDER_SYNC_MOUNT"
 
-HAS_PROVIDER_SYNC_CATALOG_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_catalog.lua" || true)
+HAS_PROVIDER_SYNC_CATALOG_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_catalog.lua" || echo "")
 assert_eq "APISIX mounts provider_sync_catalog.lua" "1" "$HAS_PROVIDER_SYNC_CATALOG_MOUNT"
 
-HAS_MODEL_REGISTRY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "model_registry.lua" || true)
+HAS_MODEL_REGISTRY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "model_registry.lua" || echo "")
 assert_eq "APISIX mounts model_registry.lua" "1" "$HAS_MODEL_REGISTRY_MOUNT"
 
-HAS_PROVIDER_SYNC_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_pricing.lua" || true)
+HAS_PROVIDER_SYNC_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_pricing.lua" || echo "")
 assert_eq "APISIX mounts provider_sync_pricing.lua" "1" "$HAS_PROVIDER_SYNC_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
 assert_eq "APISIX has 20 volume mounts (4 config + 16 plugins)" "20" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
-HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || true)
+HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || echo "")
 assert_eq "ClickHouse mounts clickhouse-init.sql" "1" "$HAS_INIT_SQL"
 
 VECTOR_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.vector.volumes[]')
-HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" || true)
+HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" || echo "")
 assert_eq "Vector mounts vector.toml" "1" "$HAS_VECTOR_TOML"
 
 VECTOR_PORT_18080=$(echo "$JSON_DATA" | jq '[.services.vector.ports[] | select(. == "18080:8080")] | length')
@@ -225,14 +225,14 @@ HAS_ETCD_VOLUME=$(echo "$JSON_DATA" | jq '.volumes | has("etcd-data")')
 assert_eq "Has etcd-data volume" "true" "$HAS_ETCD_VOLUME"
 
 APISIX_ENV_FILE=$(echo "$JSON_DATA" | jq -r '.services.apisix.env_file[]')
-HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" || true)
+HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" || echo "")
 assert_eq "APISIX has env_file pointing to .env" "1" "$HAS_ENV_FILE"
 
 APISIX_DEPS=$(echo "$JSON_DATA" | jq -r '.services.apisix.depends_on[]')
-HAS_OPENBAO_DEP=$(echo "$APISIX_DEPS" | grep -c "openbao" || true)
+HAS_OPENBAO_DEP=$(echo "$APISIX_DEPS" | grep -c "openbao" || echo "")
 assert_eq "APISIX depends on openbao" "1" "$HAS_OPENBAO_DEP"
 
-HAS_ETCD_DEP=$(echo "$APISIX_DEPS" | grep -c "etcd" || true)
+HAS_ETCD_DEP=$(echo "$APISIX_DEPS" | grep -c "etcd" || echo "")
 assert_eq "APISIX depends on etcd" "1" "$HAS_ETCD_DEP"
 
 summary

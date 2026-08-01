@@ -35,7 +35,8 @@ phase via `ngx.timer.at`.
 
 ### 2.1 Fail open, never fail closed (except isolation)
 
-All embedding/Redis failures degrade to MISS; the request proceeds upstream.
+All embedding/Redis failures are treated as MISS: the request proceeds
+upstream and the failure is logged.
 Only missing tenant/tier isolation metadata fails closed (403).
 
 ### 2.2 Tenant/tier isolation is structural

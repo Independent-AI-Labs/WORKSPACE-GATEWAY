@@ -80,7 +80,7 @@ pricing is written exactly once, in one place.
 |----|-------------|
 | FR-2.1 | Sync MUST acquire the `providers:lock` key (30s TTL) via `add`; a held lock MUST yield "sync already in progress" without error. |
 | FR-2.2 | Sync MUST fetch `https://models.dev/api.json` with `User-Agent: Kimi CLI (Linux 6.17.0-35-generic x64)`; fetch failure MUST NOT abort sync (providers with endpoint sources still populate). |
-| FR-2.3 | `gateway`/`llamafile` sources MUST query the configured endpoint (relative paths resolved against `http://localhost:9080`). Endpoint failure or zero ids MUST produce an empty model list plus an error log (explicit degraded state; no static catalog substitution). `model_source.model_metadata` MAY overlay static metadata (name, limits, cost, capabilities) onto endpoint-reported ids only; it MUST NOT introduce ids the endpoint did not report. |
+| FR-2.3 | `gateway`/`llamafile` sources MUST query the configured endpoint (relative paths resolved against `http://localhost:9080`). Endpoint failure or zero ids MUST produce an empty model list plus an error log (explicit empty state; no static catalog substitution). `model_source.model_metadata` MAY overlay static metadata (name, limits, cost, capabilities) onto endpoint-reported ids only; it MUST NOT introduce ids the endpoint did not report. |
 | FR-2.4 | Model ids MUST be normalized per `model_source.normalize` (`strip_prefix`, `lowercase`). |
 | FR-2.5 | Sync MUST store `providers:raw`, `providers:enriched`, and `providers:ts` in `gateway-cache` with `stale_seconds` TTL (default 86400). |
 | FR-2.6 | On plugin init, a warmup timer MUST run one sync with schema defaults when `warmup_on_init` is true. |

@@ -9,8 +9,8 @@
 > (`semantic-cache`) that caches LLM chat completions using Redis 8 Vector
 > Similarity Search (VSS) with per-tenant/per-tier TAG isolation, delegating
 > embedding computation to a Rust sidecar over an OpenAI-compatible
-> `/v1/embeddings` API. The cache MUST fail open (graceful MISS) on all
-> infrastructure errors. This feature is a deferred v2 design: nothing in this
+> `/v1/embeddings` API. The cache MUST treat every infrastructure error as a
+> MISS and proceed upstream, logging the error. This feature is a deferred v2 design: nothing in this
 > document is implemented in the current codebase.
 
 ---

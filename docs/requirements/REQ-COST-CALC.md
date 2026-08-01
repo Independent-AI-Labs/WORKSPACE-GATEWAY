@@ -21,7 +21,7 @@
 ## 1. Purpose & Scope
 
 ### 1.1 Purpose
-Provide deterministic, auditable per-request USD cost for every usage row, preferring upstream-reported cost, else computing locally from a cached pricing table, and degrading safely when pricing is unknown.
+Provide deterministic, auditable per-request USD cost for every usage row, preferring upstream-reported cost, else computing locally from a cached pricing table, and reporting `cost_source = unknown` explicitly when pricing is unavailable.
 
 ### 1.2 Scope
 **This document OWNS the requirements for:**
@@ -63,7 +63,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 | ID | Requirement |
 |----|-------------|
 | FR-3.1 | `compute_cost` MUST compute: `(pt - cached) * input / 1e6 + (ct - reasoning) * output / 1e6 + cached * cache_read / 1e6 + reasoning * reasoning_rate / 1e6`, with negative components clamped to 0. |
-| FR-3.2 | `reasoning_rate` MUST default to `output` when the price has no `reasoning` field. |
+| FR-3.2 | `reasoning_rate` MUST equal the `output` rate when the price has no `reasoning` field. |
 | FR-3.3 | `cache_read` pricing MUST be supported; a missing `cache_read` rate MUST be treated as 0. |
 | FR-3.4 | All token/rate values MUST be coerced with `tonumber(...) or 0`. |
 

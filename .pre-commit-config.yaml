@@ -34,6 +34,12 @@ repos:
         language: system
         pass_filenames: false
         always_run: false
+      - id: check-resolution-shapes
+        name: "Check Resolution Shapes"
+        entry: "bash -c 'source ../CI/lib/checks.sh && ci_check_fallback_resolution'"
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: check-portable-shell
         name: "Check Portable Shell"
         entry: "bash -c 'source ../CI/lib/checks.sh && ci_check_portable_shell'"
@@ -42,10 +48,10 @@ repos:
         always_run: true
       - id: check-markdown-docs
         name: "Check Markdown Docs"
-        entry: "bash -c 'source ../CI/lib/checks.sh && CI_CONFIG_DIR=\"$CI_CONFIG_DIR\" CI_PROJECT_ROOT=\"$CI_PROJECT_ROOT\" exec uv run --project ../CI --no-sync python -m ci.check_markdown_docs --check-remote \"$@\"' --"
+        entry: "uv run --project ../CI --no-sync python -m ci.check_markdown_docs --all-md --check-remote"
         language: system
-        pass_filenames: true
-        always_run: false
+        pass_filenames: false
+        always_run: true
       - id: check-file-length
         name: "Check File Length"
         entry: "bash -c 'source ../CI/lib/checks.sh && ci_check_file_length'"

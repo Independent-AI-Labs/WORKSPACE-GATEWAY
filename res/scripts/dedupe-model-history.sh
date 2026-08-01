@@ -45,11 +45,11 @@ ch() {
 
 ch_value() {
   local sql="$1"
-  local out rc first_line
+  local out query_status first_line
   out=$(ch "$sql FORMAT TabSeparated")
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    echo "[dedupe] ERROR: ClickHouse query failed (rc=$rc)" >&2
+  query_status=$?
+  if [ "$query_status" -ne 0 ]; then
+    echo "[dedupe] ERROR: ClickHouse query failed (status=$query_status)" >&2
     return 1
   fi
   read -r first_line <<< "$out"

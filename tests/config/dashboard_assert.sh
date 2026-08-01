@@ -26,7 +26,7 @@ assert_eq() {
 
 assert_gt() {
     local desc="$1" threshold="$2" actual="$3"
-    if [ "$actual" -gt "$threshold" ] 2>/dev/null; then
+    if [ "$actual" -gt "$threshold" ]; then
         echo "[PASS] $desc"
         pass=$((pass + 1))
     else
@@ -37,7 +37,7 @@ assert_gt() {
 
 assert_json_valid() {
     local desc="$1" file="$2"
-    if jq empty "$file" 2>/dev/null; then
+    if jq empty "$file"; then
         echo "[PASS] $desc"
         pass=$((pass + 1))
     else

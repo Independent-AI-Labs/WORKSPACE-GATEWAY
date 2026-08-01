@@ -58,16 +58,16 @@ put_pool() {
   # Bump epoch so the gateway's in-memory disable/cooldown markers (namespaced
   # by epoch) never shadow keys after management writes like reset/enable.
   data=$(echo "$data" | jq -c '.epoch = ([(.epoch // 0) + 1, (now | floor)] | max)')
-  local resp rc
+  local resp curl_status
   resp=$(curl -sS -X POST \
     -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "$(jq -nc --argjson d "$data" '{data:$d}')" \
     -w '\n%{http_code}' \
-    "${OPENBAO_ADDR}/v1/${PREFIX}/${pool}") && rc=0 || rc=$?
+    "${OPENBAO_ADDR}/v1/${PREFIX}/${pool}") && curl_status=0 || curl_status=$?
   local http_code="${resp##*$'\n'}"
-  if [ "$rc" -ne 0 ] || { [ "$http_code" != "200" ] && [ "$http_code" != "204" ]; }; then
-    echo "ERROR: OpenBao write failed for pool $pool (rc=$rc http=$http_code)" >&2
+  if [ "$curl_status" -ne 0 ] || { [ "$http_code" != "200" ] && [ "$http_code" != "204" ]; }; then
+    echo "ERROR: OpenBao write failed for pool $pool (status=$curl_status http=$http_code)" >&2
     echo "${resp%$'\n'*}" >&2
     exit 1
   fi

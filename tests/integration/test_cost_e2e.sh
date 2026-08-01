@@ -18,7 +18,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if [ -f "$REPO_ROOT/.env" ]; then
     set -a
-    source "$REPO_ROOT/.env" || true
+    if ! source "$REPO_ROOT/.env"; then echo "[INFO] failed to source $REPO_ROOT/.env" >&2; fi
     set +a
 fi
 
@@ -45,7 +45,7 @@ if ! llamafile_reachable; then
 fi
 
 # Resolve the model id from /llamafile/v1/models.
-MODELS_JSON=$(curl -sf --max-time 10 "$GATEWAY_URL/llamafile/v1/models" 2>/dev/null || echo "")
+MODELS_JSON=$(curl -sf --max-time 10 "$GATEWAY_URL/llamafile/v1/models" || echo "")
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
     MODEL_ID=$(printf '%s' "$MODELS_JSON" | python3 -c "import sys,json
@@ -53,7 +53,7 @@ try:
     d=json.load(sys.stdin)
     print(d['data'][0]['id'] if d.get('data') else '')
 except Exception:
-    print('')" 2>/dev/null || echo "")
+    print('')" || echo "")
 fi
 assert_eq "llamafile /v1/models returned a model id" "yes" "$([ -n "$MODEL_ID" ] && echo yes || echo no)"
 if [ -z "$MODEL_ID" ]; then
@@ -70,8 +70,8 @@ HTTP_CODE=$(curl -s -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-t
     -X POST "$GATEWAY_URL/llamafile/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}],\"stream\":false}" \
-    2>/dev/null || echo "000")
-LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' || true)
+    || echo "000")
+LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' || echo "")
 rm -f "$RESP_HEADERS" "$RESP_BODY"
 
 echo "[INFO] chat HTTP $HTTP_CODE X-Request-Id=$LIVE_RID"

@@ -52,20 +52,20 @@ if [ ! -x "$CLIENT_SCRIPT" ]; then
 fi
 
 # --- Test: --help works ---
-HELP_OUTPUT=$(bash "$CLIENT_SCRIPT" --help 2>&1 || true)
+HELP_OUTPUT=$(bash "$CLIENT_SCRIPT" --help 2>&1 || echo "")
 assert_contains "help shows usage" "Usage:" "$HELP_OUTPUT"
 assert_contains "help mentions provider-id" "--provider-id" "$HELP_OUTPUT"
 
 # --- Test: missing --provider-id fails ---
-MISSING_OUTPUT=$(bash "$CLIENT_SCRIPT" --gateway http://localhost:9080 2>&1 || true)
+MISSING_OUTPUT=$(bash "$CLIENT_SCRIPT" --gateway http://localhost:9080 2>&1 || echo "")
 assert_contains "missing provider-id errors" "ERROR: --provider-id is required" "$MISSING_OUTPUT"
 
 # --- Test: invalid gateway fails ---
-INVALID_GATEWAY=$(bash "$CLIENT_SCRIPT" --provider-id test --gateway ftp://bad 2>&1 || true)
+INVALID_GATEWAY=$(bash "$CLIENT_SCRIPT" --provider-id test --gateway ftp://bad 2>&1 || echo "")
 assert_contains "invalid gateway errors" "ERROR: --gateway must be an http(s) URL" "$INVALID_GATEWAY"
 
 # --- Test: full OAuth flow with mock server ---
-if ! command -v python3 >/dev/null 2>&1; then
+if ! command -v python3 1>&2; then
     echo "[SKIP] python3 not available; skipping live client script flow test"
     pass=$((pass + 1))
     summary
@@ -80,7 +80,7 @@ LOG_FILE="$TMPDIR/server.log"
 CONFIG_FILE="$TMPDIR/opencode.json"
 AUTH_FILE="$TMPDIR/auth.json"
 
-python3 "$SCRIPT_DIR/mock_provider_server.py" "$PORT_FILE" "$LOG_FILE" >/dev/null 2>&1 &
+python3 "$SCRIPT_DIR/mock_provider_server.py" "$PORT_FILE" "$LOG_FILE" >>"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 # Wait for port file to appear.
@@ -93,7 +93,7 @@ done
 
 if [ ! -f "$PORT_FILE" ] || [ ! -s "$PORT_FILE" ]; then
     echo "[FAIL] mock server did not start"
-    kill "$SERVER_PID" 2>/dev/null || true
+    if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
     fail=$((fail + 1))
     summary
 fi
@@ -114,12 +114,12 @@ CLIENT_RC=$?
 set -e
 
 if [ "$CLIENT_RC" -ne 0 ]; then
-    echo "[FAIL] client script exited with rc=$CLIENT_RC"
+    echo "[FAIL] client script exited with status=$CLIENT_RC"
     echo "CLIENT_OUTPUT:"
     echo "$CLIENT_OUTPUT"
     echo "SERVER_LOG:"
-    cat "$LOG_FILE" 2>/dev/null || true
-    kill "$SERVER_PID" 2>/dev/null || true
+    cat "$LOG_FILE" || echo "[INFO] no log file at $LOG_FILE"
+    if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
     fail=$((fail + 1))
     summary
 fi
@@ -128,11 +128,11 @@ assert_contains "client script reports login complete" "Login complete" "$CLIENT
 
 # Verify config file has the provider block.
 if [ -f "$CONFIG_FILE" ]; then
-    CONFIG_NAME=$(jq -r '.provider."test-oauth".name' "$CONFIG_FILE" 2>/dev/null || echo "__missing__")
+    CONFIG_NAME=$(jq -r '.provider."test-oauth".name' "$CONFIG_FILE" || echo "__missing__")
     assert_eq "config file provider name" "Test OAuth" "$CONFIG_NAME"
-    CONFIG_NPM=$(jq -r '.provider."test-oauth".npm' "$CONFIG_FILE" 2>/dev/null || echo "__missing__")
+    CONFIG_NPM=$(jq -r '.provider."test-oauth".npm' "$CONFIG_FILE" || echo "__missing__")
     assert_eq "config file provider npm" "test-oauth" "$CONFIG_NPM"
-    assert_eq "config file baseURL" "http://gateway/test" "$(jq -r '.provider."test-oauth".options.baseURL' "$CONFIG_FILE" 2>/dev/null || echo "__missing__")"
+    assert_eq "config file baseURL" "http://gateway/test" "$(jq -r '.provider."test-oauth".options.baseURL' "$CONFIG_FILE" || echo "__missing__")"
 else
     echo "[FAIL] config file not created: $CONFIG_FILE"
     fail=$((fail + 1))
@@ -140,11 +140,11 @@ fi
 
 # Verify auth file has the token.
 if [ -f "$AUTH_FILE" ]; then
-    AUTH_KEY=$(jq -r '."test-oauth".key' "$AUTH_FILE" 2>/dev/null || echo "__missing__")
-    AUTH_TYPE=$(jq -r '."test-oauth".type' "$AUTH_FILE" 2>/dev/null || echo "__missing__")
+    AUTH_KEY=$(jq -r '."test-oauth".key' "$AUTH_FILE" || echo "__missing__")
+    AUTH_TYPE=$(jq -r '."test-oauth".type' "$AUTH_FILE" || echo "__missing__")
     assert_eq "auth file type" "api" "$AUTH_TYPE"
     assert_eq "auth file key" "test-access-token" "$AUTH_KEY"
-    AUTH_PERMS=$(stat -c '%a' "$AUTH_FILE" 2>/dev/null || echo "__missing__")
+    AUTH_PERMS=$(stat -c '%a' "$AUTH_FILE" || echo "__missing__")
     assert_eq "auth file permissions" "600" "$AUTH_PERMS"
 else
     echo "[FAIL] auth file not created: $AUTH_FILE"
@@ -174,22 +174,22 @@ API_KEY_RC=$?
 set -e
 
 if [ "$API_KEY_RC" -ne 0 ]; then
-    echo "[FAIL] api_key client script exited with rc=$API_KEY_RC"
+    echo "[FAIL] api_key client script exited with status=$API_KEY_RC"
     echo "$API_KEY_OUTPUT"
-    kill "$SERVER_PID" 2>/dev/null || true
+    if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
     fail=$((fail + 1))
     summary
 fi
 
 if [ -f "$AUTH_FILE" ]; then
     assert_eq "api_key auth key" "test-api-key-value" \
-        "$(jq -r '."test-api-key".key' "$AUTH_FILE" 2>/dev/null || echo "__missing__")"
+        "$(jq -r '."test-api-key".key' "$AUTH_FILE" || echo "__missing__")"
 else
     echo "[FAIL] auth file missing after api_key login"
     fail=$((fail + 1))
 fi
 
-kill "$SERVER_PID" 2>/dev/null || true
-wait "$SERVER_PID" 2>/dev/null || true
+if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
+if ! wait "$SERVER_PID"; then echo "[INFO] wait on $SERVER_PID returned $?" >&2; fi
 
 summary

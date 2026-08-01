@@ -42,7 +42,8 @@ by `tests/lua/test_redact_lib.lua` without a running gateway.
 
 ### 2.2 Fail-closed default
 
-`on_error` defaults to `closed`: pattern-load failure or request-body re-encode
+`on_error` is `closed` unless explicitly configured otherwise: pattern-load
+failure or request-body re-encode
 failure returns 503 rather than leaking unredacted PII upstream.
 
 ### 2.3 Buffer-then-restore

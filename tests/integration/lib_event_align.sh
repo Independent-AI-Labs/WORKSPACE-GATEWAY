@@ -28,12 +28,12 @@ export GATEWAY_URL CH_URL
 
 setup_endpoints() {
     # Returns 0 if both endpoints are reachable, 1 otherwise.
-    curl_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" 2>/dev/null || echo "000")
+    curl_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" || echo "000")
     if [ "$curl_code" = "000" ]; then
         echo "[SKIP] APISIX not reachable at $GATEWAY_URL"
         return 1
     fi
-    ch_health=$(curl -sf --max-time 5 "$CH_URL/?query=SELECT+1" 2>/dev/null || echo "")
+    ch_health=$(curl -sf --max-time 5 "$CH_URL/?query=SELECT+1" || echo "")
     if [ "$ch_health" != "1" ]; then
         echo "[SKIP] ClickHouse not reachable at $CH_URL"
         return 1
@@ -42,20 +42,20 @@ setup_endpoints() {
 }
 
 ch_query() {
-    curl -sf --max-time 15 -G "$CH_URL/" --data-urlencode "query=$1 FORMAT TabSeparated" 2>/dev/null || echo ""
+    curl -sf --max-time 15 -G "$CH_URL/" --data-urlencode "query=$1 FORMAT TabSeparated" || echo ""
 }
 
 count_recent() {
     local table="$1" boundary="$2"
     local where=""
-    [ "$boundary" -gt 0 ] 2>/dev/null && where="AND toUInt32(toDateTime(timestamp)) >= $boundary"
+    [ "$boundary" -gt 0 ] && where="AND toUInt32(toDateTime(timestamp)) >= $boundary"
     ch_query "SELECT count() FROM llm_gateway.$table WHERE request_id != '' $where" | tr -d ' \n'
 }
 
 latest_pair() {
     local table="$1" boundary="$2"
     local where=""
-    [ "$boundary" -gt 0 ] 2>/dev/null && where="AND toUInt32(toDateTime(timestamp)) >= $boundary"
+    [ "$boundary" -gt 0 ] && where="AND toUInt32(toDateTime(timestamp)) >= $boundary"
     ch_query "SELECT event_id, request_id FROM llm_gateway.$table WHERE request_id != '' $where ORDER BY timestamp DESC LIMIT 1"
 }
 
@@ -100,6 +100,6 @@ assert_alignment() {
 llamafile_reachable() {
     local code
     code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-        "$GATEWAY_URL/llamafile/v1/models" 2>/dev/null || echo "000")
+        "$GATEWAY_URL/llamafile/v1/models" || echo "000")
     [ "$code" != "000" ] && [ "$code" != "404" ]
 }

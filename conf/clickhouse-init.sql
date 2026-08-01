@@ -186,7 +186,7 @@ ALTER TABLE llm_gateway.billing_ledger
 -- ttft_ms, upstream_resp_id) are left as defaults here; a future enrich
 -- job can backfill them via the request_id join key. rate_input/rate_output
 -- require the models.dev pricing cache (in nginx shared dict, not
--- ClickHouse), so they default to 0 until a reconciler copy of the
+-- ClickHouse), so they are 0 until a reconciler copy of the
 -- pricing snapshot lands in ClickHouse.
 CREATE MATERIALIZED VIEW IF NOT EXISTS llm_gateway.billing_ledger_mv
 TO llm_gateway.billing_ledger

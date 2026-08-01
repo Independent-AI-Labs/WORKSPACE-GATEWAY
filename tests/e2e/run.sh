@@ -22,7 +22,7 @@ fi
 
 apisix_check=$(mktemp)
 curl_code=$(curl -s -o "$apisix_check" -w "%{http_code}" --max-time 5 \
-    http://localhost:9080/ 2>/dev/null || echo "000")
+    http://localhost:9080/ || echo "000")
 rm -f "$apisix_check"
 
 if [ "$curl_code" = "000" ]; then

@@ -27,7 +27,7 @@ rf() { echo "[FAIL] $1"; fail=$((fail+1)); }
 rs() { echo "[SKIP] $1"; skip=$((skip+1)); }
 
 # Skip if Grafana not running
-gf_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GRAFANA_URL/api/health" 2>/dev/null || echo "000")
+gf_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GRAFANA_URL/api/health" || echo "000")
 if [ "$gf_code" != "200" ]; then
     echo "[SKIP] Grafana not reachable (HTTP $gf_code)"
     exit 0
@@ -37,7 +37,7 @@ echo "=== Grafana Datasource Proxy Tests ==="
 echo ""
 
 # Deterministic ClickHouse rows for T1-T5 (fresh CI stacks have no telemetry).
-ch_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" 2>/dev/null || echo "000")
+ch_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" || echo "000")
 if [ "$ch_code" = "200" ]; then
     if bash "$REPO_ROOT/res/scripts/seed-clickhouse-dashboard-data.sh" --clickhouse-url "$CH_URL"; then
         echo "[INFO] ClickHouse dashboard seed data ready"
@@ -52,9 +52,11 @@ fi
 echo ""
 
 # Dashboard time range (matches ops-health default: now-7d).
-FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
-    date -u -d "@$(($(date +%s)-604800))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || \
-    date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
+if ! FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S'); then
+    if ! FROM_TS=$(date -u -d "@$(($(date +%s)-604800))" '+%Y-%m-%d %H:%M:%S'); then
+        FROM_TS=$(date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
+    fi
+fi
 TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Find which dashboard file contains a panel with the given title
@@ -62,7 +64,7 @@ find_panel_file_by_title() {
     local title="$1"
     for df in "${ALL_DASHBOARDS[@]}"; do
         local n
-        n=$(jq --arg t "$title" '[.panels[] | select(.title == $t)] | length' "$df" 2>/dev/null || echo 0)
+        n=$(jq --arg t "$title" '[.panels[] | select(.title == $t)] | length' "$df" || echo 0)
         [ "$n" -gt 0 ] && { printf '%s' "$df"; return; }
     done
 }
@@ -138,17 +140,17 @@ ds_query() {
     curl -sf --max-time 30 -X POST "$GRAFANA_URL/api/ds/query" \
         -u "$GRAFANA_AUTH" \
         -H "Content-Type: application/json" \
-        -d "$payload" 2>/dev/null || echo ""
+        -d "$payload" || echo ""
 }
 
 # Extract values array from ds_query response
 # $1=response_json, $2=field_index (0-based)
 ds_values() {
-    echo "$1" | jq -r ".results.A.frames[0].data.values[$2] // []" 2>/dev/null
+    echo "$1" | jq -r ".results.A.frames[0].data.values[$2] // []"
 }
 
 ds_value_count() {
-    echo "$1" | jq -r '.results.A.frames[0].data.values[0] | length' 2>/dev/null
+    echo "$1" | jq -r '.results.A.frames[0].data.values[0] | length'
 }
 
 # =====================================================================
@@ -164,8 +166,8 @@ T1_FMT=$(get_panel_format "Total Requests")
 
 T1_RESP=$(ds_query "$T1_DS" "$T1_QUERY" "table" "table")
 # Single-column query: values[0][0] is the count
-T1_VAL=$(echo "$T1_RESP" | jq -r '.results.A.frames[0].data.values[0][0] // "null"' 2>/dev/null)
-if [ "$T1_VAL" != "null" ] && [ "$T1_VAL" -gt 100 ] 2>/dev/null; then
+T1_VAL=$(echo "$T1_RESP" | jq -r '.results.A.frames[0].data.values[0][0] // "null"')
+if [ "$T1_VAL" != "null" ] && [ "$T1_VAL" -gt 100 ]; then
     rp "T1: total_requests=$T1_VAL (>100, not reset counter)"
 else
     rf "T1: total_requests=$T1_VAL (expected >100)"
@@ -187,10 +189,10 @@ echo "$T2_QUERY" | grep -q "status >= 500" && rf "T2: still has old status >= 50
 
 T2_RESP=$(ds_query "$T2_DS" "$T2_QUERY" "table" "table")
 # Single-column query: values[0][0] is the error rate
-T2_VAL=$(echo "$T2_RESP" | jq -r '.results.A.frames[0].data.values[0][0] // "null"' 2>/dev/null)
+T2_VAL=$(echo "$T2_RESP" | jq -r '.results.A.frames[0].data.values[0][0] // "null"')
 # Error rate should be > 0.20% (old 5xx-only rate) since we now count 4xx
 if [ "$T2_VAL" != "null" ]; then
-    T2_GT=$(awk "BEGIN{print ($T2_VAL > 0.20) ? 1 : 0}" 2>/dev/null)
+    T2_GT=$(awk "BEGIN{print ($T2_VAL > 0.20) ? 1 : 0}")
     [ "$T2_GT" = "1" ] && rp "T2: error_rate=$T2_VAL% (>0.20%, includes 4xx)" || rf "T2: error_rate=$T2_VAL% (should be >0.20%)"
 else
     rf "T2: no response from datasource proxy"
@@ -214,14 +216,14 @@ T3_RESP=$(ds_query "$T3_DS" "$T3_QUERY" "table" "table")
 T3_COUNT=$(ds_value_count "$T3_RESP")
 # Catches piechart "reduce all rows to 1-2 values → 'Count: 100%'" bug.
 # Threshold >= 3 accepts 24h-window data variance (some codes may fall outside).
-if [ "$T3_COUNT" -ge 3 ] 2>/dev/null; then
+if [ "$T3_COUNT" -ge 3 ]; then
     rp "T3: $T3_COUNT status codes returned (>=3, not reduced to single value)"
 else
     rf "T3: only $T3_COUNT values returned (piechart would show 'count 100%' bug)"
 fi
 
 # Verify status codes include 4xx (not just 200 and 5xx)
-T3_CODES=$(echo "$T3_RESP" | jq -r '.results.A.frames[0].data.values[0][]' 2>/dev/null | paste -sd, -)
+T3_CODES=$(echo "$T3_RESP" | jq -r '.results.A.frames[0].data.values[0][]' | paste -sd, -)
 echo "$T3_CODES" | grep -qE "40[0-9]|41[0-9]|42[0-9]|43[0-9]|44[0-9]|45[0-9]|46[0-9]|47[0-9]|48[0-9]|49[0-9]" \
     && rp "T3: 4xx codes present ($T3_CODES)" \
     || rf "T3: no 4xx codes in ($T3_CODES)"
@@ -243,8 +245,8 @@ echo "$T4_QUERY" | grep -q "GROUP BY model" && rp "T4: groups by model" || rf "T
 T4_RESP=$(ds_query "$T4_DS" "$T4_QUERY" "table" "table")
 T4_COUNT=$(ds_value_count "$T4_RESP")
 # Sum all model counts
-T4_SUM=$(echo "$T4_RESP" | jq -r '.results.A.frames[0].data.values[1][]' 2>/dev/null | awk '{s+=$1} END{print s+0}')
-if [ "$T4_SUM" -gt 0 ] 2>/dev/null; then
+T4_SUM=$(echo "$T4_RESP" | jq -r '.results.A.frames[0].data.values[1][]' | awk '{s+=$1} END{print s+0}')
+if [ "$T4_SUM" -gt 0 ]; then
     rp "T4: model_dist total=$T4_SUM (>0)"
 else
     rf "T4: model_dist total=$T4_SUM (expected >0)"
@@ -267,17 +269,17 @@ echo "$T5_QUERY" | grep -q "r.upstream_response_time_s" && rp "T5: latency from 
 
 T5_RESP=$(ds_query "$T5_DS" "$T5_QUERY" "table" "table")
 T5_COUNT=$(ds_value_count "$T5_RESP")
-if [ "$T5_COUNT" -ge 1 ] 2>/dev/null; then
+if [ "$T5_COUNT" -ge 1 ]; then
     rp "T5: $T5_COUNT models with latency data (>=1)"
 else
     rf "T5: only $T5_COUNT models (expected >=1)"
 fi
 
 # Verify latency values are reasonable (0.001 to 300 seconds)
-T5_LATS=$(echo "$T5_RESP" | jq -r '.results.A.frames[0].data.values[1][]' 2>/dev/null)
+T5_LATS=$(echo "$T5_RESP" | jq -r '.results.A.frames[0].data.values[1][]')
 T5_BAD=0
 for lat in $T5_LATS; do
-    T5_OK=$(awk "BEGIN{print ($lat >= 0.001 && $lat <= 300) ? 1 : 0}" 2>/dev/null || echo "0")
+    T5_OK=$(awk "BEGIN{print ($lat >= 0.001 && $lat <= 300) ? 1 : 0}" || echo "0")
     [ "$T5_OK" = "0" ] && T5_BAD=$((T5_BAD+1))
 done
 [ "$T5_BAD" = "0" ] && rp "T5: all latencies in [0.001, 300]s" || rf "T5: $T5_BAD latencies out of range"

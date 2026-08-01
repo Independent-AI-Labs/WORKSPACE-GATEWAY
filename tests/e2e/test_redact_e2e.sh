@@ -60,7 +60,7 @@ else
     check "Redaction E2E request with PII returns 200 (got $http_code)" "1"
 fi
 
-redact_header=$(grep -i '^x-redact-active:' "$headers_file" 2>/dev/null | tr -d '\r' || echo "")
+redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' || echo "")
 redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' || echo "")
 
 if [ "$redact_value" = "1" ]; then
@@ -83,7 +83,7 @@ CH_URL="http://localhost:8123"
 PII_TOKEN="[EMAIL_1]"
 
 echo "[INFO] Querying ClickHouse for logged request body..."
-logged_req_body=$(curl -sf "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" 2>/dev/null || echo "")
+logged_req_body=$(curl -sf "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" || echo "")
 
 if grep -q "$PII_TOKEN" <<< "$logged_req_body"; then
     check "ClickHouse logged request body contains redaction token" "0"

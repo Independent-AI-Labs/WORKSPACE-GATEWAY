@@ -187,22 +187,22 @@ else
     render_lua "$TMP_DIR/model_registry.lua"
     render_vrl_block "$TMP_DIR/block.vrl"
     inject_vector "$VECTOR_TOML" "$TMP_DIR/block.vrl" "$TMP_DIR/vector.toml"
-    rc=0
+    status=0
     if ! diff -u "$LUA_OUT" "$TMP_DIR/model_registry.lua" > "$TMP_DIR/lua.diff"; then
         echo "[FAIL] $LUA_OUT is out of sync with conf/model-registry.yaml:" >&2
         cat "$TMP_DIR/lua.diff" >&2
-        rc=1
+        status=1
     fi
     if ! diff -u "$VECTOR_TOML" "$TMP_DIR/vector.toml" > "$TMP_DIR/vec.diff"; then
         echo "[FAIL] $VECTOR_TOML GENERATED block is out of sync with conf/model-registry.yaml:" >&2
         cat "$TMP_DIR/vec.diff" >&2
-        rc=1
+        status=1
     fi
-    if [ "$rc" -eq 0 ]; then
+    if [ "$status" -eq 0 ]; then
         echo "[PASS] generated artifacts in sync with conf/model-registry.yaml"
     else
         echo "Run: res/scripts/gen-model-registry.sh" >&2
     fi
     rm -rf "$TMP_DIR"
-    exit "$rc"
+    exit "$status"
 fi

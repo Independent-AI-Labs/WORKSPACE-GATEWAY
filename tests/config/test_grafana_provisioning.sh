@@ -103,7 +103,7 @@ for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
         fail=$((fail + 1))
         summary
     fi
-    if ! jq empty "$df" 2>/dev/null; then
+    if ! jq empty "$df"; then
         echo "[FAIL] Dashboard JSON not valid: $df"
         fail=$((fail + 1))
         summary

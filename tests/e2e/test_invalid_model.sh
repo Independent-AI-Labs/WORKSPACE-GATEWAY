@@ -48,14 +48,14 @@ http_code=$(curl -s -o "$body_file" -w "%{http_code}" --max-time 30 \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"model":"nonexistent-model-xyz-12345","messages":[{"role":"user","content":"hello"}],"stream":false}' \
-    2>/dev/null || echo "000")
+    || echo "000")
 
 body=$(cat "$body_file")
 rm -f "$body_file"
 
 if [ "$http_code" = "000" ]; then
     check "Invalid model request returns non-zero HTTP code" "1"
-elif [ "$http_code" -ge 400 ] 2>/dev/null; then
+elif [ "$http_code" -ge 400 ]; then
     check "Invalid model request returns 4xx/5xx error (got $http_code)" "0"
 else
     check "Invalid model request returns 4xx/5xx error (got $http_code)" "1"

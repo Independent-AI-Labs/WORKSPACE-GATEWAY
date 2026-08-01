@@ -34,7 +34,7 @@ teardown() {
         exit 0
     fi
     echo "[INFO] Runner tearing down stack..."
-    $TEST_COMPOSE down || echo "[WARN] teardown failed (rc=$?)"
+    $TEST_COMPOSE down || echo "[WARN] teardown failed (status=$?)"
     echo ""
     echo "Integration tests: $pass passed, $fail failed"
     if [ "$fail" -gt 0 ]; then

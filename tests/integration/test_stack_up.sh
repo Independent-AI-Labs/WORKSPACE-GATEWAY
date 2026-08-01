@@ -50,7 +50,7 @@ teardown() {
         return 0
     fi
     echo "[INFO] Tearing down stack..."
-    $TEST_COMPOSE down || echo "[WARN] teardown: podman-compose down failed (rc=$?)"
+    $TEST_COMPOSE down || echo "[WARN] teardown: podman-compose down failed (status=$?)"
     if [ "$fail" -gt 0 ]; then
         echo "test_stack_up: $pass passed, $fail failed"
         exit 1
@@ -84,7 +84,7 @@ wait_for_port() {
     local max_attempts="${4:-30}"
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
-        if (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null; then
+        if _tcp_probe=$( (exec 3<>"/dev/tcp/$host/$port") 2>&1 ); then
             exec 3>&- 3<&-
             record_pass "$name is listening on $host:$port"
             return 0
@@ -245,7 +245,7 @@ main() {
     fi
 }
 
-main || true
+if ! main; then echo "[INFO] main exited non-zero; fail counter decides exit status" >&2; fi
 
 if [ "$fail" -gt 0 ]; then
     exit 1

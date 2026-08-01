@@ -36,7 +36,7 @@ Two independent write paths converge on shared correlation ids:
 No telemetry write blocks a client response: Vector batches with retry; sse-usage INSERTs from a timer with 3 retries.
 
 ### 2.2 Deterministic correlation
-`event_id = route_id + "_" + floor(start_time)`. Vector receives `start_time` in ms from http-logger and truncates; sse-usage floors `ngx.var.start_time` (seconds.millis). Both agree on the integer second. `request_id` comes from the `X-Request-Id` header set by the request-id plugin; both sides fall back consistently.
+`event_id = route_id + "_" + floor(start_time)`. Vector receives `start_time` in ms from http-logger and truncates; sse-usage floors `ngx.var.start_time` (seconds.millis). Both agree on the integer second. `request_id` comes from the `X-Request-Id` header set by the request-id plugin; both sides read the same header.
 
 ### 2.3 Canonical model identity
 `conf/model-registry.yaml` is codegen'd into `model_registry.lua` and the Vector GENERATED block. `model`/`model_name` columns hold the canonical id; `model_raw` holds the verbatim wire string (migration 000005).
@@ -74,7 +74,7 @@ ORDER BY `(provider, model, timestamp)`. Columns: `event_id`, `provider`, `model
 ORDER BY `(event_id, request_id, timestamp)`. Columns: `event_id`, `request_id`, `model`, `model_raw`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_tokens`, `reasoning_tokens`, `key_id`, `api_key_id`, `aborted UInt8`, `is_stream UInt8`, `cost Float64`, `cost_source Enum8('upstream'=0,'computed'=1,'unknown'=2)`, `timestamp`.
 
 ### 4.3 billing_ledger (populated by MV)
-ORDER BY `(tenant_id, user_id, timestamp)`. 25+ columns incl. identity (tenant_id, user_id, provider, model_name, model_raw, route_name, consumer_group), `request_mode`, `cache_status`, token fields, `rate_input/rate_output Decimal64(8)`, `currency`, `cost Decimal64(6)`, `success`, `error_type`, latency fields, `upstream_resp_id`, redact fields. Enrichment-only columns default to `''`/0 until backfill.
+ORDER BY `(tenant_id, user_id, timestamp)`. 25+ columns incl. identity (tenant_id, user_id, provider, model_name, model_raw, route_name, consumer_group), `request_mode`, `cache_status`, token fields, `rate_input/rate_output Decimal64(8)`, `currency`, `cost Decimal64(6)`, `success`, `error_type`, latency fields, `upstream_resp_id`, redact fields. Enrichment-only columns are `''`/0 until backfill.
 
 ### 4.4 billing_discrepancies (reconciler v2 target)
 `date Date`, `tenant_id`, `provider`, `model_name`, `gateway_tokens UInt32`, `provider_tokens UInt32`, `divergence Decimal64(6)`, `tolerance Decimal64(6)`, `flagged_at`. No TTL. Empty today.

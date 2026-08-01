@@ -66,11 +66,11 @@ assert_file_exists() {
 }
 
 http_code() {
-    curl -s -o /dev/null -w "%{http_code}" "$@" || true
+    if ! curl -s -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
 }
 
 http_json() {
-    curl -sS --max-time 30 -H "Accept: application/json" "$@" || true
+    if ! curl -sS --max-time 30 -H "Accept: application/json" "$@"; then echo "[INFO] curl failed in http_json" >&2; fi
 }
 
 wait_for_apisix() {
@@ -78,7 +78,7 @@ wait_for_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$GATEWAY/" 2>/dev/null || true)
+        code=$(http_code "$GATEWAY/" || echo "")
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             record_pass "APISIX reachable at $GATEWAY (HTTP $code)"
             return 0
@@ -113,7 +113,7 @@ trigger_sync() {
 get_json_field() {
     local json="$1"
     local jq_expr="$2"
-    echo "$json" | jq -r "$jq_expr" 2>/dev/null || echo "__missing__"
+    echo "$json" | jq -r "$jq_expr" || echo "__missing__"
 }
 
 test_provider_list() {
@@ -122,7 +122,7 @@ test_provider_list() {
     assert_contains "provider list returns JSON array" "[" "$resp"
     local count
     count=$(get_json_field "$resp" 'length')
-    if [ "$count" -ge 6 ] 2>/dev/null; then
+    if [ "$count" -ge 6 ]; then
         record_pass "provider list contains at least 6 providers (count=$count)"
     else
         record_fail "provider list expected >= 6 providers, got $count -- response: $resp"
@@ -174,7 +174,7 @@ verify_provider_in_config() {
     local provider_id="$1"
     local expected_name="$2"
     local actual_name
-    actual_name=$(jq -r ".provider.\"$provider_id\".name // \"__missing__\"" "$CONFIG_FILE" 2>/dev/null || echo "__missing__")
+    actual_name=$(jq -r ".provider.\"$provider_id\".name // \"__missing__\"" "$CONFIG_FILE" || echo "__missing__")
     assert_eq "config contains $provider_id with name '$expected_name'" "$expected_name" "$actual_name"
 }
 
@@ -182,7 +182,7 @@ verify_provider_base_url() {
     local provider_id="$1"
     local expected_base_url="$2"
     local actual
-    actual=$(jq -r ".provider.\"$provider_id\".options.baseURL // \"__missing__\"" "$CONFIG_FILE" 2>/dev/null || echo "__missing__")
+    actual=$(jq -r ".provider.\"$provider_id\".options.baseURL // \"__missing__\"" "$CONFIG_FILE" || echo "__missing__")
     assert_eq "config $provider_id baseURL is '$expected_base_url'" "$expected_base_url" "$actual"
 }
 
@@ -191,8 +191,8 @@ verify_auth_entry() {
     local expected_key="$2"
     local actual_type
     local actual_key
-    actual_type=$(jq -r ".\"$provider_id\".type // \"__missing__\"" "$AUTH_FILE" 2>/dev/null || echo "__missing__")
-    actual_key=$(jq -r ".\"$provider_id\".key // \"__missing__\"" "$AUTH_FILE" 2>/dev/null || echo "__missing__")
+    actual_type=$(jq -r ".\"$provider_id\".type // \"__missing__\"" "$AUTH_FILE" || echo "__missing__")
+    actual_key=$(jq -r ".\"$provider_id\".key // \"__missing__\"" "$AUTH_FILE" || echo "__missing__")
     assert_eq "auth entry $provider_id type is 'api'" "api" "$actual_type"
     assert_eq "auth entry $provider_id key matches" "$expected_key" "$actual_key"
 }
@@ -203,10 +203,10 @@ test_client_no_auth_llamafile() {
     local output
     set +e
     output=$(run_client_login workspace-gw-llamafile --no-browser 2>&1)
-    local rc=$?
+    local status=$?
     set -e
-    if [ "$rc" -ne 0 ]; then
-        record_fail "client login for llamafile failed (rc=$rc) -- output: $output"
+    if [ "$status" -ne 0 ]; then
+        record_fail "client login for llamafile failed (status=$status) -- output: $output"
         return 1
     fi
     assert_contains "llamafile client reports login complete" "Login complete" "$output"
@@ -221,18 +221,18 @@ test_client_no_auth_kimi_own() {
     local output
     set +e
     output=$(run_client_login workspace-gw-kimi-own --no-browser 2>&1)
-    local rc=$?
+    local status=$?
     set -e
-    if [ "$rc" -ne 0 ]; then
-        record_fail "client login for kimi-own failed (rc=$rc) -- output: $output"
+    if [ "$status" -ne 0 ]; then
+        record_fail "client login for kimi-own failed (status=$status) -- output: $output"
         return 1
     fi
     assert_contains "kimi-own client reports login complete" "Login complete" "$output"
     verify_provider_in_config workspace-gw-kimi-own "Workspace GW (Kimi Own Key)"
     verify_provider_base_url workspace-gw-kimi-own "$GATEWAY/kimi-key"
     local model_count
-    model_count=$(jq -r '.provider."workspace-gw-kimi-own".models | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
-    if [ "$model_count" -gt 0 ] 2>/dev/null; then
+    model_count=$(jq -r '.provider."workspace-gw-kimi-own".models | length' "$CONFIG_FILE" || echo "0")
+    if [ "$model_count" -gt 0 ]; then
         record_pass "kimi-own config has enriched models (count=$model_count)"
     else
         record_fail "kimi-own config expected enriched models, got $model_count"
@@ -240,7 +240,7 @@ test_client_no_auth_kimi_own() {
     local alias
     for alias in kimi-for-coding kimi-for-coding-highspeed k3; do
         local alias_cost
-        alias_cost=$(jq -r ".provider.\"workspace-gw-kimi-own\".models.\"$alias\".cost.input // \"__missing__\"" "$CONFIG_FILE" 2>/dev/null || echo "__missing__")
+        alias_cost=$(jq -r ".provider.\"workspace-gw-kimi-own\".models.\"$alias\".cost.input // \"__missing__\"" "$CONFIG_FILE" || echo "__missing__")
         if [ "$alias_cost" != "__missing__" ]; then
             record_pass "kimi-own alias $alias present with cost (input=$alias_cost)"
         else
@@ -256,10 +256,10 @@ test_client_virtual_key() {
     local output
     set +e
     output=$(echo "$test_key" | run_client_login workspace-gw-private --no-browser 2>&1)
-    local rc=$?
+    local status=$?
     set -e
-    if [ "$rc" -ne 0 ]; then
-        record_fail "client login for virtual_key failed (rc=$rc) -- output: $output"
+    if [ "$status" -ne 0 ]; then
+        record_fail "client login for virtual_key failed (status=$status) -- output: $output"
         return 1
     fi
     assert_contains "virtual_key client reports login complete" "Login complete" "$output"
@@ -267,7 +267,7 @@ test_client_virtual_key() {
     verify_provider_base_url workspace-gw-private "$GATEWAY/opencode_federated/v1"
     verify_auth_entry workspace-gw-private "$test_key"
     local perms
-    perms=$(stat -c '%a' "$AUTH_FILE" 2>/dev/null || echo "__missing__")
+    perms=$(stat -c '%a' "$AUTH_FILE" || echo "__missing__")
     assert_eq "auth file permissions are 600" "600" "$perms"
 }
 
@@ -288,14 +288,14 @@ EOF
     local output
     set +e
     output=$(run_client_login workspace-gw-llamafile --no-browser 2>&1)
-    local rc=$?
+    local status=$?
     set -e
-    if [ "$rc" -ne 0 ]; then
-        record_fail "config merge login failed (rc=$rc) -- output: $output"
+    if [ "$status" -ne 0 ]; then
+        record_fail "config merge login failed (status=$status) -- output: $output"
         return 1
     fi
     local existing_name
-    existing_name=$(jq -r '.provider."existing-legacy".name // "__missing__"' "$CONFIG_FILE" 2>/dev/null || echo "__missing__")
+    existing_name=$(jq -r '.provider."existing-legacy".name // "__missing__"' "$CONFIG_FILE" || echo "__missing__")
     assert_eq "config merge preserves existing provider" "Legacy Provider" "$existing_name"
     verify_provider_in_config workspace-gw-llamafile "Workspace GW (llamafile)"
 }
@@ -313,30 +313,30 @@ EOF
     local output
     set +e
     output=$(run_client_login workspace-gw-llamafile --no-browser 2>&1)
-    local rc=$?
+    local status=$?
     set -e
-    if [ "$rc" -ne 0 ]; then
-        record_fail "JSONC config login failed (rc=$rc) -- output: $output"
+    if [ "$status" -ne 0 ]; then
+        record_fail "JSONC config login failed (status=$status) -- output: $output"
         return 1
     fi
-    if jq -e . "$CONFIG_FILE" >/dev/null 2>&1; then
+    if _probe="$(jq -e . "$CONFIG_FILE" 2>&1)"; then
         record_pass "JSONC config was rewritten to valid JSON"
     else
-        record_fail "JSONC config was not rewritten to valid JSON -- contents: $(cat "$CONFIG_FILE" 2>/dev/null || true)"
+        record_fail "JSONC config was not rewritten to valid JSON -- contents: $(cat "$CONFIG_FILE" || echo "")"
     fi
     verify_provider_in_config workspace-gw-llamafile "Workspace GW (llamafile)"
 }
 
-# --- Test: invalid provider id fails gracefully ---
+# --- Test: invalid provider id fails with a clear error ---
 test_invalid_provider() {
     rm -f "$CONFIG_FILE" "$AUTH_FILE"
     local output
     set +e
     output=$(run_client_login does-not-exist --no-browser 2>&1)
-    local rc=$?
+    local status=$?
     set -e
-    if [ "$rc" -eq 0 ]; then
-        record_fail "invalid provider login should have failed (rc=0) -- output: $output"
+    if [ "$status" -eq 0 ]; then
+        record_fail "invalid provider login should have failed (status=0) -- output: $output"
         return 1
     fi
     assert_contains "invalid provider reports error" "ERROR: gateway returned an invalid provider response" "$output"
@@ -373,10 +373,10 @@ test_oauth_client_timeout() {
     local output
     set +e
     output=$(run_client_login workspace-gw-kimi-oauth --no-browser --device-timeout 5 2>&1)
-    local rc=$?
+    local status=$?
     set -e
-    if [ "$rc" -eq 0 ]; then
-        record_fail "oauth client should have timed out or failed (rc=0) -- output: $output"
+    if [ "$status" -eq 0 ]; then
+        record_fail "oauth client should have timed out or failed (status=0) -- output: $output"
         return 1
     fi
     assert_contains "oauth client reports polling" "Polling for authorization" "$output"
@@ -418,7 +418,7 @@ main() {
     echo "test_provider_sync_client: $pass passed, $fail failed"
 }
 
-main || true
+if ! main; then echo "[INFO] main exited non-zero; fail counter decides exit status" >&2; fi
 
 if [ "$fail" -gt 0 ]; then
     exit 1

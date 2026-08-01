@@ -23,7 +23,7 @@ wait_for_url() {
     local max_attempts="${3:-30}"
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
-        if curl -sf -o /dev/null "$url" 2>/dev/null; then
+        if curl -sf -o /dev/null "$url"; then
             record_pass "$name is ready ($url)"
             return 0
         fi
@@ -43,11 +43,11 @@ wait_for_url "http://localhost:9092/-/healthy" "Gateway Prometheus on port 9092"
 
 # ── 2. Prometheus scraping APISIX ─────────────────────────────────────
 
-PROM_TARGETS=$(curl -s http://localhost:9092/api/v1/targets 2>/dev/null || echo "")
+PROM_TARGETS=$(curl -s http://localhost:9092/api/v1/targets || echo "")
 if [ -z "$PROM_TARGETS" ]; then
     record_fail "Prometheus targets API returned empty"
 else
-    APISIX_HEALTH=$(echo "$PROM_TARGETS" | jq -r '[.data.activeTargets[] | select(.scrapePool == "gateway-apisix")][0].health // "not_found"' 2>/dev/null || echo "parse_error")
+    APISIX_HEALTH=$(echo "$PROM_TARGETS" | jq -r '[.data.activeTargets[] | select(.scrapePool == "gateway-apisix")][0].health // "not_found"' || echo "parse_error")
 
     if [ "$APISIX_HEALTH" = "up" ]; then
         record_pass "Prometheus is scraping APISIX (target up)"
@@ -60,9 +60,9 @@ fi
 
 wait_for_url "http://localhost:3030/api/health" "Grafana on port 3030" 60
 
-GRAFANA_VERSION=$(curl -s http://localhost:3030/api/health 2>/dev/null | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
+GRAFANA_VERSION=$(curl -s http://localhost:3030/api/health | jq -r '.version // "unknown"' || echo "unknown")
 # Min version 12.4.0 (time-range pan/zoom GA). Use awk semver compare.
-if awk -v a="$GRAFANA_VERSION" -v b="12.4.0" 'BEGIN{n=split(a,va,".");m=split(b,vb,".");for(i=1;i<=(n>m?n:m);i++){x=va[i]+0;y=vb[i]+0;if(x>y)exit 0;if(x<y)exit 1}exit 0}' 2>/dev/null; then
+if awk -v a="$GRAFANA_VERSION" -v b="12.4.0" 'BEGIN{n=split(a,va,".");m=split(b,vb,".");for(i=1;i<=(n>m?n:m);i++){x=va[i]+0;y=vb[i]+0;if(x>y)exit 0;if(x<y)exit 1}exit 0}'; then
     record_pass "Grafana version >= 12.4.0 (got $GRAFANA_VERSION)"
 else
     record_fail "Grafana version too old: expected >= 12.4.0, got $GRAFANA_VERSION"
@@ -70,8 +70,8 @@ fi
 
 # ── 4. Grafana datasources provisioned ────────────────────────────────
 
-DATASOURCES=$(curl -s http://admin:admin@localhost:3030/api/datasources 2>/dev/null || echo "[]")
-DS_COUNT=$(echo "$DATASOURCES" | jq 'length' 2>/dev/null || echo "0")
+DATASOURCES=$(curl -s http://admin:admin@localhost:3030/api/datasources || echo "[]")
+DS_COUNT=$(echo "$DATASOURCES" | jq 'length' || echo "0")
 
 if [ "$DS_COUNT" = "2" ]; then
     record_pass "Grafana has 2 datasources provisioned"
@@ -79,7 +79,7 @@ else
     record_fail "Grafana datasource count: expected 2, got $DS_COUNT"
 fi
 
-DS_NAMES=$(echo "$DATASOURCES" | jq -r '[.[].name] | sort | join(",")' 2>/dev/null || echo "")
+DS_NAMES=$(echo "$DATASOURCES" | jq -r '[.[].name] | sort | join(",")' || echo "")
 
 if [ "$DS_NAMES" = "ClickHouse,Prometheus" ]; then
     record_pass "Grafana has Prometheus and ClickHouse datasources"
@@ -89,14 +89,14 @@ fi
 
 # ── 5. Dashboards provisioned (3 split dashboards) ───────────────────
 
-DASHBOARDS=$(curl -s http://admin:admin@localhost:3030/api/search 2>/dev/null || echo "[]")
+DASHBOARDS=$(curl -s http://admin:admin@localhost:3030/api/search || echo "[]")
 
 for dash_info in "Gateway Cost & Usage|gateway-cost-usage" \
                  "Gateway Operations & Health|gateway-ops-health" \
                  "Gateway Cost Leaderboard|gateway-cost-leaderboard"; do
     dash_title="${dash_info%%|*}"
     dash_uid="${dash_info##*|}"
-    has_dash=$(echo "$DASHBOARDS" | jq --arg t "$dash_title" '[.[] | select(.title == $t)] | length > 0' 2>/dev/null || echo "false")
+    has_dash=$(echo "$DASHBOARDS" | jq --arg t "$dash_title" '[.[] | select(.title == $t)] | length > 0' || echo "false")
     if [ "$has_dash" = "true" ]; then
         record_pass "$dash_title dashboard is provisioned"
     else
@@ -107,9 +107,9 @@ done
 # ── 5b. Dashboard defaults (7d lookback, 5s refresh) ───────────────────
 
 for dash_uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; do
-    dash_json=$(curl -s "http://admin:admin@localhost:3030/api/dashboards/uid/$dash_uid" 2>/dev/null || echo "{}")
-    dash_from=$(echo "$dash_json" | jq -r '.dashboard.time.from // "missing"' 2>/dev/null || echo "parse_error")
-    dash_refresh=$(echo "$dash_json" | jq -r '.dashboard.refresh // "missing"' 2>/dev/null || echo "parse_error")
+    dash_json=$(curl -s "http://admin:admin@localhost:3030/api/dashboards/uid/$dash_uid" || echo "{}")
+    dash_from=$(echo "$dash_json" | jq -r '.dashboard.time.from // "missing"' || echo "parse_error")
+    dash_refresh=$(echo "$dash_json" | jq -r '.dashboard.refresh // "missing"' || echo "parse_error")
     if [ "$dash_from" = "now-7d" ] && [ "$dash_refresh" = "5s" ]; then
         record_pass "$dash_uid defaults: now-7d / 5s"
     else
@@ -119,19 +119,19 @@ done
 
 # ── 6. Container names do not conflict ────────────────────────────────
 
-if podman ps --format '{{.Names}}' 2>/dev/null | grep -q -E '(gw-grafana|gw-test.*grafana)'; then
+if podman ps --format '{{.Names}}' | grep -q -E '(gw-grafana|gw-test.*grafana)'; then
     record_pass "Grafana container running (no conflict)"
 else
     record_fail "Grafana container not found"
 fi
 
-if podman ps --format '{{.Names}}' 2>/dev/null | grep -q -E '(gw-prometheus|gw-test.*prometheus)'; then
+if podman ps --format '{{.Names}}' | grep -q -E '(gw-prometheus|gw-test.*prometheus)'; then
     record_pass "Prometheus container running (no conflict)"
 else
     record_fail "Prometheus container not found"
 fi
 
-if podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^ami-prometheus$'; then
+if podman ps --format '{{.Names}}' | grep -q '^ami-prometheus$'; then
     record_pass "DATAOPS Prometheus (ami-prometheus) still running separately"
 else
     record_pass "DATAOPS Prometheus not running (no conflict possible)"

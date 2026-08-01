@@ -76,7 +76,7 @@ fi
 if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ] && [ "${EXTERNAL_STACK:-0}" != "1" ]; then
     echo ""
     echo "[INFO] Tearing down test stack after all tests..."
-    $TEST_COMPOSE down || echo "[WARN] teardown failed (rc=$?)"
+    $TEST_COMPOSE down || echo "[WARN] teardown failed (status=$?)"
 elif [ "${EXTERNAL_STACK:-0}" = "1" ]; then
     echo ""
     echo "[INFO] Stack was already running: leaving it up."

@@ -30,7 +30,7 @@ summary() {
 
 PATTERNS_JSON="$REPO_ROOT/conf/redact-patterns.json"
 
-jq empty "$PATTERNS_JSON" 2>/dev/null
+jq empty "$PATTERNS_JSON"
 ret=$?
 if [ "$ret" -ne 0 ]; then
     echo "[FAIL] Valid JSON"

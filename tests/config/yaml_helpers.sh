@@ -43,8 +43,7 @@ yaml_to_json() {
     -v "$tmp_dir:/yaml-tmp:ro" \
     --entrypoint /usr/local/openresty/luajit/bin/luajit \
     apache/apisix:3.17.0-debian \
-    -e 'local y=require("lyaml"); local c=require("cjson.safe"); local f=io.open("/yaml-tmp/input.yaml"); if not f then io.stderr:write("cannot open\n"); os.exit(1) end; local data=y.load(f:read("*a")); f:close(); local j=c.encode(data); if not j then io.stderr:write("encode failed\n"); os.exit(1) end; io.write(j); io.write("\n")' \
-    2>/dev/null
+    -e 'local y=require("lyaml"); local c=require("cjson.safe"); local f=io.open("/yaml-tmp/input.yaml"); if not f then io.stderr:write("cannot open\n"); os.exit(1) end; local data=y.load(f:read("*a")); f:close(); local j=c.encode(data); if not j then io.stderr:write("encode failed\n"); os.exit(1) end; io.write(j); io.write("\n")'
 
   local ret=$?
   rm -rf "$tmp_dir"

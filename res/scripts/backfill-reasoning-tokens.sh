@@ -95,9 +95,10 @@ QUERY+=" FORMAT JSONEachRow"
 
 echo "[backfill] Fetching rows..."
 FETCH_OUT=$(ch "$QUERY") || { echo "[backfill] ERROR: fetch failed" >&2; exit 1; }
-TOTAL=$(echo "$FETCH_OUT" | grep -c '^{' || rc=$?)
-if [[ "${rc:-0}" -ne 0 && "${rc:-0}" -ne 1 ]]; then
-    echo "[backfill] ERROR: grep failed rc=$rc" >&2; exit 1
+grep_status=0
+TOTAL=$(echo "$FETCH_OUT" | grep -c '^{') || grep_status=$?
+if [[ "$grep_status" -ne 0 && "$grep_status" -ne 1 ]]; then
+    echo "[backfill] ERROR: grep failed status=$grep_status" >&2; exit 1
 fi
 TOTAL="${TOTAL:-0}"
 echo "[backfill] Found $TOTAL rows with reasoning content"

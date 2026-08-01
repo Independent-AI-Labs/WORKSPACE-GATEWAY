@@ -23,14 +23,14 @@ check() {
 }
 
 ch_ping=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-    "$CH_URL/ping" 2>/dev/null || echo "000")
+    "$CH_URL/ping" || echo "000")
 if [ "$ch_ping" != "200" ]; then
     echo "[SKIP] ClickHouse not reachable, skipping reconciler execution tests"
     exit 0
 fi
 
 echo "[INFO] Running reconciler against ClickHouse..."
-output=$(CLICKHOUSE_HOST=localhost CLICKHOUSE_PORT=8123 bash "$RECONCILER" 2>&1) || true
+if ! output=$(CLICKHOUSE_HOST=localhost CLICKHOUSE_PORT=8123 bash "$RECONCILER" 2>&1); then echo "[INFO] reconciler exited non-zero, output captured" >&2; fi
 
 if grep -q "reconciler" <<< "$output"; then
     check "Reconciler produced output with prefix" "0"
@@ -46,7 +46,7 @@ else
 fi
 
 echo "[INFO] Testing reconciler error handling with bad host..."
-error_output=$(CLICKHOUSE_HOST=invalid.invalid CLICKHOUSE_PORT=8123 bash "$RECONCILER" 2>&1) || true
+if ! error_output=$(CLICKHOUSE_HOST=invalid.invalid CLICKHOUSE_PORT=8123 bash "$RECONCILER" 2>&1); then echo "[INFO] reconciler exited non-zero on bad host (expected)" >&2; fi
 
 if grep -q "ERROR" <<< "$error_output"; then
     check "Reconciler reports ERROR on bad host" "0"

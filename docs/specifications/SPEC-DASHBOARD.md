@@ -33,7 +33,7 @@ All dashboards: time `now-7d`→`now`, refresh `5s`.
 
 ## 2. Architectural Principles
 
-### 2.1 ClickHouse for history, Prometheus for now
+### 2.1 ClickHouse for history, Prometheus for live metrics
 
 Metrics that must survive container restarts and respect the dashboard time
 range (totals, error rate, status breakdown, cost, stream stats) query

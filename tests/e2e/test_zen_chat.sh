@@ -63,7 +63,7 @@ body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 
 if [ "$http_code" = "200" ]; then
-    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null || echo "")
+    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' || echo "")
     if [ -n "$content" ]; then
         check "Non-streaming chat with minimax-m3 returns 200 with content" "0"
     else
@@ -81,7 +81,7 @@ body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 
 if [ "$http_code" = "200" ]; then
-    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null || echo "")
+    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' || echo "")
     if [ -n "$content" ]; then
         check "Chat with mimo-v2.5 returns 200 with content" "0"
     else

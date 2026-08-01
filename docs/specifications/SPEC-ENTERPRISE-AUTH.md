@@ -48,8 +48,8 @@ configuration (plus at most ~30-line Lua filters for header injection and
 
 ### 2.2 Fail closed
 
-All auth failures deny the request. No `fail_open` default; degraded mode
-requires explicit route-level opt-in.
+All auth failures deny the request. There is no `fail_open` configuration;
+relaxed enforcement requires explicit route-level opt-in.
 
 ### 2.3 Secrets by reference
 

@@ -64,7 +64,7 @@ assert_eq "legacy conf/clickhouse-migration-cost-source.sql removed" "false" \
 assert_eq "migrations directory exists" "true" \
     "$([ -d "$MIGRATIONS_DIR" ] && echo true || echo false)"
 
-mapfile -t mig_files < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' 2>/dev/null | sort || true)
+mapfile -t mig_files < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' | sort || echo "")
 file_count="${#mig_files[@]}"
 assert_eq "at least one migration file exists" "true" \
     "$([ "$file_count" -gt 0 ] && echo true || echo false)"
@@ -105,7 +105,7 @@ assert_eq "every .up.sql has matching .down.sql" "0" "$missing_down"
 # 000003 .down.sql is irreversible (comments-only, no executable SQL;
 # golang-migrate convention: `down` succeeds but makes no schema change).
 down_003="$MIGRATIONS_DIR/000003_align_usage_log_order_by.down.sql"
-down_003_sql="$(sed 's/--.*$//' "$down_003" 2>/dev/null | tr -d ' \t\n\r;')"
+down_003_sql="$(sed 's/--.*$//' "$down_003" | tr -d ' \t\n\r;')"
 assert_eq "000003 down has no executable SQL (irreversible marker)" "" "$down_003_sql"
 
 # ── (C) specific known migrations exist ─────────────────────────────────
@@ -119,7 +119,7 @@ assert_eq "migration 000004_create_billing_ledger_mv.up.sql exists" "true" \
     "$([ -f "$MIGRATIONS_DIR/000004_create_billing_ledger_mv.up.sql" ] && echo true || echo false)"
 
 # ── (D) compose `migrate` service integration ───────────────────────────
-compose_body="$(cat "$COMPOSE_FILE" 2>/dev/null || echo "")"
+compose_body="$(cat "$COMPOSE_FILE" || echo "")"
 assert_contains "docker-compose.yml defines migrate service" "$compose_body" "  migrate:"
 floating_tag="latest"
 assert_contains "migrate service uses a pinned version tag" "$compose_body" "migrate/migrate:v4.19.1"
@@ -133,13 +133,13 @@ assert_not_contains "migrate -database does NOT use localhost" "$compose_body" "
 assert_contains "migrate service mounts conf/migrations read-only" "$compose_body" "conf/migrations:/migrations:ro"
 
 # ── (E) ansible orchestration integration ──────────────────────────────
-ansible_body="$(cat "$ANSIBLE_FILE" 2>/dev/null || echo "")"
+ansible_body="$(cat "$ANSIBLE_FILE" || echo "")"
 assert_contains "ansible runs golang-migrate via compose" "$ansible_body" "run --rm migrate up"
 assert_contains "ansible migration task tagged [start]" "$ansible_body" "tags: [start"
 
 # line-order check: init.sql task MUST precede migration task
-init_line=$(grep -n "Run ClickHouse init SQL" "$ANSIBLE_FILE" | head -1 | cut -d: -f1)
-migrate_line=$(grep -n "run --rm migrate up" "$ANSIBLE_FILE" | head -1 | cut -d: -f1)
+init_line=$(grep -n "Run ClickHouse init SQL" "$ANSIBLE_FILE" | sed -n '1p' | cut -d: -f1)
+migrate_line=$(grep -n "run --rm migrate up" "$ANSIBLE_FILE" | sed -n '1p' | cut -d: -f1)
 if [ -n "$init_line" ] && [ -n "$migrate_line" ]; then
     assert_eq "ansible: migrations run AFTER init.sql" "true" \
         "$([ "$migrate_line" -gt "$init_line" ] && echo true || echo false)"
@@ -149,7 +149,7 @@ else
 fi
 
 # ── (F) Makefile integration ────────────────────────────────────────────
-mk_body="$(cat "$MAKEFILE" 2>/dev/null || echo "")"
+mk_body="$(cat "$MAKEFILE" || echo "")"
 assert_contains "Makefile has ch-migrate target" "$mk_body" "ch-migrate:"
 assert_contains "Makefile ch-migrate invokes compose run --rm migrate up" "$mk_body" "run --rm migrate up"
 assert_contains "Makefile has ch-migrate-status target" "$mk_body" "ch-migrate-status:"
@@ -158,7 +158,7 @@ assert_not_contains "Makefile no longer references scripts/clickhouse-migrate.sh
 assert_not_contains "Makefile no longer references scripts/ch-migrate.sh" "$mk_body" "ch-migrate.sh"
 
 # ── (G) architecture/TELEMETRY-AND-SCHEMA.md references ──────────────────────────────────────
-arch_body="$(cat "$ARCH_FILE" 2>/dev/null || echo "")"
+arch_body="$(cat "$ARCH_FILE" || echo "")"
 assert_contains "architecture/TELEMETRY-AND-SCHEMA.md references golang-migrate" "$arch_body" "golang-migrate"
 assert_contains "architecture/TELEMETRY-AND-SCHEMA.md references schema_migrations" "$arch_body" "schema_migrations"
 assert_not_contains "architecture/TELEMETRY-AND-SCHEMA.md does NOT reference scripts/clickhouse-migrate.sh" "$arch_body" "scripts/clickhouse-migrate.sh"

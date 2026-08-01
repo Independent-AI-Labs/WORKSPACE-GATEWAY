@@ -39,8 +39,9 @@ No regex, no dictionary, no token minting in the sidecar.
 ### 2.2 Never block the proxy
 
 Inference runs on `tokio::task::spawn_blocking` threads; the Lua caller runs
-off-thread via `ngx.timer.at`. Sidecar failure degrades to regex-only
-redaction for that segment.
+off-thread via `ngx.timer.at`. Sidecar failure leaves regex-only
+redaction for that segment; the failure is logged and counted in
+`ner_engine_failures_total`.
 
 ### 2.3 Never silent, never leaky
 
@@ -230,8 +231,8 @@ POST `{text, correlation_id}` to `{ner_sidecar_url}/ner` inside
 `[{KIND_UPPER}_{n}] -> entity text` entries using a per-request counter.
 
 **Timing constraint:** if `body_filter` fires before the timer returns, NER
-entities are lost for that segment; regex-only redaction applies. Accepted as
-best-effort enrichment layered over the fast regex guarantee.
+entities are lost for that segment; regex-only redaction applies. Accepted:
+NER enrichment is additive over the fast regex guarantee.
 
 ## 10. Observability and Security
 
@@ -245,7 +246,7 @@ best-effort enrichment layered over the fast regex guarantee.
 
 ## 11. Edge Cases & Decisions
 
-- **NER vs body_filter race:** accepted; documented as best-effort.
+- **NER vs body_filter race:** accepted; a lost race applies regex-only redaction for that segment (see the timing constraint above).
 - **Multi-language:** v2 English-only; multilingual model (XLM-RoBERTa) is a v3 consideration.
 - **Per-tenant dictionaries:** remain in the Lua plugin's file-based dictionary; NER models are global.
 

@@ -22,7 +22,7 @@ record_fail() {
 }
 
 http_code() {
-    curl -s -o /dev/null -w "%{http_code}" "$@" || true
+    if ! curl -s -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
 }
 
 wait_for_apisix() {
@@ -30,7 +30,7 @@ wait_for_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$GATEWAY/" 2>/dev/null || true)
+        code=$(http_code "$GATEWAY/" || echo "")
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             return 0
         fi
@@ -94,7 +94,7 @@ main() {
     echo "test_route_relay: $pass passed, $fail failed"
 }
 
-main || true
+if ! main; then echo "[INFO] main exited non-zero; fail counter decides exit status" >&2; fi
 
 if [ "$fail" -gt 0 ]; then
     exit 1

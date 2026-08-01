@@ -24,7 +24,7 @@ check() {
 grep_config_ref() {
     local pattern="$1"
     local desc="$2"
-    if grep -qE "$pattern" "$PRE_COMMIT_CONFIG" 2>/dev/null; then
+    if grep -qE "$pattern" "$PRE_COMMIT_CONFIG"; then
         check "$desc" "0"
     else
         check "$desc" "1"

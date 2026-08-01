@@ -62,7 +62,7 @@ assert_eq "apisix.yaml.j2 template exists" "yes" "$([ -f "$J2_FILE" ] && echo ye
 assert_eq "committed apisix.yaml exists" "yes" "$([ -f "$COMMITTED" ] && echo yes || echo no)"
 
 # Verify python3 + jinja2 are available.
-if ! python3 -c 'import jinja2' >/dev/null 2>&1; then
+if ! python3 -c 'import jinja2'; then
     echo "[FAIL] python3 jinja2 module is importable"
     fail=$((fail + 1))
     summary
@@ -124,7 +124,7 @@ assert_absent "override render: default node absent when overridden" "$OVERRIDE_
 
 # opencode nodes are NOT templated and must remain stable across renders.
 # Two opencode routes share the opencode.ai:443 node, so the expected count is 2.
-OC_PRESENT_OVERRIDE="$(printf '%s' "$OVERRIDE_RENDER" | grep -cF '"opencode.ai:443": 1' || true)"
+OC_PRESENT_OVERRIDE="$(printf '%s' "$OVERRIDE_RENDER" | grep -cF '"opencode.ai:443": 1' || echo "")"
 assert_eq "override render: opencode.ai:443 node still present x2 (untouched)" "2" "$OC_PRESENT_OVERRIDE"
 
 summary

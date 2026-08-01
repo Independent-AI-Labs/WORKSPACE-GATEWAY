@@ -82,7 +82,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 | ID | Requirement |
 |----|-------------|
 | FR-5.1 | Cost MUST be resolved by `cost_calc.resolve_cost` inside sse-usage: upstream-reported cost wins; otherwise computed from the pricing cache; otherwise `cost_source = unknown`. |
-| FR-5.2 | `billing_ledger_mv` MUST copy cost rounded to 6 decimals; rate_input/rate_output default to 0 until a pricing snapshot lands in ClickHouse. |
+| FR-5.2 | `billing_ledger_mv` MUST copy cost rounded to 6 decimals; rate_input/rate_output are 0 until a pricing snapshot lands in ClickHouse. |
 
 ### FR-6: Reconciler
 | ID | Requirement |

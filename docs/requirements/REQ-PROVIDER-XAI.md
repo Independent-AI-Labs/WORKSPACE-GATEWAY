@@ -75,7 +75,7 @@ OpenAI-compatible endpoint at `http://gateway:9080/grok`.
 
 | ID | Requirement |
 |----|-------------|
-| FR-2.1 | `CLIENT_ID` MUST default to `b1a00492-073a-47ea-816f-4c329264a828` (official public client). |
+| FR-2.1 | `CLIENT_ID` MUST be `b1a00492-073a-47ea-816f-4c329264a828` (official public client) unless explicitly configured otherwise. |
 | FR-2.2 | `ISSUER` MUST be `https://auth.x.ai`. Authorize/token endpoints MUST come from OIDC discovery at `/.well-known/openid-configuration`; a discovery failure MUST fail the request explicitly (no baked-in endpoints). |
 | FR-2.3 | Minimum scope MUST be `openid profile email offline_access grok-cli:access api:access`. |
 | FR-2.4 | Redirect host MUST be `127.0.0.1` with path `/callback` for the official client_id. |

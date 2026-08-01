@@ -43,7 +43,7 @@ sidecar so that CPU-bound neural inference never blocks an nginx worker.
 
 **This document DOES NOT:**
 - Own regex/dictionary PII detection or redaction token minting (owned by the Lua `redact` plugin)
-- Require deployment of the sidecar (it is opt-in; absence MUST degrade gracefully)
+- Require deployment of the sidecar (it is opt-in; when absent, the NER tier is disabled and regex-only redaction applies: an explicit, documented state)
 - Cover multi-language NER (v2 is English-only)
 
 ### 1.3 Terminology

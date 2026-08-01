@@ -16,7 +16,7 @@ Comparing the two columns is apples to oranges.
 
 **[OPEN]** `res/scripts/reconciler.sh` logs gateway-side totals only.
 Upstream provider API comparison and `billing_discrepancies` writes are
-v2 scope. `billing_ledger.rate_input` / `rate_output` default to 0 until
+v2 scope. `billing_ledger.rate_input` / `rate_output` are 0 until
 a models.dev pricing snapshot lands in ClickHouse.
 
 ### Federated rate limits vs OpenBao headers

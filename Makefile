@@ -7,10 +7,38 @@
 #   freeze). Ansible handles health checks, init SQL, and model sync only.
 # Pattern follows WORKSPACE-PORTAL (INCIDENT-2026-05-08).
 
+# Root detection MUST happen before the SHELL assignment below:
+# make's $(shell) honors the makefile's SHELL variable, so once SHELL
+# points at the guarded bash, every $(shell) probe fails closed for
+# root (AT_SECURE == 0) and returns empty. While SHELL is still the
+# stock /bin/sh, `id -u` answers truthfully for every caller.
+# Root recipes run through the sealed /bin/bash.real instead of the
+# guarded bash (root execs of the fcap guard fail closed by design).
+ifeq ($(shell id -u),0)
+# /bin/bash.real is REQUIRED for root recipes: the guarded bash fails
+# closed for root (AT_SECURE == 0). Missing file = broken host install.
+ifeq ($(wildcard /bin/bash.real),)
+$(error /bin/bash.real missing: reinstall the shell guard (sudo make guard-refresh in WORKSPACE-GUARD))
+endif
+SHELL := /bin/bash.real
+else
 SHELL := /bin/bash
+endif
+# Interpreter for repo scripts invoked explicitly from recipes. Bare `bash`
+# resolves to the guarded /usr/bin/bash, which fails closed for root
+# (AT_SECURE == 0) and broke sudo make install-hooks -> generate-hooks.
+ifeq ($(shell id -u),0)
+SCRIPT_BASH := /bin/bash.real
+else
+SCRIPT_BASH := bash
+endif
 .DEFAULT_GOAL := help
 
-REPO_ROOT := $(shell git rev-parse --show-toplevel || pwd)
+# Repo root from this Makefile's own path, not `git rev-parse`: root/sudo
+# hits safe.directory, and a $(shell) probe runs through SHELL, which
+# fails closed for root under the guard and yields an empty root.
+_CONSUMER_MK := $(abspath $(lastword $(MAKEFILE_LIST)))
+REPO_ROOT := $(patsubst %/,%,$(dir $(_CONSUMER_MK)))
 CI_DIR := $(abspath $(REPO_ROOT)/../CI)
 COMPOSE_FILE := $(REPO_ROOT)/res/docker/docker-compose.yml
 VENV_BIN := $(REPO_ROOT)/.venv/bin
@@ -18,7 +46,7 @@ COMPOSE_CMD := $(VENV_BIN)/podman-compose -f $(COMPOSE_FILE)
 # Fail fast: cap podman-compose's internal HTTP timeout at 10s (default 60s
 # causes indefinite hangs when containers fail to start - see podman #10922).
 export COMPOSE_HTTP_TIMEOUT := 10
-# User-configurable (env or CLI override); defaults to CI's boot bin
+# User-configurable (env or CLI override); CI's boot bin is the single source when unset
 ANSIBLE_PLAYBOOK ?= $(CI_DIR)/.boot-linux/bin/ansible-playbook
 # Containment: uv-managed interpreters live inside CI's boot dir, never in
 # $HOME/.local/share/uv/python (no unsanctioned HOME/system resources)
@@ -46,8 +74,7 @@ export PATH := $(PATH):$(VENV_BIN)
 # =============================================================================
 .PHONY: help
 help: ## Show this help
-	grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	$(SCRIPT_BASH) scripts/make-help.sh $(MAKEFILE_LIST)
 
 # =============================================================================
 # Setup / Install
@@ -86,7 +113,7 @@ install-ci: install-deps ## CI install: deps only, no hooks
 install-deps: setup ## Install project dependencies
 
 install-hooks: ## (Re)generate native git hooks
-	bash $(CI_DIR)/scripts/generate-hooks
+	$(SCRIPT_BASH) $(CI_DIR)/scripts/generate-hooks
 
 sync: install-deps install-hooks ## Sync deps + reinstall hooks
 
@@ -139,7 +166,7 @@ gw-restart: ## Drain apisix (SIGQUIT, DRAIN_TIMEOUT=300), rebuild images, restar
 	timeout "$${DRAIN_TIMEOUT:-300}" $(COMPOSE_CMD) stop apisix; \
 	drain_rc=$$?; \
 	if [ $$drain_rc -ne 0 ]; then \
-		echo "=== WARN: graceful drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
+		echo "=== WARN: drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
 		podman stop -t 5 docker_apisix_1; \
 		force_rc=$$?; \
 		if [ $$force_rc -ne 0 ]; then echo "=== ERROR: forced stop failed (rc=$$force_rc) ===" >&2; exit 1; fi; \
@@ -153,11 +180,11 @@ gw-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|v
 	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-restart-service SVC=grafana" >&2; exit 1; }
 	echo "=== Recreating service: $(SVC) ==="
 	if [ "$(SVC)" = "apisix" ]; then \
-		echo "=== Draining apisix gracefully (SIGQUIT; in-flight streams finish, $${DRAIN_TIMEOUT:-300}s max) ==="; \
+		echo "=== Draining apisix (SIGQUIT; in-flight streams finish, $${DRAIN_TIMEOUT:-300}s max) ==="; \
 		timeout "$${DRAIN_TIMEOUT:-300}" $(COMPOSE_CMD) stop apisix; \
 		drain_rc=$$?; \
 		if [ $$drain_rc -ne 0 ]; then \
-			echo "=== WARN: graceful drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
+			echo "=== WARN: drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
 			podman stop -t 5 docker_apisix_1; \
 			force_rc=$$?; \
 			if [ $$force_rc -ne 0 ]; then echo "=== ERROR: forced stop failed (rc=$$force_rc) ===" >&2; exit 1; fi; \
@@ -330,4 +357,4 @@ clean: ## Remove build artifacts
 	echo "No build artifacts to remove"
 
 clean-precommit: ## Remove pre-commit framework traces
-	bash $(CI_DIR)/scripts/cleanup-precommit
+	$(SCRIPT_BASH) $(CI_DIR)/scripts/cleanup-precommit

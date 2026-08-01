@@ -177,7 +177,7 @@ Representative checks:
 `tests/reconciler/test_reconciler.sh` validates
 [`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh): `bash -n`
 syntax, `set -euo pipefail`, `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT` defaults,
-error handling on query failure, graceful empty-result handling, and presence
+error handling on query failure, explicit empty-result handling, and presence
 of the upstream-API TODO marker.
 
 ## 10. Stage 5: Integration Tests
