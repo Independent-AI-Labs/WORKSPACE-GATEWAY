@@ -11,7 +11,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 GRAFANA_URL="${GRAFANA_URL:-http://localhost:3030}"
 
 if [ -z "${AMI_ROOT+x}" ]; then
-    WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
+    WORKSPACE_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"
 else
     WORKSPACE_ROOT="$AMI_ROOT"
 fi
