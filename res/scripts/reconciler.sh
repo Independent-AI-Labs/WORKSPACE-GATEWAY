@@ -14,6 +14,26 @@ esac
 
 CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
 CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
+
+# Explicit flags override env (env does not survive the shell guard's
+# staged-script env scrub, so tests must pass config as arguments).
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --host)
+            CLICKHOUSE_HOST="$2"
+            shift 2
+            ;;
+        --port)
+            CLICKHOUSE_PORT="$2"
+            shift 2
+            ;;
+        *)
+            echo "[reconciler] ERROR: unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 
 query_clickhouse() {

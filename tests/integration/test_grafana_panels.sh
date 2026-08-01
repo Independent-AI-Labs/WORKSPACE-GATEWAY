@@ -10,7 +10,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 GRAFANA_URL="${GRAFANA_URL:-http://localhost:3030}"
 
-WORKSPACE_ROOT="${AMI_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+if [ -z "${AMI_ROOT+x}" ]; then
+    WORKSPACE_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
+else
+    WORKSPACE_ROOT="$AMI_ROOT"
+fi
 if [ -z "${NODE_BIN+x}" ]; then
     NODE_BIN="$WORKSPACE_ROOT/.boot-linux/bin/node"
 fi

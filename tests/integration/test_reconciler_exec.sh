@@ -50,7 +50,7 @@ else
 fi
 
 echo "[INFO] Testing reconciler error handling with bad host..."
-if ! error_output=$(CLICKHOUSE_HOST=invalid.invalid CLICKHOUSE_PORT=8123 bash "$RECONCILER" 2>&1); then echo "[INFO] reconciler exited non-zero on bad host (expected)" >&2; fi
+if ! error_output=$(bash "$RECONCILER" --host invalid.invalid --port 8123 2>&1); then echo "[INFO] reconciler exited non-zero on bad host (expected)" >&2; fi
 
 if grep -q "ERROR" <<< "$error_output"; then
     check "Reconciler reports ERROR on bad host" "0"
