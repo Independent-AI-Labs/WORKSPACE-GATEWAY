@@ -12,7 +12,11 @@ set -euo pipefail
 # Requires NO OPENCODE_API_KEY and NO credits: only the local llamafile server
 # (make install-llamafile MODEL=minicpm5-1b on the VM) + a running gateway.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if [ -f "$REPO_ROOT/.env" ]; then

@@ -3,7 +3,11 @@
 # Sourced by test_dashboard_cost_usage.sh, test_dashboard_ops_health.sh,
 # and test_dashboard_cost_leaderboard.sh. Not invoked directly.
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
 DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"

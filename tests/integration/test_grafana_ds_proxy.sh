@@ -7,7 +7,11 @@ set -euo pipefail
 # This catches macro expansion issues, datasource misconfig, and
 # format/queryType problems that direct ClickHouse tests miss.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"

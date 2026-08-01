@@ -6,7 +6,11 @@ set -euo pipefail
 # No .sql or .yaml files -- no duplicated queries.
 # Macros substituted: $__timeFilter, ${api_key:singlequote}, ${model:singlequote}, $api_key
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"

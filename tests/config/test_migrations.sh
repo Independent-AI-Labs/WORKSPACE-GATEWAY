@@ -8,7 +8,11 @@ set -euo pipefail
 # architecture/TELEMETRY-AND-SCHEMA.md references, and that the legacy hand-rolled framework
 # has been fully removed. Does NOT require a running ClickHouse.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MIGRATIONS_DIR="$REPO_ROOT/conf/migrations"
 COMPOSE_FILE="$REPO_ROOT/res/docker/docker-compose.yml"

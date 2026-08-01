@@ -5,7 +5,11 @@ set -euo pipefail
 # (conf/grafana/dashboards/gateway-cost-usage.json)
 # Panels: p3 Token Usage by Category, p15 Cost Over Time by Model, p8 Model Distribution
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 source "$SCRIPT_DIR/dashboard_assert.sh"
 
 F="$COST_USAGE_FILE"

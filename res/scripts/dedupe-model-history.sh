@@ -18,7 +18,11 @@ set -euo pipefail
 #
 # Depends: curl, jq, podman (for YAML parse via tests/config/yaml_helpers.sh)
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:9080}"

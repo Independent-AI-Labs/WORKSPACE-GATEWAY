@@ -6,7 +6,11 @@ set -euo pipefail
 # Panels: p20 Top Clients, p21 Top Models (stat panels, 10 ranked tiles like p3)
 # Top 3 tiles: gold/silver/bronze backgrounds; rest white.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 source "$SCRIPT_DIR/dashboard_assert.sh"
 
 F="$LEADERBOARD_FILE"

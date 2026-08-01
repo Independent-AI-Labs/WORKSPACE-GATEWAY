@@ -7,7 +7,11 @@ set -euo pipefail
 #         p7 Status Code Breakdown, p13 Stream Abort Rate, p14 Stream Status,
 #         p9 Latency p50/p95/p99, p10 Avg Response Time by Model, p11 Bandwidth, p12 Shared Dict
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 source "$SCRIPT_DIR/dashboard_assert.sh"
 
 F="$OPS_HEALTH_FILE"

@@ -8,7 +8,11 @@ set -euo pipefail
 # These tests exercise the ACTUAL running APISIX stack and real upstream
 # endpoints (models.dev, Kimi OAuth, etc.). No mocks are used.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLIENT_SCRIPT="$REPO_ROOT/res/scripts/opencode-provider-login.sh"
 

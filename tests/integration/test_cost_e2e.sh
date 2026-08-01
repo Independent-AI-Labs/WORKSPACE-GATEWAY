@@ -13,7 +13,11 @@ set -euo pipefail
 # Uses the llamafile route exclusively. There is NO fallback path. If the
 # llamafile server or the gateway stack is not reachable, the test SKIPS.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if [ -f "$REPO_ROOT/.env" ]; then

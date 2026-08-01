@@ -8,7 +8,11 @@ set -euo pipefail
 # source from diverging from the committed default render. Does NOT require a
 # running stack.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
+    _SELF="$SHG_SCRIPT_PATH"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 J2_FILE="$REPO_ROOT/conf/apisix.yaml.j2"
 COMMITTED="$REPO_ROOT/conf/apisix.yaml"
