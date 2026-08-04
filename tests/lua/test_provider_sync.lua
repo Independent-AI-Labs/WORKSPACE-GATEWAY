@@ -1,6 +1,4 @@
 local cjson = require("cjson.safe")
-
---In-memory shared dict ------------------------------------------------------
 local cache = {}
 local shared = {
     get = function(self, key)
@@ -26,16 +24,12 @@ if not ngx.shared then
     ngx.shared = {}
 end
 ngx.shared["gateway-cache"] = shared
-
---Ensure minimal ngx.var values are set for gateway base URL construction.
 local ok = pcall(function()
     ngx.var.scheme = ngx.var.scheme or "http"
     ngx.var.host = ngx.var.host or "localhost"
     ngx.var.server_port = ngx.var.server_port or "9080"
 end)
 if not ok then
-    --Resty CLI may not allow setting ngx.var; in that case core.response.exit
-    --will not be exercised and the opencode base URL assertions are skipped.
     ngx.var = setmetatable({}, {
         __index = function(t, k)
             if k == "scheme" then return "http" end
@@ -84,6 +78,15 @@ local fake_models_dev = {
     },
 }
 
+local fake_gateway_models = {
+    data = {
+        { id = "minimax-m3" },
+        { id = "deepseek-v4-flash-free" },
+        { id = "glm-5.2" },
+        { id = "mimo-v2.5-free" },
+    },
+}
+
 local fake_http = {
     new = function()
         return {
@@ -94,9 +97,15 @@ local fake_http = {
                     method = opts.method or "GET",
                     headers = opts.headers or {},
                 })
+                local body
+                if url:match("models%.dev") then
+                    body = cjson.encode(fake_models_dev)
+                else
+                    body = cjson.encode(fake_gateway_models)
+                end
                 return {
                     status = 200,
-                    body = cjson.encode(fake_models_dev),
+                    body = body,
                 }, nil
             end,
         }
@@ -192,6 +201,44 @@ end
 
 local function cleanup_dir(dir)
     os.execute("rm -rf " .. dir)
+end
+
+local function make_filter_providers_dir()
+    local dir = os.tmpname() .. "_providers"
+    os.execute("mkdir -p " .. dir)
+
+    local f = io.open(dir .. "/opencode.yaml", "w")
+    f:write([[
+id: workspace-gw-opencode
+name: "OpenCode Go"
+npm: "@ai-sdk/openai-compatible"
+route: "/opencode/v1"
+auth:
+  type: none
+model_source:
+  type: gateway
+  endpoint: "/opencode/v1/models"
+  filter:
+    exclude:
+      - "-free$"
+]])
+    f:close()
+
+    f = io.open(dir .. "/zen.yaml", "w")
+    f:write([[
+id: workspace-gw-zen
+name: "OpenCode Zen"
+npm: "@ai-sdk/openai-compatible"
+route: "/opencode_zen/v1"
+auth:
+  type: none
+model_source:
+  type: gateway
+  endpoint: "/opencode_zen/v1/models"
+]])
+    f:close()
+
+    return dir
 end
 
 --Tests ------------------------------------------------------------------------------
@@ -394,10 +441,65 @@ local function cache_and_lock_tests()
     cleanup_dir(dir)
 end
 
+local function filter_tests()
+    local dir = make_filter_providers_dir()
+    local conf = {
+        providers_dir = dir,
+        models_dev_url = "http://models.dev/api.json",
+        ttl_seconds = 3600,
+        stale_seconds = 86400,
+        sync_timeout = 10000,
+        warmup_on_init = false,
+    }
+
+    cache = {}
+    captured_requests = {}
+
+    local result, err = provider_sync.sync(conf)
+    check(result ~= nil, "filter[1] sync succeeds: " .. tostring(err or "ok"))
+    if result then
+        assert_eq(result.providers_loaded, 2, "filter[1] providers loaded")
+    end
+
+    local enriched, err = provider_sync.get_enriched(conf)
+    check(enriched ~= nil, "filter[2] get_enriched succeeds: " .. tostring(err or "ok"))
+    if enriched then
+        local oc = enriched["workspace-gw-opencode"]
+        check(oc ~= nil, "filter[3] opencode provider present")
+        if oc then
+            check(oc.models["minimax-m3"] ~= nil, "filter[4] go keeps paid minimax-m3")
+            check(oc.models["glm-5.2"] ~= nil, "filter[5] go keeps paid glm-5.2")
+            check(oc.models["deepseek-v4-flash-free"] == nil, "filter[6] go excludes deepseek-v4-flash-free")
+            check(oc.models["mimo-v2.5-free"] == nil, "filter[7] go excludes mimo-v2.5-free")
+        end
+
+        local zen = enriched["workspace-gw-zen"]
+        check(zen ~= nil, "filter[8] zen provider present")
+        if zen then
+            check(zen.models["minimax-m3"] ~= nil, "filter[9] zen keeps paid minimax-m3")
+            check(zen.models["deepseek-v4-flash-free"] ~= nil, "filter[10] zen keeps free deepseek-v4-flash-free")
+            check(zen.models["mimo-v2.5-free"] ~= nil, "filter[11] zen keeps free mimo-v2.5-free")
+        end
+    end
+
+    --Gateway model fetches must carry the generic User-Agent, not the Kimi UA.
+    local found_gateway = false
+    for _, req in ipairs(captured_requests) do
+        if req.url == "http://localhost:9080/opencode_zen/v1/models" then
+            found_gateway = true
+            assert_eq(req.headers["User-Agent"], "WORKSPACE-GW/0.1", "filter[12] gateway User-Agent")
+        end
+    end
+    check(found_gateway, "filter[13] gateway models request captured")
+
+    cleanup_dir(dir)
+end
+
 local function main()
     schema_tests()
     sync_and_enrich_tests()
     access_route_tests()
+    filter_tests()
     cache_and_lock_tests()
 
     io.write(string.format("\n==== Provider sync tests: %d passed, %d failed ====\n", pass, fail))

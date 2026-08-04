@@ -11,7 +11,7 @@ For the doc hub see [`docs/README.md`](../README.md).
 
 | # | Document | Scope |
 |---|----------|-------|
-| 1 | [`OVERVIEW.md`](OVERVIEW.md) | etcd mode, 10 routes, provider-agnostic framing |
+| 1 | [`OVERVIEW.md`](OVERVIEW.md) | etcd mode, 12 routes, provider-agnostic framing |
 | 2 | [`RUNTIME-TOPOLOGY.md`](RUNTIME-TOPOLOGY.md) | Compose services, networks, volumes |
 | 3 | [`LLAMAFILE-UPSTREAM.md`](LLAMAFILE-UPSTREAM.md) | VM-hosted local LLM for zero-cost e2e |
 | 4 | [`PLUGIN-PIPELINE.md`](PLUGIN-PIPELINE.md) | Phase priorities, per-route plugin matrix |

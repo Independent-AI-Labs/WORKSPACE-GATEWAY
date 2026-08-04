@@ -27,7 +27,7 @@ sequenceDiagram
     LC->>LC: Check RPM limit
 
     Note over A,U: rewrite + proxy
-    PRW->>PRW: Strip prefix -> /zen/go/...
+    PRW->>PRW: Strip prefix -> /zen/go/... (zen relay: /zen/...)
     A->>U: HTTPS upstream request
     U-->>A: SSE or JSON response
 

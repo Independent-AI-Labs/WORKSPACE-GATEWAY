@@ -1,0 +1,15 @@
+---
+id: workspace-gw-zen-own
+name: "Workspace GW (OpenCode Zen Own Key)"
+route: "/opencode_zen/v1"
+npm: "@ai-sdk/openai-compatible"
+auth:
+  type: none
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+model_source:
+  type: gateway
+  endpoint: "/opencode_zen/v1/models"
+cost_source: opencode

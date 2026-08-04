@@ -78,7 +78,8 @@ provider-sync.
 
 - **opencode routes:** no `key-resolver` on `relay-opencode` (direct key
   passthrough); `vgw-*` resolved via OpenBao on the federated route.
-  Rewrite to `/zen/go/`.
+  Both rewrite to `/zen/go/`. `relay-opencode-zen` is own-key passthrough
+  rewriting to `/zen/` (OpenCode Zen/free upstream).
 - **kimi routes:** `kimi-auth` on `relay-kimi` / `relay-kimi-v1`;
   `key-resolver` on federated routes; `kimi-key*` routes pass keys through
   with `key-meta` only. All rewrite to `/coding/v1/`.

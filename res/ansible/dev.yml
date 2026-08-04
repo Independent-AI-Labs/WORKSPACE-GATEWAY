@@ -33,11 +33,13 @@
     project_root: "{{ playbook_dir | dirname | dirname }}"
     compose_file: "{{ project_root }}/res/docker/docker-compose.yml"
     venv_bin: "{{ project_root }}/.venv/bin"
+    ci_boot_bin: "{{ project_root | dirname }}/CI/.boot-linux/bin"
     compose_cmd: "{{ venv_bin }}/podman-compose -f {{ compose_file }}"
     admin_api_key: "{{ lookup('env', 'ADMIN_KEY') }}"
 
   environment:
-    PATH: "{{ venv_bin }}:{{ lookup('env', 'PATH') }}"
+    PATH: "{{ ci_boot_bin }}:{{ venv_bin }}:{{ lookup('env', 'PATH') }}"
+    SHG_SCRIPT_PATH: "{{ ci_boot_bin }}/podman"
 
   tasks:
 
@@ -160,7 +162,7 @@
       tags: [start, health]
 
     - name: Seed routes from conf/apisix.yaml into Admin API (etcd)
-      ansible.builtin.command: "{{ project_root }}/res/scripts/seed-routes.sh"
+      ansible.builtin.command: "{{ project_root }}/res/scripts/seed-routes.sh --admin-key {{ admin_api_key | quote }}"
       args:
         chdir: "{{ project_root }}"
       register: seed_result

@@ -24,6 +24,7 @@ plugins:
   - key-resolver
   - key-meta
   - kimi-auth
+  - openai-auth
   - provider-sync
   - ai-rate-limiting
   - proxy-buffering

@@ -97,15 +97,18 @@ One provider document per file; `id` is authoritative.
 | `model_source.endpoint` | string | for gateway/llamafile | `/models` endpoint; relative resolves to `http://localhost:9080` |
 | `model_source.api_key` | string | no | Bearer for endpoint fetch |
 | `model_source.model_metadata` | list | no | Static metadata overlay for endpoint-reported ids (never introduces ids) |
+| `model_source.filter` | object | no | `include` / `exclude` lists of Lua patterns matched against model ids; `exclude` drops matches, `include` (when non-empty) keeps only matches. Used to hide e.g. `*-free` models on Go-tier providers |
 | `model_aliases` | map | no | alias id -> real model id (deep-copied entry) |
 | `cost_source` | string | no (default `none`) | models.dev provider id used to fill missing costs |
 | `context_limit_pct` | int | no (100) | Context scaling percentage |
 | `context_limit_ceiling` | int | no (0 = none) | Context cap |
 
-Deployed files (6): `workspace-gw-kimi-oauth` (oauth, moonshotai),
+Deployed files (7): `workspace-gw-kimi-oauth` (oauth, moonshotai),
 `workspace-gw-kimi-private` (virtual_key, moonshotai),
 `workspace-gw-kimi-own` (none, moonshotai), `workspace-gw-private`
-(virtual_key, opencode), `workspace-gw-own` (none, opencode),
+(virtual_key, opencode, `filter.exclude: [-free$]`), `workspace-gw-own`
+(none, opencode, `filter.exclude: [-free$]`), `workspace-gw-zen-own`
+(none, opencode, endpoint `/opencode_zen/v1/models`, unfiltered),
 `workspace-gw-llamafile` (none, `llamafile` source with `model_metadata`,
 `cost_source: none`). All three Kimi providers alias
 `kimi-for-coding -> kimi-k2.7-code`.

@@ -20,6 +20,10 @@ if [ -z "${NODE_BIN+x}" ]; then
 fi
 NODE_PATH="${NODE_PATH:-$WORKSPACE_ROOT/node_modules}"
 export NODE_PATH
+if [ -z "${PLAYWRIGHT_BROWSERS_PATH+x}" ]; then
+    PLAYWRIGHT_BROWSERS_PATH="$WORKSPACE_ROOT/.boot-linux/playwright-browsers"
+fi
+export PLAYWRIGHT_BROWSERS_PATH
 
 if [ ! -f .env ]; then
     echo "[INFO] No .env file found, using defaults"

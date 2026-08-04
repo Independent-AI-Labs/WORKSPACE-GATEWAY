@@ -1,6 +1,5 @@
 #!/bin/bash
 set -euo pipefail
-
 _SELF="${BASH_SOURCE[0]}"
 if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
     _SELF="$SHG_SCRIPT_PATH"
@@ -8,7 +7,6 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/yaml_helpers.sh"
-
 pass=0
 fail=0
 
@@ -24,7 +22,6 @@ assert_eq() {
         fail=$((fail + 1))
     fi
 }
-
 summary() {
     echo ""
     echo "test_apisix_yaml.sh: $pass passed, $fail failed"
@@ -46,7 +43,7 @@ fi
 assert_eq "Valid YAML (parseable)" "ok" "ok"
 
 ROUTE_COUNT=$(echo "$JSON_DATA" | jq '.routes | length')
-assert_eq "Exactly 10 routes" "10" "$ROUTE_COUNT"
+assert_eq "Exactly 12 routes" "12" "$ROUTE_COUNT"
 
 # --- relay-opencode (passthrough, no key-resolver) ---
 OC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode")][0]')
@@ -163,6 +160,54 @@ assert_eq "relay-opencode-federated: proxy-buffering plugin present" "true" "$FE
 
 FED_HAS_REDACT=$(echo "$FED_ROUTE" | jq '.plugins | has("redact")')
 assert_eq "relay-opencode-federated: redact plugin present" "true" "$FED_HAS_REDACT"
+
+# --- relay-opencode-zen (own-key passthrough to /zen/ free endpoints) ---
+ZEN_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode-zen")][0]')
+
+ZEN_ID=$(echo "$ZEN_ROUTE" | jq -r '.id')
+assert_eq "relay-opencode-zen: id is relay-opencode-zen" "relay-opencode-zen" "$ZEN_ID"
+
+ZEN_URI=$(echo "$ZEN_ROUTE" | jq -r '.uri')
+assert_eq "relay-opencode-zen: uri is /opencode_zen/*" "/opencode_zen/*" "$ZEN_URI"
+
+ZEN_SCHEME=$(echo "$ZEN_ROUTE" | jq -r '.upstream.scheme')
+assert_eq "relay-opencode-zen: upstream scheme is https" "https" "$ZEN_SCHEME"
+
+ZEN_NODE=$(echo "$ZEN_ROUTE" | jq -r '.upstream.nodes | keys[0]')
+assert_eq "relay-opencode-zen: upstream node is opencode.ai:443" "opencode.ai:443" "$ZEN_NODE"
+
+ZEN_HAS_KEY_RESOLVER=$(echo "$ZEN_ROUTE" | jq '.plugins | has("key-resolver")')
+assert_eq "relay-opencode-zen: no key-resolver (own-key passthrough)" "false" "$ZEN_HAS_KEY_RESOLVER"
+
+ZEN_HAS_PROXY_REWRITE=$(echo "$ZEN_ROUTE" | jq '.plugins | has("proxy-rewrite")')
+assert_eq "relay-opencode-zen: proxy-rewrite present" "true" "$ZEN_HAS_PROXY_REWRITE"
+
+ZEN_REWRITE_REGEX=$(echo "$ZEN_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
+assert_eq "relay-opencode-zen: proxy-rewrite regex strips /opencode_zen/" "^/opencode_zen/(.*)" "$ZEN_REWRITE_REGEX"
+
+ZEN_REWRITE_REPLACE=$(echo "$ZEN_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
+assert_eq "relay-opencode-zen: proxy-rewrite replacement is /zen/" '/zen/$1' "$ZEN_REWRITE_REPLACE"
+
+ZEN_HAS_KEY_META=$(echo "$ZEN_ROUTE" | jq '.plugins | has("key-meta")')
+assert_eq "relay-opencode-zen: key-meta plugin present" "true" "$ZEN_HAS_KEY_META"
+
+ZEN_HAS_SSE_USAGE=$(echo "$ZEN_ROUTE" | jq '.plugins | has("sse-usage")')
+assert_eq "relay-opencode-zen: sse-usage plugin present" "true" "$ZEN_HAS_SSE_USAGE"
+
+ZEN_HAS_LIMIT_COUNT=$(echo "$ZEN_ROUTE" | jq '.plugins | has("limit-count")')
+assert_eq "relay-opencode-zen: limit-count plugin present" "true" "$ZEN_HAS_LIMIT_COUNT"
+
+ZEN_HAS_PROMETHEUS=$(echo "$ZEN_ROUTE" | jq '.plugins | has("prometheus")')
+assert_eq "relay-opencode-zen: prometheus plugin present" "true" "$ZEN_HAS_PROMETHEUS"
+
+ZEN_HAS_HTTP_LOGGER=$(echo "$ZEN_ROUTE" | jq '.plugins | has("http-logger")')
+assert_eq "relay-opencode-zen: http-logger plugin present" "true" "$ZEN_HAS_HTTP_LOGGER"
+
+ZEN_HAS_PROXY_BUFFERING=$(echo "$ZEN_ROUTE" | jq '.plugins | has("proxy-buffering")')
+assert_eq "relay-opencode-zen: proxy-buffering plugin present" "true" "$ZEN_HAS_PROXY_BUFFERING"
+
+ZEN_HAS_REDACT=$(echo "$ZEN_ROUTE" | jq '.plugins | has("redact")')
+assert_eq "relay-opencode-zen: redact plugin present" "true" "$ZEN_HAS_REDACT"
 
 # --- shared assertions (http-logger on federated route) ---
 HTTP_LOGGER_URI=$(echo "$FED_ROUTE" | jq -r '.plugins["http-logger"].uri')
@@ -462,25 +507,6 @@ assert_eq "relay-kimi-key-v1: proxy-rewrite regex strips /kimi-key/v1/" "^/kimi-
 KIMI_KEY_V1_REWRITE_REPLACE=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
 assert_eq "relay-kimi-key-v1: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_KEY_V1_REWRITE_REPLACE"
 
-# --- gateway-provider-sync (provider catalog and client config API) ---
-PROVIDER_SYNC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "gateway-provider-sync")][0]')
-
-PROVIDER_SYNC_ID=$(echo "$PROVIDER_SYNC_ROUTE" | jq -r '.id')
-assert_eq "gateway-provider-sync: id is gateway-provider-sync" "gateway-provider-sync" "$PROVIDER_SYNC_ID"
-
-PROVIDER_SYNC_URI=$(echo "$PROVIDER_SYNC_ROUTE" | jq -r '.uri')
-assert_eq "gateway-provider-sync: uri is /gateway/providers*" "/gateway/providers*" "$PROVIDER_SYNC_URI"
-
-PROVIDER_SYNC_HAS_PLUGIN=$(echo "$PROVIDER_SYNC_ROUTE" | jq '.plugins | has("provider-sync")')
-assert_eq "gateway-provider-sync: provider-sync plugin present" "true" "$PROVIDER_SYNC_HAS_PLUGIN"
-
-PROVIDER_SYNC_LIMIT_COUNT=$(echo "$PROVIDER_SYNC_ROUTE" | jq '.plugins["limit-count"].count')
-assert_eq "gateway-provider-sync: limit-count count is 60" "60" "$PROVIDER_SYNC_LIMIT_COUNT"
-
-PROVIDER_SYNC_LIMIT_WINDOW=$(echo "$PROVIDER_SYNC_ROUTE" | jq '.plugins["limit-count"].time_window')
-assert_eq "gateway-provider-sync: limit-count time_window is 60" "60" "$PROVIDER_SYNC_LIMIT_WINDOW"
-
-PROVIDER_SYNC_LIMIT_KEY=$(echo "$PROVIDER_SYNC_ROUTE" | jq -r '.plugins["limit-count"].key')
-assert_eq "gateway-provider-sync: limit-count key is remote_addr" "remote_addr" "$PROVIDER_SYNC_LIMIT_KEY"
+source "$SCRIPT_DIR/test_provider_sync_route.sh"
 
 summary

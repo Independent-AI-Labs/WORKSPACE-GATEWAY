@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-GATEWAY-CORE](../requirements/REQ-GATEWAY-CORE.md)
 
-> Implements the gateway data plane on APISIX 3.17.0 in traditional/etcd mode. Key invariants: 10 routes in etcd (seeded from `conf/apisix.yaml`), pure-Lua request path (no sidecars), custom plugins registered in `conf/config.yaml`, per-route auth via `kimi-auth` (OAuth) or `key-resolver` (OpenBao virtual keys).
+> Implements the gateway data plane on APISIX 3.17.0 in traditional/etcd mode. Key invariants: 12 routes in etcd (seeded from `conf/apisix.yaml`), pure-Lua request path (no sidecars), custom plugins registered in `conf/config.yaml`, per-route auth via `kimi-auth`/`openai-auth` (OAuth) or `key-resolver` (OpenBao virtual keys).
 
 ---
 
@@ -70,6 +70,7 @@ Verified against [`conf/apisix.yaml`](../../conf/apisix.yaml).
 |----------|-----|---------|----------|-------------|-------------|
 | relay-opencode | /opencode/* | ^/opencode/(.*) → /zen/go/$1 | https://opencode.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
 | relay-opencode-federated | /opencode_federated/* | ^/opencode_federated/(.*) → /zen/go/$1 | https://opencode.ai:443 | key-resolver (OPENCODE_API_KEY) | 100/60s @ x_key_hash |
+| relay-opencode-zen | /opencode_zen/* | ^/opencode_zen/(.*) → /zen/$1 | https://opencode.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
 | relay-kimi | /kimi/* | ^/kimi/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | kimi-auth | 100/60s @ x_key_hash |
 | relay-kimi-v1 | /kimi/v1/* | ^/kimi/v1/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | kimi-auth | 100/60s @ x_key_hash |
 | relay-kimi-federated | /kimi-federated/* | ^/kimi-federated/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | key-resolver (KIMI_API_KEY) | 100/60s @ x_key_hash |
@@ -108,7 +109,7 @@ Note: `ai-rate-limiting` is registered but not attached to any route. `cost_calc
 
 | File | Purpose | Key Changes |
 |------|---------|-------------|
-| [`conf/apisix.yaml`](../../conf/apisix.yaml) | Rendered route seed (10 routes) |  -  |
+| [`conf/apisix.yaml`](../../conf/apisix.yaml) | Rendered route seed (12 routes) |  -  |
 | [`conf/apisix.yaml.j2`](../../conf/apisix.yaml.j2) | Jinja2 template rendered by Ansible |  -  |
 | [`conf/config.yaml`](../../conf/config.yaml) | Deployment mode, plugin registration, shared dicts |  -  |
 | [`res/scripts/seed-routes.sh`](../../res/scripts/seed-routes.sh) | Seeds etcd from apisix.yaml |  -  |
@@ -120,7 +121,7 @@ Note: `ai-rate-limiting` is registered but not attached to any route. `cost_calc
 | Component | Status | Evidence |
 |-----------|--------|----------|
 | etcd/traditional deployment | Implemented | conf/config.yaml:5-21 |
-| 10 routes | Implemented | conf/apisix.yaml |
+| 12 routes | Implemented | conf/apisix.yaml |
 | Plugin pipeline per route | Implemented | conf/apisix.yaml plugin blocks |
 | Plugin registration | Implemented | conf/config.yaml:23-36 |
 | Prometheus key_hash labels | Implemented | conf/config.yaml:37-63 |

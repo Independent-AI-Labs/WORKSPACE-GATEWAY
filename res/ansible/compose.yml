@@ -14,6 +14,7 @@
     gateway_unit: gateway-compose.service
     systemd_dir: '{{ ansible_env.HOME }}/.config/systemd/user'
     venv_compose: '{{ project_root }}/.venv/bin/podman-compose'
+    ci_podman: '{{ project_root | dirname }}/CI/.boot-linux/bin/podman'
 
   tasks:
     - name: Resolve project root
@@ -33,10 +34,17 @@
     - name: Detect container runtime
       tags: [always]
       block:
+        - name: Check deployed CI podman
+          ansible.builtin.stat:
+            path: '{{ ci_podman }}'
+          register: podman_stat
+          changed_when: false
+
         - name: Find podman
-          ansible.builtin.command: which podman
+          ansible.builtin.command: realpath {{ ci_podman }}
           register: podman_check
           changed_when: false
+          failed_when: not podman_stat.stat.exists
 
         - name: Fail if podman missing
           ansible.builtin.fail:
@@ -53,10 +61,15 @@
             msg: 'Run make install in WORKSPACE-GATEWAY first (missing {{ venv_compose }})'
           when: not compose_stat.stat.exists
 
+        - name: Resolve canonical podman wrapper path
+          ansible.builtin.command: readlink -f {{ podman_check.stdout }}
+          register: canonical_podman
+          changed_when: false
+
         - name: Set runtime facts
           ansible.builtin.set_fact:
-            podman_path: '{{ podman_check.stdout }}'
-            podman_bin_dir: '{{ podman_check.stdout | dirname }}'
+            podman_path: '{{ canonical_podman.stdout }}'
+            podman_bin_dir: '{{ canonical_podman.stdout | dirname }}'
             compose_cmd: '{{ venv_compose }}'
 
     - name: Deploy gateway systemd unit (one-time provisioning)
@@ -79,6 +92,7 @@
             src: templates/gateway-compose.service.j2
             dest: '{{ systemd_dir }}/{{ gateway_unit }}'
             mode: '0644'
+          register: gateway_unit_template
 
         - name: Reload systemd user daemon
           ansible.builtin.systemd:
@@ -89,15 +103,45 @@
           ansible.builtin.systemd:
             name: '{{ gateway_unit }}'
             enabled: true
-            state: restarted
+            state: '{{ "restarted" if gateway_unit_template.changed else "started" }}'
             scope: user
 
-    - name: Start gateway compose (idempotent if already running)
+    - name: Check gateway systemd unit state before start
+      tags: [start]
+      ansible.builtin.command: systemctl --user is-active {{ gateway_unit }}
+      register: gateway_active
+      changed_when: false
+      failed_when: false
+
+    - name: Check OpenBao host endpoint before start
+      tags: [start]
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8201/v1/sys/health
+        method: GET
+        status_code: [200, 429, 501, 503]
+        timeout: 3
+      register: gateway_host_health
+      changed_when: false
+      failed_when: false
+
+    - name: Start gateway compose when inactive
       tags: [start]
       ansible.builtin.systemd:
         name: '{{ gateway_unit }}'
         state: started
         scope: user
+      when: gateway_active.rc != 0
+
+    - name: Recreate gateway compose when host port forwarding is stale
+      tags: [start]
+      ansible.builtin.systemd:
+        name: '{{ gateway_unit }}'
+        state: restarted
+        scope: user
+        enabled: true
+      when:
+        - gateway_active.rc == 0
+        - gateway_host_health.status | default(0) not in [200, 429, 501, 503]
 
     - name: Restart gateway compose
       tags: [restart]

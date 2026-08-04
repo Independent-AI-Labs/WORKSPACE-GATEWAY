@@ -52,6 +52,7 @@ metric families.
 |-------|-------|-------------|
 | opencode | `^/opencode/(.*)$` | `/zen/go/$1` |
 | federated | `^/opencode_federated/(.*)$` | `/zen/go/$1` |
+| opencode zen | `^/opencode_zen/(.*)$` | `/zen/$1` |
 | llamafile | `^/llamafile/(.*)$` | `/$1` |
 
 ## ai-rate-limiting

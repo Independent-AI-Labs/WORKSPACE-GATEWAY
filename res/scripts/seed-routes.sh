@@ -11,7 +11,7 @@ APISIX_YAML="${APISIX_YAML:-conf/apisix.yaml}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --admin-key) ADMIN_KEY="$2"; shift 2 ;;
+    --admin-key) export ADMIN_KEY="$2"; shift 2 ;;
     --admin-url) ADMIN_URL="$2"; shift 2 ;;
     --apisix-yaml) APISIX_YAML="$2"; shift 2 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;

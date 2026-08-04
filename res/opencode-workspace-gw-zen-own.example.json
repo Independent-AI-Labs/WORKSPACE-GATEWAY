@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "workspace-gw-zen-own": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Workspace GW (OpenCode Zen Own Key)",
+      "options": {
+        "baseURL": "http://localhost:9080/opencode_zen/v1",
+        "headers": {
+          "X-Tenant-ID": "default",
+          "X-User-ID": "agent"
+        }
+      },
+      "models": {}
+    }
+  }
+}

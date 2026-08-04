@@ -127,8 +127,8 @@ assert_present "override render: llamafile node uses custom host:port" "$OVERRID
 assert_absent "override render: default node absent when overridden" "$OVERRIDE_RENDER" '"host.docker.internal:8765": 1'
 
 # opencode nodes are NOT templated and must remain stable across renders.
-# Two opencode routes share the opencode.ai:443 node, so the expected count is 2.
+# Three opencode routes share the opencode.ai:443 node, so the expected count is 3.
 OC_PRESENT_OVERRIDE="$(printf '%s' "$OVERRIDE_RENDER" | grep -cF '"opencode.ai:443": 1' || echo "")"
-assert_eq "override render: opencode.ai:443 node still present x2 (untouched)" "2" "$OC_PRESENT_OVERRIDE"
+assert_eq "override render: opencode.ai:443 node still present x3 (untouched)" "3" "$OC_PRESENT_OVERRIDE"
 
 summary

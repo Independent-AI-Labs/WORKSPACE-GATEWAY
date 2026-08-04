@@ -3,9 +3,11 @@ FROM apache/apisix:3.17.0-debian
 COPY plugins/custom/key-resolver.lua /usr/local/apisix/apisix/plugins/key-resolver.lua
 COPY plugins/custom/key-meta.lua /usr/local/apisix/apisix/plugins/key-meta.lua
 COPY plugins/custom/kimi-auth.lua /usr/local/apisix/apisix/plugins/kimi-auth.lua
+COPY plugins/custom/openai-auth.lua /usr/local/apisix/apisix/plugins/openai-auth.lua
 COPY plugins/custom/kimi_jwt.lua /usr/local/apisix/apisix/plugins/kimi_jwt.lua
 COPY plugins/custom/kimi_device.lua /usr/local/apisix/apisix/plugins/kimi_device.lua
 COPY plugins/custom/kimi_tokens.lua /usr/local/apisix/apisix/plugins/kimi_tokens.lua
+COPY plugins/custom/openai_device.lua /usr/local/apisix/apisix/plugins/openai_device.lua
 COPY plugins/custom/provider-sync.lua /usr/local/apisix/apisix/plugins/provider-sync.lua
 COPY plugins/custom/provider_sync_catalog.lua /usr/local/apisix/apisix/plugins/provider_sync_catalog.lua
 COPY plugins/custom/sse-usage.lua /usr/local/apisix/apisix/plugins/sse-usage.lua

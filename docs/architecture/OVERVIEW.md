@@ -17,16 +17,18 @@ Routes and global config live in **etcd**, not a standalone YAML data plane.
 [`conf/apisix.yaml`](../../conf/apisix.yaml) is the seed document pushed to
 etcd at deploy.
 
-## Routes (10)
+## Routes (12)
 
 Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 
-### opencode relay (`opencode.ai:443`, rewrite to `/zen/go/`)
+### opencode relay (`opencode.ai:443`)
 
-| Route id | Prefix | Auth |
-|----------|--------|------|
-| `relay-opencode` | `/opencode/*` | Direct key passthrough (`key-meta`) |
-| `relay-opencode-federated` | `/opencode_federated/*` | `vgw-*` via `key-resolver` + OpenBao |
+| Route id | Prefix | Rewrite | Auth |
+|----------|--------|---------|------|
+| `relay-opencode` | `/opencode/*` | `/zen/go/$1` | Direct key passthrough (`key-meta`) |
+| `relay-opencode-federated` | `/opencode_federated/*` | `/zen/go/$1` | `vgw-*` via `key-resolver` + OpenBao |
+| `relay-opencode-zen` | `/opencode_zen/*` | `/zen/$1` | Direct key passthrough (`key-meta`) |
+| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT OAuth (`openai-auth`) |
 
 ### Kimi (`api.kimi.com:443`, rewrite to `/coding/v1/`)
 

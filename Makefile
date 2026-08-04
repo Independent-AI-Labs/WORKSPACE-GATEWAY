@@ -40,6 +40,7 @@ endif
 _CONSUMER_MK := $(abspath $(lastword $(MAKEFILE_LIST)))
 REPO_ROOT := $(patsubst %/,%,$(dir $(_CONSUMER_MK)))
 CI_DIR := $(abspath $(REPO_ROOT)/../CI)
+CI_BOOT_BIN := $(CI_DIR)/.boot-linux/bin
 COMPOSE_FILE := $(REPO_ROOT)/res/docker/docker-compose.yml
 VENV_BIN := $(REPO_ROOT)/.venv/bin
 COMPOSE_CMD := $(VENV_BIN)/podman-compose -f $(COMPOSE_FILE)
@@ -65,7 +66,7 @@ export NODE_BIN
 export NODE_PATH
 export PLAYWRIGHT_BROWSERS_PATH
 
-export PATH := $(PATH):$(VENV_BIN)
+export PATH := $(CI_BOOT_BIN):$(VENV_BIN):$(PATH)
 
 -include $(CI_DIR)/lib/makefile_contract.mk
 
@@ -154,7 +155,7 @@ _compose-clean:
 gw-build: _compose-build ## Build container images
 
 gw-start: ## Start the gateway stack via systemd, then health checks + init + sync
-	$(ANSIBLE_COMPOSE) --tags start
+	$(ANSIBLE_COMPOSE) --tags deploy,start
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
 
@@ -162,15 +163,7 @@ gw-stop: ## Stop the gateway stack via systemd (keep volumes)
 	$(ANSIBLE_COMPOSE) --tags stop
 
 gw-restart: ## Drain apisix (SIGQUIT, DRAIN_TIMEOUT=300), rebuild images, restart via systemd, verify health
-	echo "=== Draining apisix (SIGQUIT; in-flight streams finish, $${DRAIN_TIMEOUT:-300}s max) ==="
-	timeout "$${DRAIN_TIMEOUT:-300}" $(COMPOSE_CMD) stop apisix; \
-	drain_rc=$$?; \
-	if [ $$drain_rc -ne 0 ]; then \
-		echo "=== WARN: drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
-		podman stop -t 5 docker_apisix_1; \
-		force_rc=$$?; \
-		if [ $$force_rc -ne 0 ]; then echo "=== ERROR: forced stop failed (rc=$$force_rc) ===" >&2; exit 1; fi; \
-	fi
+	bash res/scripts/drain-apisix.sh
 	$(MAKE) gw-build
 	$(ANSIBLE_COMPOSE) --tags restart
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
@@ -180,15 +173,7 @@ gw-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|v
 	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-restart-service SVC=grafana" >&2; exit 1; }
 	echo "=== Recreating service: $(SVC) ==="
 	if [ "$(SVC)" = "apisix" ]; then \
-		echo "=== Draining apisix (SIGQUIT; in-flight streams finish, $${DRAIN_TIMEOUT:-300}s max) ==="; \
-		timeout "$${DRAIN_TIMEOUT:-300}" $(COMPOSE_CMD) stop apisix; \
-		drain_rc=$$?; \
-		if [ $$drain_rc -ne 0 ]; then \
-			echo "=== WARN: drain failed/timed out (rc=$$drain_rc), forcing stop ===" >&2; \
-			podman stop -t 5 docker_apisix_1; \
-			force_rc=$$?; \
-			if [ $$force_rc -ne 0 ]; then echo "=== ERROR: forced stop failed (rc=$$force_rc) ===" >&2; exit 1; fi; \
-		fi; \
+		bash res/scripts/drain-apisix.sh; \
 	fi; \
 	timeout 120 $(COMPOSE_CMD) up -d --force-recreate --no-deps $(SVC); \
 	rc=$$?; \

@@ -30,6 +30,7 @@ limits from OpenBao are not wired in config today.
 
 | Date | Fix |
 |------|-----|
+| 2026-07 | OpenCode Go/Zen split: `relay-opencode-zen` (`/opencode_zen/*` → `/zen/$1`) for free/Zen models (own-key only); Go providers renamed to `Workspace GW (OpenCode Go Own Key)` / `(OpenCode Go Virtual Key)`; `model_source.filter` excludes `*-free` from Go-tier catalogs |
 | 2026-07 | Token estimation removed: `sse_usage_lib.count_tokens` byte heuristic deleted; token counts are upstream-reported only (unreported dimensions are explicit 0) |
 | 2026-07 | etcd traditional mode; Admin API + `${{ADMIN_KEY}}` |
 | 2026-07 | `request_id` in usage_log and request_log; `request-id` plugin |

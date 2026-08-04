@@ -1,9 +1,5 @@
---plugins/custom/provider_sync_catalog.lua
---Internal catalog logic for provider-sync.
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
-
-
 local M = {}
 local SHARED_DICT = "gateway-cache"
 local KEY_RAW = "providers:raw"
@@ -18,10 +14,8 @@ local DEFAULT_STALE = 86400
 local DEFAULT_SYNC_TIMEOUT = 10000
 local DEFAULT_WARMUP = true
 local DEFAULT_OUTPUT_LIMIT = 8192
-
 local KIMI_USER_AGENT = "Kimi CLI (Linux 6.17.0-35-generic x64)"
 local GENERIC_USER_AGENT = "WORKSPACE-GW/0.1"
-
 M.DEFAULT_PROVIDERS_DIR = DEFAULT_PROVIDERS_DIR
 M.DEFAULT_MODELS_DEV_URL = DEFAULT_MODELS_DEV_URL
 M.DEFAULT_TTL = DEFAULT_TTL
@@ -42,7 +36,6 @@ local function ensure_deps_path()
         package.cpath = deps_so .. "/?.so;" .. package.cpath
     end
 end
-
 local function get_lyaml()
     ensure_deps_path()
     local ok, lyaml = pcall(require, "lyaml")
@@ -51,18 +44,15 @@ local function get_lyaml()
     end
     return lyaml, nil
 end
-
 local function get_dict()
     if not ngx or not ngx.shared then
         return nil
     end
     return ngx.shared[SHARED_DICT]
 end
-
 local function get_http()
     return require("resty.http")
 end
-
 local function read_file(path)
     local f, err = io.open(path, "r")
     if not f then
@@ -72,7 +62,6 @@ local function read_file(path)
     f:close()
     return content, nil
 end
-
 local function list_yaml_files(dir)
     local files = {}
     local p = io.popen('ls -1 "' .. dir .. '"/*.yaml 2>/dev/null')
@@ -82,7 +71,6 @@ local function list_yaml_files(dir)
         end
         p:close()
     end
-    --Also include .yml files for flexibility.
     p = io.popen('ls -1 "' .. dir .. '"/*.yml 2>/dev/null')
     if p then
         for line in p:lines() do
@@ -92,7 +80,6 @@ local function list_yaml_files(dir)
     end
     return files
 end
-
 local function load_yaml(path)
     local lyaml, err = get_lyaml()
     if not lyaml then
@@ -111,7 +98,6 @@ local function load_yaml(path)
     end
     return parsed, nil
 end
-
 local function load_providers(dir)
     local files = list_yaml_files(dir)
     local providers = {}
@@ -129,7 +115,6 @@ local function load_providers(dir)
     end
     return providers
 end
-
 local function http_get(url, headers, timeout)
     local httpc = get_http().new()
     httpc:set_timeout(timeout or 10000)
@@ -154,7 +139,6 @@ local function http_get(url, headers, timeout)
     end
     return parsed, nil
 end
-
 local function fetch_models_dev(url, timeout)
     local headers = {
         ["Accept"] = "application/json",
@@ -162,7 +146,6 @@ local function fetch_models_dev(url, timeout)
     }
     return http_get(url, headers, timeout)
 end
-
 local function fetch_gateway_models(endpoint, api_key, timeout)
     local headers = {
         ["Accept"] = "application/json",
@@ -173,7 +156,6 @@ local function fetch_gateway_models(endpoint, api_key, timeout)
     end
     return http_get(endpoint, headers, timeout)
 end
-
 local function normalize_model_id(model_id, normalize)
     if not model_id or model_id == "" then
         return ""
@@ -190,7 +172,6 @@ local function normalize_model_id(model_id, normalize)
     end
     return id
 end
-
 local function has_attachment(modalities)
     if not modalities or type(modalities) ~= "table" then
         return false
@@ -206,7 +187,6 @@ local function has_attachment(modalities)
     end
     return false
 end
-
 local function scale_limit(context, pct, ceiling)
     local val = tonumber(context) or 0
     if val <= 0 then
@@ -290,7 +270,6 @@ local function extract_model_ids(data)
         return ids
     end
 
-    --OpenAI-compatible /models response: { data = [{ id = ... }] }
     if data.data and type(data.data) == "table" then
         for _, item in ipairs(data.data) do
             if type(item) == "table" and item.id then
@@ -300,8 +279,6 @@ local function extract_model_ids(data)
         return ids
     end
 
-    --Models.dev style: { provider = { models = { id = ... } } }
-    --Extract IDs from the first provider block found.
     for _, provider in pairs(data) do
         if type(provider) == "table" and provider.models and type(provider.models) == "table" then
             for model_id, _ in pairs(provider.models) do
@@ -314,8 +291,6 @@ local function extract_model_ids(data)
     return ids
 end
 
---model_metadata is a static metadata overlay keyed by model id. It never
---substitutes for the endpoint: it only enriches ids the endpoint reported.
 local function build_models_from_endpoint(provider, data, model_metadata)
     local pct = provider.context_limit_pct or 100
     local ceiling = provider.context_limit_ceiling
@@ -364,15 +339,44 @@ local function build_models_from_endpoint(provider, data, model_metadata)
     return models
 end
 
+local function matches_any(model_id, patterns)
+    if not patterns or type(patterns) ~= "table" then
+        return false
+    end
+    for _, pat in ipairs(patterns) do
+        if pat and pat ~= "" and string.find(model_id, pat) then
+            return true
+        end
+    end
+    return false
+end
+
+local function apply_model_filter(models, filter)
+    if not filter or type(filter) ~= "table" then
+        return models
+    end
+    local include = filter.include
+    local has_include = include and type(include) == "table" and next(include) ~= nil
+    local filtered = {}
+    for model_id, entry in pairs(models) do
+        if not matches_any(model_id, filter.exclude)
+           and (not has_include or matches_any(model_id, include)) then
+            filtered[model_id] = entry
+        end
+    end
+    return filtered
+end
+
 local function enrich_provider_models(provider, models_dev)
     local source = provider.model_source
     if not source or type(source) ~= "table" then
         return {}
     end
 
+    local models
     local source_type = source.type
     if source_type == "models_dev_provider" then
-        return build_models_from_models_dev(provider, models_dev)
+        models = build_models_from_models_dev(provider, models_dev)
     elseif source_type == "gateway" or source_type == "llamafile" then
         local endpoint = source.endpoint
         local api_key = source.api_key
@@ -393,18 +397,19 @@ local function enrich_provider_models(provider, models_dev)
                            "; provider will sync with zero models")
             return {}
         end
-        local models = build_models_from_endpoint(provider, data, model_metadata)
+        models = build_models_from_endpoint(provider, data, model_metadata)
         if not next(models) then
             core.log.error("provider_sync: endpoint ", full_url,
                            " for provider ", provider.id,
                            " returned zero model ids; provider will sync with zero models")
         end
-        return models
     else
         core.log.warn("provider_sync: unknown model_source type ", source_type,
                       " for provider ", provider.id)
         return {}
     end
+
+    return apply_model_filter(models, source.filter)
 end
 
 local pricing
@@ -423,8 +428,6 @@ function M.sync(conf)
         return nil, "shared dict not found"
     end
 
-    --Defaults live here so callers never need to know the models.dev URL
-    --or the providers dir; the catalog is the single owner of its config.
     conf = conf or {}
     local providers_dir = conf.providers_dir or DEFAULT_PROVIDERS_DIR
     local models_dev_url = conf.models_dev_url or DEFAULT_MODELS_DEV_URL

@@ -1,6 +1,6 @@
 ---
 id: workspace-gw-own
-name: "Workspace GW (Own Key)"
+name: "Workspace GW (OpenCode Go Own Key)"
 route: "/opencode/v1"
 npm: "@ai-sdk/openai-compatible"
 auth:
@@ -13,4 +13,7 @@ model_source:
   type: gateway
   endpoint: "/opencode_federated/v1/models"
   api_key: "vgw-gateway-key"
+  filter:
+    exclude:
+      - "-free$"
 cost_source: opencode

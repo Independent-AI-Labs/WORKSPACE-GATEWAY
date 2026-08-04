@@ -26,7 +26,7 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 ### 1.2 Scope
 **This document OWNS the requirements for:**
 - Deployment mode (traditional, etcd config provider)
-- The 10 routes: ids, URI prefixes, upstreams, auth modes
+- The 12 routes: ids, URI prefixes, upstreams, auth modes
 - Per-route plugin attachment (built-in and custom)
 - Plugin registration in the APISIX config
 
@@ -56,14 +56,15 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 ### FR-2: Routes
 | ID | Requirement |
 |----|-------------|
-| FR-2.1 | The gateway MUST define exactly 10 routes: `relay-opencode`, `relay-opencode-federated`, `relay-kimi`, `relay-kimi-v1`, `relay-kimi-federated`, `relay-kimi-federated-v1`, `relay-kimi-key`, `relay-kimi-key-v1`, `relay-llamafile`, `gateway-provider-sync`. |
+| FR-2.1 | The gateway MUST define exactly 12 routes, including `relay-openai` for ChatGPT/Codex OAuth. |
 | FR-2.2 | `relay-opencode` (`/opencode/*`) MUST proxy-rewrite to `/zen/go/$1` on upstream `opencode.ai:443` (https, pass_host node) and MUST NOT attach `key-resolver` (direct key passthrough). |
 | FR-2.3 | `relay-opencode-federated` (`/opencode_federated/*`) MUST rewrite to `/zen/go/$1` on `opencode.ai:443` and MUST attach `key-resolver` with `upstream_key_env: OPENCODE_API_KEY` and `virtual_key_prefix: vgw-`. |
-| FR-2.4 | `relay-kimi` (`/kimi/*`) and `relay-kimi-v1` (`/kimi/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach `kimi-auth` (federated OAuth device-flow auth). |
-| FR-2.5 | `relay-kimi-federated` (`/kimi-federated/*`) and `relay-kimi-federated-v1` (`/kimi-federated/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach `key-resolver` with `upstream_key_env: KIMI_API_KEY`. |
-| FR-2.6 | `relay-kimi-key` (`/kimi-key/*`) and `relay-kimi-key-v1` (`/kimi-key/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach neither `kimi-auth` nor `key-resolver` (gateway-provisioned key / passthrough). |
-| FR-2.7 | `relay-llamafile` (`/llamafile/*`) MUST rewrite to `/$1` on `host.docker.internal:8765` over http (local llamafile VM, no auth plugin). |
-| FR-2.8 | `gateway-provider-sync` (`/gateway/providers*`) MUST target `127.0.0.1:9080` (http, pass_host pass) and MUST attach the `provider-sync` plugin. |
+| FR-2.4 | `relay-opencode-zen` (`/opencode_zen/*`) MUST rewrite to `/zen/$1` on `opencode.ai:443` (the OpenCode Zen/free upstream) and MUST NOT attach `key-resolver` (own-key passthrough). |
+| FR-2.5 | `relay-kimi` (`/kimi/*`) and `relay-kimi-v1` (`/kimi/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach `kimi-auth` (federated OAuth device-flow auth). |
+| FR-2.6 | `relay-kimi-federated` (`/kimi-federated/*`) and `relay-kimi-federated-v1` (`/kimi-federated/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach `key-resolver` with `upstream_key_env: KIMI_API_KEY`. |
+| FR-2.7 | `relay-kimi-key` (`/kimi-key/*`) and `relay-kimi-key-v1` (`/kimi-key/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach neither `kimi-auth` nor `key-resolver` (gateway-provisioned key / passthrough). |
+| FR-2.8 | `relay-llamafile` (`/llamafile/*`) MUST rewrite to `/$1` on `host.docker.internal:8765` over http (local llamafile VM, no auth plugin). |
+| FR-2.9 | `gateway-provider-sync` (`/gateway/providers*`) MUST target `127.0.0.1:9080` (http, pass_host pass) and MUST attach the `provider-sync` plugin. |
 
 ### FR-3: Built-in Plugins on Relay Routes
 | ID | Requirement |
@@ -121,7 +122,7 @@ None.
 | Item | Status | Evidence |
 |------|--------|----------|
 | FR-1.1-FR-1.4 | Implemented | conf/config.yaml:5-21 |
-| FR-2.1-FR-2.8 | Implemented | conf/apisix.yaml (10 routes) |
+| FR-2.1-FR-2.9 | Implemented | conf/apisix.yaml (12 routes) |
 | FR-3.1-FR-3.7 | Implemented | conf/apisix.yaml plugin blocks |
 | FR-4.1-FR-4.5 | Implemented | conf/config.yaml:23-75 |
 | NFR-1.1-1.3 | Implemented | docs/architecture/OVERVIEW.md; no sidecars in res/docker |

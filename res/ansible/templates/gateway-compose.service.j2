@@ -8,6 +8,7 @@ EnvironmentFile=-{{ project_root }}/.env
 Type=simple
 WorkingDirectory={{ project_root }}/res/docker
 Environment=PATH={{ compose_cmd | dirname }}:{{ podman_bin_dir }}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=SHG_SCRIPT_PATH={{ podman_path }}
 Environment=COMPOSE_HTTP_TIMEOUT=10
 ExecStartPre=-{{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} down
 ExecStartPre=-{{ podman_path }} network rm -f docker_default

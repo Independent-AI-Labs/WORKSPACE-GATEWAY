@@ -72,7 +72,8 @@ pricing is written exactly once, in one place.
 | FR-1.5 | `cost_source` (default `none`) MAY name a models.dev provider id whose prices fill models lacking a cost. |
 | FR-1.6 | `context_limit_pct` (default 100) and `context_limit_ceiling` (default 0 = no cap) MAY scale exposed context limits. |
 | FR-1.7 | `model_aliases` MAY map alias ids to real model ids; aliases MUST receive a deep copy of the target model entry. |
-| FR-1.8 | Files that fail to parse or lack an `id` MUST be skipped with a warning, never causing a 5xx. |
+| FR-1.8 | `model_source.filter` (optional) MAY carry `include` / `exclude` lists of Lua patterns matched against normalized model ids. `exclude` patterns MUST drop matching ids; a non-empty `include` list MUST keep only matching ids. Applies to every `model_source.type`. |
+| FR-1.9 | Files that fail to parse or lack an `id` MUST be skipped with a warning, never causing a 5xx. |
 
 ### FR-2: Sync & Enrichment
 

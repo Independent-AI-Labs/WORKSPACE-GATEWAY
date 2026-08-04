@@ -112,15 +112,18 @@ and [Supported Providers](#supported-providers)). Diagram authoring rules:
 |-------|--------|------|-----------------|
 | `relay-opencode` | `/opencode/*` | Direct key passthrough | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-federated` | `/opencode_federated/*` | Virtual keys (`vgw-*`) via OpenBao | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
+| `relay-opencode-zen` | `/opencode_zen/*` | Direct key passthrough | OpenCode Zen (`opencode.ai`) → `/zen/*` |
 | `relay-kimi` | `/kimi/*` | `kimi-auth` OAuth device flow | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile (`host.docker.internal:8765`) |
 
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
-DeepSeek, Qwen, MiMo, HY3). Swap the upstream node in `apisix.yaml.j2`
-to point at any other compatible API. Additional providers = new relay
-route + upstream node; see [`docs/specifications/SPEC-PROVIDER-XAI.md`](docs/specifications/SPEC-PROVIDER-XAI.md)
+DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
+(`*-free` + pay-as-you-go) via the `/opencode_zen/*` relay. Swap the
+upstream node in `apisix.yaml.j2` to point at any other compatible API.
+Additional providers = new relay route + upstream node; see
+[`docs/specifications/SPEC-PROVIDER-XAI.md`](docs/specifications/SPEC-PROVIDER-XAI.md)
 for the xAI Grok draft spec and [`docs/specifications/SPEC-PROVIDER-KIMI.md`](docs/specifications/SPEC-PROVIDER-KIMI.md)
 for the Moonshot Kimi spec.
 
@@ -227,7 +230,7 @@ local upstream (see [sample deployments](#sample-deployments-in-this-repo)).
 Eight plugins on the passthrough and llamafile routes, nine on the federated
 route (federated adds `key-resolver`), ordered by Nginx phase priority:
 
-- **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Strips route prefix; opencode relays → `/zen/go/*`, llamafile → upstream root
+- **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Strips route prefix; opencode relays → `/zen/go/*`, opencode zen relay → `/zen/*`, llamafile → upstream root
 - **`key-resolver`** (2555, Custom Lua, `access`, federated only) : Resolve `vgw-*` keys via OpenBao; pass through others
 - **`key-meta`** (2530, Custom Lua, `access`) : Compute key hash for per-key scoping (`X-Key-Hash`)
 - **`redact`** (2500, Custom Lua, `access`/`header_filter`/`body_filter`/`log`) : PII anonymization + re-hydration
@@ -345,6 +348,7 @@ Traditional/etcd mode: routes live in etcd, seeded from the rendered
 | `ADMIN_KEY` | APISIX Admin API key (not stored in tracked files) | `your-apisix-admin-key` |
 | `OPENCODE_API_KEY` | Upstream Go key (injected into proxied requests) | `sk-HiEr...` |
 | `OPENCODE_BASE_URL` | Upstream Go base URL | `https://opencode.ai/zen/go/v1` |
+| `OPENCODE_ZEN_BASE_URL` | Upstream Zen/free base URL | `https://opencode.ai/zen/v1` |
 | `GATEWAY_API_KEY` | Default virtual key for opencode integration | `vgw-gateway-key` |
 | `OPENBAO_TOKEN` | Root token for OpenBao KVv2 API | `2e22c6e...` |
 | `CONTEXT_LIMIT_PCT` | Context limit scaling percentage | `80` |
@@ -415,8 +419,9 @@ reload provisioning. See [`docs/specifications/SPEC-DASHBOARD.md`](docs/specific
 ## opencode Integration
 
 The gateway registers as `workspace-gw-private` (virtual key),
-`workspace-gw-own` (own key), `workspace-gw-llamafile` (local LLM), and three
-Moonshot Kimi providers (`workspace-gw-kimi-oauth` for OAuth device flow,
+`workspace-gw-own` (own key), `workspace-gw-zen-own` (own key, free/Zen
+models), `workspace-gw-llamafile` (local LLM), and three Moonshot Kimi
+providers (`workspace-gw-kimi-oauth` for OAuth device flow,
 `workspace-gw-kimi-private` for virtual key, and `workspace-gw-kimi-own` for
 own key) as custom providers in opencode.
 
@@ -425,15 +430,17 @@ own key) as custom providers in opencode.
 make sync-models
 ```
 
-This fetches `/opencode_federated/v1/models` from the gateway using the
-virtual gateway key, enriches each model with canonical metadata (name,
-context limit, capabilities, cost, modalities) from [models.dev](https://models.dev),
+This fetches `/opencode_federated/v1/models` (Go tier, `*-free` models
+filtered out) and `/opencode_zen/v1/models` (all Zen/free models) from the
+gateway, enriches each model with canonical metadata (name, context limit,
+capabilities, cost, modalities) from [models.dev](https://models.dev),
 and also fetches `/llamafile/v1/models` for the local llamafile upstream.
 It writes provider entries into `~/.config/opencode/opencode.jsonc` for the
 OpenCode and Kimi access modes, plus llamafile:
 
-- `workspace-gw-private`: virtual-key mode (apiKey = `vgw-gateway-key`)
-- `workspace-gw-own`: own-key passthrough (no apiKey, client provides key)
+- `workspace-gw-private`: virtual-key mode (apiKey = `vgw-gateway-key`), Go tier
+- `workspace-gw-own`: own-key passthrough (no apiKey, client provides key), Go tier
+- `workspace-gw-zen-own`: own-key passthrough, free/Zen models from `/opencode_zen/v1`
 - `workspace-gw-llamafile`: no-auth local LLM (VM-hosted llamafile, no apiKey)
 - `workspace-gw-kimi-oauth`: OAuth device-flow (gateway-managed Kimi token)
 - `workspace-gw-kimi-private`: virtual-key mode for Kimi (`vgw-*`)
@@ -443,9 +450,13 @@ For the OAuth providers, use the login script in
 [`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)
 which starts the device flow and prints the verification URL.
 
-The first two providers receive the full enriched model catalog so opencode
-does not drop them (opencode deletes providers with zero models). The
-llamafile provider receives the model list from `/llamafile/v1/models`
+The opencode providers receive the full enriched model catalog so opencode
+does not drop them (opencode deletes providers with zero models). The Go
+providers (`workspace-gw-own` / `workspace-gw-private`) filter out `*-free`
+models because their relay rewrites to `/zen/go/` (paid only); free models
+are served exclusively through `workspace-gw-zen-own`, which proxies
+`/opencode_zen/v1` → `https://opencode.ai/zen/v1`. The llamafile provider
+receives the model list from `/llamafile/v1/models`
 (or a default model id if the llamafile server is not running). MiniCPM5
 uses context `131072` (scaled to `104857` at 80%) with `tool_call: true`.
 The script runs automatically on `make gw-start` and `make gw-restart`

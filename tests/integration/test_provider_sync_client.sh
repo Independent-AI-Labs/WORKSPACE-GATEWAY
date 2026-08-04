@@ -126,10 +126,10 @@ test_provider_list() {
     assert_contains "provider list returns JSON array" "[" "$resp"
     local count
     count=$(get_json_field "$resp" 'length')
-    if [ "$count" -ge 6 ]; then
-        record_pass "provider list contains at least 6 providers (count=$count)"
+    if [ "$count" -ge 8 ]; then
+        record_pass "provider list contains at least 8 providers (count=$count)"
     else
-        record_fail "provider list expected >= 6 providers, got $count -- response: $resp"
+        record_fail "provider list expected >= 8 providers, got $count -- response: $resp"
     fi
 }
 
@@ -267,7 +267,7 @@ test_client_virtual_key() {
         return 1
     fi
     assert_contains "virtual_key client reports login complete" "Login complete" "$output"
-    verify_provider_in_config workspace-gw-private "Workspace GW (Virtual Key)"
+    verify_provider_in_config workspace-gw-private "Workspace GW (OpenCode Go Virtual Key)"
     verify_provider_base_url workspace-gw-private "$GATEWAY/opencode_federated/v1"
     verify_auth_entry workspace-gw-private "$test_key"
     local perms
@@ -419,9 +419,15 @@ main() {
     test_provider_detail workspace-gw-llamafile
     test_provider_detail workspace-gw-kimi-oauth
     test_provider_detail workspace-gw-private
+    test_provider_detail workspace-gw-own
+    test_provider_detail workspace-gw-zen-own
+    test_provider_detail workspace-gw-openai-oauth
     test_provider_opencode workspace-gw-llamafile "Workspace GW (llamafile)"
     test_provider_opencode workspace-gw-kimi-oauth "Workspace GW (Kimi OAuth)"
-    test_provider_opencode workspace-gw-private "Workspace GW (Virtual Key)"
+    test_provider_opencode workspace-gw-private "Workspace GW (OpenCode Go Virtual Key)"
+    test_provider_opencode workspace-gw-own "Workspace GW (OpenCode Go Own Key)"
+    test_provider_opencode workspace-gw-zen-own "Workspace GW (OpenCode Zen Own Key)"
+    test_provider_opencode workspace-gw-openai-oauth "Workspace GW (OpenAI ChatGPT OAuth)"
 
     test_client_no_auth_llamafile
     test_client_no_auth_kimi_own
