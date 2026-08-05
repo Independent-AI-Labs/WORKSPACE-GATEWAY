@@ -20,7 +20,7 @@
 - [`plugins/custom/provider-sync.lua`](../../plugins/custom/provider-sync.lua): plugin phases and HTTP endpoints
 - [`plugins/custom/provider_sync_catalog.lua`](../../plugins/custom/provider_sync_catalog.lua): catalog load/enrich/sync logic
 - [`plugins/custom/provider_sync_pricing.lua`](../../plugins/custom/provider_sync_pricing.lua): sole `pricing:*` writer
-- [`conf/providers/`](../../conf/providers): 6 provider definition YAMLs
+- [`conf/providers/`](../../conf/providers): 8 provider definition YAMLs
 - [`res/scripts/opencode-provider-login.sh`](../../res/scripts/opencode-provider-login.sh): thin client login script
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): `gateway-provider-sync` route
 
@@ -57,8 +57,9 @@ pricing is written exactly once, in one place.
 | Provider | A configured upstream described by one YAML in `conf/providers/` plus its enriched model catalog |
 | Enriched catalog | Provider definition + model metadata/pricing from `models.dev` or an endpoint |
 | OpenCode provider block | JSON object inserted under `provider.<id>` in the OpenCode config |
-| `cost_source` | models.dev provider id whose prices fill missing model costs |
-| Canonical model id | Model id normalized by `model_registry.canonical()`; the only key shape for `pricing:*` |
+| `pricing` | Declared pricing source, overrides, and missing-value policy |
+| Provider-scoped pricing key | `pricing:<provider_id>:<canonical_model_id>`; provider identity is part of price identity |
+| Pricing snapshot | Immutable generation containing the normalized provider rate cards |
 
 ## 2. Functional Requirements
 
@@ -70,7 +71,7 @@ pricing is written exactly once, in one place.
 | FR-1.2 | Each provider MUST define: `id`, `name`, `route`, `npm`, `auth`, `options`, `model_source`. |
 | FR-1.3 | `auth.type` MUST be one of `oauth`, `api_key`, `virtual_key`, `none`, `passthrough`; `oauth` requires `auth.plugin`. |
 | FR-1.4 | `model_source.type` MUST be one of `models_dev_provider` (requires `provider`), `gateway` (requires `endpoint`), or `llamafile` (requires `endpoint`). |
-| FR-1.5 | `cost_source` (default `none`) MAY name a models.dev provider id whose prices fill models lacking a cost. |
+| FR-1.5 | `pricing.source` MUST declare `models_dev` plus a provider id, or `unknown`; `pricing.overrides` MAY provide provider-specific model rates. |
 | FR-1.6 | `context_limit_pct` (default 100) and `context_limit_ceiling` (default 0 = no cap) MAY scale exposed context limits. |
 | FR-1.7 | `model_aliases` MAY map alias ids to real model ids; aliases MUST receive a deep copy of the target model entry. |
 | FR-1.8 | `model_source.filter` (optional) MAY carry `include` / `exclude` lists of Lua patterns matched against normalized model ids. `exclude` patterns MUST drop matching ids; a non-empty `include` list MUST keep only matching ids. Applies to every `model_source.type`. |
@@ -92,10 +93,11 @@ pricing is written exactly once, in one place.
 | ID | Requirement |
 |----|-------------|
 | FR-3.1 | `provider-sync` (via `provider_sync_pricing.lua`) MUST be the sole writer of `pricing:*` keys in `gateway-cache`. |
-| FR-3.2 | Pricing keys MUST be `pricing:<canonical_model_id>` where canonicalization is `model_registry.canonical()`. |
-| FR-3.3 | Providers MUST be iterated in sorted order with first-writer-wins per canonical key (deterministic cache content). |
-| FR-3.4 | Missing model costs MUST be filled only from the provider's declared `cost_source`; there MUST be no cross-provider cheapest-wins merge. |
-| FR-3.5 | Each pricing record MUST include `provider`, `input`, `output`, `cache_read`, `cache_write`, and `fetched_at`. |
+| FR-3.2 | Pricing keys MUST be `pricing:<provider_id>:<canonical_model_id>` where canonicalization is `model_registry.canonical()`. |
+| FR-3.3 | Provider pricing MUST be resolved independently; identical model ids under different providers MUST NOT collide. |
+| FR-3.4 | The declared provider override wins per rate field, followed by models.dev, then discovered endpoint metadata; missing rates remain unknown. |
+| FR-3.5 | Each pricing record MUST include provider identity, provenance, input/output/cache/reasoning rates, and `fetched_at`. |
+| FR-3.6 | Sync MUST publish an immutable `pricing:snapshot:<generation>` and update `pricing:snapshot:active` only after the snapshot is written. |
 
 ### FR-4: HTTP Endpoints
 
@@ -142,7 +144,7 @@ pricing is written exactly once, in one place.
 |----|------------|--------|
 | C-1 | `lyaml` YAML parsing with APISIX deps path prepended to `package.path`/`cpath` | provider_sync_catalog.lua |
 | C-2 | `conf/providers/` mounted at `/usr/local/apisix/conf/providers` | res/docker |
-| C-3 | Pricing key shape is canonical-id only; enforced by tests | tests/config/test_model_registry.sh |
+| C-3 | Pricing key shape includes provider and canonical model identity; enforced by provider pricing tests | tests/lua/test_provider_pricing.lua |
 
 ## 5. Assumptions
 
@@ -170,7 +172,7 @@ the APISIX image; provider dir mounted into the container.)
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| FR-1.x provider YAMLs (6 files) | Implemented | conf/providers/*.yaml |
+| FR-1.x provider YAMLs (8 files) | Implemented | conf/providers/*.yaml |
 | FR-2.x sync & enrichment | Implemented | provider_sync_catalog.lua `M.sync` |
 | FR-3.x pricing single writer | Implemented | provider_sync_pricing.lua |
 | FR-4.x endpoints | Implemented | provider-sync.lua `plugin.access` |

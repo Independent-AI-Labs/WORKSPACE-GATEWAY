@@ -9,8 +9,8 @@
 > service. The `provider-sync` plugin (priority 2570) delegates catalog logic
 > to `provider_sync_catalog.lua` and pricing writes to
 > `provider_sync_pricing.lua` (split out for file-size limits). Key invariants:
-> `provider-sync` is the sole writer of `pricing:*` keys (canonical model ids,
-> sorted iteration, first-writer-wins); `cost_calc` is a read-only consumer;
+> `provider-sync` is the sole writer of provider-scoped `pricing:*` keys and
+> immutable pricing snapshots; `cost_calc` is a read-only consumer;
 > endpoints are read-only and auth-agnostic behind `limit-count`.
 
 ---
@@ -19,8 +19,8 @@
 - [REQ-PROVIDER-SYNC](../requirements/REQ-PROVIDER-SYNC.md): requirements
 - [`plugins/custom/provider-sync.lua`](../../plugins/custom/provider-sync.lua): manifest, schema, `init`/`access`, OpenCode block builder
 - [`plugins/custom/provider_sync_catalog.lua`](../../plugins/custom/provider_sync_catalog.lua): YAML load, models.dev fetch, enrichment, `sync`/`get_enriched`
-- [`plugins/custom/provider_sync_pricing.lua`](../../plugins/custom/provider_sync_pricing.lua): `apply_cost_source`, `populate_pricing_cache`
-- [`conf/providers/`](../../conf/providers): 6 provider YAMLs
+- [`plugins/custom/provider_sync_pricing.lua`](../../plugins/custom/provider_sync_pricing.lua): provider-aware price resolution and `populate_pricing_cache`
+- [`conf/providers/`](../../conf/providers): 8 provider YAMLs
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): `gateway-provider-sync` route (`/gateway/providers*`)
 - [`res/scripts/opencode-provider-login.sh`](../../res/scripts/opencode-provider-login.sh): client login script
 
@@ -39,7 +39,7 @@
   |    providers:raw / providers:enriched /           |
   |    providers:ts / providers:lock                  |
   |        |                                          |
-  |  provider_sync_pricing -- pricing:<canonical_id>  |
+  |  provider_sync_pricing -- pricing:<provider_id>:<canonical_id> |
   +---------------------------------------------------+
        ^ reads conf/providers/*.yaml (lyaml)
        ^ fetches models.dev/api.json (Kimi CLI UA)
@@ -64,11 +64,9 @@ callers never hardcode paths.
 `cost_calc.lua` exposes only `get_pricing`/`compute_cost`/`resolve_cost`
 (read-only). Enforced by `tests/config/test_model_registry.sh`.
 
-### 2.3 Canonical pricing keys
+### 2.3 Provider-scoped canonical pricing keys
 
-Keys are `pricing:<canonical_id>` via `model_registry.canonical()`, so every
-alias of a model resolves to the same price and alias-shaped keys cannot
-diverge. Providers are iterated in sorted order; first writer wins.
+Keys are `pricing:<provider_id>:<canonical_id>` via `model_registry.canonical()`, so every alias of a model resolves to the same provider price while different providers cannot collide. Each provider/model record is resolved independently.
 
 ### 2.4 Independent enrichment sources
 
@@ -99,18 +97,21 @@ One provider document per file; `id` is authoritative.
 | `model_source.model_metadata` | list | no | Static metadata overlay for endpoint-reported ids (never introduces ids) |
 | `model_source.filter` | object | no | `include` / `exclude` lists of Lua patterns matched against model ids; `exclude` drops matches, `include` (when non-empty) keeps only matches. Used to hide e.g. `*-free` models on Go-tier providers |
 | `model_aliases` | map | no | alias id -> real model id (deep-copied entry) |
-| `cost_source` | string | no (default `none`) | models.dev provider id used to fill missing costs |
+| `pricing.source` | string | yes | `models_dev/<provider_id>` or `unknown` |
+| `pricing.overrides` | map | no | Provider-specific per-model rate overrides |
+| `pricing.missing_policy` | enum | no | `unknown` or `zero`, with `unknown` required for llamafile |
 | `context_limit_pct` | int | no (100) | Context scaling percentage |
 | `context_limit_ceiling` | int | no (0 = none) | Context cap |
 
 Deployed files (8): `workspace-gw-kimi-device-oauth` (oauth, moonshotai),
-`workspace-gw-kimi-private` (virtual_key, moonshotai),
-`workspace-gw-kimi-own` (none, moonshotai), `workspace-gw-private`
-(virtual_key, opencode, `filter.exclude: [-free$]`), `workspace-gw-own`
-(none, opencode, `filter.exclude: [-free$]`), `workspace-gw-zen-own`
-(none, opencode, endpoint `/opencode_zen/v1/models`, unfiltered),
-`workspace-gw-llamafile` (none, `llamafile` source with `model_metadata`,
-`cost_source: none`). All three Kimi providers alias
+`workspace-gw-kimi-virtual-key` (virtual_key, moonshotai),
+`workspace-gw-kimi-api-key` (api_key, moonshotai),
+`workspace-gw-opencode-go-virtual-key` (virtual_key, opencode),
+`workspace-gw-openai-device-oauth` (oauth, opencode),
+`workspace-gw-opencode-go-api-key` (api_key, opencode),
+`workspace-gw-opencode-zen-api-key` (api_key, endpoint
+`/opencode_zen/v1/models`), and `workspace-gw-llamafile-no-auth` (none,
+`llamafile` source with `model_metadata`, `pricing.source: unknown`). All three Kimi providers alias
 `kimi-for-coding -> kimi-k2.7-code`.
 
 ## 4. Plugin Manifest & Schema
@@ -140,7 +141,9 @@ From `plugins/custom/provider-sync.lua:32-67`:
 | `providers:enriched` | `stale_seconds` | sync | Definitions + models |
 | `providers:ts` | `stale_seconds` | sync | Last successful sync timestamp |
 | `providers:lock` | 30s | sync | `add`-based fetch lock |
-| `pricing:<canonical_id>` | 86400 | provider_sync_pricing | Per-model price record |
+| `pricing:<provider_id>:<canonical_id>` | 86400 | provider_sync_pricing | Provider-scoped normalized price record |
+| `pricing:snapshot:<generation>` | 86400 | provider_sync_pricing | Immutable normalized pricing snapshot |
+| `pricing:snapshot:active` | 86400 | provider_sync_pricing | Active snapshot generation |
 
 ## 6. Sync Algorithm (`M.sync`)
 
@@ -161,13 +164,14 @@ From `plugins/custom/provider-sync.lua:32-67`:
      endpoint-reported ids only.
    - Unknown source type: warn, empty model list.
 5. Apply `model_aliases`: copy the target entry under each alias id.
-6. `pricing.apply_cost_source(provider, models, models_dev)`: for each model
-   without a cost, copy the cost from
-   `models_dev[cost_source].models[<id or canonical(id)>]`.
+6. Resolve each provider/model price from declared overrides, then the declared
+   models.dev provider, then endpoint metadata. Preserve unknown rates rather
+   than fabricating zero values.
 7. Store `providers:raw` / `providers:enriched` / `providers:ts`; delete lock.
-8. `pricing.populate_pricing_cache(enriched)`: sorted provider iteration,
-   first-writer-wins `pricing:<canonical_id>` records
-   `{ provider, input, output, cache_read, cache_write, fetched_at }`.
+8. `pricing.populate_pricing_cache(enriched)`: resolve provider-scoped
+   `pricing:<provider_id>:<canonical_id>` records with provenance, then publish
+   `pricing:snapshot:<generation>` and point `pricing:snapshot:active` at the
+   generation.
 9. Return `{ providers_loaded, models_enriched }`.
 
 `get_enriched` returns the cached catalog; on a total miss (no `providers:ts`)
@@ -257,8 +261,9 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 
 ## 10. Integration with cost_calc and model-registry
 
-- `cost_calc.get_pricing()` canonicalizes the requested model and reads
-  `pricing:<canonical_id>`; it never fetches models.dev directly.
+- `cost_calc.get_pricing()` canonicalizes the requested model, combines it with
+  the route-derived provider id, and reads `pricing:<provider_id>:<canonical_id>`;
+  it never fetches models.dev directly.
 - On a pricing miss with `providers:ts` unset, `cost_calc` triggers one
   `provider-sync.sync()`; with `ts` set it returns a plain miss.
 - `conf/model-registry.yaml` is the single source of truth for canonical ids
@@ -281,8 +286,8 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 |------|---------|-------------|
 | `plugins/custom/provider-sync.lua` | Plugin: schema, init warmup, HTTP routing | thin wrapper over catalog |
 | `plugins/custom/provider_sync_catalog.lua` | YAML load, enrichment, sync, cache | owns defaults and cache keys |
-| `plugins/custom/provider_sync_pricing.lua` | `pricing:*` writer + cost_source fill | split from catalog; sole writer |
-| `conf/providers/*.yaml` | 6 provider definitions | incl. `model_aliases`, `model_metadata` |
+| `plugins/custom/provider_sync_pricing.lua` | `pricing:*` writer + snapshot publisher | provider-aware resolution; sole writer |
+| `conf/providers/*.yaml` | 8 provider definitions | incl. `model_aliases`, `model_metadata`, pricing policy |
 | `conf/apisix.yaml` | `gateway-provider-sync` route | limit-count 60 RPM |
 | `res/scripts/opencode-provider-login.sh` | Client login | bash+curl+jq only |
 | `tests/lua/test_provider_sync.lua` | Unit tests | mock ngx + fixtures |
@@ -296,7 +301,7 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 | Plugin + endpoints | Implemented | plugins/custom/provider-sync.lua |
 | Catalog sync/enrichment | Implemented | provider_sync_catalog.lua |
 | Pricing writer split | Implemented | provider_sync_pricing.lua |
-| Provider YAMLs (6) | Implemented | conf/providers/ |
+| Provider YAMLs (8) | Implemented | conf/providers/ |
 | Route + rate limit | Implemented | conf/apisix.yaml `gateway-provider-sync` |
 | Client script | Implemented | res/scripts/opencode-provider-login.sh |
 | Tests (unit/script/integration) | Implemented | tests/lua, tests/scripts, tests/integration |

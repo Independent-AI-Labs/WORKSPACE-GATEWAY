@@ -46,8 +46,9 @@ Key columns: `event_id`, `request_id`, `model`, `status`, token fields
 
 ### usage_log
 
-Written by sse-usage. 15 columns including `request_id`, `reasoning_tokens`,
-`cost`, `cost_source` enum. Authoritative usage for billing.
+Written by sse-usage. Columns include `request_id`, `reasoning_tokens`,
+`cost`, `cost_source`, `provider_id`, `pricing_source`, and `pricing_snapshot`.
+Authoritative usage for billing.
 
 ### billing_ledger
 

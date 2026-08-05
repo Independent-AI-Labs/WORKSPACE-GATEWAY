@@ -119,7 +119,7 @@ curl -s http://localhost:9092/-/ready
 ### 7. ClickHouse access
 
 Database `llm_gateway` (tables `request_log`, `usage_log`, `billing_ledger`,
-`billing_discrepancies`; migrations 000001..000005 in `conf/migrations/`).
+`billing_discrepancies`; migrations 000001..000007 in `conf/migrations/`).
 
 ```bash
 # HTTP interface

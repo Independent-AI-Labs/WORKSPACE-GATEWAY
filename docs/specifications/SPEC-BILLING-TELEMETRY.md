@@ -12,7 +12,7 @@
 **Cross-references:**
 - [REQ-BILLING-TELEMETRY](../requirements/REQ-BILLING-TELEMETRY.md): requirements
 - [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql): tables + billing_ledger_mv
-- [`conf/migrations/`](../../conf/migrations): 000001-000005 up/down pairs
+- [`conf/migrations/`](../../conf/migrations): 000001-000007 up/down pairs
 - [`conf/vector.toml`](../../conf/vector.toml): source → remap → ClickHouse sink
 - [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua): usage_log writer
 - [`plugins/custom/sse_usage_lib.lua`](../../plugins/custom/sse_usage_lib.lua): SSE/JSON parsing lib
@@ -42,7 +42,7 @@ No telemetry write blocks a client response: Vector batches with retry; sse-usag
 `conf/model-registry.yaml` is codegen'd into `model_registry.lua` and the Vector GENERATED block. `model`/`model_name` columns hold the canonical id; `model_raw` holds the verbatim wire string (migration 000005).
 
 ### 2.4 Immutable schema history
-golang-migrate versions 000001-000005; `000003` is a recorded no-op (ClickHouse 24.8 cannot MODIFY ORDER BY on populated MergeTree).
+golang-migrate versions 000001-000007; `000003` is a recorded no-op (ClickHouse 24.8 cannot MODIFY ORDER BY on populated MergeTree).
 
 ## 3. System Diagram
 
@@ -71,7 +71,7 @@ From [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). All MergeTree
 ORDER BY `(provider, model, timestamp)`. Columns: `event_id`, `provider`, `model`, `stream`, `method`, `uri`, `status`, `upstream_response_time_s`, `request_size`, `response_size`, `client_ip`, `api_key_id`, `tenant_id`, `user_id`, `key_id`, `session_id`, `request_id`, `project_id`, `parent_session_id`, `client_type`, `agent_name`, `opencode_version`, `user_agent`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `req_body`, `resp_body`, `redact_active`, `redact_token_count`, `timestamp DateTime64(3)`.
 
 ### 4.2 usage_log (written by sse-usage)
-ORDER BY `(event_id, request_id, timestamp)`. Columns: `event_id`, `request_id`, `model`, `model_raw`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_tokens`, `reasoning_tokens`, `key_id`, `api_key_id`, `aborted UInt8`, `is_stream UInt8`, `cost Float64`, `cost_source Enum8('upstream'=0,'computed'=1,'unknown'=2)`, `timestamp`.
+ORDER BY `(event_id, request_id, timestamp)`. Columns: `event_id`, `request_id`, `model`, `model_raw`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_tokens`, `reasoning_tokens`, `key_id`, `api_key_id`, `aborted UInt8`, `is_stream UInt8`, `cost Float64`, `cost_source Enum8('upstream'=0,'computed'=1,'unknown'=2)`, `provider_id`, `pricing_source`, `pricing_snapshot`, `timestamp`.
 
 ### 4.3 billing_ledger (populated by MV)
 ORDER BY `(tenant_id, user_id, timestamp)`. 25+ columns incl. identity (tenant_id, user_id, provider, model_name, model_raw, route_name, consumer_group), `request_mode`, `cache_status`, token fields, `rate_input/rate_output Decimal64(8)`, `currency`, `cost Decimal64(6)`, `success`, `error_type`, latency fields, `upstream_resp_id`, redact fields. Enrichment-only columns are `''`/0 until backfill.
@@ -87,6 +87,8 @@ ORDER BY `(tenant_id, user_id, timestamp)`. 25+ columns incl. identity (tenant_i
 | 000003 | Documented no-op (ORDER BY alignment; fresh installs get it from init.sql) |
 | 000004 | Create `billing_ledger_mv` |
 | 000005 | Add `model_raw` to usage_log + billing_ledger; recreate MV forwarding it |
+| 000006 | Add `model_raw` to request_log |
+| 000007 | Add provider and pricing snapshot provenance to usage_log |
 
 ## 5. Vector Pipeline
 
@@ -108,7 +110,7 @@ Remap stages:
 2. `access`  -  captures request body `model` into `ctx.sse_req_model`.
 3. `header_filter`  -  enables tracking for `text/event-stream` (stream) or `application/json` (batch).
 4. `body_filter`  -  buffers via `sse_usage_lib.buffer_chunk`; scans complete lines (`scan_sse_for_usage` / `parse_json_usage`) for usage, model, `estimated_cost`; tracks `[DONE]` and upstream EOF.
-5. `log`  -  computes `aborted` (0 completed, 1 client abort, 2 provider abort), extracts tokens via `sse_usage_lib.extract_tokens`, resolves cost via `cost_calc.resolve_cost`, canonicalizes model (`model_registry.canonical`, verbatim kept in `model_raw`), builds `event_id`/`request_id`/`key_id`, encodes a JSONEachRow entry and INSERTs into `usage_log` from `ngx.timer.at` with retries {0.1, 0.5, 2.0}s. Also increments the `quota_counters` shared dict when `ctx.quota_bucket_key` is set.
+5. `log`  -  computes `aborted` (0 completed, 1 client abort, 2 provider abort), extracts tokens via `sse_usage_lib.extract_tokens`, resolves cost via provider-aware `cost_calc.resolve_cost`, records provider/pricing provenance and active snapshot, canonicalizes model (`model_registry.canonical`, verbatim kept in `model_raw`), builds `event_id`/`request_id`/`key_id`, encodes a JSONEachRow entry and INSERTs into `usage_log` from `ngx.timer.at` with retries {0.1, 0.5, 2.0}s. Also increments the `quota_counters` shared dict when `ctx.quota_bucket_key` is set.
 
 ## 7. Reconciler
 
@@ -118,7 +120,7 @@ Remap stages:
 
 - SSE responses aborted before any usage chunk: row still written with tokens 0 and `aborted` 1/2; model falls back to the request body so dashboard filtering works.
 - `billing_ledger_mv` hardcodes `provider = 'opencode'`; multi-provider enrichment is a v2 backfill.
-- `rate_input/rate_output` are 0 in the MV: pricing lives in the nginx `gateway-cache` dict, not ClickHouse.
+- `rate_input/rate_output` are 0 in the MV: pricing lives in the nginx `gateway-cache` dict; provenance is retained in `usage_log`.
 - `key_id` is a 16-char hash prefix  -  no raw keys in telemetry.
 
 ## 9. File Map
@@ -140,7 +142,7 @@ Remap stages:
 | request_log pipeline | Implemented | conf/vector.toml |
 | usage_log writer | Implemented | plugins/custom/sse-usage.lua |
 | billing_ledger_mv | Implemented | clickhouse-init.sql:190-221; migrations 000004/000005 |
-| Migrations 000001-000005 | Implemented | conf/migrations/ |
+| Migrations 000001-000007 | Implemented | conf/migrations/ |
 | Model canonicalization | Implemented | vector.toml GENERATED block; sse-usage.lua:190-191 |
 | Reconciler (gateway totals) | Implemented | res/scripts/reconciler.sh |
 | Reconciler upstream comparison | Not implemented | v2 comment in reconciler.sh |

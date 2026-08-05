@@ -129,8 +129,11 @@ No existing code or worktree changes were reverted during the audit.
 
 `res/ansible/compose.yml` installs a user unit whose `ExecStartPre` runs
 `compose down`, removes `docker_default`, and globally removes all stopped,
-dead, and created Podman containers. Its `ExecStart` runs attached
-`podman-compose up --remove-orphans`. The unit also sets `Restart=always`.
+dead, and created Podman containers. Its `ExecStart` invokes
+`res/scripts/gateway-compose-up.sh`, which loads the project `.env`, acquires a
+process lock, starts ClickHouse, Vector, OpenBao, Prometheus, Grafana, and etcd
+one at a time, then keeps APISIX attached in the foreground. The unit also sets
+`Restart=always`.
 
 `res/ansible/dev.yml` renders the route source, creates the external network,
 waits on several HTTP endpoints, seeds routes, initializes ClickHouse, runs

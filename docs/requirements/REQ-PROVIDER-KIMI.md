@@ -106,7 +106,7 @@ refreshes transparently) and two API-key alternatives.
 | ID | Requirement |
 |----|-------------|
 | FR-5.1 | Three OpenCode provider ids MUST exist: `workspace-gw-kimi-device-oauth` (`/kimi`, auth `oauth`), `workspace-gw-kimi-virtual-key` (`/kimi-federated`, auth `virtual_key`), `workspace-gw-kimi-api-key` (`/kimi-key`, auth `api_key`). |
-| FR-5.2 | All three MUST source models from models.dev provider `moonshotai` with `strip_prefix: moonshotai/` + `lowercase` normalization and `cost_source: moonshotai`. |
+| FR-5.2 | All three MUST source models from models.dev provider `moonshotai` with `strip_prefix: moonshotai/` + `lowercase` normalization and `pricing.source.type: models_dev`, `pricing.source.provider: moonshotai`. |
 
 ## 3. Non-Functional Requirements
 

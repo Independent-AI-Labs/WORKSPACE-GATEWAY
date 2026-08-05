@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-COST-CALC](../requirements/REQ-COST-CALC.md)
 
-> Describes [`plugins/custom/cost_calc.lua`](../../plugins/custom/cost_calc.lua) as it exists today: a pure Lua module (not an APISIX plugin) exposing `get_pricing` / `compute_cost` / `resolve_cost`, reading `pricing:<canonical-id>` JSON from the `gateway-cache` shared dict. Key invariant: provider-sync is the sole pricing writer  -  enforced by `tests/config/test_model_registry.sh`.
+> Describes [`plugins/custom/cost_calc.lua`](../../plugins/custom/cost_calc.lua) as it exists today: a pure Lua module (not an APISIX plugin) exposing `get_pricing` / `compute_cost` / `resolve_cost`, reading `pricing:<provider-id>:<canonical-id>` JSON from the `gateway-cache` shared dict. Key invariant: provider-sync is the sole pricing writer - enforced by repository guards.
 
 ---
 
@@ -28,8 +28,8 @@
 ### 2.1 Single-writer invariant
 Only `provider_sync_pricing.lua` executes `dict:set("pricing:" ...)` against the `gateway-cache` shared dict. `tests/config/test_model_registry.sh` (section 3, "single-writer guards") greps all of `plugins/custom/` and asserts the writer list equals exactly `provider_sync_pricing.lua`.
 
-### 2.2 Canonical keying
-Lookup key = `model_registry.canonical(model_id)`, sourced from `conf/model-registry.yaml` codegen. No normalization logic lives in cost_calc.
+### 2.2 Provider-scoped canonical keying
+Lookup key = `provider_id .. ":" .. model_registry.canonical(model_id)`, sourced from `conf/model-registry.yaml` codegen. No normalization logic lives in cost_calc.
 
 ### 2.3 Deferred requires
 `apisix.core`, `cjson.safe`, and the `ngx` global are required inside functions, not at module top level, so `compute_cost` and the upstream/unknown branches of `resolve_cost` run under plain LuaJIT with zero dependency injection.
@@ -37,7 +37,7 @@ Lookup key = `model_registry.canonical(model_id)`, sourced from `conf/model-regi
 ## 3. System Diagram
 
 ```
-provider-sync (catalog+pricing) --dict:set--> gateway-cache["pricing:<canon>"]
+ provider-sync (catalog+pricing) --dict:set--> gateway-cache["pricing:<provider>:<canon>"]
                                                       |
 sse-usage.log --cost_calc.resolve_cost(sse_cost,------+
               tokens, model_id)
@@ -59,7 +59,7 @@ Constants: `SHARED_DICT = "gateway-cache"`, `PRICING_KEY_PREFIX = "pricing:"`, `
 ## 5. Pricing Dict Lookup (`get_pricing`)
 
 1. No `ngx.shared` (plain LuaJIT) → `(nil, "miss")`.
-2. `key = model_registry.canonical(model_id)`; empty → miss.
+2. `key = provider_id .. ":" .. model_registry.canonical(model_id)`; missing provider or empty canonical id → miss.
 3. Read `gateway-cache["pricing:" .. key]`. Hit → `cjson.safe` decode; require a table with numeric `input`, else miss → `(price, "fresh")`.
 4. Miss: if `providers:ts` exists (provider-sync already ran), the model is not catalogued → miss.
 5. Miss and provider-sync never ran: `pcall(provider_sync.sync, {})` once, re-read; still absent → miss.
@@ -87,14 +87,14 @@ All fields coerced via `tonumber(...) or 0`; missing `cache_read` = 0; nil `toke
 
 ## 8. Integration Points
 
-- **Caller:** `sse-usage.lua:166-170`  -  passes `{ pt, ct, cached, reasoning }` from `sse_usage_lib.extract_tokens` and the request model; result lands in `usage_log.cost` / `cost_source` and the `quota_counters` cost increment (`math.ceil(cost * 100)`).
+- **Caller:** `sse-usage.lua` passes `{ pt, ct, cached, reasoning }`, the request model, and route-derived provider id; result lands in `usage_log.cost` / `cost_source` and the `quota_counters` cost increment (`math.ceil(cost * 100)`).
 - **Warm cache:** `sse-usage.plugin.init` triggers `provider-sync.sync({})` at startup so the first request rarely hits the cold-miss path.
 - **Historical alias dedupe:** `res/scripts/dedupe-model-history.sh` merges alias rows (supersedes `backfill-provider-costs.sh`).
 
 ## 9. Edge Cases & Decisions
 
 - The legacy writer path (`warmup()`, `fetch_and_cache()`, `normalize_key()` from the legacy COST-CALC-LUA spec) is REMOVED; the module contains no writer code.
-- First-writer-wins, sorted-provider semantics in provider-sync eliminate the cross-provider cheapest-wins collision (historical 14% overcharge).
+- Provider-scoped records eliminate cross-provider key collisions; sync publishes an immutable pricing snapshot and active snapshot generation.
 - On unknown pricing, cost is 0 and `cost_source = unknown`; billing rows remain auditable rather than dropped.
 
 ## 10. File Map

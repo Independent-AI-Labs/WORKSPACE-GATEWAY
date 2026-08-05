@@ -5,7 +5,7 @@
 **Type:** Requirements
 **Specification:** [SPEC-BILLING-TELEMETRY](../specifications/SPEC-BILLING-TELEMETRY.md)
 
-> Mandates the billing telemetry pipeline: two write paths into ClickHouse (`http-logger` → Vector → `request_log`; `sse-usage` timer → `usage_log`) plus a materialized view into `billing_ledger`, canonical model identity (`model` + `model_raw`), the 4-table schema contract with 5 migrations, and a daily reconciler. Single source of truth: [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql), [`conf/migrations/`](../../conf/migrations), [`conf/vector.toml`](../../conf/vector.toml), [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua). Excluded: pricing lookup internals (REQ-COST-CALC).
+> Mandates the billing telemetry pipeline: two write paths into ClickHouse (`http-logger` → Vector → `request_log`; `sse-usage` timer → `usage_log`) plus a materialized view into `billing_ledger`, canonical model identity (`model` + `model_raw`), the 4-table schema contract with 7 migrations, and a daily reconciler. Single source of truth: [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql), [`conf/migrations/`](../../conf/migrations), [`conf/vector.toml`](../../conf/vector.toml), [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua). Excluded: pricing lookup internals (REQ-COST-CALC).
 
 ---
 
@@ -26,7 +26,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 ### 1.2 Scope
 **This document OWNS the requirements for:**
 - Token accounting (authoritative usage source per response type)
-- ClickHouse schema contract (4 tables + 5 migrations + 1 MV)
+- ClickHouse schema contract (4 tables + 7 migrations + 1 MV)
 - Vector pipeline behavior incl. model canonicalization
 - Model identity (`model` canonical, `model_raw` verbatim)
 - Reconciler behavior
@@ -41,6 +41,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 | event_id | `route_id .. "_" .. floor(start_time)`; correlation id produced identically by Vector and sse-usage |
 | request_id | `X-Request-Id` header set by the APISIX request-id plugin; join key between request_log and usage_log |
 | cost_source | Enum8: `upstream` (0), `computed` (1), `unknown` (2) |
+| pricing provenance | `provider_id`, `pricing_source`, and `pricing_snapshot` identify the provider rate-card source and immutable snapshot used for a computed cost |
 | Canonical model | Model id produced by `model_registry.canonical()` from `conf/model-registry.yaml` |
 
 ## 2. Functional Requirements
@@ -65,10 +66,10 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 | ID | Requirement |
 |----|-------------|
 | FR-3.1 | Database `llm_gateway` MUST contain tables `request_log`, `usage_log`, `billing_ledger`, `billing_discrepancies` as defined in [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). |
-| FR-3.2 | `usage_log` MUST include columns: event_id, request_id, model, model_raw, prompt/completion/total/cached/reasoning tokens, key_id, api_key_id, aborted (UInt8), is_stream (UInt8), cost (Float64), cost_source (Enum8 upstream/computed/unknown), timestamp. |
+| FR-3.2 | `usage_log` MUST include columns: event_id, request_id, model, model_raw, prompt/completion/total/cached/reasoning tokens, key_id, api_key_id, aborted (UInt8), is_stream (UInt8), cost (Float64), cost_source (Enum8 upstream/computed/unknown), provider_id, pricing_source, pricing_snapshot, timestamp. |
 | FR-3.3 | `billing_ledger` MUST be auto-populated by materialized view `billing_ledger_mv` on every usage_log INSERT, deriving `request_mode` (stream/batch), `cache_status` (hit/miss), `success`, and `error_type`. |
 | FR-3.4 | `billing_discrepancies` MUST exist as the reconciler target (columns date, tenant_id, provider, model_name, gateway_tokens, provider_tokens, divergence, tolerance, flagged_at). |
-| FR-3.5 | Schema evolution MUST go through golang-migrate migrations `000001`-`000005` in [`conf/migrations/`](../../conf/migrations), each idempotent with `.up.sql`/`.down.sql` pairs. |
+| FR-3.5 | Schema evolution MUST go through golang-migrate migrations `000001`-`000007` in [`conf/migrations/`](../../conf/migrations), each idempotent with `.up.sql`/`.down.sql` pairs. |
 | FR-3.6 | All MergeTree tables MUST partition by month and carry a 13-month TTL (except billing_discrepancies, which partitions by month with no TTL). |
 
 ### FR-4: Model Canonicalization
@@ -132,7 +133,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 |------|--------|----------|
 | FR-1.1-1.5 write paths | Implemented | conf/apisix.yaml http-logger; conf/vector.toml; plugins/custom/sse-usage.lua:140-298 |
 | FR-2.1-2.3 correlation | Implemented | conf/vector.toml:94-102; sse-usage.lua:193-232 |
-| FR-3.1-3.6 schema + MV | Implemented | conf/clickhouse-init.sql; conf/migrations/000001-000005 |
+| FR-3.1-3.6 schema + MV | Implemented | conf/clickhouse-init.sql; conf/migrations/000001-000007 |
 | FR-4.1-4.3 canonicalization | Implemented | conf/model-registry.yaml; vector.toml GENERATED block; sse-usage.lua:186-191 |
 | FR-5.1-5.2 cost ownership | Implemented | sse-usage.lua:166-170; clickhouse-init.sql MV |
 | FR-6.1 reconciler totals | Implemented | res/scripts/reconciler.sh |

@@ -5,7 +5,7 @@
 **Type:** Requirements
 **Specification:** [SPEC-COST-CALC](../specifications/SPEC-COST-CALC.md)
 
-> Mandates cost calculation behavior for [`plugins/custom/cost_calc.lua`](../../plugins/custom/cost_calc.lua): a read-only pricing consumer exposing only `get_pricing`, `compute_cost`, `resolve_cost`; `provider-sync` (`provider_sync_pricing.lua`) is the single writer of `pricing:*` keys in the `gateway-cache` shared dict, keyed by canonical model id; unknown pricing yields cost 0 with `cost_source = unknown` and a logged warning  -  never a crash, never a guess. The legacy writer path (`warmup()`/`fetch_and_cache()`/`normalize_key()` from the legacy COST-CALC-LUA spec) is REMOVED and excluded.
+> Mandates cost calculation behavior for [`plugins/custom/cost_calc.lua`](../../plugins/custom/cost_calc.lua): a read-only pricing consumer exposing `get_pricing`, `compute_cost`, `resolve_cost`; `provider-sync` (`provider_sync_pricing.lua`) is the single writer of provider-scoped `pricing:*` keys in the `gateway-cache` shared dict; unknown pricing yields cost 0 with `cost_source = unknown` and a logged warning - never a crash, never a guess.
 
 ---
 
@@ -26,7 +26,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 ### 1.2 Scope
 **This document OWNS the requirements for:**
 - The read-only consumer rule and single-writer rule for `pricing:*` keys
-- Canonical pricing key derivation
+- Provider-scoped canonical pricing key derivation
 - Cost math over input/output/cache/reasoning tokens
 - Failure behavior on unknown pricing
 
@@ -38,7 +38,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 ### 1.3 Terminology
 | Term | Definition |
 |------|------------|
-| pricing:* key | JSON blob in shared dict `gateway-cache` under `pricing:<canonical-model-id>` with numeric `input`, `output`, optional `cache_read`, `reasoning` (per 1M tokens) |
+| pricing:* key | JSON blob in shared dict `gateway-cache` under `pricing:<provider_id>:<canonical-model-id>` with numeric `input`, `output`, optional `cache_read`, `cache_write`, `reasoning` (per 1M tokens) |
 | Canonical model id | Output of `model_registry.canonical()` from `conf/model-registry.yaml` |
 | cost_source | `upstream` (provider-reported), `computed` (local math), `unknown` (no pricing) |
 
@@ -55,9 +55,9 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 ### FR-2: Canonical Pricing Keys
 | ID | Requirement |
 |----|-------------|
-| FR-2.1 | All pricing lookups MUST be keyed by `model_registry.canonical(model_id)`; the module MUST contain no local key-normalization logic. |
+| FR-2.1 | All pricing lookups MUST be keyed by provider id plus `model_registry.canonical(model_id)`; the module MUST contain no local key-normalization logic. |
 | FR-2.2 | The shared dict MUST be `gateway-cache` with key prefix `pricing:`. |
-| FR-2.3 | On a cache miss where `providers:ts` is absent (provider-sync never ran), the module MAY trigger `provider-sync.sync({})` once and re-read; if provider-sync has run and the key is absent, it MUST return miss without retry. |
+| FR-2.3 | On a cache miss where `providers:ts` is absent (provider-sync never ran), the module MAY trigger `provider-sync.sync({})` once and re-read the provider-scoped key; if provider-sync has run and the key is absent, it MUST return miss without retry. |
 
 ### FR-3: Cost Math
 | ID | Requirement |
@@ -80,7 +80,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 | ID | Requirement |
 |----|-------------|
 | NFR-1.1 | The pricing lookup MUST be an in-memory shared-dict read on the hot path. |
-| NFR-1.2 | Cross-provider "cheapest-wins" merging MUST NOT occur; each model's price comes from its catalogued provider only (fixes the historical collision/overcharge class of bug). |
+| NFR-1.2 | Cross-provider "cheapest-wins" merging MUST NOT occur; each provider/model pair has an independent price record (fixes the historical collision/overcharge class of bug). |
 
 ## 4. Constraints
 | ID | Constraint | Source |

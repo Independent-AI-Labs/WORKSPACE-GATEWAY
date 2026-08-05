@@ -80,7 +80,8 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 ### usage_log columns (inserted)
 
 `event_id`, `request_id`, `model`, token breakdown, `key_id`, `api_key_id`,
-`aborted`, `is_stream`, `cost`, `cost_source`, `timestamp`. Full schema:
+`aborted`, `is_stream`, `cost`, `cost_source`, `provider_id`, `pricing_source`,
+`pricing_snapshot`, `timestamp`. Full schema:
 [`TELEMETRY-AND-SCHEMA.md`](TELEMETRY-AND-SCHEMA.md).
 
 ## Library modules (not registered plugins)
@@ -90,7 +91,7 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 | `cost_calc.lua` | 149 | Read-only pricing consumer: `get_pricing` / `compute_cost` / `resolve_cost` |
 | `model_registry.lua` | 64 | GENERATED from `conf/model-registry.yaml` (alias map, canonical ids); regenerate via `res/scripts/gen-model-registry.sh` |
 | `provider_sync_catalog.lua` | 507 | Provider/model catalog for `provider-sync` |
-| `provider_sync_pricing.lua` | 105 | Pricing sync; sole writer of `pricing:*` |
+| `provider_sync_pricing.lua` | 105 | Pricing sync; sole writer of provider-scoped `pricing:*` and snapshots |
 | `sse_usage_lib.lua` | 116 | Pure logic for `sse-usage` |
 | `redact_lib.lua` | 100 | Pure logic for `redact` |
 | `kimi_device.lua` / `kimi_jwt.lua` / `kimi_tokens.lua` | 150/60/104 | `kimi-auth` helpers |
