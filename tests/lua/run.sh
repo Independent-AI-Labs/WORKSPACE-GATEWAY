@@ -26,7 +26,8 @@ for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_kimi_jwt.lua te
     -v "$REPO_ROOT:/workspace:ro" \
     --entrypoint /usr/bin/resty \
     "$IMAGE" \
-    -I /plugins/custom \
+     -I /plugins/custom \
+     -I /workspace/tests/lua \
     "/workspace/tests/lua/$test_file"
   ret=$?
   set -e
