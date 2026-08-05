@@ -1,5 +1,9 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
+local contract_ok, contract = pcall(require, "apisix.plugins.provider_sync_contract")
+if not contract_ok then contract = require("provider_sync_contract") end
+local aliases_ok, aliases = pcall(require, "apisix.plugins.provider_sync_aliases")
+if not aliases_ok then aliases = require("provider_sync_aliases") end
 local M = {}
 local SHARED_DICT = "gateway-cache"
 local KEY_RAW = "providers:raw"
@@ -105,6 +109,18 @@ local function load_providers(dir)
         local provider, err = load_yaml(path)
         if provider then
             if provider.id then
+                if provider.provider then
+                    local valid, expected_id, expected_name = contract.validate({
+                        id = provider.id,
+                        name = provider.name,
+                        label = provider.provider.label,
+                        auth = provider.auth,
+                    })
+                    if not valid then
+                        core.log.warn("provider_sync: naming mismatch for ", provider.id,
+                            "; expected ", expected_id, " / ", expected_name)
+                    end
+                end
                 providers[provider.id] = provider
             else
                 core.log.warn("provider_sync: skipping ", path, ": missing id")
@@ -198,7 +214,6 @@ local function scale_limit(context, pct, ceiling)
     end
     return scaled
 end
-
 local function build_model_entry(model, model_id, normalize, pct, ceiling)
     local normalized_id = normalize_model_id(model_id, normalize)
     if normalized_id == "" then
@@ -235,7 +250,6 @@ local function build_model_entry(model, model_id, normalize, pct, ceiling)
 
     return normalized_id, entry
 end
-
 local function build_models_from_models_dev(provider, models_dev)
     local source = provider.model_source
     local provider_name = source.provider
@@ -263,7 +277,6 @@ local function build_models_from_models_dev(provider, models_dev)
     end
     return models
 end
-
 local function extract_model_ids(data)
     local ids = {}
     if not data or type(data) ~= "table" then
@@ -290,7 +303,6 @@ local function extract_model_ids(data)
 
     return ids
 end
-
 local function build_models_from_endpoint(provider, data, model_metadata)
     local pct = provider.context_limit_pct or 100
     local ceiling = provider.context_limit_ceiling
@@ -338,7 +350,6 @@ local function build_models_from_endpoint(provider, data, model_metadata)
 
     return models
 end
-
 local function matches_any(model_id, patterns)
     if not patterns or type(patterns) ~= "table" then
         return false
@@ -350,7 +361,6 @@ local function matches_any(model_id, patterns)
     end
     return false
 end
-
 local function apply_model_filter(models, filter)
     if not filter or type(filter) ~= "table" then
         return models
@@ -366,7 +376,6 @@ local function apply_model_filter(models, filter)
     end
     return filtered
 end
-
 local function enrich_provider_models(provider, models_dev)
     local source = provider.model_source
     if not source or type(source) ~= "table" then
@@ -411,7 +420,6 @@ local function enrich_provider_models(provider, models_dev)
 
     return apply_model_filter(models, source.filter)
 end
-
 local pricing
 do
     local ok, mod = pcall(require, "apisix.plugins.provider_sync_pricing")
@@ -449,13 +457,7 @@ function M.sync(conf)
     for provider_id, provider in pairs(providers) do
         local copy = cjson.decode(cjson.encode(provider)) or {}
         copy.models = enrich_provider_models(provider, models_dev)
-        local aliases = provider.model_aliases
-        if aliases and type(aliases) == "table" then
-            for a, t in pairs(aliases) do
-                local m = copy.models[t]
-                if m then copy.models[a] = cjson.decode(cjson.encode(m)) end
-            end
-        end
+        aliases.expand(provider, copy.models)
         pricing.apply_cost_source(provider, copy.models, models_dev)
         enriched[provider_id] = copy
     end
@@ -484,7 +486,6 @@ function M.sync(conf)
         end)(),
     }, nil
 end
-
 function M.get_enriched(conf)
     local dict = get_dict()
     if not dict then

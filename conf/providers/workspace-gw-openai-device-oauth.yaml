@@ -1,0 +1,27 @@
+---
+id: workspace-gw-openai-device-oauth
+name: "Workspace GW (OpenAI Device OAuth)"
+provider:
+  id: openai
+  label: OpenAI
+route: "/openai"
+npm: "@ai-sdk/openai"
+auth:
+  type: oauth
+  plugin: openai-auth
+  methods:
+    - id: openai-device-oauth
+      flow: device_authorization
+      route: /openai/auth
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+model_source:
+  type: models_dev_provider
+  provider: openai
+pricing:
+  source:
+    type: models_dev
+    provider: openai
+  missing_policy: unknown

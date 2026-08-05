@@ -21,7 +21,7 @@
 - [`plugins/custom/kimi_jwt.lua`](../../plugins/custom/kimi_jwt.lua): `decode_claims`, `expires_at`, `is_expiring`, `subject`, `token_hash`
 - [`plugins/custom/kimi_tokens.lua`](../../plugins/custom/kimi_tokens.lua): OpenBao CRUD for device + session records
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): 6 `relay-kimi*` routes
-- [`conf/providers/workspace-gw-kimi-oauth.yaml`](../../conf/providers/workspace-gw-kimi-oauth.yaml), [`-own`](../../conf/providers/workspace-gw-kimi-own.yaml), [`-private`](../../conf/providers/workspace-gw-kimi-private.yaml): provider definitions
+- [`conf/providers/workspace-gw-kimi-device-oauth.yaml`](../../conf/providers/workspace-gw-kimi-device-oauth.yaml), [`-api-key`](../../conf/providers/workspace-gw-kimi-api-key.yaml), [`-virtual-key`](../../conf/providers/workspace-gw-kimi-virtual-key.yaml): provider definitions
 
 ---
 
@@ -48,9 +48,9 @@ device and session records.
 
 | Mode | Route | Auth plugin | Secret custody | OpenCode id |
 |------|-------|-------------|----------------|-------------|
-| OAuth (managed) | `/kimi/*`, `/kimi/v1/*` | `kimi-auth` | Gateway (OpenBao holds refresh_token) | `workspace-gw-kimi-oauth` |
-| Federated | `/kimi-federated/*`, `/kimi-federated/v1/*` | `key-resolver` (`KIMI_API_KEY`) | Gateway | `workspace-gw-kimi-private` |
-| Own key | `/kimi-key/*`, `/kimi-key/v1/*` | none | Client | `workspace-gw-kimi-own` |
+| Device OAuth (managed) | `/kimi/*`, `/kimi/v1/*` | `kimi-auth` | Gateway (OpenBao holds refresh_token) | `workspace-gw-kimi-device-oauth` |
+| Virtual key | `/kimi-federated/*`, `/kimi-federated/v1/*` | `key-resolver` (`KIMI_API_KEY`) | Gateway | `workspace-gw-kimi-virtual-key` |
+| API key | `/kimi-key/*`, `/kimi-key/v1/*` | none | Client | `workspace-gw-kimi-api-key` |
 
 The credential slot clients call `api_key` carries a different string per mode:
 OAuth access-token JWT, `vgw-*` virtual key, or `sk-...` Moonshot key.
@@ -67,6 +67,16 @@ return explicit 4xx/5xx; nothing proxies unauthenticated.
 
 ## 3. OAuth 2.0 Device Code Protocol
 
+The gateway is a device-flow broker, not a transparent OAuth endpoint proxy.
+The client receives an opaque gateway device-session code. The gateway stores
+the upstream device code and user code, polls Kimi on the client's behalf,
+normalizes the result, and keeps refresh tokens in OpenBao.
+
+The original implementation currently returns the upstream Kimi `device_code`
+to the client and uses that value for lookup. It stores state server-side but
+does not yet mint a separate gateway-opaque identifier. The opaque broker
+contract above is the required target behavior.
+
 | Constant | Value |
 |----------|-------|
 | `CLIENT_ID` | `17e5f671-d194-4dfb-9706-5516cb48c098` |
@@ -81,10 +91,11 @@ return explicit 4xx/5xx; nothing proxies unauthenticated.
 Pure RFC 8628: form-encoded POSTs, `authorization_pending`/`slow_down`
 polling semantics, no PKCE, no redirect.
 
-Sequence: `POST /kimi/auth/device?session=<id>` -> gateway stores pending
-record -> user authorizes at `verification_uri` ->
-`POST /kimi/auth/device/poll` with `{ "device_code": ... }` -> token exchange
--> session stored -> `{ access_token, expires_in, account, session_id }`.
+Sequence: `POST /kimi/auth/device?session=<id>` -> gateway calls Kimi and stores
+upstream pending state -> user authorizes at `verification_uri` ->
+`POST /kimi/auth/device/poll` with the opaque gateway `{ "device_code": ... }`
+-> gateway polls Kimi -> token exchange -> session stored ->
+`{ access_token, expires_in, account, session_id }`.
 
 ## 4. Plugin: kimi-auth
 

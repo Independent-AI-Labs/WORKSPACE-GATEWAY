@@ -1,5 +1,31 @@
 local M = {}
 
+local function normalize_usage(usage)
+    if type(usage) ~= "table" then return nil end
+    if usage.prompt_tokens or usage.completion_tokens then return usage end
+    if usage.input_tokens or usage.output_tokens then
+        local normalized = {
+            prompt_tokens = usage.input_tokens or 0,
+            completion_tokens = usage.output_tokens or 0,
+            total_tokens = usage.total_tokens or ((usage.input_tokens or 0) + (usage.output_tokens or 0)),
+        }
+        local input_details = usage.input_tokens_details
+        if type(input_details) == "table" then
+            normalized.prompt_tokens_details = {
+                cached_tokens = input_details.cached_tokens or input_details.cache_read_input_tokens or 0,
+            }
+        end
+        local output_details = usage.output_tokens_details
+        if type(output_details) == "table" then
+            normalized.completion_tokens_details = {
+                reasoning_tokens = output_details.reasoning_tokens or 0,
+            }
+        end
+        return normalized
+    end
+    return usage
+end
+
 function M.buffer_chunk(existing, new_chunk)
     if type(new_chunk) ~= "string" or new_chunk == "" then
         return "", existing or ""
@@ -33,13 +59,14 @@ function M.scan_sse_for_usage(text)
             else
                 local obj = cjson.decode(payload)
                 if obj and type(obj) == "table" then
-                    if obj.usage and type(obj.usage) == "table" then
-                        usage = obj.usage
-                        local ec = tonumber(obj.usage.estimated_cost)
+                    local response = type(obj.response) == "table" and obj.response or obj
+                    if response.usage and type(response.usage) == "table" then
+                        usage = normalize_usage(response.usage)
+                        local ec = tonumber(response.usage.estimated_cost)
                         if ec and ec > 0 then cost = ec end
                     end
-                    if obj.model and type(obj.model) == "string" and obj.model ~= "" and not model then
-                        model = obj.model
+                    if response.model and type(response.model) == "string" and response.model ~= "" and not model then
+                        model = response.model
                     end
                     local chunk_cost = tonumber(obj.cost)
                     if chunk_cost and chunk_cost > 0 then
@@ -62,7 +89,10 @@ function M.parse_json_usage(body)
         if ec and ec > 0 then cost = ec end
         local oc = tonumber(obj.cost)
         if oc and oc > 0 then cost = oc end
-        return obj.usage, obj.model, cost
+        return normalize_usage(obj.usage), obj.model, cost
+    end
+    if type(obj.response) == "table" and type(obj.response.usage) == "table" then
+        return normalize_usage(obj.response.usage), obj.response.model, tonumber(obj.cost) or 0
     end
     return nil, nil, 0
 end
@@ -72,6 +102,7 @@ end
 --no estimation.
 function M.extract_tokens(usage)
     if not usage then return 0, 0, 0, 0, 0 end
+    usage = normalize_usage(usage)
     local pt = tonumber(usage.prompt_tokens) or 0
     local ct = tonumber(usage.completion_tokens) or 0
     local tt = tonumber(usage.total_tokens) or 0

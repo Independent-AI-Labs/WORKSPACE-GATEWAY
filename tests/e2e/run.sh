@@ -8,6 +8,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+if [ "${1:-}" = "--live" ]; then
+    export RUN_LIVE_API_TESTS=1
+fi
+
 if [ -f "$REPO_ROOT/.env" ]; then
     set -a
     source "$REPO_ROOT/.env" || exit 1
@@ -40,7 +44,7 @@ fail=0
 for test_script in test_zen_chat.sh test_zen_stream.sh test_redact_e2e.sh test_stream_redact.sh test_invalid_model.sh; do
     echo ""
     echo "=== Running $test_script ==="
-    if bash "$SCRIPT_DIR/$test_script"; then
+    if bash "$SCRIPT_DIR/$test_script" ${1:-}; then
         pass=$((pass + 1))
     else
         fail=$((fail + 1))

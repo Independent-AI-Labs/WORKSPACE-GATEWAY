@@ -15,12 +15,14 @@ echo "[run.sh] running Lua unit tests via podman..."
 
 OVERALL_RET=0
 
-for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_kimi_jwt.lua test_provider_sync.lua test_upstream_pool_lib.lua; do
+for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_kimi_jwt.lua test_oauth_broker.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua; do
   echo ""
   echo "[run.sh] running $test_file..."
   set +e
   podman run --rm \
     -v "$REPO_ROOT/plugins/custom:/plugins/custom:ro" \
+    -v "$REPO_ROOT/plugins/custom/redact_lib.lua:/usr/local/apisix/apisix/plugins/redact_lib.lua:ro" \
+    -v "$REPO_ROOT/plugins/custom/redact_walk.lua:/usr/local/apisix/apisix/plugins/redact_walk.lua:ro" \
     -v "$REPO_ROOT:/workspace:ro" \
     --entrypoint /usr/bin/resty \
     "$IMAGE" \

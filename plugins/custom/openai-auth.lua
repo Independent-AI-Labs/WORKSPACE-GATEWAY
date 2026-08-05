@@ -3,6 +3,8 @@ local cjson = require("cjson.safe")
 local jwt = require("apisix.plugins.kimi_jwt")
 local device = require("apisix.plugins.openai_device")
 local tokens = require("apisix.plugins.kimi_tokens")
+local ok, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
+if not ok then oauth_broker = require("oauth_broker") end
 
 local plugin = { version = 0.1, priority = 2560, name = "openai-auth" }
 plugin.schema = { type = "object", properties = {
@@ -13,6 +15,8 @@ plugin.schema = { type = "object", properties = {
     token_prefix = { type = "string", default = "secret/data/gateway/openai-tokens/" },
     device_prefix = { type = "string", default = "secret/data/gateway/openai-device/" },
     refresh_threshold = { type = "integer", default = 300 },
+    user_agent = { type = "string", default = "opencode/1.18.3" },
+    ssl_verify = { type = "boolean", default = true },
 } }
 
 function plugin.check_schema(conf) return core.schema.check(plugin.schema, conf) end
@@ -27,6 +31,16 @@ local function body()
     local raw = core.request.get_body() or "{}"
     if type(raw) == "table" then raw = raw[1] or "{}" end
     return cjson.decode(raw) or {}
+end
+
+local function remove_unsupported_params()
+    local raw = core.request.get_body() or ""
+    if type(raw) == "table" then raw = raw[1] or "" end
+    if raw == "" then return end
+    local parsed = cjson.decode(raw)
+    if type(parsed) ~= "table" or parsed.max_output_tokens == nil then return end
+    parsed.max_output_tokens = nil
+    ngx.req.set_body_data(cjson.encode(parsed))
 end
 
 local function account_id(token)
@@ -46,6 +60,8 @@ local function session_record(bearer_value, result, pending)
     return {
         access_token = result.access_token, refresh_token = result.refresh_token,
         expires_at = result.expires_at, id_token = result.id_token,
+        expires_in = result.expires_in, token_type = result.token_type,
+        scope = result.scope,
         issued_access_token_hash = jwt.token_hash(bearer_value),
         live_access_token_hash = jwt.token_hash(result.access_token),
         account_id = account_id(result.id_token) or account_id(result.access_token),
@@ -57,12 +73,15 @@ local function start(conf)
     local session_id = ngx.var.arg_session or ""
     local auth, err = device.request_device_authorization(conf)
     if not auth then return 502, { error = "openai-auth: " .. (err or "device authorization failed") } end
-    local _, store_err = tokens.store_device(conf, auth.device_code, {
-        device_code = auth.device_code, user_code = auth.user_code,
+    local client_device_code = oauth_broker.gateway_device_code(auth.device_code)
+    local _, store_err = tokens.store_device(conf, client_device_code, {
+        device_code = auth.device_code, upstream_device_code = auth.device_code,
+        user_code = auth.user_code,
         session_id = session_id, expires_at = ngx.time() + auth.expires_in,
         interval = auth.interval, created_at = ngx.http_time(ngx.time()),
     })
     if store_err then return 503, { error = "openai-auth: cannot reach token store" } end
+    auth.device_code = client_device_code
     return 200, auth
 end
 
@@ -75,9 +94,9 @@ local function poll(conf)
         tokens.delete_device(conf, input.device_code)
         return 400, { error = "openai-auth: device session expired" }
     end
-    local result, err = device.poll_device_token(conf, input.device_code, pending.user_code)
+    local result, err = device.poll_device_token(conf, pending.upstream_device_code or pending.device_code, pending.user_code)
     if not result then return 502, { error = "openai-auth: " .. (err or "device polling failed") } end
-    if result.pending then return 202, { error = "authorization_pending", error_code = "authorization_pending" } end
+    if result.pending then return 202, { error = result.error_code or "authorization_pending", error_code = result.error_code or "authorization_pending" } end
     local issued = result.access_token
     local _, store_err = tokens.store_session(conf, issued, session_record(issued, result, pending))
     if store_err then return 503, { error = "openai-auth: cannot reach token store" } end
@@ -107,7 +126,12 @@ function plugin.access(conf, ctx)
         session = updated
     end
     ngx.req.set_header("Authorization", "Bearer " .. access)
+    remove_unsupported_params()
     if session.account_id then ngx.req.set_header("ChatGPT-Account-Id", session.account_id) end
+    ngx.req.set_header("originator", "opencode")
+    local session_header = core.request.header(ctx, "session-id")
+        or core.request.header(ctx, "X-OpenCode-Session-Id")
+    if session_header and session_header ~= "" then ngx.req.set_header("session-id", session_header) end
     ngx.req.set_header("X-Gateway-Key-Id", (session.issued_access_token_hash or jwt.token_hash(value)):sub(1, 16))
     ngx.req.set_header("X-Gateway-Tenant-Id", session.session_id ~= "" and session.session_id or "default")
     ngx.req.set_header("X-Gateway-Rate-Limit-RPM", "100")

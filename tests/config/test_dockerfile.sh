@@ -38,7 +38,7 @@ HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" || ech
 assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" || echo "")
-assert_eq "Copies plugins/custom/ (including OpenAI OAuth)" "17" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (including OpenAI OAuth)" "22" "$HAS_CUSTOM_PLUGINS"
 
 HAS_MODEL_REGISTRY=$(grep -c 'model_registry.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies model_registry.lua" "1" "$HAS_MODEL_REGISTRY"
@@ -66,6 +66,12 @@ assert_eq "Copies provider-sync.lua" "1" "$HAS_PROVIDER_SYNC"
 
 HAS_PROVIDER_SYNC_CATALOG=$(grep -c 'provider_sync_catalog.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies provider_sync_catalog.lua" "1" "$HAS_PROVIDER_SYNC_CATALOG"
+HAS_PROVIDER_SYNC_ALIASES=$(grep -c 'provider_sync_aliases.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies provider_sync_aliases.lua" "1" "$HAS_PROVIDER_SYNC_ALIASES"
+HAS_PROVIDER_SYNC_CONTRACT=$(grep -c 'provider_sync_contract.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies provider_sync_contract.lua" "1" "$HAS_PROVIDER_SYNC_CONTRACT"
+HAS_PROVIDER_PRICING=$(grep -c 'provider_pricing.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING"
 
 HAS_SSE_USAGE=$(grep -c 'sse-usage.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies sse-usage.lua" "1" "$HAS_SSE_USAGE"

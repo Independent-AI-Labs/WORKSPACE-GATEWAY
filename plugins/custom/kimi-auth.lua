@@ -3,6 +3,8 @@ local cjson = require("cjson.safe")
 local jwt = require("apisix.plugins.kimi_jwt")
 local device = require("apisix.plugins.kimi_device")
 local tokens = require("apisix.plugins.kimi_tokens")
+local ok, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
+if not ok then oauth_broker = require("oauth_broker") end
 
 local plugin_name = "kimi-auth"
 
@@ -104,9 +106,11 @@ local function start_device_flow(conf, ctx)
         return 502, { error = "kimi-auth: device authorization failed: " .. (err or "unknown") }
     end
 
+    local client_device_code = oauth_broker.gateway_device_code(auth.device_code)
     local store_err
-    _, store_err = tokens.store_device(conf, auth.device_code, {
+    _, store_err = tokens.store_device(conf, client_device_code, {
         device_code = auth.device_code,
+        upstream_device_code = auth.device_code,
         session_id = session_id,
         expires_at = ngx.time() + auth.expires_in,
         interval = auth.interval,
@@ -121,7 +125,7 @@ local function start_device_flow(conf, ctx)
         verification_uri = auth.verification_uri,
         verification_uri_complete = auth.verification_uri_complete,
         user_code = auth.user_code,
-        device_code = auth.device_code,
+        device_code = client_device_code,
         interval = auth.interval,
         expires_in = auth.expires_in,
     }
@@ -145,7 +149,7 @@ local function poll_device_flow(conf, ctx)
         return 400, { error = "kimi-auth: device session expired" }
     end
 
-    local result, err = device.poll_device_token(conf, device_code)
+    local result, err = device.poll_device_token(conf, pending.upstream_device_code or pending.device_code)
     if not result then
         core.log.error("kimi-auth: token exchange failed: ", err or "unknown")
         return 502, { error = "kimi-auth: token exchange failed: " .. (err or "unknown") }

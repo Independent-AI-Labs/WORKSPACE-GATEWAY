@@ -12,7 +12,8 @@ End-user procedure for installing a gateway-managed provider into a local
 OpenCode configuration using
 [`res/scripts/opencode-provider-login.sh`](../../res/scripts/opencode-provider-login.sh).
 The script fetches a ready-to-use provider block from the gateway's
-provider-sync service, performs any required authentication (OAuth device flow
+provider-sync service, performs any required authentication (currently OAuth
+headless device flow
 or API key prompt), and writes the provider into the user's OpenCode config and
 auth files. Background: [SPEC-PROVIDER-SYNC](../specifications/SPEC-PROVIDER-SYNC.md),
 [SPEC-PROVIDER-KIMI](../specifications/SPEC-PROVIDER-KIMI.md) §8.
@@ -22,9 +23,9 @@ auth files. Background: [SPEC-PROVIDER-SYNC](../specifications/SPEC-PROVIDER-SYN
 - `curl` and `jq` installed (script checks both).
 - Gateway reachable (default `http://localhost:9080`) with the
   `gateway-provider-sync` route serving `/gateway/providers*`.
-- A provider ID from `conf/providers/*.yaml`, e.g. `workspace-gw-kimi-oauth`,
-  `workspace-gw-kimi-own`, `workspace-gw-kimi-private`, `workspace-gw-llamafile`,
-  `workspace-gw-own`, `workspace-gw-private`.
+- A provider ID from `conf/providers/*.yaml`, e.g. `workspace-gw-kimi-device-oauth`,
+  `workspace-gw-kimi-api-key`, `workspace-gw-kimi-virtual-key`,
+  `workspace-gw-llamafile-no-auth`.
 - For OAuth providers: a browser (or copy/paste of the verification URL).
 - For `api_key`/`virtual_key` providers: a key ready to paste (issue one via
   [RUNBOOK-KEYS](RUNBOOK-KEYS.md)).
@@ -40,7 +41,7 @@ curl -s http://localhost:9080/gateway/providers | jq .
 ### 2. Run the login script
 
 ```bash
-bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-oauth
+bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-device-oauth
 ```
 
 | Flag | Default | Meaning |
@@ -61,10 +62,10 @@ bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-oaut
 1. Fetches `GET <gateway>/gateway/providers/<id>/opencode` and reads
    `.provider`, `.auth_type`, and `.auth_route`.
 2. Authenticates according to `auth_type`:
-   - `oauth`: starts the device flow via
+    - `oauth`: starts the brokered headless device flow via
      `POST <gateway><auth_route>/device?session=<session>`, prints the user code
      and verification URL, opens the browser (unless `--no-browser`), and polls
-     `POST <gateway><auth_route>/device/poll` until an `access_token` is
+      `POST <gateway><auth_route>/device/poll` with the opaque gateway device code until an `access_token` is
      returned. Honors `authorization_pending` (keep waiting), `slow_down`
      (adds 5s to the interval), `expired_token`, and `access_denied`.
    - `api_key` / `virtual_key`: prompts for the key interactively (fails under
@@ -79,16 +80,16 @@ bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-oaut
 ### 4. Use the provider
 
 ```bash
-opencode -m workspace-gw-kimi-oauth/<model-id>
+opencode -m workspace-gw-kimi-device-oauth/<model-id>
 ```
 
 Or start the OpenCode TUI and select the provider by name.
 
 ## Verification
 
-1. `jq '.provider["workspace-gw-kimi-oauth"].name' ~/.config/opencode/opencode.jsonc`
+1. `jq '.provider["workspace-gw-kimi-device-oauth"].name' ~/.config/opencode/opencode.jsonc`
    returns the provider name.
-2. `jq 'has("workspace-gw-kimi-oauth")' ~/.local/share/opencode/auth.json`
+2. `jq 'has("workspace-gw-kimi-device-oauth")' ~/.local/share/opencode/auth.json`
    returns `true` (for oauth/api_key providers).
 3. `opencode -m <provider-id>/<model-id>` completes a chat round-trip.
 4. `stat -c %a ~/.local/share/opencode/auth.json` shows `600`.

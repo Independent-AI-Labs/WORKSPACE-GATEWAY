@@ -45,6 +45,15 @@ fi
 
 assert_eq "Valid YAML" "ok" "ok"
 
+TEST_JSON=$(yaml_to_json "$REPO_ROOT/tests/docker-compose.test.yml")
+PROD_SERVICES=$(echo "$JSON_DATA" | jq -c '.services | keys | sort')
+TEST_SERVICES=$(echo "$TEST_JSON" | jq -c '.services | keys | sort')
+assert_eq "Test Compose service parity" "$PROD_SERVICES" "$TEST_SERVICES"
+
+PROD_APISIX_MOUNTS=$(echo "$JSON_DATA" | jq -c '[.services.apisix.volumes[] | split(":")[0]] | sort')
+TEST_APISIX_MOUNTS=$(echo "$TEST_JSON" | jq -c '[.services.apisix.volumes[] | split(":")[0]] | sort')
+assert_eq "Test Compose APISIX mount parity" "$PROD_APISIX_MOUNTS" "$TEST_APISIX_MOUNTS"
+
 HAS_APISIX=$(echo "$JSON_DATA" | jq '.services | has("apisix")')
 assert_eq "Has apisix service" "true" "$HAS_APISIX"
 
@@ -96,7 +105,7 @@ else
     fail=$((fail + 1))
 fi
 
-OPENBAO_PORT=$(echo "$JSON_DATA" | jq '[.services.openbao.ports[] | select(. == "8201:8200")] | length')
+OPENBAO_PORT=$(echo "$JSON_DATA" | jq '[.services.openbao.ports[] | select(endswith(":8201:8200") or . == "8201:8200")] | length')
 assert_eq "OpenBao exposes port 8201:8200" "1" "$OPENBAO_PORT"
 
 OPENBAO_NETWORK=$(echo "$JSON_DATA" | jq '[.services.openbao.networks[] | select(. == "gateway")] | length')
@@ -105,7 +114,7 @@ assert_eq "OpenBao on gateway network" "1" "$OPENBAO_NETWORK"
 PROMETHEUS_CONTAINER=$(echo "$JSON_DATA" | jq -r '.services.prometheus.container_name')
 assert_eq "Prometheus container name is gw-prometheus" "gw-prometheus" "$PROMETHEUS_CONTAINER"
 
-PROMETHEUS_PORT=$(echo "$JSON_DATA" | jq '[.services.prometheus.ports[] | select(. == "9092:9090")] | length')
+PROMETHEUS_PORT=$(echo "$JSON_DATA" | jq '[.services.prometheus.ports[] | select(endswith(":9092:9090") or . == "9092:9090")] | length')
 assert_eq "Prometheus exposes port 9092:9090" "1" "$PROMETHEUS_PORT"
 
 PROMETHEUS_NETWORK=$(echo "$JSON_DATA" | jq '[.services.prometheus.networks[] | select(. == "gateway")] | length')
@@ -135,10 +144,10 @@ assert_eq "Grafana serves from subpath" "true" "$GRAFANA_SUBPATH"
 APISIX_PORT_9080=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9080:9080")] | length')
 assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
 
-APISIX_PORT_9100=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9100:9100")] | length')
+APISIX_PORT_9100=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(endswith(":9100:9100") or . == "9100:9100")] | length')
 assert_eq "APISIX exposes port 9100 for prometheus" "1" "$APISIX_PORT_9100"
 
-APISIX_PORT_9180=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9180:9180")] | length')
+APISIX_PORT_9180=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(endswith(":9180:9180") or . == "9180:9180")] | length')
 assert_eq "APISIX exposes port 9180 for Admin API + Dashboard" "1" "$APISIX_PORT_9180"
 
 APISIX_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.apisix.volumes[]')
@@ -180,15 +189,21 @@ assert_eq "APISIX mounts provider-sync.lua" "1" "$HAS_PROVIDER_SYNC_MOUNT"
 
 HAS_PROVIDER_SYNC_CATALOG_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_catalog.lua" || echo "")
 assert_eq "APISIX mounts provider_sync_catalog.lua" "1" "$HAS_PROVIDER_SYNC_CATALOG_MOUNT"
+HAS_PROVIDER_SYNC_ALIASES_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_aliases.lua" || echo "")
+assert_eq "APISIX mounts provider_sync_aliases.lua" "1" "$HAS_PROVIDER_SYNC_ALIASES_MOUNT"
+HAS_PROVIDER_SYNC_CONTRACT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_contract.lua" || echo "")
+assert_eq "APISIX mounts provider_sync_contract.lua" "1" "$HAS_PROVIDER_SYNC_CONTRACT_MOUNT"
 
 HAS_MODEL_REGISTRY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "model_registry.lua" || echo "")
 assert_eq "APISIX mounts model_registry.lua" "1" "$HAS_MODEL_REGISTRY_MOUNT"
 
 HAS_PROVIDER_SYNC_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_pricing.lua" || echo "")
 assert_eq "APISIX mounts provider_sync_pricing.lua" "1" "$HAS_PROVIDER_SYNC_PRICING_MOUNT"
+HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.lua" || echo "")
+assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
-assert_eq "APISIX has 22 volume mounts (4 config + 18 plugins)" "22" "$APISIX_VOLUME_COUNT"
+assert_eq "APISIX has 27 volume mounts (4 config + 23 plugins)" "27" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || echo "")
@@ -198,7 +213,7 @@ VECTOR_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.vector.volumes[]')
 HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" || echo "")
 assert_eq "Vector mounts vector.toml" "1" "$HAS_VECTOR_TOML"
 
-VECTOR_PORT_18080=$(echo "$JSON_DATA" | jq '[.services.vector.ports[] | select(. == "18080:8080")] | length')
+VECTOR_PORT_18080=$(echo "$JSON_DATA" | jq '[.services.vector.ports[] | select(endswith(":18080:8080") or . == "18080:8080")] | length')
 assert_eq "Vector exposes host port 18080 (container 8080)" "1" "$VECTOR_PORT_18080"
 
 VECTOR_CMD=$(echo "$JSON_DATA" | jq -r '[.services.vector.command[] | select(. == "/etc/vector/vector.toml")] | length')
@@ -207,7 +222,7 @@ assert_eq "Vector command specifies vector.toml config" "1" "$VECTOR_CMD"
 ETCD_CONTAINER=$(echo "$JSON_DATA" | jq -r '.services.etcd.container_name')
 assert_eq "etcd container name is gw-etcd" "gw-etcd" "$ETCD_CONTAINER"
 
-ETCD_PORT=$(echo "$JSON_DATA" | jq '[.services.etcd.ports[] | select(. == "2379:2379")] | length')
+ETCD_PORT=$(echo "$JSON_DATA" | jq '[.services.etcd.ports[] | select(endswith(":2379:2379") or . == "2379:2379")] | length')
 assert_eq "etcd exposes port 2379" "1" "$ETCD_PORT"
 
 ETCD_NETWORK=$(echo "$JSON_DATA" | jq '[.services.etcd.networks[] | select(. == "gateway")] | length')

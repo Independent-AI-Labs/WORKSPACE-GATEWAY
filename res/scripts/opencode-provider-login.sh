@@ -9,7 +9,7 @@ set -euo pipefail
 # OpenCode config and auth files.
 #
 # Usage:
-#   bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-oauth
+#   bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-device-oauth
 #
 # Options:
 #   --provider-id ID       Provider ID (required).
@@ -19,6 +19,7 @@ set -euo pipefail
 #   --auth-file PATH      OpenCode auth path (default: ~/.local/share/opencode/auth.json).
 #   --user-agent UA       User-Agent sent on all requests (default: Kimi CLI string).
 #   --no-browser          Do not open the browser for OAuth.
+#   --no-clipboard        Do not copy OAuth values to the system clipboard.
 #   --no-prompt           Do not prompt for API keys (fail if needed).
 #   --device-timeout SEC  OAuth polling timeout in seconds (default: 900).
 #   --help                Show this help.
@@ -36,6 +37,7 @@ fi
 AUTH_FILE="${HOME}/.local/share/opencode/auth.json"
 USER_AGENT="Kimi CLI (Linux 6.17.0-35-generic x64)"
 NO_BROWSER=0
+NO_CLIPBOARD=0
 NO_PROMPT=0
 DEVICE_TIMEOUT=900
 
@@ -52,6 +54,7 @@ while [ $# -gt 0 ]; do
     --auth-file)      AUTH_FILE="$2"; shift 2 ;;
     --user-agent)     USER_AGENT="$2"; shift 2 ;;
     --no-browser)     NO_BROWSER=1; shift ;;
+    --no-clipboard)   NO_CLIPBOARD=1; shift ;;
     --no-prompt)      NO_PROMPT=1; shift ;;
     --device-timeout) DEVICE_TIMEOUT="$2"; shift 2 ;;
     --help)           usage; exit 0 ;;
@@ -97,7 +100,7 @@ chmod 755 "$TMPDIR"
 curl_json() {
   local url="$1"
   shift
-  curl -sS -A "$USER_AGENT" --max-time 15 "$url" "$@"
+  curl -sS -A "$USER_AGENT" --connect-timeout 5 --max-time 15 "$url" "$@"
 }
 
 # Strip // and /* */ comments from JSONC while respecting string literals.
@@ -182,6 +185,24 @@ prompt_for_key() {
   echo "$key"
 }
 
+copy_to_clipboard() {
+  local value="$1"
+  local clipboard
+  if clipboard=$(command -v wl-copy); then
+    printf '%s' "$value" | timeout 3 "$clipboard"
+  elif clipboard=$(command -v xclip); then
+    printf '%s' "$value" | timeout 3 "$clipboard" -selection clipboard
+  elif clipboard=$(command -v xsel); then
+    printf '%s' "$value" | timeout 3 "$clipboard" --clipboard --input
+  elif clipboard=$(command -v pbcopy); then
+    printf '%s' "$value" | timeout 3 "$clipboard"
+  elif clipboard=$(command -v clip.exe); then
+    printf '%s' "$value" | timeout 3 "$clipboard"
+  else
+    return 1
+  fi
+}
+
 # --- Fetch provider config from gateway ---
 echo "=== OpenCode Provider Login ==="
 echo "  Provider:       $PROVIDER_ID"
@@ -236,6 +257,15 @@ if [ "$AUTH_TYPE" = "oauth" ]; then
 
   echo "User code: $USER_CODE"
   echo "Verification URL: $VERIFICATION_URI_COMPLETE"
+  if [ "$NO_CLIPBOARD" -eq 1 ]; then
+    echo "Clipboard disabled; copy the code manually."
+  elif copy_to_clipboard "$USER_CODE"; then
+    echo "User code copied to clipboard."
+  elif copy_to_clipboard "$VERIFICATION_URI_COMPLETE"; then
+    echo "Verification URL copied to clipboard."
+  else
+    echo "Clipboard utility unavailable; copy the code manually."
+  fi
   echo ""
 
   if [ "$NO_BROWSER" -eq 0 ]; then

@@ -25,6 +25,7 @@ as not implemented.
 | [`requirements/REQ-DASHBOARD.md`](requirements/REQ-DASHBOARD.md) | Grafana dashboards and panels |
 | [`requirements/REQ-ENTERPRISE-AUTH.md`](requirements/REQ-ENTERPRISE-AUTH.md) | Enterprise auth (OIDC/LDAP) requirements |
 | [`requirements/REQ-PROVIDER-KIMI.md`](requirements/REQ-PROVIDER-KIMI.md) | Moonshot Kimi provider integration |
+| [`requirements/REQ-PROVIDER-OPENAI.md`](requirements/REQ-PROVIDER-OPENAI.md) | OpenAI browser/headless OAuth provider integration |
 | [`requirements/REQ-PROVIDER-SYNC.md`](requirements/REQ-PROVIDER-SYNC.md) | Provider catalog/pricing sync service |
 | [`requirements/REQ-PROVIDER-XAI.md`](requirements/REQ-PROVIDER-XAI.md) | xAI Grok provider integration (Draft) |
 | [`requirements/REQ-REDACT.md`](requirements/REQ-REDACT.md) | PII redaction plugin (v1) |
@@ -42,6 +43,7 @@ as not implemented.
 | [`specifications/SPEC-ENTERPRISE-AUTH.md`](specifications/SPEC-ENTERPRISE-AUTH.md) | Enterprise auth implementation |
 | [`specifications/SPEC-PLUGIN-FOUNDATION.md`](specifications/SPEC-PLUGIN-FOUNDATION.md) | Custom Lua plugin development foundation |
 | [`specifications/SPEC-PROVIDER-KIMI.md`](specifications/SPEC-PROVIDER-KIMI.md) | kimi-auth plugin and Kimi routes |
+| [`specifications/SPEC-PROVIDER-OPENAI.md`](specifications/SPEC-PROVIDER-OPENAI.md) | openai-auth plugin and ChatGPT relay |
 | [`specifications/SPEC-PROVIDER-SYNC.md`](specifications/SPEC-PROVIDER-SYNC.md) | provider-sync plugin implementation |
 | [`specifications/SPEC-PROVIDER-XAI.md`](specifications/SPEC-PROVIDER-XAI.md) | xAI provider implementation (Draft) |
 | [`specifications/SPEC-REDACT.md`](specifications/SPEC-REDACT.md) | redact plugin implementation |

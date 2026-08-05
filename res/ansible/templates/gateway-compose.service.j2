@@ -10,15 +10,14 @@ WorkingDirectory={{ project_root }}/res/docker
 Environment=PATH={{ compose_cmd | dirname }}:{{ podman_bin_dir }}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=SHG_SCRIPT_PATH={{ podman_path }}
 Environment=COMPOSE_HTTP_TIMEOUT=10
-ExecStartPre=-{{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} down
-ExecStartPre=-{{ podman_path }} network rm -f docker_default
-ExecStartPre=-/bin/sh -c '{{ podman_path }} ps -aq --filter "status=exited" --filter "status=dead" --filter "status=created" | xargs -r {{ podman_path }} rm -f'
-ExecStart={{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} up --remove-orphans
-ExecStop={{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} down
-Restart=always
+LimitNOFILE=1048576:1048576
+ExecStart={{ project_root }}/res/scripts/gateway-compose-up.sh {{ compose_cmd }} {{ podman_path }} {{ compose_file }}
+ExecStop={{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} stop -t 30 apisix
+ExecStop={{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} stop -t 30 clickhouse vector openbao prometheus grafana etcd
+Restart=no
 RestartSec=15
 TimeoutStartSec=300
-TimeoutStopSec=120
+TimeoutStopSec=90
 StandardOutput=inherit
 StandardError=journal
 SyslogIdentifier=gateway-compose

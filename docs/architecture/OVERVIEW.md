@@ -28,7 +28,7 @@ Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 | `relay-opencode` | `/opencode/*` | `/zen/go/$1` | Direct key passthrough (`key-meta`) |
 | `relay-opencode-federated` | `/opencode_federated/*` | `/zen/go/$1` | `vgw-*` via `key-resolver` + OpenBao |
 | `relay-opencode-zen` | `/opencode_zen/*` | `/zen/$1` | Direct key passthrough (`key-meta`) |
-| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT OAuth (`openai-auth`) |
+| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT headless OAuth (`openai-auth`) |
 
 ### Kimi (`api.kimi.com:443`, rewrite to `/coding/v1/`)
 

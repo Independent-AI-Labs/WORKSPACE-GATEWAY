@@ -12,11 +12,21 @@ do
         model_registry = require("model_registry")
     end
 end
+local pricing_resolver
+do
+    local ok, mod = pcall(require, "apisix.plugins.provider_pricing")
+    if ok then
+        pricing_resolver = mod
+    else
+        pricing_resolver = require("provider_pricing")
+    end
+end
 
 local M = {}
 
 local SHARED_DICT = "gateway-cache"
 local DEFAULT_STALE = 86400
+local ACTIVE_SNAPSHOT_KEY = "pricing:snapshot:active"
 
 local function get_dict()
     if not ngx or not ngx.shared then
@@ -31,34 +41,16 @@ end
 --"moonshotai" for Kimi). This is the ONLY pricing source; there is no
 --cross-provider cheapest-wins merge.
 function M.apply_cost_source(provider, models, models_dev)
-    local source_id = provider.cost_source
-    if not source_id or source_id == "" then
-        return
-    end
-    if not models_dev or type(models_dev) ~= "table" then
-        return
-    end
-    local block = models_dev[source_id]
-    if not block or type(block) ~= "table" or type(block.models) ~= "table" then
-        return
-    end
     for model_id, entry in pairs(models) do
-        if not entry.cost then
-            local md = block.models[model_id]
-                or block.models[model_registry.canonical(model_id)]
-            if type(md) == "table" and type(md.cost) == "table" then
-                local cost = {
-                    input = md.cost.input or 0,
-                    output = md.cost.output or 0,
-                }
-                if md.cost.cache_read ~= nil then
-                    cost.cache_read = md.cost.cache_read
-                end
-                if md.cost.cache_write ~= nil then
-                    cost.cache_write = md.cost.cache_write
-                end
-                entry.cost = cost
-            end
+        local cost, provenance = pricing_resolver.resolve(
+            provider, model_id, entry, models_dev)
+        if cost then
+            entry.cost = cost
+            entry.pricing = {
+                source = provenance,
+                provider = provider.pricing and provider.pricing.source
+                    and provider.pricing.source.provider or provider.cost_source,
+            }
         end
     end
 end
@@ -78,28 +70,47 @@ function M.populate_pricing_cache(enriched)
     end
     table.sort(provider_ids)
     local written = {}
+    local snapshot = {}
+    local fetched_at = ngx.time()
     for _, provider_id in ipairs(provider_ids) do
         local provider = enriched[provider_id]
         if provider.models and type(provider.models) == "table" then
             for model_id, model in pairs(provider.models) do
                 if model.cost then
                     local key = model_registry.canonical(model_id)
-                    if key ~= "" and not written[key] then
-                        written[key] = true
+                    local scoped_key = provider_id .. ":" .. key
+                    if key ~= "" and not written[scoped_key] then
+                        written[scoped_key] = true
                         local price = {
                             provider = provider_id,
+                            pricing_source = model.pricing and model.pricing.source
+                                or "unscoped",
                             input = model.cost.input or 0,
                             output = model.cost.output or 0,
                             cache_read = model.cost.cache_read or 0,
                             cache_write = model.cost.cache_write or 0,
-                            fetched_at = ngx.time(),
+                            fetched_at = fetched_at,
                         }
-                        dict:set("pricing:" .. key, cjson.encode(price), DEFAULT_STALE)
+                        snapshot[scoped_key] = price
+                        dict:set("pricing:" .. provider_id .. ":" .. key,
+                            cjson.encode(price), DEFAULT_STALE)
+                        --Compatibility key while request provider identity is
+                        --available to every telemetry caller.
+                        if not dict:get("pricing:" .. key) then
+                            dict:set("pricing:" .. key, cjson.encode(price), DEFAULT_STALE)
+                        end
                     end
                 end
             end
         end
     end
+    local generation = tostring(fetched_at)
+    dict:set("pricing:snapshot:" .. generation, cjson.encode({
+        generation = generation,
+        fetched_at = fetched_at,
+        prices = snapshot,
+    }), DEFAULT_STALE)
+    dict:set(ACTIVE_SNAPSHOT_KEY, generation, DEFAULT_STALE)
 end
 
 return M

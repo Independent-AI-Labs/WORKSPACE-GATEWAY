@@ -1,10 +1,13 @@
 ---
-id: workspace-gw-own
-name: "Workspace GW (OpenCode Go Own Key)"
+id: workspace-gw-opencode-go-api-key
+name: "Workspace GW (OpenCode Go API Key)"
+provider:
+  id: opencode-go
+  label: OpenCode Go
 route: "/opencode/v1"
 npm: "@ai-sdk/openai-compatible"
 auth:
-  type: none
+  type: api_key
 options:
   headers:
     X-Tenant-ID: default
@@ -16,4 +19,8 @@ model_source:
   filter:
     exclude:
       - "-free$"
-cost_source: opencode
+pricing:
+  source:
+    type: models_dev
+    provider: opencode
+  missing_policy: unknown

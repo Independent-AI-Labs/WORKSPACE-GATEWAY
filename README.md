@@ -113,7 +113,7 @@ and [Supported Providers](#supported-providers)). Diagram authoring rules:
 | `relay-opencode` | `/opencode/*` | Direct key passthrough | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-federated` | `/opencode_federated/*` | Virtual keys (`vgw-*`) via OpenBao | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-zen` | `/opencode_zen/*` | Direct key passthrough | OpenCode Zen (`opencode.ai`) → `/zen/*` |
-| `relay-kimi` | `/kimi/*` | `kimi-auth` OAuth device flow | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
+| `relay-kimi` | `/kimi/*` | `kimi-auth` headless device authorization | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile (`host.docker.internal:8765`) |
@@ -160,7 +160,7 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 | Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
 | Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
 | Upstream key pool rotation | `key-resolver` + `upstream_pool_lib.lua`: sticky selection, auto-rotate on 429/402/403 | Custom |
-| Kimi OAuth device-code flow | `kimi-auth` + `kimi_device`/`kimi_jwt`/`kimi_tokens`: OpenBao session storage, transparent refresh | Custom |
+| Kimi headless device-authorization flow | `kimi-auth` + `kimi_device`/`kimi_jwt`/`kimi_tokens`: OpenBao session storage, transparent refresh | Custom |
 | SSE token extraction | `sse-usage`: buffers SSE, extracts usage, writes ClickHouse | Custom |
 | Per-key rate limiting (RPM) | `limit-count` + `key-meta` | Built-in + custom Lua |
 | Per-key token/cost budget | `key-resolver` + `sse-usage` + `ngx.shared` | Custom Lua |
@@ -418,12 +418,9 @@ reload provisioning. See [`docs/specifications/SPEC-DASHBOARD.md`](docs/specific
 
 ## opencode Integration
 
-The gateway registers as `workspace-gw-private` (virtual key),
-`workspace-gw-own` (own key), `workspace-gw-zen-own` (own key, free/Zen
-models), `workspace-gw-llamafile` (local LLM), and three Moonshot Kimi
-providers (`workspace-gw-kimi-oauth` for OAuth device flow,
-`workspace-gw-kimi-private` for virtual key, and `workspace-gw-kimi-own` for
-own key) as custom providers in opencode.
+The gateway registers canonical auth-mode providers: OpenCode Go virtual/API
+key, OpenCode Zen API key, llamafile no-auth, and three Moonshot Kimi modes
+(device OAuth, virtual key, and API key) as custom providers in opencode.
 
 ```bash
 # Sync all models from gateway into opencode config
@@ -438,13 +435,13 @@ and also fetches `/llamafile/v1/models` for the local llamafile upstream.
 It writes provider entries into `~/.config/opencode/opencode.jsonc` for the
 OpenCode and Kimi access modes, plus llamafile:
 
-- `workspace-gw-private`: virtual-key mode (apiKey = `vgw-gateway-key`), Go tier
-- `workspace-gw-own`: own-key passthrough (no apiKey, client provides key), Go tier
-- `workspace-gw-zen-own`: own-key passthrough, free/Zen models from `/opencode_zen/v1`
-- `workspace-gw-llamafile`: no-auth local LLM (VM-hosted llamafile, no apiKey)
-- `workspace-gw-kimi-oauth`: OAuth device-flow (gateway-managed Kimi token)
-- `workspace-gw-kimi-private`: virtual-key mode for Kimi (`vgw-*`)
-- `workspace-gw-kimi-own`: own Moonshot key passthrough for Kimi
+- `workspace-gw-opencode-go-virtual-key`: virtual-key mode, Go tier
+- `workspace-gw-opencode-go-api-key`: API-key passthrough, Go tier
+- `workspace-gw-opencode-zen-api-key`: API-key passthrough, free/Zen models
+- `workspace-gw-llamafile-no-auth`: no-auth local LLM
+- `workspace-gw-kimi-device-oauth`: device OAuth (gateway-managed Kimi token)
+- `workspace-gw-kimi-virtual-key`: virtual-key mode for Kimi (`vgw-*`)
+- `workspace-gw-kimi-api-key`: API-key passthrough for Kimi
 
 For the OAuth providers, use the login script in
 [`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)
@@ -546,15 +543,17 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make gw-build` | Build container images |
 | `make gw-start` | Start stack via systemd, provision keys, health checks |
 | `make gw-stop` | Stop stack via systemd (keep volumes) |
-| `make gw-restart` | Drain apisix (SIGQUIT, `DRAIN_TIMEOUT=300`), rebuild images, restart via systemd, verify health |
+| `make gw-restart` | Restart existing containers via systemd; does not build or recreate |
+| `make gw-update` | Build images, redeploy changed services via systemd, reconcile, and verify |
+| `make gw-reconcile` | Reconcile routes, schema, and provider catalog without restarting containers |
 | `make gw-verify` | Health report: status + one request through the gateway |
 | `make gw-status` | Show systemd unit + containers |
 | `make gw-logs` | Tail container logs |
 | `make gw-clean` | Stop via systemd + destroy volumes (data loss) |
 | `make gw-shell` | Exec into APISIX container |
 | `make gw-test` | Run full test suite against the running stack |
-| `make gw-restart-service SVC=name` | Recreate one service (apisix, vector, grafana, etc.) |
-| `make gw-restart-grafana` | Recreate Grafana, reload provisioning, sync dashboard defaults |
+| `make gw-restart-service SVC=name` | Restart one existing service without recreating it |
+| `make gw-restart-grafana` | Restart Grafana, reload provisioning, sync dashboard defaults |
 | `make gw-deploy` | Install + enable gateway compose on boot (systemd user + linger) |
 | `make gw-undeploy` | Disable + remove gateway compose systemd unit |
 | `make gw-systemd-logs` | Tail gateway systemd unit logs |
@@ -611,4 +610,3 @@ systemctl so an unmanaged compose stack never fights the unit's
 - **Vector 0.40**: MPL 2.0
 - **Prometheus v3.13.1**: Apache 2.0
 - **Grafana 13.0.2**: AGPLv3
-

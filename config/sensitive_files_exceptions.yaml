@@ -3,3 +3,9 @@ safe_exceptions:
   - config.yaml
   - workspace-gw-kimi-private.yaml
   - workspace-gw-private.yaml
+  - workspace-gw-kimi-api-key.yaml
+  - workspace-gw-kimi-virtual-key.yaml
+  - workspace-gw-opencode-go-api-key.yaml
+  - workspace-gw-opencode-go-virtual-key.yaml
+  - workspace-gw-opencode-zen-api-key.yaml
+  - opencode-workspace-gw-opencode-zen-api-key.example.json

@@ -64,7 +64,7 @@ checks.
 ```
  request          redact.lua (priority 2500)
  ------->  access: redact_state cache (60s) or redact_lib.load_patterns
-                   redact_text over messages[] -> [KIND_N] tokens
+                    redact_text over messages[] or Responses input/instructions -> [KIND_N] tokens
                    stash ctx.redact_token_map; rewrite body
                  |
                  v
@@ -139,13 +139,16 @@ second digit, and accepts when the sum is divisible by 10.
   `redact_lib.load_patterns` and repopulate the cache.
 - Fail-closed (503 `redact: patterns file not loaded`) or fail-open with an
   error log when patterns cannot be loaded.
-- Read and JSON-parse the body; if unparseable or `messages` is absent:
-  `on_error=closed` rejects with 400 `redact: request body is not parseable
-  chat JSON` (no PII may egress unredacted); `on_error=open` sets
-  `X-Redact-Error: non-chat-body` and passes through.
+- Read and JSON-parse the body. Chat Completions bodies use `messages`; OpenAI
+  Responses bodies use `input` and may include `instructions`. Unsupported
+  schemas reject with 400 under `on_error=closed` or set
+  `X-Redact-Error: unsupported-body-schema` under `on_error=open`.
 - If `stream: true` and `stream_mode == "reject"`, return 400
   `redact: streaming rejected`.
-- Redact every string `content` and every `content[]` part with `text`.
+- Redact every Chat Completions `content` value and Responses `instructions`,
+  string `input`, `input_text`/`text` parts, function-call `arguments`, and
+  function-call-output `output`. Model ids, tool schemas, and encrypted
+  reasoning content are not modified.
 - Re-encode with `cjson`; on failure return 503 (`closed`) or pass the
   original body through (`open`).
 - Set `ctx.redact_token_map`, `ctx.redact_active` (count > 0),

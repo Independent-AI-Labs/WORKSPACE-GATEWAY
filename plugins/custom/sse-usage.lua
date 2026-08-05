@@ -8,6 +8,20 @@ local resty_sha256 = require("resty.sha256")
 
 local plugin_name = "sse-usage"
 
+local ROUTE_PROVIDERS = {
+    ["relay-opencode"] = "workspace-gw-opencode-go-api-key",
+    ["relay-opencode-federated"] = "workspace-gw-opencode-go-virtual-key",
+    ["relay-opencode-zen"] = "workspace-gw-opencode-zen-api-key",
+    ["relay-openai"] = "workspace-gw-openai-device-oauth",
+    ["relay-kimi"] = "workspace-gw-kimi-device-oauth",
+    ["relay-kimi-v1"] = "workspace-gw-kimi-device-oauth",
+    ["relay-kimi-federated"] = "workspace-gw-kimi-virtual-key",
+    ["relay-kimi-federated-v1"] = "workspace-gw-kimi-virtual-key",
+    ["relay-kimi-key"] = "workspace-gw-kimi-api-key",
+    ["relay-kimi-key-v1"] = "workspace-gw-kimi-api-key",
+    ["relay-llamafile"] = "workspace-gw-llamafile-no-auth",
+}
+
 local plugin = {
     version = 0.1,
     priority = 2400,
@@ -65,9 +79,25 @@ local function is_json()
     return ct:find("application/json", 1, true) ~= nil
 end
 
+local function looks_like_sse(text)
+    return type(text) == "string"
+        and (text:find("event:", 1, true) ~= nil
+            or text:find("data:", 1, true) ~= nil)
+end
+
 function plugin.body_filter(conf, ctx)
     local chunk = ngx.arg[1]
     local eof = ngx.arg[2]
+
+    --OpenAI Responses can emit SSE frames while advertising a non-SSE response.
+    --Keep telemetry enabled when response headers classify it as JSON.
+    if not ctx.sse_usage_tracking then
+        local uri = ctx.var and ctx.var.uri or ngx.var.uri or ""
+        if ctx.route_id == "relay-openai" or uri:find("^/openai/") then
+            ctx.sse_usage_tracking = true
+            ctx.sse_is_stream = false
+        end
+    end
 
     if not ctx.sse_usage_tracking then
         return
@@ -83,6 +113,11 @@ function plugin.body_filter(conf, ctx)
         ctx.sse_buffer = remainder
 
         if complete ~= "" then
+            --OpenAI-compatible Responses can return SSE for stream=false.
+            --Detect the wire format from the body before choosing the parser.
+            if not ctx.sse_is_stream and looks_like_sse(complete) then
+                ctx.sse_is_stream = true
+            end
             if ctx.sse_is_stream then
                 local usage, model, done, cost = sse_lib.scan_sse_for_usage(complete)
                 if done then ctx.sse_completed = true end
@@ -102,6 +137,9 @@ function plugin.body_filter(conf, ctx)
 
     if eof then
         if ctx.sse_buffer and ctx.sse_buffer ~= "" then
+            if not ctx.sse_is_stream and looks_like_sse(ctx.sse_buffer) then
+                ctx.sse_is_stream = true
+            end
             if ctx.sse_is_stream then
                 local usage, model, done, cost = sse_lib.scan_sse_for_usage(ctx.sse_buffer)
                 if done then ctx.sse_completed = true end
@@ -156,12 +194,25 @@ function plugin.log(conf, ctx)
     local model = ctx.sse_model or ""
     local sse_cost = tonumber(ctx.sse_cost) or 0
     local req_model = ctx.sse_req_model or model
+    local route_id = ctx.route_id or ""
+    local provider_id = ROUTE_PROVIDERS[route_id]
 
     local final_cost, cost_source = cost_calc.resolve_cost(
         sse_cost,
         { pt = pt, ct = ct, cached = cached, reasoning = reasoning },
-        req_model
+        req_model,
+        provider_id
     )
+    local pricing_source = ""
+    if cost_source == cost_calc.SOURCE_COMPUTED then
+        local price = cost_calc.get_pricing(req_model, provider_id)
+        pricing_source = price and price.pricing_source or ""
+    end
+    local pricing_snapshot = ""
+    local cache = ngx.shared and ngx.shared["gateway-cache"]
+    if cache then
+        pricing_snapshot = tostring(cache:get("pricing:snapshot:active") or "")
+    end
 
     --For SSE streams that aborted early (no usage chunk received), the
     --request body is the model source of record so abort rows remain
@@ -184,7 +235,7 @@ function plugin.log(conf, ctx)
     local model_raw = model
     model = model_registry.canonical(model)
 
-    local route_id = ctx.route_id or ""
+    route_id = ctx.route_id or ""
     --Use ngx.var.start_time (Nginx $start_time, seconds.millis string), same source Vector reads.
     --to_int() in VRL truncates to integer seconds, so match that.
     local start_time_sec = math.floor(tonumber(ngx.var.start_time)
@@ -241,6 +292,9 @@ function plugin.log(conf, ctx)
         is_stream = is_stream,
         cost = final_cost,
         cost_source = cost_source,
+        provider_id = provider_id or "",
+        pricing_source = pricing_source or "",
+        pricing_snapshot = pricing_snapshot,
     })
 
     if not entry then

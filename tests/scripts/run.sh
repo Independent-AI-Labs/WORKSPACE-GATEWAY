@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 pass=0
 fail=0
 
-for test_script in test_opencode_provider_login.sh; do
+for test_script in test_gateway_compose.sh test_opencode_provider_login.sh; do
     echo ""
     echo "--- $test_script ---"
     if bash "$SCRIPT_DIR/$test_script"; then

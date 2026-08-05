@@ -46,7 +46,8 @@ pricing is written exactly once, in one place.
 
 **This document DOES NOT:**
 - Store or manage client credentials (client writes its own `auth.json`)
-- Specify OAuth device flow internals (owned by REQ-PROVIDER-KIMI)
+- Specify provider-specific OAuth flow internals (owned by the provider
+  requirements; this client currently supports headless device authorization)
 - Define cost computation (owned by `cost_calc`, a read-only consumer)
 
 ### 1.3 Terminology
@@ -103,7 +104,7 @@ pricing is written exactly once, in one place.
 | FR-4.1 | `GET /gateway/providers` MUST return a sorted JSON list of `{ id, name, auth_type }`. |
 | FR-4.2 | `GET /gateway/providers/{id}` MUST return the full enriched provider, or 404 `{ "error": "provider not found" }`. |
 | FR-4.3 | `GET /gateway/providers/{id}/opencode` MUST return an OpenCode provider block whose `options.baseURL` is built at request time from scheme/host/port plus the provider `route`. |
-| FR-4.4 | The `/opencode` response MUST include `auth_type`, and MUST include `auth_route` (`<route>/auth`) only when `auth.type == "oauth"`. |
+| FR-4.4 | The `/opencode` response MUST include `auth_type`, and MUST include `auth_route` (`<route>/auth`) only when `auth.type == "oauth"`; OAuth responses MUST also include explicit `auth_methods` with method ids, flow types, and routes. |
 | FR-4.5 | `POST /gateway/providers/sync` MUST trigger a sync and return 200 with `{ ok, providers_loaded, models_enriched }`, 202 when a sync is already running, or 503 on failure. |
 | FR-4.6 | All JSON responses MUST set `Content-Type: application/json`; unmatched URIs MUST return 404. |
 | FR-4.7 | When the catalog is unavailable (cache empty and sync failed), endpoints MUST return 503 `{ "error": "provider catalog unavailable" }`. |
@@ -114,7 +115,7 @@ pricing is written exactly once, in one place.
 |----|-------------|
 | FR-5.1 | The client script MUST depend only on `bash`, `curl`, and `jq` (no Lua, Python, or Podman). |
 | FR-5.2 | The script MUST fetch `GET /gateway/providers/{id}/opencode` and branch on `auth_type`. |
-| FR-5.3 | For `oauth`, the script MUST run the device flow via `auth_route` (`POST <auth_route>/device`, poll `POST <auth_route>/device/poll`). |
+| FR-5.3 | For the current headless OAuth method, the script MUST run device authorization via `auth_route` (`POST <auth_route>/device`, poll `POST <auth_route>/device/poll`). Browser authorization-code/PKCE MUST be represented by a distinct flow method, not inferred from `auth_type: oauth`. |
 | FR-5.4 | For `api_key`/`virtual_key`, the script MUST prompt for the key unless `--no-prompt` is set (then fail). |
 | FR-5.5 | The script MUST insert or replace only the matching `provider.<id>` entry, preserving all other providers and top-level keys; JSONC input is rewritten as plain JSON. |
 | FR-5.6 | The script MUST merge `{ "<id>": { "type": "api", "key": "<token>" } }` into the auth file and set its permissions to `600`. |

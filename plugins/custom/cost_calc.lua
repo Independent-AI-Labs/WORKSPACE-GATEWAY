@@ -57,7 +57,7 @@ local function get_provider_sync()
     return nil
 end
 
-function M.get_pricing(model_id)
+function M.get_pricing(model_id, provider_id)
     local dict = get_dict()
     if not dict then
         return nil, "miss"
@@ -68,7 +68,15 @@ function M.get_pricing(model_id)
         return nil, "miss"
     end
 
-    local raw = dict:get(PRICING_KEY_PREFIX .. key)
+    local raw
+    if provider_id and provider_id ~= "" then
+        raw = dict:get(PRICING_KEY_PREFIX .. provider_id .. ":" .. key)
+    end
+    --Compatibility path for callers without route identity.
+    --New telemetry calls always pass provider_id.
+    if not raw and (not provider_id or provider_id == "") then
+        raw = dict:get(PRICING_KEY_PREFIX .. key)
+    end
     if not raw then
         --Provider-sync is the sole pricing writer. If it has already run,
         --a missing price means this model is not catalogued.
@@ -83,7 +91,11 @@ function M.get_pricing(model_id)
         if provider_sync and provider_sync.sync then
             local ok = pcall(provider_sync.sync, {})
             if ok then
-                raw = dict:get(PRICING_KEY_PREFIX .. key)
+                if provider_id and provider_id ~= "" then
+                    raw = dict:get(PRICING_KEY_PREFIX .. provider_id .. ":" .. key)
+                else
+                    raw = dict:get(PRICING_KEY_PREFIX .. key)
+                end
                 if not raw then
                     return nil, "miss"
                 end
@@ -133,12 +145,12 @@ function M.compute_cost(tokens, price)
     return cost
 end
 
-function M.resolve_cost(sse_cost, tokens, model_id)
+function M.resolve_cost(sse_cost, tokens, model_id, provider_id)
     if sse_cost and tonumber(sse_cost) and tonumber(sse_cost) > 0 then
         return tonumber(sse_cost), M.SOURCE_UPSTREAM
     end
 
-    local price, _ = M.get_pricing(model_id)
+    local price, _ = M.get_pricing(model_id, provider_id)
     if not price then
         return 0, M.SOURCE_UNKNOWN
     end

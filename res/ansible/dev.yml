@@ -99,26 +99,16 @@
         backup: false
       tags: [start, setup]
 
-    - name: Create external network dataops_default
-      ansible.builtin.command: podman network create dataops_default
-      register: net_create
-      changed_when: net_create.rc == 0
-      failed_when: net_create.rc != 0 and 'exists' not in (net_create.stderr | default(''))
-      tags: [start, setup]
-
-    - name: Show network create result
-      ansible.builtin.debug:
-        msg: "{{ net_create.stdout_lines | default([]) + (net_create.stderr_lines | default([])) }}"
-      tags: [start, setup]
-
-    - name: Wait for OpenBao to be ready (unsealed)
+    - name: Wait for OpenBao to be reachable and unsealed
       ansible.builtin.uri:
         url: http://localhost:8201/v1/sys/health
         method: GET
-        status_code: [200]
+        # OpenBao returns 200 when active, 429 when standby, and 503 while
+        # sealed or still starting. Only 200/429 mean the API is usable.
+        status_code: [200, 429, 501, 503]
         timeout: 5
       register: bao_health
-      until: bao_health.status == 200
+      until: bao_health.status in [200, 429]
       retries: 30
       delay: 2
       tags: [start, health]
@@ -161,17 +151,61 @@
       delay: 2
       tags: [start, health]
 
-    - name: Seed routes from conf/apisix.yaml into Admin API (etcd)
-      ansible.builtin.command: "{{ project_root }}/res/scripts/seed-routes.sh --admin-key {{ admin_api_key | quote }}"
-      args:
-        chdir: "{{ project_root }}"
-      register: seed_result
-      changed_when: "'seeded' in (seed_result.stdout | default(''))"
-      tags: [start, setup]
+    - name: Verify required APISIX plugins are loaded
+      ansible.builtin.uri:
+        url: http://localhost:9180/apisix/admin/plugins/list
+        method: GET
+        headers:
+          X-API-KEY: "{{ admin_api_key }}"
+        status_code: [200]
+        timeout: 5
+      register: apisix_plugins
+      vars:
+        required_custom_plugins:
+          - key-resolver
+          - key-meta
+          - kimi-auth
+          - openai-auth
+          - provider-sync
+          - redact
+          - sse-usage
+      failed_when: (required_custom_plugins | difference(apisix_plugins.json | default([]))) | length > 0
+      tags: [start, health, status]
 
-    - name: Show seed result
-      ansible.builtin.debug:
-        var: seed_result.stdout_lines
+    - name: Seed routes from conf/apisix.yaml into Admin API (etcd)
+      block:
+        - name: Create temporary admin key file
+          ansible.builtin.tempfile:
+            state: file
+            prefix: gateway-admin-key-
+          register: admin_key_file
+          no_log: true
+
+        - name: Write admin key to temporary file
+          ansible.builtin.copy:
+            content: "{{ admin_api_key }}\n"
+            dest: "{{ admin_key_file.path }}"
+            mode: '0600'
+          no_log: true
+
+        - name: Reconcile routes
+          ansible.builtin.command: "{{ project_root }}/res/scripts/seed-routes.sh --admin-key-file {{ admin_key_file.path | quote }}"
+          args:
+            chdir: "{{ project_root }}"
+          no_log: true
+          register: seed_result
+          changed_when: "'seeded' in (seed_result.stdout | default(''))"
+
+        - name: Show seed result
+          ansible.builtin.debug:
+            var: seed_result.stdout_lines
+      always:
+        - name: Remove temporary admin key file
+          ansible.builtin.file:
+            path: "{{ admin_key_file.path | default('') }}"
+            state: absent
+          when: admin_key_file.path is defined
+          no_log: true
       tags: [start, setup]
 
     - name: Wait for ClickHouse to be ready
@@ -182,6 +216,18 @@
         timeout: 5
       register: ch_health
       until: ch_health.status == 200
+      retries: 15
+      delay: 2
+      tags: [start, health]
+
+    - name: Wait for Vector ingest endpoint to be reachable
+      ansible.builtin.uri:
+        url: http://localhost:18080/ingest
+        method: GET
+        status_code: [200, 404, 405]
+        timeout: 5
+      register: vector_health
+      until: vector_health.status in [200, 404, 405]
       retries: 15
       delay: 2
       tags: [start, health]
@@ -200,7 +246,7 @@
       tags: [start, setup]
 
     - name: Run ClickHouse schema migrations (golang-migrate via compose)
-      ansible.builtin.command: "{{ compose_cmd }} run --rm migrate up"
+      ansible.builtin.command: "{{ compose_cmd }} --profile migration run --rm migrate up"
       args:
         chdir: "{{ project_root }}"
       register: ch_migrate
@@ -269,7 +315,7 @@
         if [ -f {{ project_root }}/.env ]; then
           set -a; . {{ project_root }}/.env; set +a
         fi
-        curl -sS -X POST http://localhost:9080/gateway/providers/sync
+         curl -sS -f --max-time 30 -X POST http://localhost:9080/gateway/providers/sync
       args:
         chdir: "{{ project_root }}"
       register: sync_result
@@ -336,6 +382,27 @@
       failed_when: admin_status.status | default(0) < 0
       tags: [status, never]
 
+    - name: Check required APISIX plugins
+      ansible.builtin.uri:
+        url: http://localhost:9180/apisix/admin/plugins/list
+        method: GET
+        headers:
+          X-API-KEY: "{{ admin_api_key }}"
+        status_code: [200]
+        timeout: 5
+      register: apisix_plugins_status
+      vars:
+        required_custom_plugins:
+          - key-resolver
+          - key-meta
+          - kimi-auth
+          - openai-auth
+          - provider-sync
+          - redact
+          - sse-usage
+      failed_when: (required_custom_plugins | difference(apisix_plugins_status.json | default([]))) | length > 0
+      tags: [status, never]
+
     - name: Check Prometheus metrics
       ansible.builtin.uri:
         url: http://localhost:9100/apisix/prometheus/metrics
@@ -394,7 +461,7 @@
         chdir: "{{ project_root }}"
       register: sanity_code
       changed_when: false
-      failed_when: sanity_code.rc != 0
+      failed_when: sanity_code.rc != 0 or (sanity_code.stdout | trim) not in ['200', '401']
       tags: [sanity, never]
 
     - name: Show sanity result

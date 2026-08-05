@@ -27,26 +27,26 @@ ClickHouse, and running the reconciler. Runtime topology and service inventory:
 
 ### 1. Bring the stack up
 
-1. From the repo root:
-   ```bash
-   podman-compose -f res/docker/docker-compose.yml up -d --build
+1. From the repo root, use the systemd-owned lifecycle target:
+    ```bash
+    make gw-start
    ```
-2. Services started: `apisix` (ports 9080/9443/9180/9100), `clickhouse`
-   (8123/9000), `migrate` (one-shot golang-migrate runner), `vector`
-   (18080->8080), `openbao` (8201->8200), `prometheus` (9092->9090),
-   `grafana` (127.0.0.1:3030->3000), `etcd` (2379).
-3. The `migrate` service runs `migrate up` against
-   `clickhouse://clickhouse:9000/llm_gateway` using `/migrations` from
-   `conf/migrations/` and exits (`restart: "no"`). Re-run manually:
-   ```bash
-   podman-compose -f res/docker/docker-compose.yml run --rm migrate up
-   podman-compose -f res/docker/docker-compose.yml run --rm migrate version
+2. Services started: `apisix` (public 9080/9443; loopback 9180/9100),
+   `clickhouse` (loopback 8123/9000), `migrate` (one-shot golang-migrate
+   runner), `vector` (loopback 18080->8080), `openbao` (loopback
+   8201->8200), `prometheus` (loopback 9092->9090), `grafana`
+   (loopback 3030->3000), and `etcd` (loopback 2379).
+3. The `migrate` service is profile-gated and is run once by Ansible after
+   ClickHouse readiness. Re-run manually through the repository wrapper:
+    ```bash
+    make ch-migrate
+    make ch-migrate-status
    ```
 
 ### 2. Tear the stack down
 
 ```bash
-podman-compose -f res/docker/docker-compose.yml down
+make gw-stop
 ```
 
 Add `-v` to also drop volumes (`clickhouse-data`, `prometheus-data`,
@@ -68,7 +68,7 @@ For live development the compose file already volume-mounts every plugin file
 `:ro` over the image copies, so Lua edits only need an apisix restart:
 
 ```bash
-podman-compose -f res/docker/docker-compose.yml restart apisix
+make gw-restart-service SVC=apisix
 ```
 
 ### 4. Config files touched (per service)
@@ -83,9 +83,9 @@ podman-compose -f res/docker/docker-compose.yml restart apisix
 | grafana | `conf/grafana/provisioning/`, `conf/grafana/dashboards/` |
 
 Deployment mode is etcd/traditional (`conf/config.yaml`: `role: traditional`,
-`config_provider: etcd`). `conf/apisix.yaml` is mounted and used as the seed
-source; route changes require an apisix restart (or re-sync), they are not
-hot-polled.
+`config_provider: etcd`). `conf/apisix.yaml` is reconciled into etcd by the
+startup workflow; route changes do not require an APISIX restart, but do require
+`make gw-reconcile` once that target is available.
 
 ### 5. Health checks
 
@@ -111,9 +111,9 @@ curl -s http://localhost:9092/-/ready
 ### 6. Logs
 
 ```bash
-podman-compose -f res/docker/docker-compose.yml logs -f apisix
-podman-compose -f res/docker/docker-compose.yml logs -f vector
-podman-compose -f res/docker/docker-compose.yml logs migrate
+   make gw-logs SVC=apisix
+   make gw-logs SVC=vector
+   make gw-logs SVC=migrate
 ```
 
 ### 7. ClickHouse access
@@ -164,7 +164,7 @@ After bring-up, all of the following must hold:
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | apisix exits immediately | Missing/invalid `.env` (`ADMIN_KEY`, `OPENCODE_API_KEY`, `OPENBAO_TOKEN`) | Check `logs apisix`; fix `.env` |
-| apisix up but routes 404 | etcd not seeded / stale | `restart apisix`; verify etcd container healthy |
+| apisix up but routes 404 | etcd not seeded / stale | run the route reconciliation workflow; verify the APISIX plugin registry and etcd |
 | `network dataops_default not found` | External network missing | `podman network create dataops_default` |
 | ClickHouse tables missing | init.sql only runs on empty volume; migrations not applied | `run --rm migrate up`; check `logs migrate` |
 | Vector ingest connection refused | Vector not up or port mismatch | Endpoint is host port 18080; check `logs vector` |

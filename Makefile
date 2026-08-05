@@ -131,7 +131,7 @@ init-check: ## Check system dependencies (report only, fail if any missing)
 # output streams live to the terminal. The stack is owned by the systemd user
 # unit gateway-compose (Boot Persistence below): start/stop/restart go through
 # systemctl so an unmanaged compose stack never fights the unit's
-# Restart=always. Ansible handles health checks, ClickHouse init SQL, and
+# restart ownership. Ansible handles health checks, ClickHouse init SQL, and
 # model sync.
 # =============================================================================
 
@@ -139,17 +139,17 @@ init-check: ## Check system dependencies (report only, fail if any missing)
 
 _compose-build:
 	echo "=== Building container images ==="
-	$(COMPOSE_CMD) build
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh build
 
 _compose-down:
 	echo "=== Stopping gateway stack ==="
-	-$(COMPOSE_CMD) down
+	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
 _compose-clean:
 	echo "=== Destroying volumes (data loss!) ==="
-	-$(COMPOSE_CMD) down -v
+	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh clean
 
-.PHONY: gw-build gw-start gw-stop gw-restart gw-verify gw-status gw-logs gw-clean gw-shell gw-test \
+.PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-clean gw-shell gw-test \
         gw-restart-service gw-restart-grafana
 
 gw-build: _compose-build ## Build container images
@@ -162,25 +162,28 @@ gw-start: ## Start the gateway stack via systemd, then health checks + init + sy
 gw-stop: ## Stop the gateway stack via systemd (keep volumes)
 	$(ANSIBLE_COMPOSE) --tags stop
 
-gw-restart: ## Drain apisix (SIGQUIT, DRAIN_TIMEOUT=300), rebuild images, restart via systemd, verify health
-	bash res/scripts/drain-apisix.sh
-	$(MAKE) gw-build
+gw-restart: ## Restart existing containers via systemd; does not build or recreate
 	$(ANSIBLE_COMPOSE) --tags restart
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
 
-gw-restart-service: ## Restart a single service (SVC=grafana|clickhouse|apisix|vector|openbao|prometheus)
-	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-restart-service SVC=grafana" >&2; exit 1; }
-	echo "=== Recreating service: $(SVC) ==="
-	if [ "$(SVC)" = "apisix" ]; then \
-		bash res/scripts/drain-apisix.sh; \
-	fi; \
-	timeout 120 $(COMPOSE_CMD) up -d --force-recreate --no-deps $(SVC); \
-	rc=$$?; \
-	if [ $$rc -ne 0 ]; then echo "=== ERROR: recreate $(SVC) failed (rc=$$rc) ===" >&2; exit 1; fi
-	echo "=== $(SVC) recreated ==="
+gw-update: ## Build images, redeploy changed services via systemd, then reconcile
+	$(MAKE) gw-build
+	$(ANSIBLE_COMPOSE) --tags deploy,restart
+	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(ANSIBLE_DEV) --tags start
 
-gw-restart-grafana: ## Recreate Grafana (pulls new image from compose), wait healthy, reload provisioning
+gw-reconcile: ## Reconcile routes, schema, and provider catalog without restarting containers
+	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(ANSIBLE_DEV) --tags start
+
+gw-restart-service: ## Restart one existing service without recreating it
+	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-restart-service SVC=grafana" >&2; exit 1; }
+	echo "=== Restarting existing service: $(SVC) ==="
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh restart-service "$(SVC)"
+	echo "=== $(SVC) restarted ==="
+
+gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 	$(MAKE) gw-restart-service SVC=grafana
 	echo "=== Waiting for Grafana health ==="
 	for i in 1 2 3 4 5 6 7 8 9 10 15 20; do \
@@ -206,8 +209,8 @@ gw-verify: ## Health report: container/endpoint status + one request through the
 gw-status: ## Show gateway systemd + container status
 	$(ANSIBLE_COMPOSE) --tags status
 
-gw-logs: ## Tail container logs (Ctrl-C to stop)
-	$(COMPOSE_CMD) logs -f
+gw-logs: ## Show the latest 200 gateway log lines (optional SVC=grafana)
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh logs $(SVC)
 
 gw-clean: ## Stop stack via systemd and remove all volumes (data loss!)
 	-systemctl --user stop gateway-compose
@@ -226,17 +229,17 @@ gw-test: ## Run full test suite against running stack
 
 .PHONY: ch-migrate ch-migrate-status
 ch-migrate: ## Apply pending ClickHouse schema migrations (golang-migrate via compose)
-	$(COMPOSE_CMD) run --rm migrate up
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-up
 
 ch-migrate-status: ## Show ClickHouse schema migration status (golang-migrate version)
-	$(COMPOSE_CMD) run --rm migrate version
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-status
 
 # =============================================================================
 # Model Sync
 # =============================================================================
 
 sync-models: ## Trigger provider model sync on the gateway
-	curl -sS -X POST http://localhost:9080/gateway/providers/sync
+	curl -sS -f --max-time 30 -X POST http://localhost:9080/gateway/providers/sync
 
 # OpenBao-backed virtual key management
 # =============================================================================

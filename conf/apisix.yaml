@@ -144,7 +144,7 @@ routes:
         time_window: 60
         rejected_code: 429
         key_type: var
-        key: http_x_key_hash
+        key: http_x_gateway_key_id
         policy: local
       prometheus:
         prefer_name: true

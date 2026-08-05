@@ -6,7 +6,7 @@ set -euo pipefail
 # service and the opencode-provider-login.sh client script.
 #
 # These tests exercise the ACTUAL running APISIX stack and real upstream
-# endpoints (models.dev, Kimi OAuth, etc.). No mocks are used.
+# endpoints (models.dev, Kimi headless OAuth, etc.). No mocks are used.
 
 _SELF="${BASH_SOURCE[0]}"
 if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
@@ -171,6 +171,7 @@ run_client_login() {
         --session "test-session-$provider_id" \
         --config-file "$CONFIG_FILE" \
         --auth-file "$AUTH_FILE" \
+        --no-clipboard \
         "$@" 2>&1
 }
 
@@ -206,7 +207,7 @@ test_client_no_auth_llamafile() {
     rm -f "$CONFIG_FILE" "$AUTH_FILE"
     local output
     set +e
-    output=$(run_client_login workspace-gw-llamafile --no-browser 2>&1)
+    output=$(run_client_login workspace-gw-llamafile-no-auth --no-browser 2>&1)
     local status=$?
     set -e
     if [ "$status" -ne 0 ]; then
@@ -215,8 +216,8 @@ test_client_no_auth_llamafile() {
     fi
     assert_contains "llamafile client reports login complete" "Login complete" "$output"
     assert_file_exists "llamafile config file created" "$CONFIG_FILE"
-    verify_provider_in_config workspace-gw-llamafile "Workspace GW (llamafile)"
-    verify_provider_base_url workspace-gw-llamafile "$GATEWAY/llamafile/v1"
+    verify_provider_in_config workspace-gw-llamafile-no-auth "Workspace GW (llamafile No Auth)"
+    verify_provider_base_url workspace-gw-llamafile-no-auth "$GATEWAY/llamafile/v1"
 }
 
 # --- Test: no-auth provider with models.dev enrichment (kimi own) ---
@@ -224,7 +225,7 @@ test_client_no_auth_kimi_own() {
     rm -f "$CONFIG_FILE" "$AUTH_FILE"
     local output
     set +e
-    output=$(run_client_login workspace-gw-kimi-own --no-browser 2>&1)
+    output=$(echo "test-kimi-api-key" | run_client_login workspace-gw-kimi-api-key --no-browser 2>&1)
     local status=$?
     set -e
     if [ "$status" -ne 0 ]; then
@@ -232,10 +233,10 @@ test_client_no_auth_kimi_own() {
         return 1
     fi
     assert_contains "kimi-own client reports login complete" "Login complete" "$output"
-    verify_provider_in_config workspace-gw-kimi-own "Workspace GW (Kimi Own Key)"
-    verify_provider_base_url workspace-gw-kimi-own "$GATEWAY/kimi-key"
+    verify_provider_in_config workspace-gw-kimi-api-key "Workspace GW (Kimi API Key)"
+    verify_provider_base_url workspace-gw-kimi-api-key "$GATEWAY/kimi-key"
     local model_count
-    model_count=$(jq -r '.provider."workspace-gw-kimi-own".models | length' "$CONFIG_FILE" || echo "0")
+    model_count=$(jq -r '.provider."workspace-gw-kimi-api-key".models | length' "$CONFIG_FILE" || echo "0")
     if [ "$model_count" -gt 0 ]; then
         record_pass "kimi-own config has enriched models (count=$model_count)"
     else
@@ -244,7 +245,7 @@ test_client_no_auth_kimi_own() {
     local alias
     for alias in kimi-for-coding kimi-for-coding-highspeed k3; do
         local alias_cost
-        alias_cost=$(jq -r ".provider.\"workspace-gw-kimi-own\".models.\"$alias\".cost.input // \"__missing__\"" "$CONFIG_FILE" || echo "__missing__")
+        alias_cost=$(jq -r ".provider.\"workspace-gw-kimi-api-key\".models.\"$alias\".cost.input // \"__missing__\"" "$CONFIG_FILE" || echo "__missing__")
         if [ "$alias_cost" != "__missing__" ]; then
             record_pass "kimi-own alias $alias present with cost (input=$alias_cost)"
         else
@@ -259,7 +260,7 @@ test_client_virtual_key() {
     local test_key="test-virtual-key-$(date +%s)"
     local output
     set +e
-    output=$(echo "$test_key" | run_client_login workspace-gw-private --no-browser 2>&1)
+    output=$(echo "$test_key" | run_client_login workspace-gw-opencode-go-virtual-key --no-browser 2>&1)
     local status=$?
     set -e
     if [ "$status" -ne 0 ]; then
@@ -267,9 +268,9 @@ test_client_virtual_key() {
         return 1
     fi
     assert_contains "virtual_key client reports login complete" "Login complete" "$output"
-    verify_provider_in_config workspace-gw-private "Workspace GW (OpenCode Go Virtual Key)"
-    verify_provider_base_url workspace-gw-private "$GATEWAY/opencode_federated/v1"
-    verify_auth_entry workspace-gw-private "$test_key"
+    verify_provider_in_config workspace-gw-opencode-go-virtual-key "Workspace GW (OpenCode Go Virtual Key)"
+    verify_provider_base_url workspace-gw-opencode-go-virtual-key "$GATEWAY/opencode_federated/v1"
+    verify_auth_entry workspace-gw-opencode-go-virtual-key "$test_key"
     local perms
     perms=$(stat -c '%a' "$AUTH_FILE" || echo "__missing__")
     assert_eq "auth file permissions are 600" "600" "$perms"
@@ -291,7 +292,7 @@ test_config_merge() {
 EOF
     local output
     set +e
-    output=$(run_client_login workspace-gw-llamafile --no-browser 2>&1)
+    output=$(run_client_login workspace-gw-llamafile-no-auth --no-browser 2>&1)
     local status=$?
     set -e
     if [ "$status" -ne 0 ]; then
@@ -301,7 +302,7 @@ EOF
     local existing_name
     existing_name=$(jq -r '.provider."existing-legacy".name // "__missing__"' "$CONFIG_FILE" || echo "__missing__")
     assert_eq "config merge preserves existing provider" "Legacy Provider" "$existing_name"
-    verify_provider_in_config workspace-gw-llamafile "Workspace GW (llamafile)"
+    verify_provider_in_config workspace-gw-llamafile-no-auth "Workspace GW (llamafile No Auth)"
 }
 
 # --- Test: JSONC config input is handled ---
@@ -316,7 +317,7 @@ test_jsonc_config() {
 EOF
     local output
     set +e
-    output=$(run_client_login workspace-gw-llamafile --no-browser 2>&1)
+    output=$(run_client_login workspace-gw-llamafile-no-auth --no-browser 2>&1)
     local status=$?
     set -e
     if [ "$status" -ne 0 ]; then
@@ -328,7 +329,7 @@ EOF
     else
         record_fail "JSONC config was not rewritten to valid JSON -- contents: $(cat "$CONFIG_FILE" || echo "")"
     fi
-    verify_provider_in_config workspace-gw-llamafile "Workspace GW (llamafile)"
+    verify_provider_in_config workspace-gw-llamafile-no-auth "Workspace GW (llamafile No Auth)"
 }
 
 # --- Test: invalid provider id fails with a clear error ---
@@ -349,7 +350,7 @@ test_invalid_provider() {
 # --- Test: OAuth device flow can be initiated with real upstream ---
 test_oauth_device_flow_initiation() {
     local resp
-    resp=$(http_json -X POST "$GATEWAY/gateway/providers/workspace-gw-kimi-oauth/opencode")
+    resp=$(http_json -X POST "$GATEWAY/gateway/providers/workspace-gw-kimi-device-oauth/opencode")
     local auth_type
     auth_type=$(get_json_field "$resp" '.auth_type')
     local auth_route
@@ -376,7 +377,7 @@ test_oauth_client_timeout() {
     rm -f "$CONFIG_FILE" "$AUTH_FILE"
     local output
     set +e
-    output=$(run_client_login workspace-gw-kimi-oauth --no-browser --device-timeout 5 2>&1)
+    output=$(run_client_login workspace-gw-kimi-device-oauth --no-browser --device-timeout 5 2>&1)
     local status=$?
     set -e
     if [ "$status" -eq 0 ]; then
@@ -416,18 +417,18 @@ main() {
     trigger_sync || exit 1
 
     test_provider_list
-    test_provider_detail workspace-gw-llamafile
-    test_provider_detail workspace-gw-kimi-oauth
-    test_provider_detail workspace-gw-private
-    test_provider_detail workspace-gw-own
-    test_provider_detail workspace-gw-zen-own
-    test_provider_detail workspace-gw-openai-oauth
-    test_provider_opencode workspace-gw-llamafile "Workspace GW (llamafile)"
-    test_provider_opencode workspace-gw-kimi-oauth "Workspace GW (Kimi OAuth)"
-    test_provider_opencode workspace-gw-private "Workspace GW (OpenCode Go Virtual Key)"
-    test_provider_opencode workspace-gw-own "Workspace GW (OpenCode Go Own Key)"
-    test_provider_opencode workspace-gw-zen-own "Workspace GW (OpenCode Zen Own Key)"
-    test_provider_opencode workspace-gw-openai-oauth "Workspace GW (OpenAI ChatGPT OAuth)"
+    test_provider_detail workspace-gw-llamafile-no-auth
+    test_provider_detail workspace-gw-kimi-device-oauth
+    test_provider_detail workspace-gw-opencode-go-virtual-key
+    test_provider_detail workspace-gw-opencode-go-api-key
+    test_provider_detail workspace-gw-opencode-zen-api-key
+    test_provider_detail workspace-gw-openai-device-oauth
+    test_provider_opencode workspace-gw-llamafile-no-auth "Workspace GW (llamafile No Auth)"
+    test_provider_opencode workspace-gw-kimi-device-oauth "Workspace GW (Kimi Device OAuth)"
+    test_provider_opencode workspace-gw-opencode-go-virtual-key "Workspace GW (OpenCode Go Virtual Key)"
+    test_provider_opencode workspace-gw-opencode-go-api-key "Workspace GW (OpenCode Go API Key)"
+    test_provider_opencode workspace-gw-opencode-zen-api-key "Workspace GW (OpenCode Zen API Key)"
+    test_provider_opencode workspace-gw-openai-device-oauth "Workspace GW (OpenAI Device OAuth)"
 
     test_client_no_auth_llamafile
     test_client_no_auth_kimi_own

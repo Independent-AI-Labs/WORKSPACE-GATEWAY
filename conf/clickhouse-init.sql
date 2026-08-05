@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS llm_gateway.usage_log (
     is_stream                 UInt8 DEFAULT 0,
     cost                      Float64 DEFAULT 0,
     cost_source               Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2) DEFAULT 2,
+    provider_id               LowCardinality(String) DEFAULT '',
+    pricing_source            LowCardinality(String) DEFAULT '',
+    pricing_snapshot          String DEFAULT '',
     timestamp                 DateTime64(3) DEFAULT now()
 )
 ENGINE = MergeTree()
@@ -170,6 +173,15 @@ ALTER TABLE llm_gateway.usage_log
 
 ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS cost_source      Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2) DEFAULT 2 AFTER cost;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS provider_id      LowCardinality(String) DEFAULT '' AFTER cost_source;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS pricing_source   LowCardinality(String) DEFAULT '' AFTER provider_id;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS pricing_snapshot String DEFAULT '' AFTER pricing_source;
 
 ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS request_id      String DEFAULT '' AFTER event_id;

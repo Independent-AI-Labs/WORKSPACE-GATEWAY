@@ -108,7 +108,7 @@ No auth when password is unset (default).
 {
   "messageID": "string (optional, for replies)",
   "model": {
-    "providerID": "string (e.g. \"workspace-gw-private\")",
+    "providerID": "string (e.g. \"workspace-gw-opencode-go-virtual-key\")",
     "modelID": "string (e.g. \"minimax-m3\")"
   },
   "agent": "string (optional, e.g. \"build\" or \"plan\")",
@@ -137,7 +137,7 @@ No auth when password is unset (default).
     "sessionID": "sess_xyz789",
     "role": "assistant",
     "time": 1720195200,
-    "model": { "providerID": "workspace-gw-private", "modelID": "minimax-m3" },
+    "model": { "providerID": "workspace-gw-opencode-go-virtual-key", "modelID": "minimax-m3" },
     "cost": { "input": 0.003, "output": 0.015, "total": 0.018 },
     "tokens": {
       "input": 1500,

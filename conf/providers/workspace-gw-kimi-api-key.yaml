@@ -1,10 +1,13 @@
 ---
-id: workspace-gw-kimi-own
-name: "Workspace GW (Kimi Own Key)"
+id: workspace-gw-kimi-api-key
+name: "Workspace GW (Kimi API Key)"
+provider:
+  id: kimi
+  label: Kimi
 route: "/kimi-key"
 npm: "@ai-sdk/openai-compatible"
 auth:
-  type: none
+  type: api_key
 options:
   headers:
     X-Tenant-ID: default
@@ -19,4 +22,8 @@ model_aliases:
   kimi-for-coding: kimi-k2.7-code
   kimi-for-coding-highspeed: kimi-k2.7-code-highspeed
   k3: kimi-k3
-cost_source: moonshotai
+pricing:
+  source:
+    type: models_dev
+    provider: moonshotai
+  missing_policy: unknown

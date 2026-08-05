@@ -180,7 +180,7 @@ step6_seed_routes() {
 }
 
 step7_vector() {
-    wait_for_port "localhost" "8080" "Vector" 30
+    wait_for_port "localhost" "18080" "Vector" 30
 }
 
 step8_clickhouse() {

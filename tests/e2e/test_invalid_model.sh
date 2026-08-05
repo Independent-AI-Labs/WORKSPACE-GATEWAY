@@ -14,7 +14,7 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
-if [ -z "${RUN_LIVE_API_TESTS:-}" ]; then
+if [ "${1:-}" != "--live" ] && [ -z "${RUN_LIVE_API_TESTS:-}" ]; then
     echo "[SKIP] RUN_LIVE_API_TESTS not set, skipping live API invalid model tests"
     exit 0
 fi

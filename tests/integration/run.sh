@@ -38,7 +38,10 @@ teardown() {
         exit 0
     fi
     echo "[INFO] Runner tearing down stack..."
-    $TEST_COMPOSE down || echo "[WARN] teardown failed (status=$?)"
+    if ! $TEST_COMPOSE down; then
+        echo "[FAIL] test-stack teardown failed" >&2
+        fail=$((fail + 1))
+    fi
     echo ""
     echo "Integration tests: $pass passed, $fail failed"
     if [ "$fail" -gt 0 ]; then
@@ -49,7 +52,7 @@ teardown() {
 trap teardown EXIT
 
 stack_is_up() {
-    podman ps --format '{{.Names}}' | grep -q apisix
+    podman ps --filter label=io.podman.compose.project=docker --format '{{.Names}}' | grep -q '^docker_apisix_1$'
 }
 
 # Auto-detect: if the stack is already running, treat it as external and

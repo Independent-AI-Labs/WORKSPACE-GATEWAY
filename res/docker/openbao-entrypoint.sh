@@ -37,6 +37,7 @@ bao_seal_status_json() {
 # ─── 1. Start OpenBao server (background) ────────────────────────────────────
 bao server -config=/openbao/config/openbao.hcl &
 BAO_PID=$!
+trap 'kill -TERM "$BAO_PID"; wait "$BAO_PID"; exit 143' TERM INT
 
 # ─── 2. Wait for API to respond ──────────────────────────────────────────────
 # /v1/sys/health returns 200/429/501/503 once the HTTP listener is up.

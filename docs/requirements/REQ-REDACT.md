@@ -75,8 +75,9 @@ the original values are restored in the client-facing response.
 | FR-2.1 | Each detected PII instance MUST be replaced with a token of the form `[KIND_N]`, where KIND is the uppercased pattern kind and N is a per-request counter. |
 | FR-2.2 | Dictionary matches MUST use the token form `[DICTIONARY_N]`. |
 | FR-2.3 | The plugin MUST stash the token map in the per-request ctx (`ctx.redact_token_map`) and set `ctx.redact_active` only when at least one token was minted. |
-| FR-2.4 | Both string `content` and multi-modal `content[]` parts with a `text` field MUST be redacted. |
-| FR-2.5 | The request body MUST be rewritten with the redacted JSON before proxying upstream. |
+| FR-2.4 | Chat Completions string `content` and multi-modal `content[]` parts with a `text` field MUST be redacted. |
+| FR-2.5 | OpenAI Responses requests MUST redact `instructions`, string `input`, `input_text`/`text` content parts, function-call `arguments`, and function-call-output `output`; model ids, tool schemas, and encrypted reasoning content MUST remain unchanged. |
+| FR-2.6 | The request body MUST be rewritten with the redacted JSON before proxying upstream. |
 
 ### FR-3: Re-hydration
 
@@ -102,7 +103,7 @@ the original values are restored in the client-facing response.
 |----|-------------|
 | FR-5.1 | With `on_error: closed` (default), failure to load the patterns file MUST return HTTP 503. |
 | FR-5.2 | With `on_error: open`, pattern-load failure MUST pass the request through unredacted and log an error. |
-| FR-5.3 | A non-chat-shaped body (unparseable JSON or missing `messages`) MUST pass through unredacted and set `X-Redact-Error: non-chat-body`. |
+| FR-5.3 | An unsupported body schema (unparseable JSON, or neither `messages` nor `input`) MUST follow the configured error posture and identify the schema error. |
 | FR-5.4 | Failure to re-encode the redacted request body MUST return HTTP 503 (`closed`) or pass the original body through (`open`). |
 | FR-5.5 | A `ngx.re.gsub` error on a single pattern MUST be logged and MUST NOT abort processing of remaining patterns. |
 
@@ -132,7 +133,7 @@ the original values are restored in the client-facing response.
 
 | ID | Assumption |
 |----|------------|
-| A-1 | Request/response bodies are OpenAI chat-completion shaped. |
+| A-1 | Supported request bodies are OpenAI Chat Completions or Responses shaped. |
 | A-2 | Redaction tokens are fixed ASCII and cannot be split across SSE frames in a way that survives whole-buffer substitution. |
 
 ## 6. Open Questions

@@ -72,6 +72,13 @@
             podman_bin_dir: '{{ canonical_podman.stdout | dirname }}'
             compose_cmd: '{{ venv_compose }}'
 
+    - name: Ensure external dataops network exists before Compose start
+      tags: [deploy, start, restart]
+      ansible.builtin.command: '{{ podman_path }} network create dataops_default'
+      register: dataops_network
+      changed_when: dataops_network.rc == 0
+      failed_when: dataops_network.rc != 0 and 'already exists' not in (dataops_network.stderr | default(''))
+
     - name: Deploy gateway systemd unit (one-time provisioning)
       tags: [deploy]
       block:
@@ -112,6 +119,21 @@
       register: gateway_active
       changed_when: false
       failed_when: false
+
+    - name: Refresh gateway systemd unit
+      tags: [start, restart]
+      ansible.builtin.template:
+        src: templates/gateway-compose.service.j2
+        dest: '{{ systemd_dir }}/{{ gateway_unit }}'
+        mode: '0644'
+      register: gateway_unit_refresh
+
+    - name: Reload systemd after gateway unit refresh
+      tags: [start, restart]
+      ansible.builtin.systemd:
+        daemon_reload: true
+        scope: user
+      when: gateway_unit_refresh.changed
 
     - name: Check OpenBao host endpoint before start
       tags: [start]
@@ -177,7 +199,7 @@
               - podman
               - ps
               - --filter
-              - name=gw-
+              - label=io.podman.compose.project=docker
               - --format
               - 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Ports{{ "}}" }}'
           register: gateway_containers

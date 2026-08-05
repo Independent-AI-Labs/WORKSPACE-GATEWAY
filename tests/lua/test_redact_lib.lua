@@ -1,4 +1,5 @@
 local redact_lib = require("redact_lib")
+local redact_walk = require("redact_walk")
 
 local pass = 0
 local fail = 0
@@ -247,6 +248,49 @@ local function redact_tests()
     end
 end
 
+local function responses_request_tests()
+    local patterns, dict_alt = redact_lib.load_patterns(PATTERNS_FILE)
+
+    do
+        local counters, token_map = fresh_state()
+        local request = {
+            model = "gpt-5.6-luna",
+            instructions = "Email john@example.com",
+            input = {{ role = "user", content = {{ type = "input_text", text = "Call +1-800-555-1234" }} }},
+            reasoning = { encrypted_content = "must remain unchanged" },
+        }
+        check(redact_walk.redact_request(request, patterns, dict_alt, counters, token_map, false),
+            "responses[1] request recognized")
+        assert_contains(request.instructions, "[EMAIL_1]", "responses[1] instructions redacted")
+        assert_contains(request.input[1].content[1].text, "[PHONE_1]", "responses[1] input text redacted")
+        assert_eq(request.reasoning.encrypted_content, "must remain unchanged", "responses[1] encrypted content preserved")
+        assert_eq(request.model, "gpt-5.6-luna", "responses[1] model preserved")
+    end
+
+    do
+        local counters, token_map = fresh_state()
+        local request = {
+            input = {
+                { type = "function_call", arguments = "{\"email\":\"john@example.com\"}" },
+                { type = "function_call_output", output = "SSN 123-45-6789" },
+            },
+            tools = {{ type = "function", name = "lookup", parameters = { type = "object" } }},
+        }
+        check(redact_walk.redact_request(request, patterns, dict_alt, counters, token_map, false),
+            "responses[2] tool request recognized")
+        assert_contains(request.input[1].arguments, "[EMAIL_1]", "responses[2] function arguments redacted")
+        assert_contains(request.input[2].output, "[SSN_1]", "responses[2] function output redacted")
+        assert_eq(request.tools[1].name, "lookup", "responses[2] tool name preserved")
+    end
+
+    do
+        local counters, token_map = fresh_state()
+        local request = { model = "gpt-5.6-luna", stream = true }
+        assert_eq(redact_walk.redact_request(request, patterns, dict_alt, counters, token_map, false), false,
+            "responses[3] unsupported body rejected")
+    end
+end
+
 local function restore_tests()
     do
         local map = {}
@@ -299,6 +343,7 @@ local function main()
     luhn_tests()
     load_patterns_tests()
     redact_tests()
+    responses_request_tests()
     restore_tests()
 
     io.write(string.format("\n==== Lua unit tests: %d passed, %d failed ====\n", pass, fail))

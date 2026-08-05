@@ -155,9 +155,9 @@ fi
 # ── (F) Makefile integration ────────────────────────────────────────────
 mk_body="$(cat "$MAKEFILE" || echo "")"
 assert_contains "Makefile has ch-migrate target" "$mk_body" "ch-migrate:"
-assert_contains "Makefile ch-migrate invokes compose run --rm migrate up" "$mk_body" "run --rm migrate up"
+assert_contains "Makefile ch-migrate invokes gateway compose migrate-up" "$mk_body" "gateway-compose.sh migrate-up"
 assert_contains "Makefile has ch-migrate-status target" "$mk_body" "ch-migrate-status:"
-assert_contains "Makefile ch-migrate-status invokes migrate version" "$mk_body" "run --rm migrate version"
+assert_contains "Makefile ch-migrate-status invokes gateway compose migrate-status" "$mk_body" "gateway-compose.sh migrate-status"
 assert_not_contains "Makefile no longer references scripts/clickhouse-migrate.sh" "$mk_body" "clickhouse-migrate.sh"
 assert_not_contains "Makefile no longer references scripts/ch-migrate.sh" "$mk_body" "ch-migrate.sh"
 

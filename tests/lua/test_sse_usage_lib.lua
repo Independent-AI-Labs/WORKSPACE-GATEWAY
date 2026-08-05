@@ -120,6 +120,21 @@ local function scan_sse_tests()
         check(usage ~= nil, "scan[8] reasoning usage found")
         assert_eq(usage.reasoning_tokens, 3, "scan[8] reasoning_tokens")
     end
+
+    do
+        local usage, model = sse_lib.scan_sse_for_usage(
+            'event: response.completed\n' ..
+            'data: {"type":"response.completed","response":{"model":"gpt-5.6-luna","usage":{"input_tokens":120,"output_tokens":30,"total_tokens":150,"input_tokens_details":{"cached_tokens":12},"output_tokens_details":{"reasoning_tokens":8}}}}\n')
+        check(usage ~= nil, "scan[9] Responses usage found")
+        if usage then
+            assert_eq(usage.prompt_tokens, 120, "scan[9] input tokens")
+            assert_eq(usage.completion_tokens, 30, "scan[9] output tokens")
+            assert_eq(usage.total_tokens, 150, "scan[9] total tokens")
+            assert_eq(usage.prompt_tokens_details.cached_tokens, 12, "scan[9] cached tokens")
+            assert_eq(usage.completion_tokens_details.reasoning_tokens, 8, "scan[9] reasoning tokens")
+        end
+        assert_eq(model, "gpt-5.6-luna", "scan[9] model")
+    end
 end
 
 local function parse_json_usage_tests()
@@ -152,6 +167,15 @@ local function parse_json_usage_tests()
     do
         local usage = sse_lib.parse_json_usage(nil)
         check(usage == nil, "json[5] nil returns nil")
+    end
+
+    do
+        local usage, model = sse_lib.parse_json_usage(
+            '{"model":"gpt-5.6-luna","usage":{"input_tokens":11,"output_tokens":4,"total_tokens":15}}')
+        check(usage ~= nil, "json[6] Responses usage found")
+        assert_eq(usage.prompt_tokens, 11, "json[6] input tokens")
+        assert_eq(usage.completion_tokens, 4, "json[6] output tokens")
+        assert_eq(model, "gpt-5.6-luna", "json[6] model")
     end
 end
 

@@ -20,7 +20,7 @@
 - [`plugins/custom/kimi_jwt.lua`](../../plugins/custom/kimi_jwt.lua): JWT decode/expiry/hash
 - [`plugins/custom/kimi_tokens.lua`](../../plugins/custom/kimi_tokens.lua): OpenBao token storage
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): 6 `relay-kimi*` routes
-- [`conf/providers/workspace-gw-kimi-oauth.yaml`](../../conf/providers/workspace-gw-kimi-oauth.yaml) and siblings: provider definitions
+ - [`conf/providers/workspace-gw-kimi-device-oauth.yaml`](../../conf/providers/workspace-gw-kimi-device-oauth.yaml) and siblings: provider definitions
 
 ---
 
@@ -73,7 +73,7 @@ refreshes transparently) and two API-key alternatives.
 | ID | Requirement |
 |----|-------------|
 | FR-2.1 | Device authorization MUST POST `{oauth_host}/api/oauth/device_authorization` with `client_id` `17e5f671-d194-4dfb-9706-5516cb48c098` and no PKCE/redirect. |
-| FR-2.2 | Device start MUST store a pending record in OpenBao under `secret/data/gateway/kimi-device/{sha256(device_code)}` and return `{ verification_uri, verification_uri_complete, user_code, device_code, interval, expires_in }`. |
+| FR-2.2 | Device start MUST broker the upstream authorization, store pending upstream state in OpenBao under `secret/data/gateway/kimi-device/{sha256(gateway_device_code)}`, and return an opaque gateway `device_code` with the verification payload. |
 | FR-2.3 | Device poll MUST accept `device_code` in a JSON body, verify the pending record exists and is unexpired, and POST the token endpoint with `grant_type=urn:ietf:params:oauth:grant-type:device_code`. |
 | FR-2.4 | On `authorization_pending`/`slow_down` the poll MUST return 202 without consuming the device code. |
 | FR-2.5 | On success the poll MUST store the session under `sha256(issued access_token)`, delete the pending device record, and return `{ access_token, expires_in, account, session_id }`. |
@@ -96,7 +96,7 @@ refreshes transparently) and two API-key alternatives.
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | Pending device records MUST live at `secret/data/gateway/kimi-device/{device_code_hash}` and MUST be deleted after successful exchange or expiry. |
+| FR-4.1 | Pending device records MUST retain upstream device state under `secret/data/gateway/kimi-device/{gateway_device_code_hash}` and MUST be deleted after successful exchange or expiry. |
 | FR-4.2 | OAuth sessions MUST live at `secret/data/gateway/kimi-tokens/{token_hash}` where `token_hash = sha256(issued access_token)`. |
 | FR-4.3 | Session records MUST retain `access_token`, `refresh_token`, `expires_at`, `issued_access_token_hash`, `live_access_token_hash`, `sub`, and `session_id`; refresh MUST update the record under the original issued-hash key so the client's token string keeps working. |
 | FR-4.4 | Access/refresh tokens MUST NOT be logged. |
@@ -105,7 +105,7 @@ refreshes transparently) and two API-key alternatives.
 
 | ID | Requirement |
 |----|-------------|
-| FR-5.1 | Three OpenCode provider ids MUST exist: `workspace-gw-kimi-oauth` (`/kimi`, auth `oauth`), `workspace-gw-kimi-private` (`/kimi-federated`, auth `virtual_key`), `workspace-gw-kimi-own` (`/kimi-key`, auth `none`). |
+| FR-5.1 | Three OpenCode provider ids MUST exist: `workspace-gw-kimi-device-oauth` (`/kimi`, auth `oauth`), `workspace-gw-kimi-virtual-key` (`/kimi-federated`, auth `virtual_key`), `workspace-gw-kimi-api-key` (`/kimi-key`, auth `api_key`). |
 | FR-5.2 | All three MUST source models from models.dev provider `moonshotai` with `strip_prefix: moonshotai/` + `lowercase` normalization and `cost_source: moonshotai`. |
 
 ## 3. Non-Functional Requirements

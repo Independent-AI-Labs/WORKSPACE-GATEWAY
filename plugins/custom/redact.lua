@@ -1,6 +1,7 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
 local redact_lib = require("apisix.plugins.redact_lib")
+local redact_walk = require("apisix.plugins.redact_walk")
 
 local plugin_name = "redact"
 
@@ -85,7 +86,7 @@ function plugin.access(conf, ctx)
     if not body or body == "" then return end
 
     local ok, parsed = pcall(cjson.decode, body)
-    if not ok or not parsed or not parsed.messages then
+    if not ok or not parsed then
         if conf.on_error == "closed" then
             core.log.error("redact: request body is not parseable chat JSON; rejecting (on_error=closed)")
             return 400, { error = "redact: request body is not parseable chat JSON" }
@@ -101,22 +102,15 @@ function plugin.access(conf, ctx)
     local counters = {}
     local token_map = {}
 
-    for _, msg in ipairs(parsed.messages) do
-        if type(msg.content) == "string" then
-            msg.content = redact_lib.redact_text(
-                msg.content, loaded_patterns, dict_alt,
-                counters, token_map, conf.redact_ips
-            )
-        elseif type(msg.content) == "table" then
-            for _, part in ipairs(msg.content) do
-                if part.text then
-                    part.text = redact_lib.redact_text(
-                        part.text, loaded_patterns, dict_alt,
-                        counters, token_map, conf.redact_ips
-                    )
-                end
-            end
+    if not redact_walk.redact_request(
+        parsed, loaded_patterns, dict_alt, counters, token_map, conf.redact_ips
+    ) then
+        if conf.on_error == "closed" then
+            core.log.error("redact: unsupported request body schema; rejecting (on_error=closed)")
+            return 400, { error = "redact: unsupported request body schema" }
         end
+        core.response.set_header("X-Redact-Error", "unsupported-body-schema")
+        return
     end
 
     local encode_ok, new_body = pcall(cjson.encode, parsed)

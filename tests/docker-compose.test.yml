@@ -10,8 +10,8 @@ services:
     ports:
       - "9080:9080"
       - "9443:9443"
-      - "9180:9180"
-      - "9100:9100"
+      - "127.0.0.1:9180:9180"
+      - "127.0.0.1:9100:9100"
     volumes:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
       - ../../conf/config.yaml:/usr/local/apisix/conf/config.yaml:ro
@@ -20,21 +20,33 @@ services:
       - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
       - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
       - ../../plugins/custom/kimi-auth.lua:/usr/local/apisix/apisix/plugins/kimi-auth.lua:ro
+      - ../../plugins/custom/openai-auth.lua:/usr/local/apisix/apisix/plugins/openai-auth.lua:ro
+      - ../../plugins/custom/oauth_broker.lua:/usr/local/apisix/apisix/plugins/oauth_broker.lua:ro
       - ../../plugins/custom/kimi_jwt.lua:/usr/local/apisix/apisix/plugins/kimi_jwt.lua:ro
       - ../../plugins/custom/kimi_device.lua:/usr/local/apisix/apisix/plugins/kimi_device.lua:ro
       - ../../plugins/custom/kimi_tokens.lua:/usr/local/apisix/apisix/plugins/kimi_tokens.lua:ro
+      - ../../plugins/custom/openai_device.lua:/usr/local/apisix/apisix/plugins/openai_device.lua:ro
       - ../../plugins/custom/provider-sync.lua:/usr/local/apisix/apisix/plugins/provider-sync.lua:ro
+      - ../../plugins/custom/provider_sync_aliases.lua:/usr/local/apisix/apisix/plugins/provider_sync_aliases.lua:ro
       - ../../plugins/custom/provider_sync_catalog.lua:/usr/local/apisix/apisix/plugins/provider_sync_catalog.lua:ro
+      - ../../plugins/custom/provider_sync_contract.lua:/usr/local/apisix/apisix/plugins/provider_sync_contract.lua:ro
       - ../../plugins/custom/sse-usage.lua:/usr/local/apisix/apisix/plugins/sse-usage.lua:ro
       - ../../plugins/custom/upstream_pool_lib.lua:/usr/local/apisix/apisix/plugins/upstream_pool_lib.lua:ro
       - ../../plugins/custom/sse_usage_lib.lua:/usr/local/apisix/apisix/plugins/sse_usage_lib.lua:ro
       - ../../plugins/custom/cost_calc.lua:/usr/local/apisix/apisix/plugins/cost_calc.lua:ro
       - ../../plugins/custom/model_registry.lua:/usr/local/apisix/apisix/plugins/model_registry.lua:ro
       - ../../plugins/custom/provider_sync_pricing.lua:/usr/local/apisix/apisix/plugins/provider_sync_pricing.lua:ro
+      - ../../plugins/custom/provider_pricing.lua:/usr/local/apisix/apisix/plugins/provider_pricing.lua:ro
       - ../../plugins/custom/redact.lua:/usr/local/apisix/apisix/plugins/redact.lua:ro
       - ../../plugins/custom/redact_lib.lua:/usr/local/apisix/apisix/plugins/redact_lib.lua:ro
+      - ../../plugins/custom/redact_walk.lua:/usr/local/apisix/apisix/plugins/redact_walk.lua:ro
     env_file:
       - ../../.env
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9080/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     depends_on:
       - vector
       - openbao
@@ -48,9 +60,14 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8-alpine
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -61,9 +78,11 @@ services:
       - gateway
 
   migrate:
+    profiles: [migration]
     image: migrate/migrate:v4.19.1
     depends_on:
-      - clickhouse
+      clickhouse:
+        condition: service_healthy
     volumes:
       - ../../conf/migrations:/migrations:ro
     entrypoint:
@@ -81,7 +100,7 @@ services:
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
     ports:
-      - "18080:8080"
+      - "127.0.0.1:18080:8080"
     depends_on:
       - clickhouse
     restart: unless-stopped
@@ -99,14 +118,19 @@ services:
       - ../../.env
     environment:
       BAO_LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8200/v1/sys/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     ports:
-      - "8201:8200"
+      - "127.0.0.1:8201:8200"
     restart: unless-stopped
     networks:
       - gateway
 
   prometheus:
-    image: prom/prometheus:v3.13.1
+    image: prom/prometheus:v3.13.2
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -115,7 +139,12 @@ services:
       - ../../conf/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9092:9090"
+      - "127.0.0.1:9092:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
     networks:
       - gateway
@@ -141,6 +170,11 @@ services:
       - grafana-data:/var/lib/grafana
     ports:
       - "127.0.0.1:3030:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -154,8 +188,13 @@ services:
       - --advertise-client-urls=http://etcd:2379
       - --listen-client-urls=http://0.0.0.0:2379
       - --data-dir=/etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     ports:
-      - "2379:2379"
+      - "127.0.0.1:2379:2379"
     volumes:
       - etcd-data:/etcd-data
     restart: unless-stopped

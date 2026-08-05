@@ -107,13 +107,15 @@ GATEWAY="http://127.0.0.1:$PORT"
 
 # Run client script in OAuth mode with --no-browser.
 set +e
-CLIENT_OUTPUT=$(bash "$CLIENT_SCRIPT" \
+CLIENT_OUTPUT=$(timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-oauth \
     --gateway "$GATEWAY" \
     --session test-session \
     --config-file "$CONFIG_FILE" \
     --auth-file "$AUTH_FILE" \
-    --no-browser 2>&1)
+    --no-browser \
+    --no-clipboard \
+    --device-timeout 5 2>&1)
 CLIENT_RC=$?
 set -e
 
@@ -167,7 +169,7 @@ fi
 
 # --- Test: api_key provider with piped input ---
 set +e
-API_KEY_OUTPUT=$(echo "test-api-key-value" | bash "$CLIENT_SCRIPT" \
+API_KEY_OUTPUT=$(echo "test-api-key-value" | timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-api-key \
     --gateway "$GATEWAY" \
     --session test-session-api \

@@ -83,7 +83,7 @@ One provider document per file; `id` is authoritative.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string | yes | Provider id (e.g. `workspace-gw-kimi-oauth`) |
+| `id` | string | yes | Provider id (e.g. `workspace-gw-kimi-device-oauth`) |
 | `name` | string | yes | Display name |
 | `route` | string | yes | Gateway route prefix (e.g. `/kimi`) |
 | `npm` | string | yes | OpenCode SDK package |
@@ -103,7 +103,7 @@ One provider document per file; `id` is authoritative.
 | `context_limit_pct` | int | no (100) | Context scaling percentage |
 | `context_limit_ceiling` | int | no (0 = none) | Context cap |
 
-Deployed files (7): `workspace-gw-kimi-oauth` (oauth, moonshotai),
+Deployed files (8): `workspace-gw-kimi-device-oauth` (oauth, moonshotai),
 `workspace-gw-kimi-private` (virtual_key, moonshotai),
 `workspace-gw-kimi-own` (none, moonshotai), `workspace-gw-private`
 (virtual_key, opencode, `filter.exclude: [-free$]`), `workspace-gw-own`
@@ -210,7 +210,7 @@ Catalog unavailable (no cache and sync failed): 503
 
 ```json
 {
-  "provider_id": "workspace-gw-kimi-oauth",
+  "provider_id": "workspace-gw-kimi-device-oauth",
   "provider": {
     "name": "...", "npm": "@ai-sdk/openai-compatible",
     "options": { "baseURL": "<scheme>://<host>[:port]<route>",
@@ -219,12 +219,17 @@ Catalog unavailable (no cache and sync failed): 503
   },
   "auth_type": "oauth",
   "auth_route": "/kimi/auth",
+  "auth_methods": [{ "id": "kimi-headless", "flow": "device_authorization", "route": "/kimi/auth" }],
   "metadata": {}
 }
 ```
 
 `baseURL` derives from the incoming request's scheme/host/port (port omitted
 for 80/443). `auth_route` is `<route>/auth` only for `auth.type == "oauth"`.
+The current client contract exposes the headless device method; `auth_type:
+oauth` must not be interpreted as proof that browser PKCE is supported.
+Each OAuth method declares an explicit `id`, `flow`, and route; clients select a
+method rather than inferring a device flow from `auth_type`.
 
 ## 8. Route Configuration
 
@@ -241,7 +246,7 @@ Options: `--provider-id` (required), `--gateway` (default
 `--device-timeout` (default 900s).
 
 Flow: validate `curl`/`jq` and gateway URL -> fetch the `/opencode` block ->
-branch on `auth_type` (oauth: device flow via `auth_route`; api_key/
+branch on `auth_type` (oauth: current headless device flow via `auth_route`; api_key/
 virtual_key: prompt unless `--no-prompt`) -> strip JSONC comments -> `jq` merge
 `.provider[$id] = $block.provider` -> merge
 `{ "<id>": { "type": "api", "key": "<token>" } }` into `auth.json` with
