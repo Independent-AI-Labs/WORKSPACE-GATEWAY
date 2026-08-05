@@ -198,7 +198,7 @@ local function sync_and_enrich_tests()
 
     --Reset cache and captured requests before sync.
     cache = {}
-    captured_requests = {}
+    for i = #captured_requests, 1, -1 do table.remove(captured_requests, i) end
 
     local result, err = provider_sync.sync(conf)
     check(result ~= nil, "sync[1] succeeds: " .. tostring(err or "ok"))
@@ -398,7 +398,7 @@ local function filter_tests()
     }
 
     cache = {}
-    captured_requests = {}
+    for i = #captured_requests, 1, -1 do table.remove(captured_requests, i) end
 
     local result, err = provider_sync.sync(conf)
     check(result ~= nil, "filter[1] sync succeeds: " .. tostring(err or "ok"))
