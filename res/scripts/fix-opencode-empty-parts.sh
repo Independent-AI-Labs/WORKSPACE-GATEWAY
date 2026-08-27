@@ -63,18 +63,18 @@ echo "[INFO] backup: $BACKUP"
 
 NOW_MS=$(($(date +%s) * 1000))
 
-sqlite3 "$DB" <<SQL
+sqlite3 "$DB" "$(printf "
 UPDATE part
 SET data = json_set(data, '\$.text', '[reasoning interrupted]'),
-    time_updated = $NOW_MS
-WHERE json_extract(data,'$.type')='reasoning' AND json_extract(data,'$.text')='';
+    time_updated = %s
+WHERE json_extract(data,'\$.type')='reasoning' AND json_extract(data,'\$.text')='';
 
 UPDATE part
 SET data = json_set(data, '\$.text', ' '),
-    time_updated = $NOW_MS
-WHERE json_extract(data,'$.type')='text' AND json_extract(data,'$.text')=''
-  AND json_extract((SELECT m.data FROM message m WHERE m.id=part.message_id),'$.role')='assistant';
-SQL
+    time_updated = %s
+WHERE json_extract(data,'\$.type')='text' AND json_extract(data,'\$.text')=''
+  AND json_extract((SELECT m.data FROM message m WHERE m.id=part.message_id),'\$.role')='assistant';
+" "$NOW_MS" "$NOW_MS")"
 
 REMAINING=$(sqlite3 "$DB" "
 SELECT count(*) FROM part

@@ -6,6 +6,15 @@ set -euo pipefail
 # Podman has finished creating that dependency. Bootstrap each service under a
 # process lock, then keep APISIX in the foreground for systemd.
 
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+LOCK_FILE="$LOCK_DIR/workspace-gateway-compose.lock"
+
+# Keep the lock in flock's process so container helpers cannot inherit it.
+if [ "${1:-}" != "--locked" ]; then
+    exec flock --close "$LOCK_FILE" "$0" --locked "$@"
+fi
+shift
+
 if [ "$#" -ne 3 ]; then
     echo "usage: $0 COMPOSE_CMD PODMAN_PATH COMPOSE_FILE" >&2
     exit 2
@@ -28,18 +37,27 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
     fi
     set +a
 fi
-LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}"
-LOCK_FILE="$LOCK_DIR/workspace-gateway-compose.lock"
-
-exec 9>"$LOCK_FILE"
-flock -x 9
-
 compose() {
     "$COMPOSE_CMD" --podman-path "$PODMAN_PATH" -f "$COMPOSE_FILE" "$@"
 }
 
+# Start ClickHouse without writers and require readiness before ingestion.
+compose up -d clickhouse
+clickhouse_ping=""
+for _ in $(seq 1 60); do
+    if clickhouse_ping="$(curl -fsS --max-time 2 http://127.0.0.1:8123/ping 2>&1)"; then
+        clickhouse_ready=1
+        break
+    fi
+    sleep 2
+done
+if [ "${clickhouse_ready:-0}" -ne 1 ]; then
+    echo "ClickHouse did not become ready within 120 seconds: $clickhouse_ping" >&2
+    exit 1
+fi
+
 # Keep this list explicit and ordered. Do not collapse it into one `up` call.
-for service in clickhouse vector openbao prometheus grafana etcd; do
+for service in vector openbao prometheus grafana etcd; do
     compose up -d "$service"
 done
 

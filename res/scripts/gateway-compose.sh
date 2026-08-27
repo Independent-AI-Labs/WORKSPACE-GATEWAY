@@ -12,9 +12,10 @@ SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/res/docker/docker-compose.yml}"
 COMPOSE_BIN="${COMPOSE_BIN:-$REPO_ROOT/.venv/bin/podman-compose}"
+PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set to the absolute podman binary path (the Makefile exports it)}"
 
 usage() {
-    printf 'Usage: %s {build|down|clean|restart-service SERVICE|logs [SERVICE]|migrate-up|migrate-status}\n' "$0" >&2
+    printf 'Usage: %s {build|down|restart-service SERVICE|logs [SERVICE]|migrate-up|migrate-status}\n' "$0" >&2
 }
 
 if [ ! -x "$COMPOSE_BIN" ]; then
@@ -27,7 +28,7 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 compose() {
-    "$COMPOSE_BIN" -f "$COMPOSE_FILE" "$@"
+    "$COMPOSE_BIN" --podman-path "$PODMAN_PATH" -f "$COMPOSE_FILE" "$@"
 }
 
 case "${1:-}" in
@@ -35,10 +36,16 @@ case "${1:-}" in
         compose build
         ;;
     down)
-        compose down
-        ;;
-    clean)
-        compose down -v
+        shift
+        for arg in "$@"; do
+            case "$arg" in
+                -v|--volumes|-av|-va|--rmi-all)
+                    echo "ERROR: refusing 'down' with volume/image removal: $arg (named volumes hold persistent Gateway data)" >&2
+                    exit 1
+                    ;;
+            esac
+        done
+        compose down "$@"
         ;;
     restart-service)
         service="${2:-}"

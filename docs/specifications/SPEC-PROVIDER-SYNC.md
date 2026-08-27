@@ -223,7 +223,7 @@ Catalog unavailable (no cache and sync failed): 503
   },
   "auth_type": "oauth",
   "auth_route": "/kimi/auth",
-  "auth_methods": [{ "id": "kimi-headless", "flow": "device_authorization", "route": "/kimi/auth" }],
+  "auth_methods": [{ "id": "<method-id>", "flow": "<flow>", "route": "<provider-route>/auth" }],
   "metadata": {}
 }
 ```
@@ -233,7 +233,10 @@ for 80/443). `auth_route` is `<route>/auth` only for `auth.type == "oauth"`.
 The current client contract exposes the headless device method; `auth_type:
 oauth` must not be interpreted as proof that browser PKCE is supported.
 Each OAuth method declares an explicit `id`, `flow`, and route; clients select a
-method rather than inferring a device flow from `auth_type`.
+method rather than inferring a device flow from `auth_type`. The OpenAI provider
+declares both `chatgpt-headless` (`device_authorization`) and `chatgpt-browser`
+(`authorization_code_pkce`). The Kimi provider declares only its verified
+device-authorization method.
 
 ## 8. Route Configuration
 
@@ -250,11 +253,18 @@ Options: `--provider-id` (required), `--gateway` (default
 `--device-timeout` (default 900s).
 
 Flow: validate `curl`/`jq` and gateway URL -> fetch the `/opencode` block ->
-branch on `auth_type` (oauth: current headless device flow via `auth_route`; api_key/
+branch on `auth_type` (oauth: legacy headless device flow via `auth_route`; api_key/
 virtual_key: prompt unless `--no-prompt`) -> strip JSONC comments -> `jq` merge
 `.provider[$id] = $block.provider` -> merge
 `{ "<id>": { "type": "api", "key": "<token>" } }` into `auth.json` with
 mode `600` -> print summary.
+
+The preferred OAuth path is the gateway-owned OpenCode plugin at
+`res/opencode-plugin/workspace-gateway-auth.ts`, loaded through the standard
+OpenCode `plugin` config array. It registers method-specific browser/device
+flows and returns gateway-issued credentials through OpenCode's native auth
+store. The shell script remains a compatibility installer and does not host an
+OAuth callback server.
 
 Safe-merge rules: only the matching provider key is touched; other providers
 and top-level keys are preserved; JSONC input is rewritten as plain JSON.

@@ -109,8 +109,8 @@ table = "request_log"
 skip_unknown_fields = true
 
 [sinks.clickhouse_request_log.batch]
-max_events = 50
-timeout_secs = 1
+max_events = 1000
+timeout_secs = 10
 
 [sinks.clickhouse_request_log.buffer]
 type = "memory"

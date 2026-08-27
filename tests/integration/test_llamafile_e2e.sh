@@ -54,12 +54,7 @@ fi
 MODELS_JSON=$(curl -sf --max-time 10 "$GATEWAY_URL/llamafile/v1/models" || echo "")
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
-    MODEL_ID=$(printf '%s' "$MODELS_JSON" | python3 -c "import sys,json
-try:
-    d=json.load(sys.stdin)
-    print(d['data'][0]['id'] if d.get('data') else '')
-except Exception:
-    print('')" || echo "")
+    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' || echo "")
 fi
 assert_eq "llamafile /v1/models returned a model id" "yes" "$([ -n "$MODEL_ID" ] && echo yes || echo no)"
 if [ -z "$MODEL_ID" ]; then
@@ -98,12 +93,7 @@ fi
 # plugin is responsible for estimating tokens in that case. Token-count
 # correctness is therefore asserted from usage_log downstream, NOT from the
 # raw HTTP response usage object.
-HAS_CHOICES=$(python3 -c "import sys,json
-try:
-    d=json.load(sys.stdin)
-    print('yes' if d.get('choices') else 'no')
-except Exception:
-    print('no')" < "$RESP_BODY" || echo "no")
+HAS_CHOICES=$(jq -r 'if ((.choices | length) > 0) then "yes" else "no" end' "$RESP_BODY" || echo "no")
 rm -f "$RESP_BODY"
 assert_eq "llamafile response body has a choices array" "yes" "$HAS_CHOICES"
 

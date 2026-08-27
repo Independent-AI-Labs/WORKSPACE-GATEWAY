@@ -1,12 +1,16 @@
 # SPEC-PROVIDER-OPENAI: OpenAI OAuth Provider
 
-**Date:** 2026-08-04
+**Date:** 2026-08-06
 **Status:** Active
 **Type:** Specification
 **Requirements:** [REQ-PROVIDER-OPENAI](../requirements/REQ-PROVIDER-OPENAI.md)
 
 **Upstream reference:** `../opencode/packages/core/src/plugin/provider/openai.ts`
 and `../opencode/packages/opencode/src/plugin/openai/codex.ts`
+
+**External plugin package:** published `@opencode-ai/plugin`
+(`1.18.14` observed on 2026-08-06; the gateway pins the version in its own
+Bun manifest and lockfile).
 
 ## 1. Components
 
@@ -17,6 +21,7 @@ and `../opencode/packages/opencode/src/plugin/openai/codex.ts`
 | `kimi_jwt.lua` | Token hashing, expiry checks, and JWT claim decoding |
 | `kimi_tokens.lua` | OpenBao KVv2 device/session CRUD |
 | `relay-openai` | HTTPS relay from `/openai/*` to ChatGPT Codex responses |
+| `workspace-gateway-auth.ts` | Gateway-owned OpenCode `Hooks.auth` adapter using the published plugin package |
 
 ## 2. OAuth Protocol
 
@@ -51,12 +56,20 @@ those are exchanged using `grant_type=authorization_code`, `code`,
 endpoint is treated as pending. This is intentionally documented separately
 from Kimi's RFC 8628 grant and form device-token exchange.
 
-OpenCode also supports a separate browser method. It generates PKCE and state,
+OpenCode also supports a separate browser method. The upstream implementation
+generates PKCE and state,
 opens `/oauth/authorize` with `scope=openid profile email offline_access`,
 `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`, and
 `originator=opencode`, then receives the code at
-`http://localhost:1455/auth/callback`. The gateway does not implement this
-browser method; only the headless flow above is currently exposed.
+`http://localhost:1455/auth/callback`. The gateway-owned plugin exposes this
+method through `openai-auth`; the plugin submits the callback code and state to
+the gateway, which performs the upstream exchange. This upstream contract was
+verified against OpenCode source on 2026-08-06.
+
+The gateway plugin remains an external project-owned file. It MUST import
+`@opencode-ai/plugin` from the public package registry through Bun. It MUST NOT
+copy the plugin module, re-declare its exported types, or modify the sibling
+`projects/opencode` checkout. Its tests remain Bun tests using `bun:test`.
 
 ## 3. Request Processing
 
@@ -99,7 +112,6 @@ The provider file `workspace-gw-openai-device-oauth.yaml` declares
 
 ## 6. Known Divergences
 
-- Browser PKCE OAuth is supported by OpenCode but absent from the gateway.
 - The gateway hard-codes `opencode/1.18.3`; OpenCode uses its current
   `InstallationVersion`.
 - Gateway HTTP requests set `ssl_verify = false`; OpenCode uses normal fetch
@@ -108,3 +120,25 @@ The provider file `workspace-gw-openai-device-oauth.yaml` declares
   margin; the gateway client controls polling and does not add that margin.
 - The gateway returns a plain `/codex/device` value as
   `verification_uri_complete`, rather than constructing a code-bearing URL.
+- Device polling must preserve the upstream pending contract: HTTP 202 with
+  `authorization_pending` is a normal intermediate result, not a failed
+  gateway request.
+
+## 7. External Plugin Packaging Contract
+
+The gateway-owned plugin is distributed from this repository and loaded by
+OpenCode through a local file URL. Its package boundary is deliberately
+separate from the OpenCode source tree:
+
+| Item | Contract |
+|------|----------|
+| Runtime | Bun 1.3.14, pinned by the gateway package manifest |
+| Public dependency | Published `@opencode-ai/plugin` package |
+| Test runner | `bun test` with `bun:test` |
+| Source ownership | `WORKSPACE-GATEWAY/res/opencode-plugin/` |
+| Forbidden change | Copying or editing `projects/opencode/packages/plugin` |
+| Lockfile ownership | `WORKSPACE-GATEWAY/res/opencode-plugin/bun.lock` |
+
+The package setup is complete only when `bun install --frozen-lockfile`,
+`bun run typecheck`, and the plugin unit test pass without using a workspace
+dependency or path import into `projects/opencode`.

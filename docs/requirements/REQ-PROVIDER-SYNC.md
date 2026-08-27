@@ -107,6 +107,7 @@ pricing is written exactly once, in one place.
 | FR-4.2 | `GET /gateway/providers/{id}` MUST return the full enriched provider, or 404 `{ "error": "provider not found" }`. |
 | FR-4.3 | `GET /gateway/providers/{id}/opencode` MUST return an OpenCode provider block whose `options.baseURL` is built at request time from scheme/host/port plus the provider `route`. |
 | FR-4.4 | The `/opencode` response MUST include `auth_type`, and MUST include `auth_route` (`<route>/auth`) only when `auth.type == "oauth"`; OAuth responses MUST also include explicit `auth_methods` with method ids, flow types, and routes. |
+| FR-4.5 | The gateway-owned OpenCode plugin at `res/opencode-plugin/workspace-gateway-auth.ts` MUST be loadable through OpenCode's standard `plugin` config array and MUST consume method-specific gateway routes. |
 | FR-4.5 | `POST /gateway/providers/sync` MUST trigger a sync and return 200 with `{ ok, providers_loaded, models_enriched }`, 202 when a sync is already running, or 503 on failure. |
 | FR-4.6 | All JSON responses MUST set `Content-Type: application/json`; unmatched URIs MUST return 404. |
 | FR-4.7 | When the catalog is unavailable (cache empty and sync failed), endpoints MUST return 503 `{ "error": "provider catalog unavailable" }`. |
@@ -115,7 +116,7 @@ pricing is written exactly once, in one place.
 
 | ID | Requirement |
 |----|-------------|
-| FR-5.1 | The client script MUST depend only on `bash`, `curl`, and `jq` (no Lua, Python, or Podman). |
+| FR-5.1 | The legacy client script MUST depend only on `bash`, `curl`, and `jq` (no Lua, Python, or Podman) and MUST NOT host an OAuth callback server. |
 | FR-5.2 | The script MUST fetch `GET /gateway/providers/{id}/opencode` and branch on `auth_type`. |
 | FR-5.3 | For the current headless OAuth method, the script MUST run device authorization via `auth_route` (`POST <auth_route>/device`, poll `POST <auth_route>/device/poll`). Browser authorization-code/PKCE MUST be represented by a distinct flow method, not inferred from `auth_type: oauth`. |
 | FR-5.4 | For `api_key`/`virtual_key`, the script MUST prompt for the key unless `--no-prompt` is set (then fail). |
@@ -176,5 +177,6 @@ the APISIX image; provider dir mounted into the container.)
 | FR-2.x sync & enrichment | Implemented | provider_sync_catalog.lua `M.sync` |
 | FR-3.x pricing single writer | Implemented | provider_sync_pricing.lua |
 | FR-4.x endpoints | Implemented | provider-sync.lua `plugin.access` |
-| FR-5.x client script | Implemented | res/scripts/opencode-provider-login.sh |
+| FR-5.x client script | Implemented | res/scripts/opencode-provider-login.sh (legacy device/API-key installer) |
+| FR-4.5 native OAuth plugin | Implemented | res/opencode-plugin/workspace-gateway-auth.ts |
 | FR-6.x security model | Implemented | conf/apisix.yaml `gateway-provider-sync` route (limit-count 60/60s) |

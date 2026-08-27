@@ -25,5 +25,7 @@ hooks:
     - check-dead-code
 
 overrides:
+  - check-markdown-docs:
+    entry: "uv run --project /opt/workspace-ci --no-sync python -m ci.check_markdown_docs --all-md --check-remote"
   - check-dependency-versions:
-    entry: "bash -c 'source ../CI/lib/checks.sh && CI_CONFIG_DIR=\"$CI_CONFIG_DIR\" CI_PROJECT_ROOT=\"$CI_PROJECT_ROOT\" exec uv run --project ../CI --no-sync python -m ci.check_dependency_versions res/docker/docker-compose.yml'"
+    entry: 'uv run --project /opt/workspace-ci --no-sync python -m ci.check_dependency_versions validate --consumer-root "$PWD" --exclusions config/dependency_excludes.yaml --catalog-if-present res/dependency-pins.yaml --compose res/docker/docker-compose.yml'

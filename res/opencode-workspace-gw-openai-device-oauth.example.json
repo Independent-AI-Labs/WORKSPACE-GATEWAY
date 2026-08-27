@@ -1,5 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    [
+      "file:///absolute/path/to/WORKSPACE-GATEWAY/res/opencode-plugin/workspace-gateway-auth.ts",
+      {
+        "provider": "workspace-gw-openai-device-oauth",
+        "gateway": "http://localhost:9080",
+        "route": "/openai/auth"
+      }
+    ]
+  ],
   "provider": {
     "workspace-gw-openai-device-oauth": {
       "npm": "@ai-sdk/openai",

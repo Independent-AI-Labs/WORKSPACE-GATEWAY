@@ -38,8 +38,8 @@ if ! grep -qF 'gateway-compose-up.sh' "$REPO_ROOT/res/ansible/templates/gateway-
     exit 1
 fi
 
-if ! grep -qF 'flock -x 9' "$REPO_ROOT/res/scripts/gateway-compose-up.sh"; then
-    echo "serialized compose bootstrap lacks an exclusive lock" >&2
+if ! grep -qF 'flock --close' "$REPO_ROOT/res/scripts/gateway-compose-up.sh"; then
+    echo "serialized compose bootstrap leaks its exclusive lock" >&2
     exit 1
 fi
 
@@ -48,7 +48,12 @@ if ! grep -qF 'PROJECT_ROOT/.env' "$REPO_ROOT/res/scripts/gateway-compose-up.sh"
     exit 1
 fi
 
-if ! grep -qF 'for service in clickhouse vector openbao prometheus grafana etcd' \
+if ! grep -qF 'compose up -d clickhouse' "$REPO_ROOT/res/scripts/gateway-compose-up.sh"; then
+    echo "serialized compose bootstrap does not isolate ClickHouse startup" >&2
+    exit 1
+fi
+
+if ! grep -qF 'for service in vector openbao prometheus grafana etcd' \
     "$REPO_ROOT/res/scripts/gateway-compose-up.sh"; then
     echo "serialized compose bootstrap does not start dependencies in order" >&2
     exit 1

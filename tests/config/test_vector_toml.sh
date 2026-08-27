@@ -111,8 +111,8 @@ assert_eq "ClickHouse sink has retry_attempts" "1" "$HAS_RETRY"
 HAS_BUFFER=$(grep -c 'when_full = "block"' "$VECTOR_TOML" || echo "")
 assert_eq "ClickHouse sink has memory buffer block policy" "1" "$HAS_BUFFER"
 
-HAS_BATCH=$(grep -c 'max_events = 50' "$VECTOR_TOML" || echo "")
-assert_eq "ClickHouse sink has batch max_events=50" "1" "$HAS_BATCH"
+HAS_BATCH=$(grep -cx 'max_events = 1000' "$VECTOR_TOML" || echo "")
+assert_eq "ClickHouse sink has batch max_events=1000" "1" "$HAS_BATCH"
 
 # --- event_id / timestamp math (must match sse-usage.lua) ---
 # APISIX http-logger sends `start_time` as integer MILLISECONDS since

@@ -101,9 +101,8 @@ No existing code or worktree changes were reverted during the audit.
   `/apisix/admin/plugins/list` exposes the loaded plugin registry.
 - [APISIX plugin development](https://apisix.apache.org/docs/apisix/next/plugin-develop/):
   custom modules are loaded as `apisix.plugins.<plugin_name>`.
-- [systemd service](https://freedesktop.org/software/systemd/man/devel/systemd.service.html):
-  `Type=simple` reports started before application readiness and
-  `TimeoutStopSec` bounds `ExecStop`.
+- systemd service behavior: `Type=simple` reports started before application
+  readiness and `TimeoutStopSec` bounds `ExecStop`.
 - [ClickHouse HTTP interface](https://clickhouse.com/docs/concepts/features/interfaces/http):
   `/ping` is the availability endpoint.
 
@@ -121,7 +120,6 @@ No existing code or worktree changes were reverted during the audit.
 - `gw-restart-service` directly invokes Compose outside systemd and recreates
   one service.
 - `gw-restart-grafana` recreates Grafana and independently reloads provisioning.
-- `gw-clean` stops and removes volumes while suppressing failures.
 - `gw-verify` reports endpoint health and sends a sanity request, but currently
   treats any HTTP response as successful.
 
@@ -215,7 +213,7 @@ systemd restart loop.
 
 ### High: Drain timeout contradicts systemd timeout
 
-APISIX is configured for a 300-second graceful stop, while systemd has
+APISIX is configured for a 300-second controlled stop, while systemd has
 `TimeoutStopSec=120`. Normal `gw-stop` does not call the drain helper.
 
 **Remediation.** Set one bounded drain contract and use it consistently in

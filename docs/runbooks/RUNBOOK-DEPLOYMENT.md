@@ -49,9 +49,7 @@ ClickHouse, and running the reconciler. Runtime topology and service inventory:
 make gw-stop
 ```
 
-Add `-v` to also drop volumes (`clickhouse-data`, `prometheus-data`,
-`grafana-data`, `openbao-data`, `etcd-data`). Dropping `openbao-data` destroys
-all issued gateway keys.
+Gateway lifecycle operations preserve all persistent volumes.
 
 ### 3. Build the APISIX image only
 

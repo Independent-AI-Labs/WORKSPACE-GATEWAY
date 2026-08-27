@@ -58,7 +58,7 @@ services:
       - dataops
 
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8-alpine
+    image: clickhouse/clickhouse-server@sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 5s
@@ -70,8 +70,10 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../../conf/clickhouse-disable-metric-logs.xml:/etc/clickhouse-server/config.d/disable-metric-logs.xml:ro
     environment:
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_DO_NOT_CHOWN=1
     restart: unless-stopped
     networks:
       - gateway
@@ -87,7 +89,7 @@ services:
   # clickhouse-backup (default TinyLog is not backed up).
   migrate:
     profiles: [migration]
-    image: migrate/migrate:v4.19.1
+    image: migrate/migrate@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4
     container_name: gw-migrate
     depends_on:
       clickhouse:
@@ -108,7 +110,7 @@ services:
       - gateway
 
   vector:
-    image: timberio/vector:0.40.0-debian
+    image: timberio/vector@sha256:1163571c8b59ab6755c1b5488bb2f129151c3b72130ad0500b10420fcc504d9d
     command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
@@ -144,7 +146,7 @@ services:
       - gateway
 
   prometheus:
-    image: prom/prometheus:v3.13.2
+    image: prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: gw-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -201,7 +203,7 @@ services:
       - gateway
 
   etcd:
-    image: quay.io/coreos/etcd:v3.5.20
+    image: quay.io/coreos/etcd@sha256:fb5f961035e5263b31fe103e57b645fa23e612c9d58118a8548eb160fedecb55
     container_name: gw-etcd
     entrypoint: /usr/local/bin/etcd
     command:

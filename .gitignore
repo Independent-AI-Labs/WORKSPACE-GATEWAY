@@ -7,6 +7,9 @@ target/
 __pycache__/
 *.pyc
 
+# Node (res/opencode-plugin deps from the frozen bun lock)
+node_modules/
+
 # Lua
 *.luac
 

@@ -208,6 +208,10 @@ assert_eq "APISIX has 27 volume mounts (4 config + 23 plugins)" "27" "$APISIX_VO
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || echo "")
 assert_eq "ClickHouse mounts clickhouse-init.sql" "1" "$HAS_INIT_SQL"
+HAS_DISABLED_METRIC_LOGS=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-disable-metric-logs.xml" || echo "")
+assert_eq "ClickHouse disables metric log writers" "1" "$HAS_DISABLED_METRIC_LOGS"
+CLICKHOUSE_NO_CHOWN=$(echo "$JSON_DATA" | jq -r '[.services.clickhouse.environment[] | select(. == "CLICKHOUSE_DO_NOT_CHOWN=1")] | length')
+assert_eq "ClickHouse skips recursive volume chown" "1" "$CLICKHOUSE_NO_CHOWN"
 
 VECTOR_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.vector.volumes[]')
 HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" || echo "")

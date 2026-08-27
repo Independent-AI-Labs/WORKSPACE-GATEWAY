@@ -48,10 +48,7 @@ fi
 
 UPDATED=$(echo "$DATA" | jq -c '. + {active: false, revoked_at: now | todateiso8601}')
 
-JSON_PAYLOAD=$(cat <<EOF
-{"data":${UPDATED}}
-EOF
-)
+JSON_PAYLOAD=$(printf '{"data":%s}' "$UPDATED")
 
 if ! curl -sS -f -X POST \
   -H "X-Vault-Token: ${OPENBAO_TOKEN}" \

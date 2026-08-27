@@ -72,6 +72,17 @@ Hub: [`architecture/README.md`](architecture/README.md)  -  reading order for
 | [`runbooks/RUNBOOK-KEYS.md`](runbooks/RUNBOOK-KEYS.md) | Issue, list, revoke virtual keys; manage upstream key pools |
 | [`runbooks/RUNBOOK-CLIENT-LOGIN.md`](runbooks/RUNBOOK-CLIENT-LOGIN.md) | Client login flows (opencode provider login) |
 
+### TODO.md  -  tracked implementation work
+
+[`TODO.md`](TODO.md) records the detailed, ordered work required to finish the
+gateway-owned Bun plugin packaging, OAuth verification, and documentation
+consistency checks.
+
+The plugin itself uses Bun and the published `@opencode-ai/plugin` package.
+Its runtime/bootstrap and CI integration must follow the established
+`WORKSPACE-CI` and `WORKSPACE-VM` conventions rather than modifying the
+OpenCode source checkout or relying on a global developer installation.
+
 ### testplans/
 
 | Document | Scope |

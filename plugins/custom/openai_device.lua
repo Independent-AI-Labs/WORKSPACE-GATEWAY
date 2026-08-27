@@ -1,7 +1,18 @@
 local cjson = require("cjson.safe")
 local http = require("resty.http")
+local random = require("resty.random")
 
 local M = {}
+
+local function url_encode(value)
+    return tostring(value):gsub("([^A-Za-z0-9%-_%.~])", function(c)
+        return string.format("%%%02X", string.byte(c))
+    end)
+end
+
+local function base64url(value)
+    return ngx.encode_base64(value):gsub("=+$", ""):gsub("%+", "-"):gsub("/", "_")
+end
 
 local function form_encode(value)
     return tostring(value):gsub("([^A-Za-z0-9%-_%.~])", function(c)
@@ -45,6 +56,64 @@ local function post_form(conf, url, params)
     })
     if not res then return nil, "http request failed: " .. (err or "unknown") end
     return { status = res.status, data = cjson.decode(res.body or "{}") or {} }, nil
+end
+
+function M.generate_pkce()
+    local verifier = base64url(random.bytes(32, true))
+    local challenge = base64url(ngx.sha256_bin(verifier))
+    return verifier, challenge
+end
+
+function M.generate_state()
+    return base64url(random.bytes(32, true))
+end
+
+function M.browser_authorization_url(conf, redirect_uri, state, challenge)
+    local params = {
+        response_type = "code",
+        client_id = conf.client_id,
+        redirect_uri = redirect_uri,
+        scope = "openid profile email offline_access",
+        code_challenge = challenge,
+        code_challenge_method = "S256",
+        id_token_add_organizations = "true",
+        codex_cli_simplified_flow = "true",
+        state = state,
+        originator = "opencode",
+    }
+    local parts = {}
+    for key, value in pairs(params) do
+        table.insert(parts, url_encode(key) .. "=" .. url_encode(value))
+    end
+    return conf.oauth_host .. "/oauth/authorize?" .. table.concat(parts, "&")
+end
+
+function M.exchange_browser_code(conf, code, redirect_uri, verifier)
+    local res, err = post_form(conf, conf.oauth_host .. "/oauth/token", {
+        grant_type = "authorization_code",
+        code = code,
+        redirect_uri = redirect_uri,
+        client_id = conf.client_id,
+        code_verifier = verifier,
+    })
+    if not res then return nil, err end
+    if res.status < 200 or res.status >= 300 or not res.data.access_token then
+        return nil, "browser token exchange failed (HTTP " .. res.status .. ")"
+    end
+    local value = res.data
+    local expires_in = tonumber(value.expires_in)
+    if not expires_in or expires_in <= 0 or not value.refresh_token then
+        return nil, "browser token response missing required token fields"
+    end
+    return {
+        access_token = value.access_token,
+        refresh_token = value.refresh_token,
+        expires_in = expires_in,
+        expires_at = ngx.time() + expires_in,
+        token_type = value.token_type or "Bearer",
+        id_token = value.id_token,
+        scope = value.scope,
+    }
 end
 
 function M.request_device_authorization(conf)

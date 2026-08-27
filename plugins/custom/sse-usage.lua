@@ -317,7 +317,7 @@ function plugin.log(conf, ctx)
         httpc:set_timeout(5000)
         local res, err = httpc:request_uri(clickhouse_addr .. "/", {
             method = "POST",
-            query = {query = "INSERT INTO llm_gateway.usage_log FORMAT JSONEachRow"},
+            query = {query = "INSERT INTO llm_gateway.usage_log SETTINGS async_insert=1, wait_for_async_insert=1, async_insert_busy_timeout_ms=10000 FORMAT JSONEachRow"},
             body = body,
             headers = {["Content-Type"] = "application/json"},
         })

@@ -7,7 +7,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CI_REPO="$REPO_ROOT/../CI"
+CI_REPO="/opt/workspace-ci"
 PRE_COMMIT_CONFIG="$REPO_ROOT/.pre-commit-config.yaml"
 
 pass=0
@@ -69,9 +69,9 @@ else
 fi
 
 if [ -f "$CI_REPO/config/banned_words.yaml" ]; then
-    check "banned_words.yaml exists in CI repo" "0"
+    check "banned_words.yaml exists in deployed WORKSPACE-CI artifact" "0"
 else
-    check "banned_words.yaml exists in CI repo" "1"
+    check "banned_words.yaml exists in deployed WORKSPACE-CI artifact" "1"
 fi
 
 echo ""

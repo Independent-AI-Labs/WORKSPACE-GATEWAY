@@ -59,7 +59,7 @@ cosocket hostname resolution inside the container network.
 | `prometheus-data` | Prometheus TSDB |
 | `grafana-data` | Grafana state |
 
-Destroyed only by `make gw-clean`.
+Ordinary Gateway lifecycle commands preserve these persistent volumes.
 
 ## Observability
 

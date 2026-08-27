@@ -10,3 +10,4 @@ npm_excludes:
   - typescript
   - '@types/node'
   - '@types/dompurify'
+schema_version: 1

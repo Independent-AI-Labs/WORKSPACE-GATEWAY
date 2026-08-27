@@ -7,31 +7,8 @@
 #   freeze). Ansible handles health checks, init SQL, and model sync only.
 # Pattern follows WORKSPACE-PORTAL (INCIDENT-2026-05-08).
 
-# Root detection MUST happen before the SHELL assignment below:
-# make's $(shell) honors the makefile's SHELL variable, so once SHELL
-# points at the guarded bash, every $(shell) probe fails closed for
-# root (AT_SECURE == 0) and returns empty. While SHELL is still the
-# stock /bin/sh, `id -u` answers truthfully for every caller.
-# Root recipes run through the sealed /bin/bash.real instead of the
-# guarded bash (root execs of the fcap guard fail closed by design).
-ifeq ($(shell id -u),0)
-# /bin/bash.real is REQUIRED for root recipes: the guarded bash fails
-# closed for root (AT_SECURE == 0). Missing file = broken host install.
-ifeq ($(wildcard /bin/bash.real),)
-$(error /bin/bash.real missing: reinstall the shell guard (sudo make guard-refresh in WORKSPACE-GUARD))
-endif
-SHELL := /bin/bash.real
-else
 SHELL := /bin/bash
-endif
-# Interpreter for repo scripts invoked explicitly from recipes. Bare `bash`
-# resolves to the guarded /usr/bin/bash, which fails closed for root
-# (AT_SECURE == 0) and broke sudo make install-hooks -> generate-hooks.
-ifeq ($(shell id -u),0)
-SCRIPT_BASH := /bin/bash.real
-else
 SCRIPT_BASH := bash
-endif
 .DEFAULT_GOAL := help
 
 # Repo root from this Makefile's own path, not `git rev-parse`: root/sudo
@@ -39,7 +16,7 @@ endif
 # fails closed for root under the guard and yields an empty root.
 _CONSUMER_MK := $(abspath $(lastword $(MAKEFILE_LIST)))
 REPO_ROOT := $(patsubst %/,%,$(dir $(_CONSUMER_MK)))
-CI_DIR := $(abspath $(REPO_ROOT)/../CI)
+CI_DIR := /opt/workspace-ci
 CI_BOOT_BIN := $(CI_DIR)/.boot-linux/bin
 COMPOSE_FILE := $(REPO_ROOT)/res/docker/docker-compose.yml
 VENV_BIN := $(REPO_ROOT)/.venv/bin
@@ -62,11 +39,16 @@ WORKSPACE_ROOT := $(abspath $(REPO_ROOT)/../..)
 NODE_BIN := $(WORKSPACE_ROOT)/.boot-linux/bin/node
 NODE_PATH := $(WORKSPACE_ROOT)/node_modules
 PLAYWRIGHT_BROWSERS_PATH := $(WORKSPACE_ROOT)/.boot-linux/playwright-browsers
+BUN ?= $(HOME)/.bun/bin/bun
+BUN_PLUGIN_DIR := $(REPO_ROOT)/res/opencode-plugin
+# CI should override BUN with the workspace-booted Bun path. The local default
+# matches the existing OpenCode Bun installation on the development VM.
 export NODE_BIN
 export NODE_PATH
 export PLAYWRIGHT_BROWSERS_PATH
 
 export PATH := $(CI_BOOT_BIN):$(VENV_BIN):$(PATH)
+export PODMAN_PATH := $(CI_BOOT_BIN)/podman
 
 -include $(CI_DIR)/lib/makefile_contract.mk
 
@@ -80,11 +62,11 @@ help: ## Show this help
 # =============================================================================
 # Setup / Install
 # =============================================================================
-.PHONY: preflight bootstrap-podman setup install install-ci install-deps install-hooks sync init init-check
+.PHONY: preflight bootstrap-podman setup install install-ci install-deps plugin-install install-hooks sync init init-check
 
 preflight: ## Verify environment
 	test -d "$(CI_DIR)" || { echo "ERROR: CI directory not found at $(CI_DIR)" >&2; exit 1; }
-	test -f "$(CI_DIR)/scripts/generate-hooks" || { echo "ERROR: generate-hooks missing" >&2; exit 1; }
+	test -f "$(CI_DIR)/scripts/reinstall-hooks" || { echo "ERROR: reinstall-hooks missing" >&2; exit 1; }
 	command -v podman 1>&2 || { echo "ERROR: podman not on PATH" >&2; exit 1; }
 	test -x "$(ANSIBLE_PLAYBOOK)" || { echo "ERROR: ansible-playbook not found at $(ANSIBLE_PLAYBOOK)" >&2; echo "Provision (operator, elevated): sudo make -C $(CI_DIR) install-ansible, or set ANSIBLE_PLAYBOOK=/path/to/ansible-playbook" >&2; exit 1; }
 	test -f "$(VENV_BIN)/podman-compose" || { echo "ERROR: run 'make install' first" >&2; exit 1; }
@@ -111,10 +93,14 @@ install: setup install-hooks ## Full install: podman + .venv + hooks + images
 	echo "Run 'make gw-start' to start the gateway stack."
 
 install-ci: install-deps ## CI install: deps only, no hooks
-install-deps: setup ## Install project dependencies
+install-deps: setup plugin-install ## Install project dependencies
 
-install-hooks: ## (Re)generate native git hooks
-	$(SCRIPT_BASH) $(CI_DIR)/scripts/generate-hooks
+plugin-install: ## Install the gateway-owned Bun plugin dependencies from the frozen lockfile
+	test -x "$(BUN)" || { echo "ERROR: Bun not found at $(BUN); install the pinned workspace Bun runtime or set BUN=/path/to/bun" >&2; exit 1; }
+	$(BUN) install --cwd "$(BUN_PLUGIN_DIR)" --frozen-lockfile
+
+install-hooks: ## (Re)generate native git hooks (root on locked repos; preserves the +i invariant)
+	$(SCRIPT_BASH) $(CI_DIR)/scripts/reinstall-hooks
 
 sync: install-deps install-hooks ## Sync deps + reinstall hooks
 
@@ -135,7 +121,7 @@ init-check: ## Check system dependencies (report only, fail if any missing)
 # model sync.
 # =============================================================================
 
-.PHONY: _compose-build _compose-down _compose-clean
+.PHONY: _compose-build _compose-down
 
 _compose-build:
 	echo "=== Building container images ==="
@@ -145,11 +131,7 @@ _compose-down:
 	echo "=== Stopping gateway stack ==="
 	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
-_compose-clean:
-	echo "=== Destroying volumes (data loss!) ==="
-	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh clean
-
-.PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-clean gw-shell gw-test \
+.PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-shell gw-test \
         gw-restart-service gw-restart-grafana
 
 gw-build: _compose-build ## Build container images
@@ -212,10 +194,6 @@ gw-status: ## Show gateway systemd + container status
 gw-logs: ## Show the latest 200 gateway log lines (optional SVC=grafana)
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh logs $(SVC)
 
-gw-clean: ## Stop stack via systemd and remove all volumes (data loss!)
-	-systemctl --user stop gateway-compose
-	$(MAKE) _compose-clean
-
 gw-shell: ## Exec into APISIX container shell
 	podman exec -it docker_apisix_1 /bin/bash
 
@@ -264,7 +242,7 @@ revoke-key: ## Revoke a virtual gateway key (KEY_ID=vgw-xxx required)
 # =============================================================================
 # Quality Gates
 # =============================================================================
-.PHONY: check lint type-check test test-live check-push
+.PHONY: check lint type-check plugin-type-check plugin-test test test-live check-push
 
 lint: ## Lint shell scripts and validate YAML
 	echo "=== Linting shell scripts ==="
@@ -273,36 +251,24 @@ lint: ## Lint shell scripts and validate YAML
 		bash -n "$$f" || { echo "FAIL: $$f"; exit 1; }; \
 	done
 	echo "=== Validating YAML ==="
-	tmpfile=$$(mktemp); trap 'rm -f $$tmpfile' EXIT; \
-	for f in conf/*.yaml res/docker/*.yml res/ansible/*.yml tests/*.yml; do \
-		[ -f "$$f" ] || continue; \
-		echo "  checking $$f"; \
-		podman run --rm \
-			-e 'LUA_PATH=/usr/local/apisix/deps/share/lua/5.1/?.lua;/usr/local/apisix/deps/share/lua/5.1/?/init.lua;;' \
-			-e 'LUA_CPATH=/usr/local/apisix/deps/lib/lua/5.1/?.so;;' \
-			-v "$(PWD)/$$f:/check.yaml:ro" \
-			--entrypoint /usr/local/openresty/luajit/bin/luajit \
-			apache/apisix:3.17.0-debian \
-			-e 'local y=require("lyaml"); local f=io.open("/check.yaml"); if not f then io.stderr:write("cannot open\n"); os.exit(1) end; y.load(f:read("*a")); f:close()' \
-			2>$$tmpfile || { echo "FAIL: $$f"; cat $$tmpfile 1>&2; exit 1; }; \
-	done; \
-	rm -f $$tmpfile
+	bash $(REPO_ROOT)/res/scripts/validate-yaml.sh
 
-type-check: ## Lua syntax check via resty in Podman
+type-check: ## Lua syntax check and TypeScript plugin contract check
 	echo "=== Lua syntax check ==="
-	for f in plugins/custom/*.lua; do \
-		[ -f "$$f" ] || continue; \
-		echo "  checking $$f"; \
-		podman run --rm \
-			-v "$(PWD)/plugins/custom:/plugins/custom:ro" \
-			--entrypoint /usr/bin/resty \
-			apache/apisix:3.17.0-debian \
-			-e "local f, err = loadfile('/plugins/custom/$$(basename $$f)'); if not f then error(err) end" \
-			|| { echo "FAIL: $$f"; exit 1; }; \
-	done
+	$(SCRIPT_BASH) tests/lua/check_syntax.sh
+	$(MAKE) plugin-type-check
+
+plugin-type-check: ## Type-check the gateway-owned OpenCode plugin with Bun
+	test -x "$(BUN)" || { echo "ERROR: Bun not found at $(BUN); install the pinned workspace Bun runtime or set BUN=/path/to/bun" >&2; exit 1; }
+	$(BUN) --cwd "$(BUN_PLUGIN_DIR)" ./node_modules/typescript/bin/tsc --noEmit
+
+plugin-test: ## Run gateway-owned OpenCode plugin Bun tests
+	test -x "$(BUN)" || { echo "ERROR: Bun not found at $(BUN); install the pinned workspace Bun runtime or set BUN=/path/to/bun" >&2; exit 1; }
+	$(BUN) test "$(BUN_PLUGIN_DIR)/workspace-gateway-auth.test.ts"
 
 test: ## Run all test stages (excludes live upstream API tests)
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(MAKE) plugin-test; \
 	bash tests/run_all.sh
 
 test-live: ## Run all tests including live upstream API tests (RUN_LIVE_API_TESTS=1)
@@ -340,9 +306,6 @@ gw-systemd-logs: ## Tail gateway systemd unit logs
 # =============================================================================
 # Cleanup
 # =============================================================================
-.PHONY: clean clean-precommit
+.PHONY: clean
 clean: ## Remove build artifacts
 	echo "No build artifacts to remove"
-
-clean-precommit: ## Remove pre-commit framework traces
-	$(SCRIPT_BASH) $(CI_DIR)/scripts/cleanup-precommit

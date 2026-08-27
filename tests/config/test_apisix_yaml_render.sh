@@ -66,7 +66,7 @@ assert_eq "apisix.yaml.j2 template exists" "yes" "$([ -f "$J2_FILE" ] && echo ye
 assert_eq "committed apisix.yaml exists" "yes" "$([ -f "$COMMITTED" ] && echo yes || echo no)"
 
 # Verify python3 + jinja2 are available.
-if ! python3 -c 'import jinja2'; then
+if ! python3 "$SCRIPT_DIR/check_jinja2.py"; then
     echo "[FAIL] python3 jinja2 module is importable"
     fail=$((fail + 1))
     summary
@@ -78,21 +78,9 @@ render_j2() {
     local host="$1" port="$2" outvar="$3"
     local rendered
     rendered=$(LLAMAFILE_UPSTREAM_HOST="$host" LLAMAFILE_UPSTREAM_PORT="$port" \
-        python3 - "$J2_FILE" <<'PY'
-import os, sys, jinja2
-path = sys.argv[1]
-env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.dirname(path)),
-                          undefined=jinja2.Undefined)
-t = env.get_template(os.path.basename(path))
-# jinja2 default() with boolean=true handles empty AND undefined; pass vars
-# explicitly so local env does not leak across renders.
-print(t.render(
-    LLAMAFILE_UPSTREAM_HOST=os.environ.get("LLAMAFILE_UPSTREAM_HOST", ""),
-    LLAMAFILE_UPSTREAM_PORT=os.environ.get("LLAMAFILE_UPSTREAM_PORT", ""),
-))
-PY
+        python3 "$SCRIPT_DIR/render_apisix_j2.py" "$J2_FILE"
     )
-    eval "$outvar=\$rendered"
+    printf -v "$outvar" '%s' "$rendered"
 }
 
 # --- default render: empty host/port -> .j2 defaults bake in host.docker.internal:8765 ---

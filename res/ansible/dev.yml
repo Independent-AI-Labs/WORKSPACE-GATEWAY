@@ -33,9 +33,12 @@
     project_root: "{{ playbook_dir | dirname | dirname }}"
     compose_file: "{{ project_root }}/res/docker/docker-compose.yml"
     venv_bin: "{{ project_root }}/.venv/bin"
-    ci_boot_bin: "{{ project_root | dirname }}/CI/.boot-linux/bin"
+    ci_boot_bin: /opt/workspace-ci/.boot-linux/bin
     compose_cmd: "{{ venv_bin }}/podman-compose -f {{ compose_file }}"
+    podman_path: "{{ ci_boot_bin }}/podman"
     admin_api_key: "{{ lookup('env', 'ADMIN_KEY') }}"
+    ansible_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/gateway-ansible"
+    run_log: "{{ lookup('env', 'HOME') }}/.cache/gateway-ansible/dev-{{ ansible_date_time.epoch }}.log"
 
   environment:
     PATH: "{{ ci_boot_bin }}:{{ venv_bin }}:{{ lookup('env', 'PATH') }}"
@@ -51,8 +54,15 @@
         compose_cmd: "{{ compose_cmd }}"
       tags: always
 
+    - name: Create per-run Ansible log directory
+      ansible.builtin.file:
+        path: "{{ ansible_cache_dir }}"
+        state: directory
+        mode: '0700'
+      tags: always
+
     - name: Verify podman is available
-      ansible.builtin.shell: command -v podman
+      ansible.builtin.shell: command -v podman >>{{ run_log | quote }} 2>&1
       register: podman_check
       changed_when: false
       tags: always
@@ -189,7 +199,9 @@
           no_log: true
 
         - name: Reconcile routes
-          ansible.builtin.command: "{{ project_root }}/res/scripts/seed-routes.sh --admin-key-file {{ admin_key_file.path | quote }}"
+          ansible.builtin.shell: >
+            {{ project_root }}/res/scripts/seed-routes.sh --admin-key-file {{ admin_key_file.path | quote }}
+            >>{{ run_log | quote }} 2>&1
           args:
             chdir: "{{ project_root }}"
           no_log: true
@@ -236,6 +248,7 @@
       ansible.builtin.shell: >
         podman exec -i docker_clickhouse_1 clickhouse-client --multiquery
         < {{ project_root }}/conf/clickhouse-init.sql
+        >>{{ run_log | quote }} 2>&1
       register: ch_init
       changed_when: true
       tags: [start, setup]
@@ -246,7 +259,9 @@
       tags: [start, setup]
 
     - name: Run ClickHouse schema migrations (golang-migrate via compose)
-      ansible.builtin.command: "{{ compose_cmd }} --profile migration run --rm migrate up"
+      ansible.builtin.shell: >
+        {{ compose_cmd }} --profile migration run --rm migrate up
+        >>{{ run_log | quote }} 2>&1
       args:
         chdir: "{{ project_root }}"
       register: ch_migrate
@@ -315,7 +330,7 @@
         if [ -f {{ project_root }}/.env ]; then
           set -a; . {{ project_root }}/.env; set +a
         fi
-         curl -sS -f --max-time 30 -X POST http://localhost:9080/gateway/providers/sync
+         curl -sS -f --max-time 30 -X POST http://localhost:9080/gateway/providers/sync >>{{ run_log | quote }} 2>&1
       args:
         chdir: "{{ project_root }}"
       register: sync_result
@@ -330,7 +345,9 @@
 
     # ── status: show running containers + health ─────────────────────────
     - name: Show running containers
-      ansible.builtin.command: podman ps --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}\t{{ '{{' }}.Ports{{ '}}' }}"
+      ansible.builtin.shell: >
+        {{ podman_path }} ps --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}\t{{ '{{' }}.Ports{{ '}}' }}"
+        >>{{ run_log | quote }} 2>&1
       register: ps_output
       changed_when: false
       tags: [status, never]
@@ -456,7 +473,8 @@
           -X POST http://localhost:9080/opencode/v1/chat/completions \
           -H "Authorization: Bearer $OPENCODE_API_KEY" \
           -H "Content-Type: application/json" \
-          -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}],"stream":false}'
+          -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}],"stream":false}' \
+          >>{{ run_log | quote }} 2>&1
       args:
         chdir: "{{ project_root }}"
       register: sanity_code

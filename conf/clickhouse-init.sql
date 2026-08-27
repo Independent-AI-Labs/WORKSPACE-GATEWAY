@@ -38,7 +38,12 @@ ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (provider, model, timestamp)
 TTL toDateTime(timestamp) + INTERVAL 13 MONTH
-SETTINGS index_granularity = 8192;
+SETTINGS index_granularity = 8192,
+         parts_to_delay_insert = 500,
+         parts_to_throw_insert = 1000,
+         inactive_parts_to_delay_insert = 500,
+         inactive_parts_to_throw_insert = 1000,
+         max_parts_in_total = 5000;
 
 CREATE TABLE IF NOT EXISTS llm_gateway.usage_log (
     event_id                  String,
@@ -65,7 +70,12 @@ ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (event_id, request_id, timestamp)
 TTL toDateTime(timestamp) + INTERVAL 13 MONTH
-SETTINGS index_granularity = 8192;
+SETTINGS index_granularity = 8192,
+         parts_to_delay_insert = 500,
+         parts_to_throw_insert = 1000,
+         inactive_parts_to_delay_insert = 500,
+         inactive_parts_to_throw_insert = 1000,
+         max_parts_in_total = 5000;
 
 CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger (
     event_id          String,
@@ -100,7 +110,12 @@ ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (tenant_id, user_id, timestamp)
 TTL toDateTime(timestamp) + INTERVAL 13 MONTH
-SETTINGS index_granularity = 8192;
+SETTINGS index_granularity = 8192,
+         parts_to_delay_insert = 500,
+         parts_to_throw_insert = 1000,
+         inactive_parts_to_delay_insert = 500,
+         inactive_parts_to_throw_insert = 1000,
+         max_parts_in_total = 5000;
 
 CREATE TABLE IF NOT EXISTS llm_gateway.billing_discrepancies (
     date             Date,
@@ -115,7 +130,12 @@ CREATE TABLE IF NOT EXISTS llm_gateway.billing_discrepancies (
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(date)
-ORDER BY (date, tenant_id, provider, model_name);
+ORDER BY (date, tenant_id, provider, model_name)
+SETTINGS parts_to_delay_insert = 500,
+         parts_to_throw_insert = 1000,
+         inactive_parts_to_delay_insert = 500,
+         inactive_parts_to_throw_insert = 1000,
+         max_parts_in_total = 5000;
 
 ALTER TABLE llm_gateway.request_log
     ADD COLUMN IF NOT EXISTS tenant_id         LowCardinality(String) DEFAULT '' AFTER api_key_id;
@@ -191,6 +211,34 @@ ALTER TABLE llm_gateway.usage_log
 
 ALTER TABLE llm_gateway.billing_ledger
     ADD COLUMN IF NOT EXISTS model_raw       LowCardinality(String) DEFAULT '' AFTER model_name;
+
+ALTER TABLE llm_gateway.request_log MODIFY SETTING
+    parts_to_delay_insert = 500,
+    parts_to_throw_insert = 1000,
+    inactive_parts_to_delay_insert = 500,
+    inactive_parts_to_throw_insert = 1000,
+    max_parts_in_total = 5000;
+
+ALTER TABLE llm_gateway.usage_log MODIFY SETTING
+    parts_to_delay_insert = 500,
+    parts_to_throw_insert = 1000,
+    inactive_parts_to_delay_insert = 500,
+    inactive_parts_to_throw_insert = 1000,
+    max_parts_in_total = 5000;
+
+ALTER TABLE llm_gateway.billing_ledger MODIFY SETTING
+    parts_to_delay_insert = 500,
+    parts_to_throw_insert = 1000,
+    inactive_parts_to_delay_insert = 500,
+    inactive_parts_to_throw_insert = 1000,
+    max_parts_in_total = 5000;
+
+ALTER TABLE llm_gateway.billing_discrepancies MODIFY SETTING
+    parts_to_delay_insert = 500,
+    parts_to_throw_insert = 1000,
+    inactive_parts_to_delay_insert = 500,
+    inactive_parts_to_throw_insert = 1000,
+    max_parts_in_total = 5000;
 
 -- billing_ledger write pipeline: Materialized View populates billing_ledger
 -- automatically from every usage_log INSERT. Columns only available in

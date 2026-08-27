@@ -1,0 +1,6 @@
+# .env is gitignored by policy and contains only local runtime credentials.
+# Keep these exact fingerprints ignored while scanning all other repository
+# files with the deployed WORKSPACE-CI gitleaks rules.
+.env:generic-api-key:1
+.env:generic-api-key:2
+.env:generic-api-key:6

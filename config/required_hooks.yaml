@@ -1,0 +1,136 @@
+version: 1
+# WORKSPACE-GATEWAY hook manifest for the deployed check-required-hooks-present
+# self-check (flat single-repo layout: this repo is its own workspace root).
+# Mirrors the hooks scaffolded by WORKSPACE-CI scripts/scaffold-ci for the
+# tier=strict lua+shell profile. Regenerate via scaffold-ci, do not hand-edit.
+hooks:
+  - id: check-unstaged
+    kind: shell
+    entry: ci_check_unstaged
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: block-sensitive-files
+    kind: shell
+    entry: ci_block_sensitive_files
+    stage: pre-commit
+    mandatory: true
+    pass_filenames: true
+    applicable_to: [any]
+    safety: true
+  - id: gitleaks
+    kind: shell
+    entry: ci_scan_secrets
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+    safety: true
+  - id: ci-check-error-swallow
+    kind: shell
+    entry: ci_check_silent_swallow
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: check-banned-words
+    kind: shell
+    entry: ci_check_banned_words
+    stage: pre-commit
+    mandatory: true
+    applicable_to: [any]
+  - id: check-portable-shell
+    kind: shell
+    entry: ci_check_portable_shell
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: check-markdown-docs
+    kind: python_module_files
+    entry: ci.check_markdown_docs
+    stage: pre-commit
+    pass_filenames: true
+    applicable_to: [any]
+  - id: check-file-length
+    kind: shell
+    entry: ci_check_file_length
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: check-required-hooks-present
+    kind: python_module
+    entry: ci.check_required_hooks_present
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: check-dependency-versions
+    kind: python_module
+    entry: ci.check_dependency_versions
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: ci-lint
+    kind: shell
+    entry: make lint
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: ci-type-check
+    kind: shell
+    entry: make type-check
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: check-coverage-no-devolution
+    kind: shell
+    entry: ci_check_coverage_thresholds_no_devolution
+    stage: pre-commit
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: check-resolution-shapes
+    kind: shell
+    entry: ci_check_fallback_resolution
+    stage: pre-commit
+    applicable_to: [any]
+  - id: check-commit-message
+    kind: shell
+    entry: ci_check_commit_message
+    stage: commit-msg
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: block-coauthored
+    kind: shell
+    entry: ci_block_coauthored
+    stage: commit-msg
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: block-coauthored-history
+    kind: shell
+    entry: ci_block_coauthored_history
+    stage: pre-push
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: ci-check-push
+    kind: shell
+    entry: make check-push
+    stage: pre-push
+    mandatory: true
+    always_run: true
+    applicable_to: [any]
+  - id: check-dead-code
+    kind: shell
+    entry: ci_check_dead_code
+    stage: pre-push
+    always_run: true
+    applicable_to: [any]

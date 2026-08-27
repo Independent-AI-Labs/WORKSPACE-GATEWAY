@@ -52,6 +52,18 @@ assert_eq "billing_ledger has Decimal64(6) for cost" "true" "$([ "$HAS_DECIMAL" 
 HAS_TTL=$(grep -c 'INTERVAL 13 MONTH' "$SQL_FILE" || echo "")
 assert_eq "TTL 13 MONTH on tables" "true" "$([ "$HAS_TTL" -ge 2 ] && echo true || echo false)"
 
+HAS_PART_LIMITS=$(grep -c '^[[:space:]]*parts_to_throw_insert = 1000' "$SQL_FILE" || echo "")
+assert_eq "Created and existing MergeTree tables reject runaway part creation" "8" "$HAS_PART_LIMITS"
+
+HAS_INACTIVE_PART_LIMITS=$(grep -c 'inactive_parts_to_throw_insert = 1000' "$SQL_FILE" || echo "")
+assert_eq "Created and existing MergeTree tables reject runaway inactive parts" "8" "$HAS_INACTIVE_PART_LIMITS"
+
+HAS_RUNTIME_PART_LIMITS=$(grep -c '^ALTER TABLE.*MODIFY SETTING' "$SQL_FILE" || echo "")
+assert_eq "Existing MergeTree tables receive runtime part limits" "4" "$HAS_RUNTIME_PART_LIMITS"
+
+HAS_TOTAL_PART_LIMITS=$(grep -c 'max_parts_in_total = 5000' "$SQL_FILE" || echo "")
+assert_eq "Created and existing MergeTree tables cap total parts" "8" "$HAS_TOTAL_PART_LIMITS"
+
 ORDER_BY_LEADING=$(grep -o 'ORDER BY ([a-z_]*' "$SQL_FILE" || echo "")
 LEADING_COUNT=$(echo "$ORDER_BY_LEADING" | grep -c 'ORDER BY (provider\|ORDER BY (tenant_id\|ORDER BY (date' || echo "")
 assert_eq "ORDER BY leads with low-cardinality keys" "3" "$LEADING_COUNT"

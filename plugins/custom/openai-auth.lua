@@ -7,6 +7,7 @@ local ok, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
 if not ok then oauth_broker = require("oauth_broker") end
 
 local plugin = { version = 0.1, priority = 2560, name = "openai-auth" }
+local BROWSER_REDIRECT_URI = "http://localhost:1455/auth/callback"
 plugin.schema = { type = "object", properties = {
     oauth_host = { type = "string", default = "https://auth.openai.com" },
     client_id = { type = "string", default = "app_EMoamEEZ73f0CkXaXp7hrann" },
@@ -104,10 +105,69 @@ local function poll(conf)
     return 200, { access_token = issued, expires_in = result.expires_in, session_id = pending.session_id }
 end
 
+local function browser_start(conf)
+    local input = body()
+    local redirect_uri = input.redirect_uri or BROWSER_REDIRECT_URI
+    if redirect_uri ~= BROWSER_REDIRECT_URI then
+        return 400, { error = "openai-auth: unsupported redirect_uri" }
+    end
+    local verifier, challenge = device.generate_pkce()
+    local state = device.generate_state()
+    local session_id = ngx.var.arg_session or input.session or ""
+    local _, store_err = tokens.store_device(conf, state, {
+        flow = "browser",
+        state = state,
+        code_verifier = verifier,
+        redirect_uri = redirect_uri,
+        session_id = session_id,
+        expires_at = ngx.time() + 600,
+        created_at = ngx.http_time(ngx.time()),
+    })
+    if store_err then return 503, { error = "openai-auth: cannot reach token store" } end
+    return 200, {
+        authorization_url = device.browser_authorization_url(conf, redirect_uri, state, challenge),
+        state = state,
+        redirect_uri = redirect_uri,
+        expires_in = 600,
+    }
+end
+
+local function browser_callback(conf)
+    local input = body()
+    if not input.state or input.state == "" then
+        return 400, { error = "openai-auth: missing state" }
+    end
+    if not input.code or input.code == "" then
+        return 400, { error = "openai-auth: missing authorization code" }
+    end
+    local pending = tokens.load_device(conf, input.state)
+    if not pending or pending.flow ~= "browser" then
+        return 400, { error = "openai-auth: browser session expired or invalid" }
+    end
+    if not tonumber(pending.expires_at) or ngx.time() > tonumber(pending.expires_at) then
+        tokens.delete_device(conf, input.state)
+        return 400, { error = "openai-auth: browser session expired" }
+    end
+    if input.redirect_uri and input.redirect_uri ~= pending.redirect_uri then
+        return 400, { error = "openai-auth: redirect_uri mismatch" }
+    end
+    local result, err = device.exchange_browser_code(
+        conf, input.code, pending.redirect_uri, pending.code_verifier
+    )
+    if not result then return 502, { error = "openai-auth: " .. (err or "browser exchange failed") } end
+    local issued = result.access_token
+    local _, store_err = tokens.store_session(conf, issued, session_record(issued, result, pending))
+    if store_err then return 503, { error = "openai-auth: cannot reach token store" } end
+    tokens.delete_device(conf, input.state)
+    return 200, { access_token = issued, expires_in = result.expires_in, session_id = pending.session_id }
+end
+
 function plugin.access(conf, ctx)
     local uri = ctx.var.uri or ""
     if uri == "/openai/auth/device" then return start(conf) end
     if uri == "/openai/auth/device/poll" then return poll(conf) end
+    if uri == "/openai/auth/browser" then return browser_start(conf) end
+    if uri == "/openai/auth/browser/callback" then return browser_callback(conf) end
     local value = bearer(ctx)
     if not value or value == "" then return 401, { error = "openai-auth: missing Authorization header" } end
     local session = tokens.load_session_by_bearer(conf, value)

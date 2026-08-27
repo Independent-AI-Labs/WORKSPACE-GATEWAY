@@ -14,7 +14,7 @@
     gateway_unit: gateway-compose.service
     systemd_dir: '{{ ansible_env.HOME }}/.config/systemd/user'
     venv_compose: '{{ project_root }}/.venv/bin/podman-compose'
-    ci_podman: '{{ project_root | dirname }}/CI/.boot-linux/bin/podman'
+    ci_podman: /opt/workspace-ci/.boot-linux/bin/podman
 
   tasks:
     - name: Resolve project root
@@ -196,7 +196,7 @@
         - name: List gateway containers
           ansible.builtin.command:
             argv:
-              - podman
+              - '{{ podman_path }}'
               - ps
               - --filter
               - label=io.podman.compose.project=docker

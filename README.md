@@ -549,7 +549,6 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make gw-verify` | Health report: status + one request through the gateway |
 | `make gw-status` | Show systemd unit + containers |
 | `make gw-logs` | Tail container logs |
-| `make gw-clean` | Stop via systemd + destroy volumes (data loss) |
 | `make gw-shell` | Exec into APISIX container |
 | `make gw-test` | Run full test suite against the running stack |
 | `make gw-restart-service SVC=name` | Restart one existing service without recreating it |
@@ -583,6 +582,66 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make test-live` | Run all stages including live upstream API tests |
 | `make check` | lint + type-check + test |
 | `make check-push` | check + E2E tests (if Go key set) |
+| `make plugin-install` | Install the gateway OpenCode plugin's Bun deps (`BUN=` overridable) |
+| `make plugin-type-check` | TypeScript check of the OpenCode plugin via Bun |
+| `make plugin-test` | Run the OpenCode plugin's Bun test suite |
+
+### Git Hook Lifecycle (root operation on locked repos)
+
+Native git hooks (`.git/hooks/pre-commit`, `commit-msg`, `pre-push`) are
+root-owned and carry the `chattr +i` immutable flag per
+WORKSPACE-GUARD REQ-GGUARD-178: hooks are untracked, auto-executed code, and
+immutability is the only attribute the guard never loans out.
+
+`make install-hooks` therefore delegates to WORKSPACE-CI's
+`reinstall-hooks`, NOT to `generate-hooks` directly. `reinstall-hooks` is the
+sanctioned entrypoint because it:
+
+1. stages generated hooks aside and holds the exclusive deploy lock,
+2. clears `+i` per-inode only for the duration of the install syscall,
+3. restores `+i` immediately and fail-closed verifies it with `lsattr`.
+
+On a repo with root-owned hooks, run regeneration as root:
+
+```bash
+sudo make install-hooks
+```
+
+Never hand-run `chattr -i` on hooks; a failed or interrupted manual cycle
+leaves the enforcement surface mutable. If `install-hooks` reports
+permission errors, the invariant (not the tooling) is intact: rerun it as
+root.
+
+### CI Provenance
+
+This repository consumes the **deployed** CI artifact at `/opt/workspace-ci`
+(`CI_DIR` in the Makefile). Both hook enforcement and hook configuration
+generation resolve `/opt/workspace-ci` directly (REQ-DEPLOYMENT §25):
+config via `make -C /opt/workspace-ci scaffold-ci ARGS="--consumer <repo>
+--force-precommit --yes"`, native hooks via `make install-hooks` →
+`reinstall-hooks`.
+
+`scaffold-ci` was restored to the deployed artifact in the 2026-08-24/25
+WORKSPACE-CI remediation (commit `a0efdec`, capability-loss backlog), closing
+the drift window during which only the stale `../CI` clone could generate
+consumer config. Hook-entry integrity gates (`80089d2`) now abort generation
+when a catalog entry has no implementation, preventing the generator/checker
+skew class.
+
+| Tree | Status | Role |
+|------|--------|------|
+| `/opt/workspace-ci` | deployed, sealed | sole generation + enforcement source |
+| `../WORKSPACE-CI` | source checkout | development only; needs redeploy to take effect |
+| `../CI` | stale (2026-08-06, pre-migration) | unreferenced by anything live; removal is an open operator decision |
+
+If a generated config's embedded CI paths disagree with `CI_DIR`, the config
+was generated from the wrong tree; regenerate from `/opt/workspace-ci`.
+
+`.gitleaksignore` holds fingerprint-scoped exceptions for the gitignored
+local `.env` only (see `docs/TODO.md` P3.4 for the open investigation into
+the deployed gitleaks wrapper's ignore propagation). `config/required_hooks.yaml`
+is the consumer-side required-hooks manifest consumed by
+`check-required-hooks-present`.
 
 ---
 

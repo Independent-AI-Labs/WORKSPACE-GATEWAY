@@ -82,10 +82,20 @@ COST_BUDGET="${COST_BUDGET:-0}"
 BUDGET_WINDOW="${BUDGET_WINDOW:-86400}"
 BUDGET_TYPE="${BUDGET_TYPE:-tokens}"
 
-JSON_PAYLOAD=$(cat <<EOF
-{"data":{"virtual_key":"${KEY_ID}","upstream_key":"${UPSTREAM_KEY}","upstream_pool":"${UPSTREAM_POOL}","tenant_id":"${TENANT_ID}","user_id":"${USER_ID}","active":true,"created_at":"${CREATED_AT}","rate_limit_rpm":${RATE_LIMIT_RPM},"rate_limit_window":${RATE_LIMIT_WINDOW},"token_budget":${TOKEN_BUDGET},"cost_budget":${COST_BUDGET},"budget_window":${BUDGET_WINDOW},"budget_type":"${BUDGET_TYPE}"}}
-EOF
-)
+JSON_PAYLOAD=$(jq -nc \
+  --arg virtual_key "$KEY_ID" \
+  --arg upstream_key "$UPSTREAM_KEY" \
+  --arg upstream_pool "$UPSTREAM_POOL" \
+  --arg tenant_id "$TENANT_ID" \
+  --arg user_id "$USER_ID" \
+  --arg created_at "$CREATED_AT" \
+  --arg budget_type "$BUDGET_TYPE" \
+  --argjson rate_limit_rpm "$RATE_LIMIT_RPM" \
+  --argjson rate_limit_window "$RATE_LIMIT_WINDOW" \
+  --argjson token_budget "$TOKEN_BUDGET" \
+  --argjson cost_budget "$COST_BUDGET" \
+  --argjson budget_window "$BUDGET_WINDOW" \
+  '{data:{virtual_key:$virtual_key,upstream_key:$upstream_key,upstream_pool:$upstream_pool,tenant_id:$tenant_id,user_id:$user_id,active:true,created_at:$created_at,rate_limit_rpm:$rate_limit_rpm,rate_limit_window:$rate_limit_window,token_budget:$token_budget,cost_budget:$cost_budget,budget_window:$budget_window,budget_type:$budget_type}}')
 
 echo "=== Issuing new gateway key ==="
 echo "  Key ID:   $KEY_ID"

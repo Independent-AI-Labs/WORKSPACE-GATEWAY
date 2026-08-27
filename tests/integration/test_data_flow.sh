@@ -51,12 +51,7 @@ fi
 MODELS_JSON=$(curl -sf --max-time 10 "$GATEWAY_URL/llamafile/v1/models" || echo "")
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
-    MODEL_ID=$(printf '%s' "$MODELS_JSON" | python3 -c "import sys,json
-try:
-    d=json.load(sys.stdin)
-    print(d['data'][0]['id'] if d.get('data') else '')
-except Exception:
-    print('')" || echo "")
+    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' || echo "")
 fi
 assert_eq "llamafile /v1/models returned a model id" "yes" "$([ -n "$MODEL_ID" ] && echo yes || echo no)"
 if [ -z "$MODEL_ID" ]; then

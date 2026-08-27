@@ -9,7 +9,9 @@
 > the `kimi-auth` plugin, token custody in OpenBao with transparent refresh, and
 > three first-class access modes (OAuth, federated virtual key, own API key)
 > across 6 Kimi relay routes to `api.kimi.com/coding/v1`. Explicitly excluded:
-> the Kimi local server relay, ACP bridging, and browser/PKCE flows.
+> the Kimi local server relay, ACP bridging, and the documented device-code OAuth
+> flow. Regular browser authorization-code/PKCE is not provided by the verified
+> Kimi upstream contract.
 
 ---
 
@@ -119,7 +121,7 @@ refreshes transparently) and two API-key alternatives.
 
 | ID | Constraint | Source |
 |----|------------|--------|
-| C-1 | RFC 8628 device code only; no PKCE/browser redirect | kimi-code oauth source |
+| C-1 | RFC 8628 device code only; no PKCE/browser redirect | kimi-code oauth source and live endpoint probe (2026-08-06) |
 | C-2 | `kimi-auth` priority 2560 (before key-meta 2530) | plugins/custom/kimi-auth.lua |
 | C-3 | Device code TTL 900s; single-use | legacy kimi spec §9 |
 

@@ -10,8 +10,11 @@ auth:
   type: oauth
   plugin: openai-auth
   methods:
-    - id: openai-device-oauth
+    - id: chatgpt-headless
       flow: device_authorization
+      route: /openai/auth
+    - id: chatgpt-browser
+      flow: authorization_code_pkce
       route: /openai/auth
 options:
   headers:
