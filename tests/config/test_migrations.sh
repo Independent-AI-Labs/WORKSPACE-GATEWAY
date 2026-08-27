@@ -126,7 +126,7 @@ assert_eq "migration 000004_create_billing_ledger_mv.up.sql exists" "true" \
 compose_body="$(cat "$COMPOSE_FILE" || echo "")"
 assert_contains "docker-compose.yml defines migrate service" "$compose_body" "  migrate:"
 floating_tag="latest"
-assert_contains "migrate service uses a pinned version tag" "$compose_body" "migrate/migrate:v4.19.1"
+assert_contains "migrate service uses a pinned digest" "$compose_body" "migrate/migrate@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4"
 assert_not_contains "migrate service must use a pinned tag (not the floating tag)" "$compose_body" "migrate/migrate:${floating_tag}"
 assert_contains "migrate service depends_on clickhouse" "$compose_body" "depends_on:"
 assert_contains "migrate service restart: no" "$compose_body" 'restart: "no"'

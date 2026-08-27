@@ -81,7 +81,7 @@ bootstrap-podman: ## Install podman binaries if not on PATH
 setup: bootstrap-podman ## Create .venv with podman-compose
 	echo "=== Creating .venv ==="
 	if [ ! -d .venv ]; then uv venv .venv; else echo "  .venv already exists"; fi
-	uv pip install --python .venv podman-compose
+	uv pip install --python .venv podman-compose jinja2
 	echo "=== Setup complete ==="
 	_podman="$$(command -v podman)" || _podman="NOT FOUND"; echo "  podman: $$_podman"
 	echo "  podman-compose: $(VENV_BIN)/podman-compose"

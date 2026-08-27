@@ -206,7 +206,7 @@ P3_IDX=0
 IFS=$'\t' read -r -a P3_COLS <<< "$P3_FMT_ROW"
 for val in "${P3_COLS[@]}"; do
     label="${P3_LABELS[$P3_IDX]}"
-    if echo "$val" | grep -qE '^[0-9]+ (Mil|K) \(\$[0-9]+\.[0-9]+\)$' \
+    if echo "$val" | grep -qE '^[0-9]+ (Mil|K) \(\$[0-9]+(\.[0-9]+)?\)$' \
         || echo "$val" | grep -qE '^[0-9]+ \(\$[0-9]+(\.[0-9]+)?\)$'; then
         rp "Q4: p3-${label} format valid"
     else

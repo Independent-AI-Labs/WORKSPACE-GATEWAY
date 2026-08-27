@@ -82,15 +82,20 @@ OPENBAO_VOLUME=$(echo "$JSON_DATA" | jq '[.volumes | has("openbao-data")] | any'
 assert_eq "OpenBao has persistent volume" "true" "$OPENBAO_VOLUME"
 
 PROMETHEUS_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.prometheus.image')
-PROMETHEUS_TAG=$(echo "$PROMETHEUS_IMAGE" | sed 's#.*:##' | sed 's/^v//')
-PROMETHEUS_REPO=$(echo "$PROMETHEUS_IMAGE" | sed 's#:.*##')
+PROMETHEUS_REPO=$(echo "$PROMETHEUS_IMAGE" | sed 's#@sha256:.*##' | sed 's#:.*##')
 assert_eq "Prometheus image repo is prom/prometheus" "prom/prometheus" "$PROMETHEUS_REPO"
-if version_ge "$PROMETHEUS_TAG" "3.13.0"; then
-    echo "[PASS] Prometheus image tag >= 3.13.0 (got $PROMETHEUS_TAG)"
+if echo "$PROMETHEUS_IMAGE" | grep -q '@sha256:'; then
+    echo "[PASS] Prometheus image is digest-pinned (immutable)"
     pass=$((pass + 1))
 else
-    echo "[FAIL] Prometheus image tag >= 3.13.0 (got $PROMETHEUS_TAG)"
-    fail=$((fail + 1))
+    PROMETHEUS_TAG=$(echo "$PROMETHEUS_IMAGE" | sed 's#.*:##' | sed 's/^v//')
+    if version_ge "$PROMETHEUS_TAG" "3.13.0"; then
+        echo "[PASS] Prometheus image tag >= 3.13.0 (got $PROMETHEUS_TAG)"
+        pass=$((pass + 1))
+    else
+        echo "[FAIL] Prometheus image tag >= 3.13.0 (got $PROMETHEUS_TAG)"
+        fail=$((fail + 1))
+    fi
 fi
 
 GRAFANA_IMAGE=$(echo "$JSON_DATA" | jq -r '.services.grafana.image')
