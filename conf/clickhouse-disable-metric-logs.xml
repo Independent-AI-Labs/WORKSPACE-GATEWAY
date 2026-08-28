@@ -1,4 +1,9 @@
 <clickhouse>
     <metric_log remove="1" />
     <asynchronous_metric_log remove="1" />
+    <!-- text_log grew to 143 GiB (7.4B rows) with no retention; server text
+         logs are never queried here, disable flush entirely. -->
+    <text_log remove="1" />
+    <trace_log remove="1" />
+    <processors_profile_log remove="1" />
 </clickhouse>

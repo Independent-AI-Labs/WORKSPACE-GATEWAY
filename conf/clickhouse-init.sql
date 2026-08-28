@@ -280,3 +280,17 @@ SELECT
     0                       AS redact_token_count,
     timestamp               AS timestamp
 FROM llm_gateway.usage_log;
+
+-- System log hygiene: text_log/trace_log flushes are disabled via
+-- conf/clickhouse-disable-metric-logs.xml (bind-mounted by compose), but
+-- deployments predating that config carry unbounded system log tables
+-- (text_log reached 143 GiB / 7.4B rows). Truncating here makes every
+-- deploy self-healing; once the tables are disabled these are no-ops.
+-- Lift max_table_size_to_drop (default 50 GiB): old text_log is bigger
+-- than the guard and must still truncate.
+SET max_table_size_to_drop = 0, max_partition_size_to_drop = 0;
+TRUNCATE TABLE IF EXISTS system.text_log;
+TRUNCATE TABLE IF EXISTS system.trace_log;
+TRUNCATE TABLE IF EXISTS system.metric_log;
+TRUNCATE TABLE IF EXISTS system.asynchronous_metric_log;
+TRUNCATE TABLE IF EXISTS system.processors_profile_log;

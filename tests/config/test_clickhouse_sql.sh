@@ -149,4 +149,15 @@ assert_eq "MV has cache_status column" "true" "$([ "$HAS_MV_CACHE_STATUS" -ge 1 
 HAS_MV_SUCCESS=$(grep -c "aborted = 0" "$SQL_FILE" || echo "")
 assert_eq "MV derives success from aborted=0" "1" "$HAS_MV_SUCCESS"
 
+# ── system log hygiene (text_log reached 143 GiB / 7.4B rows) ─────────
+CH_LOG_XML="$REPO_ROOT/conf/clickhouse-disable-metric-logs.xml"
+
+for table in metric_log asynchronous_metric_log text_log trace_log processors_profile_log; do
+    HAS_REMOVE=$(grep -c "<${table} remove=\"1\"" "$CH_LOG_XML" || echo "")
+    assert_eq "ClickHouse ${table} flush disabled" "1" "$HAS_REMOVE"
+
+    HAS_TRUNCATE=$(grep -c "TRUNCATE TABLE IF EXISTS system.${table};" "$SQL_FILE" || echo "")
+    assert_eq "init.sql self-heals system.${table}" "1" "$HAS_TRUNCATE"
+done
+
 summary

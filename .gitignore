@@ -2,6 +2,9 @@
 target/
 **/*.rs.bk
 
+# Migration backups (multi-GB ClickHouse dumps, must never be committed)
+backups/
+
 # Python
 .venv/
 __pycache__/
