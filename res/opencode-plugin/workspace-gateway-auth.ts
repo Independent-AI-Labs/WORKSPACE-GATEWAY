@@ -7,7 +7,17 @@ const CALLBACK_URI = `http://localhost:${CALLBACK_PORT}/auth/callback`
 type Options = PluginOptions & {
   gateway?: string
   provider?: string
-  route?: string
+}
+
+type AuthMethod = {
+  id: string
+  flow: string
+  route: string
+}
+
+type ProviderDetail = {
+  auth_type?: string
+  auth_methods?: AuthMethod[]
 }
 
 type CallbackValue = {
@@ -103,9 +113,9 @@ async function request<T>(options: Options, path: string, init: RequestInit, acc
   return body as T
 }
 
-function browserMethod(options: Options, route: string) {
+function browserMethod(options: Options, route: string, label: string) {
   return {
-    label: "ChatGPT Pro/Plus (browser)",
+    label,
     type: "oauth" as const,
     authorize: async () => {
       const callback = callbackServer()
@@ -187,28 +197,30 @@ function deviceMethod(options: Options, route: string, label: string) {
 const plugin: Plugin = async (_input, rawOptions) => {
   const options = rawOptions as Options
   const provider = options.provider
-  const route = options.route
-  if (!provider || !route) throw new Error("workspace-gateway-auth requires provider and route options")
+  if (!provider) throw new Error("workspace-gateway-auth requires a provider option")
 
-  if (provider === "workspace-gw-openai-device-oauth") {
-    return {
-      auth: {
-        provider,
-        methods: [browserMethod(options, route), deviceMethod(options, route, "ChatGPT Pro/Plus (headless)")],
-      },
-    }
+  // Method registration is metadata-driven: provider-sync's auth_methods are
+  // the single source of truth for which flows exist and which routes serve
+  // them. No provider is hard-coded here.
+  const detail = await request<ProviderDetail>(options, `/gateway/providers/${provider}/opencode`, {
+    method: "GET",
+  })
+  const methods = detail.auth_methods ?? []
+  if (methods.length === 0) {
+    throw new Error(`workspace-gateway-auth: provider ${provider} advertises no OAuth methods`)
   }
-
-  if (provider === "workspace-gw-kimi-device-oauth") {
-    return {
-      auth: {
-        provider,
-        methods: [deviceMethod(options, route, "Kimi Code (device authorization)")],
-      },
-    }
+  const registered = methods.map((method) => {
+    if (!method.route) throw new Error(`workspace-gateway-auth: method ${method.id} has no route`)
+    if (method.flow === "device_authorization") return deviceMethod(options, method.route, method.id)
+    if (method.flow === "authorization_code_pkce") return browserMethod(options, method.route, method.id)
+    throw new Error(`workspace-gateway-auth: unsupported OAuth flow for ${provider}: ${method.flow}`)
+  })
+  return {
+    auth: {
+      provider,
+      methods: registered,
+    },
   }
-
-  throw new Error(`Unsupported workspace gateway auth provider: ${provider}`)
 }
 
 export default plugin

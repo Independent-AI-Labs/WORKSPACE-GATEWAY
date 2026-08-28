@@ -210,27 +210,24 @@ must be selected explicitly and its route, identifier, and protocol parameters
 must be used together.
 
 ### OAUTH-006: OpenAI method identifier contradicts requirements
-
 **Severity:** Medium
-**Status:** Open
+**Status:** Resolved (provider YAML now declares `chatgpt-headless` and `chatgpt-browser`; provider-sync publishes method metadata and the OpenCode plugin registers from it)
 
 The requirement calls for `chatgpt-headless`, while
 `conf/providers/workspace-gw-openai-device-oauth.yaml:13` uses
 `openai-device-oauth`. The identifier must have one canonical owner and value.
 
 ### OAUTH-007: Kimi transport disables TLS verification
-
 **Severity:** Critical
-**Status:** Open
+**Status:** Resolved (kimi-auth schema `ssl_verify` default true; kimi_device honors it)
 
 `plugins/custom/kimi_device.lua:25-34` sets `ssl_verify = false` for OAuth
 requests. This contradicts the HTTPS security requirements and exposes OAuth
 credentials to man-in-the-middle attacks.
 
 ### OAUTH-008: OpenBao transport uses plaintext by default
-
 **Severity:** High
-**Status:** Open
+**Status:** Accepted (compose-internal network `http://openbao:8200`; explicit secure transport policy still tracked in docs/TODO.md)
 
 Both auth plugins default OpenBao to `http://openbao:8200`:
 
@@ -241,45 +238,40 @@ Token custody should use an explicit secure transport policy rather than silentl
 selecting plaintext.
 
 ### OAUTH-009: OpenAI expiry parsing is unsafe
-
 **Severity:** High
-**Status:** Open
+**Status:** Resolved (all `expires_at` comparisons are guarded; refresh expiry prefers JWT `exp`, falls back to stored `expires_at`, and fails closed via `oauth_session.ensure_fresh`)
 
 `plugins/custom/openai-auth.lua:91-95` compares against
 `tonumber(pending.expires_at)` without checking conversion. Malformed storage can
 cause an error instead of a controlled invalid-session response.
 
 ### OAUTH-010: OpenAI token response validation is incomplete
-
 **Severity:** High
-**Status:** Open
+**Status:** Resolved (device, browser, and refresh responses require non-empty `access_token`/`refresh_token` and positive `expires_in`; only refresh may retain a previous refresh token)
 
 `plugins/custom/openai_device.lua:95-104` and `:119-127` silently default missing
 expiry values. `openai-auth.lua:59-68` stores a possibly missing refresh token.
 Malformed upstream responses should fail closed with a protocol error.
 
 ### OAUTH-011: Kimi refresh state can race or become stale
-
 **Severity:** High
-**Status:** Open
+**Status:** Partially resolved (refresh persistence is terminal: a refresh that cannot be stored returns 503 instead of issuing a possibly-lost rotated token; `resty.lock` serialization of concurrent refreshes remains tracked in docs/TODO.md)
 
 `plugins/custom/kimi-auth.lua:197-214` refreshes without a lock. It continues
 using a refreshed token even when persistence fails. Concurrent requests can
 rotate refresh tokens and leave the stored session unusable.
 
 ### OAUTH-012: Account claim decoding is inconsistent
-
 **Severity:** Medium
-**Status:** Open
+**Status:** Resolved (OpenAI `account_id` decodes through `kimi_jwt.decode_claims`, the single padded base64url JWT decoder)
 
 `plugins/custom/openai-auth.lua:46-53` does not add JWT Base64 padding before
 decoding. `kimi_jwt.lua:17-25` handles JWT decoding differently. Shared JWT
 decoding behavior should live in one helper.
 
 ### OAUTH-013: Token-storage error handling can leak response bodies
-
 **Severity:** High
-**Status:** Open
+**Status:** Resolved (OpenBao errors carry the status only; response bodies are never embedded)
 
 `plugins/custom/kimi_tokens.lua:41-43` incorporates the full OpenBao response
 body into errors. Error bodies must be sanitized before logging or returning.
@@ -294,9 +286,8 @@ are not given a storage TTL in `kimi_tokens.lua:56-83`. OpenBao cleanup policy i
 not explicit in the code or deployment contract.
 
 ### OAUTH-015: Auth plugins duplicate session and refresh logic
-
 **Severity:** Medium
-**Status:** Open
+**Status:** Resolved (shared `oauth_session.lua`: bearer extraction, JSON body, fail-closed expiry check, refresh+persist orchestration with terminal store failure, meta headers; provider protocol adapters remain deliberately separate)
 
 Kimi and OpenAI separately implement session-record construction, refresh
 handling, bearer lookup, and gateway metadata. This has already produced
@@ -348,18 +339,16 @@ slow-down, and terminal-error tests; full upstream OAuth coverage remains
 tracked in `docs/TODO.md`.
 
 ### OAUTH-020: Fixtures do not match production identifiers
-
 **Severity:** Medium
-**Status:** Open
+**Status:** Resolved (fixtures use production method ids, e.g. `kimi-device-oauth`)
 
 `tests/lua/test_provider_sync.lua:323-330` uses `kimi-headless`, while production
 uses `kimi-device-oauth`. Fixture success does not prove production metadata
 compatibility.
 
 ### OAUTH-021: Documentation contradicts implementation
-
 **Severity:** Medium
-**Status:** Open
+**Status:** Resolved for the OAuth surface (header parity, opaque broker codes, single-use browser state, terminal refresh persistence, TLS verification, and metadata-driven plugin registration are documented as implemented; the runbook, plugin README, and examples were regenerated with behavior and tests in agreement)
 
 Examples:
 

@@ -189,6 +189,9 @@ assert_eq "APISIX mounts kimi_device.lua" "1" "$HAS_KIMI_DEVICE_MOUNT"
 HAS_KIMI_TOKENS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_tokens.lua" || echo "")
 assert_eq "APISIX mounts kimi_tokens.lua" "1" "$HAS_KIMI_TOKENS_MOUNT"
 
+HAS_OAUTH_SESSION_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_session.lua" || echo "")
+assert_eq "APISIX mounts oauth_session.lua" "1" "$HAS_OAUTH_SESSION_MOUNT"
+
 HAS_PROVIDER_SYNC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider-sync.lua" || echo "")
 assert_eq "APISIX mounts provider-sync.lua" "1" "$HAS_PROVIDER_SYNC_MOUNT"
 
@@ -208,7 +211,7 @@ HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.l
 assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
-assert_eq "APISIX has 27 volume mounts (4 config + 23 plugins)" "27" "$APISIX_VOLUME_COUNT"
+assert_eq "APISIX has 28 volume mounts (4 config + 24 plugins)" "28" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || echo "")

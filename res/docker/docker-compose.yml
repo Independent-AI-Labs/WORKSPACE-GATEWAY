@@ -18,6 +18,7 @@ services:
       - ../../plugins/custom/kimi-auth.lua:/usr/local/apisix/apisix/plugins/kimi-auth.lua:ro
       - ../../plugins/custom/openai-auth.lua:/usr/local/apisix/apisix/plugins/openai-auth.lua:ro
       - ../../plugins/custom/oauth_broker.lua:/usr/local/apisix/apisix/plugins/oauth_broker.lua:ro
+      - ../../plugins/custom/oauth_session.lua:/usr/local/apisix/apisix/plugins/oauth_session.lua:ro
       - ../../plugins/custom/kimi_jwt.lua:/usr/local/apisix/apisix/plugins/kimi_jwt.lua:ro
       - ../../plugins/custom/kimi_device.lua:/usr/local/apisix/apisix/plugins/kimi_device.lua:ro
       - ../../plugins/custom/kimi_tokens.lua:/usr/local/apisix/apisix/plugins/kimi_tokens.lua:ro

@@ -5,6 +5,8 @@ local device = require("apisix.plugins.openai_device")
 local tokens = require("apisix.plugins.kimi_tokens")
 local ok, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
 if not ok then oauth_broker = require("oauth_broker") end
+local ok_session, session = pcall(require, "apisix.plugins.oauth_session")
+if not ok_session then session = require("oauth_session") end
 
 local plugin = { version = 0.1, priority = 2560, name = "openai-auth" }
 local BROWSER_REDIRECT_URI = "http://localhost:1455/auth/callback"
@@ -22,36 +24,19 @@ plugin.schema = { type = "object", properties = {
 
 function plugin.check_schema(conf) return core.schema.check(plugin.schema, conf) end
 
-local function bearer(ctx)
-    local value = core.request.header(ctx, "Authorization")
-    if type(value) == "table" then value = value[1] end
-    return value and value:match("^%s*[Bb]earer%s+(.+)%s*$")
-end
-
-local function body()
-    local raw = core.request.get_body() or "{}"
-    if type(raw) == "table" then raw = raw[1] or "{}" end
-    return cjson.decode(raw) or {}
-end
-
 local function remove_unsupported_params()
     local raw = core.request.get_body() or ""
     if type(raw) == "table" then raw = raw[1] or "" end
     if raw == "" then return end
-    local parsed = cjson.decode(raw)
-    if type(parsed) ~= "table" or parsed.max_output_tokens == nil then return end
+    local parsed_ok, parsed = pcall(cjson.decode, raw)
+    if not parsed_ok or type(parsed) ~= "table" or parsed.max_output_tokens == nil then return end
     parsed.max_output_tokens = nil
     ngx.req.set_body_data(cjson.encode(parsed))
 end
 
 local function account_id(token)
     if not token then return nil end
-    local part = token:match("^[^.]+%.([^.]+)%.")
-    if not part then return nil end
-    part = part:gsub("-", "+"):gsub("_", "/")
-    local decoded = ngx.decode_base64(part)
-    local claims = decoded and cjson.decode(decoded)
-    if not claims then return nil end
+    local claims = jwt.decode_claims(token)
     local auth = claims["https://api.openai.com/auth"] or {}
     return claims.chatgpt_account_id or auth.chatgpt_account_id
         or (claims.organizations and claims.organizations[1] and claims.organizations[1].id)
@@ -87,11 +72,11 @@ local function start(conf)
 end
 
 local function poll(conf)
-    local input = body()
+    local input = session.json_body()
     if not input.device_code or input.device_code == "" then return 400, { error = "openai-auth: missing device_code" } end
     local pending = tokens.load_device(conf, input.device_code)
     if not pending then return 400, { error = "openai-auth: device session expired or invalid" } end
-    if ngx.time() > tonumber(pending.expires_at) then
+    if not tonumber(pending.expires_at) or ngx.time() > tonumber(pending.expires_at) then
         tokens.delete_device(conf, input.device_code)
         return 400, { error = "openai-auth: device session expired" }
     end
@@ -106,7 +91,7 @@ local function poll(conf)
 end
 
 local function browser_start(conf)
-    local input = body()
+    local input = session.json_body()
     local redirect_uri = input.redirect_uri or BROWSER_REDIRECT_URI
     if redirect_uri ~= BROWSER_REDIRECT_URI then
         return 400, { error = "openai-auth: unsupported redirect_uri" }
@@ -133,19 +118,27 @@ local function browser_start(conf)
 end
 
 local function browser_callback(conf)
-    local input = body()
+    local input = session.json_body()
     if not input.state or input.state == "" then
         return 400, { error = "openai-auth: missing state" }
     end
     if not input.code or input.code == "" then
         return 400, { error = "openai-auth: missing authorization code" }
     end
-    local pending = tokens.load_device(conf, input.state)
-    if not pending or pending.flow ~= "browser" then
+    --Single-use state: the atomic DELETE claims the record before the upstream
+    --exchange. A replayed or concurrent callback observes "not found". If the
+    --exchange then fails, the login must be restarted with a fresh state.
+    local pending, consume_err = tokens.consume_device(conf, input.state)
+    if not pending then
+        if consume_err and consume_err:find("not found") then
+            return 400, { error = "openai-auth: browser session expired, invalid, or already used" }
+        end
+        return 503, { error = "openai-auth: cannot reach token store" }
+    end
+    if pending.flow ~= "browser" then
         return 400, { error = "openai-auth: browser session expired or invalid" }
     end
     if not tonumber(pending.expires_at) or ngx.time() > tonumber(pending.expires_at) then
-        tokens.delete_device(conf, input.state)
         return 400, { error = "openai-auth: browser session expired" }
     end
     if input.redirect_uri and input.redirect_uri ~= pending.redirect_uri then
@@ -158,8 +151,19 @@ local function browser_callback(conf)
     local issued = result.access_token
     local _, store_err = tokens.store_session(conf, issued, session_record(issued, result, pending))
     if store_err then return 503, { error = "openai-auth: cannot reach token store" } end
-    tokens.delete_device(conf, input.state)
     return 200, { access_token = issued, expires_in = result.expires_in, session_id = pending.session_id }
+end
+
+local function ensure_fresh(conf, bearer_value, current)
+    return session.ensure_fresh(conf, tokens, bearer_value, current, {
+        prefix = "openai-auth",
+        refresh = device.refresh_access_token,
+        build_record = function(b, refreshed, old)
+            local record = session_record(b, refreshed, old)
+            record.issued_access_token_hash = old.issued_access_token_hash
+            return record
+        end,
+    })
 end
 
 function plugin.access(conf, ctx)
@@ -168,34 +172,25 @@ function plugin.access(conf, ctx)
     if uri == "/openai/auth/device/poll" then return poll(conf) end
     if uri == "/openai/auth/browser" then return browser_start(conf) end
     if uri == "/openai/auth/browser/callback" then return browser_callback(conf) end
-    local value = bearer(ctx)
+    local value = session.bearer(ctx)
     if not value or value == "" then return 401, { error = "openai-auth: missing Authorization header" } end
-    local session = tokens.load_session_by_bearer(conf, value)
-    if not session then return 401, { error = "openai-auth: session not found; run device flow first" } end
-    local access = session.access_token
-    if jwt.is_expiring(access, conf.refresh_threshold) then
-        local refreshed, err = device.refresh_access_token(conf, session.refresh_token)
-        if not refreshed then
-            if err == "invalid_grant" then tokens.delete_session(conf, value); return 401, { error = "openai-auth: re-authenticate" } end
-            return 503, { error = "openai-auth: token refresh failed" }
-        end
-        local updated = session_record(value, refreshed, { session_id = session.session_id })
-        updated.issued_access_token_hash = session.issued_access_token_hash
-        tokens.store_session(conf, value, updated)
-        access = refreshed.access_token
-        session = updated
-    end
+    local loaded = tokens.load_session_by_bearer(conf, value)
+    if not loaded then return 401, { error = "openai-auth: session not found; run device flow first" } end
+    local access, updated, status, err_body = ensure_fresh(conf, value, loaded)
+    if not access then return status, err_body end
+    local current = updated
     ngx.req.set_header("Authorization", "Bearer " .. access)
     remove_unsupported_params()
-    if session.account_id then ngx.req.set_header("ChatGPT-Account-Id", session.account_id) end
+    if current.account_id then ngx.req.set_header("ChatGPT-Account-Id", current.account_id) end
     ngx.req.set_header("originator", "opencode")
     local session_header = core.request.header(ctx, "session-id")
         or core.request.header(ctx, "X-OpenCode-Session-Id")
     if session_header and session_header ~= "" then ngx.req.set_header("session-id", session_header) end
-    ngx.req.set_header("X-Gateway-Key-Id", (session.issued_access_token_hash or jwt.token_hash(value)):sub(1, 16))
-    ngx.req.set_header("X-Gateway-Tenant-Id", session.session_id ~= "" and session.session_id or "default")
-    ngx.req.set_header("X-Gateway-Rate-Limit-RPM", "100")
-    ngx.req.set_header("X-Gateway-Rate-Limit-Window", "60")
+    session.set_meta_headers(
+        (current.issued_access_token_hash or jwt.token_hash(value)):sub(1, 16),
+        current.sub or "",
+        current.session_id ~= "" and current.session_id or "default"
+    )
 end
 
 return plugin

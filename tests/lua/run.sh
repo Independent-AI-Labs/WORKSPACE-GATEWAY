@@ -15,7 +15,7 @@ echo "[run.sh] running Lua unit tests via podman..."
 
 OVERALL_RET=0
 
-for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_kimi_jwt.lua test_oauth_broker.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua; do
+for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_kimi_jwt.lua test_oauth_broker.lua test_oauth_session.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua; do
   echo ""
   echo "[run.sh] running $test_file..."
   set +e

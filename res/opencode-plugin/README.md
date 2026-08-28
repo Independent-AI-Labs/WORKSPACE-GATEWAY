@@ -21,7 +21,11 @@ and the runtime pin is `bun@1.3.14`.
 
 ## Configuration
 
-Add one plugin instance per gateway OAuth provider:
+Add one plugin instance per gateway OAuth provider. The plugin fetches
+`GET /gateway/providers/{id}/opencode` at load time and registers one auth
+method per entry in `auth_methods`, dispatching by `flow`
+(`device_authorization` or `authorization_code_pkce`); routes come from the
+method metadata, so no provider or route is hard-coded in the plugin:
 
 ```json
 {
@@ -30,24 +34,23 @@ Add one plugin instance per gateway OAuth provider:
       "file:///absolute/path/to/WORKSPACE-GATEWAY/res/opencode-plugin/workspace-gateway-auth.ts",
       {
         "provider": "workspace-gw-openai-device-oauth",
-        "gateway": "http://localhost:9080",
-        "route": "/openai/auth"
+        "gateway": "http://localhost:9080"
       }
     ],
     [
       "file:///absolute/path/to/WORKSPACE-GATEWAY/res/opencode-plugin/workspace-gateway-auth.ts",
       {
         "provider": "workspace-gw-kimi-device-oauth",
-        "gateway": "http://localhost:9080",
-        "route": "/kimi/auth"
+        "gateway": "http://localhost:9080"
       }
     ]
   ]
 }
 ```
 
-OpenAI registers both browser PKCE and headless device methods. Kimi registers
-only its verified device-authorization method.
+OpenAI advertises both browser PKCE and headless device methods; Kimi
+advertises only its verified device-authorization method. The set of methods
+is whatever provider-sync declares for the provider.
 
 The plugin returns gateway-issued credentials as OpenCode API credentials. The
 gateway retains upstream refresh tokens and performs upstream refresh; the

@@ -68,14 +68,10 @@ return explicit 4xx/5xx; nothing proxies unauthenticated.
 ## 3. OAuth 2.0 Device Code Protocol
 
 The gateway is a device-flow broker, not a transparent OAuth endpoint proxy.
-The client receives an opaque gateway device-session code. The gateway stores
-the upstream device code and user code, polls Kimi on the client's behalf,
-normalizes the result, and keeps refresh tokens in OpenBao.
-
-The original implementation currently returns the upstream Kimi `device_code`
-to the client and uses that value for lookup. It stores state server-side but
-does not yet mint a separate gateway-opaque identifier. The opaque broker
-contract above is the required target behavior.
+The client receives an opaque gateway device-session code (`gw-<sha256>` of
+request-unique material, minted by `oauth_broker.gateway_device_code`). The
+gateway stores the upstream device code and user code, polls Kimi on the
+client's behalf, normalizes the result, and keeps refresh tokens in OpenBao.
 
 | Constant | Value |
 |----------|-------|
@@ -138,9 +134,14 @@ record, return `{ access_token, expires_in, account: { sub }, session_id }`.
 **proxy:** extract bearer (401 `missing Authorization header`); reject `sk-`
 (401 `API keys are not accepted on /kimi; use /kimi-key`); load session by
 `sha256(bearer)` only (401 `session not found; run device flow first` on
-miss); if the live token expires within `refresh_threshold`, refresh
-and update the same session key (401 `re-authenticate` + session delete on
-`invalid_grant`; 503 `token refresh failed` on transient error). Set:
+miss); expiry prefers the JWT `exp` claim and falls back to the stored
+`expires_at`, with unknown expiry failing closed into a refresh (shared
+`oauth_session.ensure_fresh`); refresh and update the same session key
+(401 `re-authenticate` + session delete on `invalid_grant`; 503
+`token refresh failed` on transient error; 503 `cannot reach token store`
+when the refreshed record cannot be persisted (the fresh token is never
+issued unpersisted). OAuth HTTPS transport verifies TLS certificates
+(`ssl_verify`, default true). Set:
 
 - `Authorization: Bearer <fresh access_token>`
 - `X-Gateway-Key-Id`: first 16 hex chars of the issued-token hash
@@ -225,9 +226,10 @@ client-held access token is a session secret treated like an API key.
 - Sessions resolve by issued-token hash only (2.2): refresh rewrites the same
   record, so the client-held credential resolves for the session lifetime.
   Any other bearer is an explicit 401.
-- If session storage fails after a successful refresh, the request proceeds
-  with the fresh token (logged error) rather than failing.
-- `/v1/usages` responses are informational and not parsed for usage telemetry.
+- A successful refresh whose session record cannot be persisted terminates
+  the request with 503; continuing with an unpersisted rotated refresh token
+  would silently invalidate the client's credential on the next request.
+- `/v1/usages` responses are informational and are not parsed for usage telemetry.
 
 ## 9. File Map
 

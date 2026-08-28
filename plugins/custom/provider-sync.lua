@@ -97,14 +97,16 @@ local function build_opencode_block(provider, gateway_base)
     local auth_route = nil
     local auth_methods = nil
     if provider.auth and provider.auth.type == "oauth" then
-        auth_route = provider.route .. "/auth"
         auth_methods = provider.auth.methods or {
             {
                 id = provider.id .. "-headless",
                 flow = "device_authorization",
-                route = auth_route,
+                route = provider.route .. "/auth",
             },
         }
+        --auth_route follows the first declared method's route; method
+        --metadata is authoritative, never reconstructed independently.
+        auth_route = auth_methods[1].route
     end
 
     return {

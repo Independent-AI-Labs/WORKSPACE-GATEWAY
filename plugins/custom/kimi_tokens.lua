@@ -39,7 +39,9 @@ local function bao_request(conf, method, path, body)
         return nil, "not found"
     end
     if res.status ~= 200 and res.status ~= 204 then
-        return nil, "openbao returned status " .. res.status .. ": " .. (res.body or "")
+        --Never include the response body: OpenBao error payloads are untrusted
+        --and may echo request material back into logs or client responses.
+        return nil, "openbao returned status " .. res.status
     end
     return res, nil
 end
@@ -75,6 +77,18 @@ function M.delete_device(conf, device_code)
         return true, nil
     end
     return res ~= nil, err
+end
+
+--Atomic single-use claim for one-shot secrets (browser OAuth state, device
+--codes on their terminal attempt). The DELETE is the claim: exactly one
+--concurrent caller succeeds; the rest observe "not found".
+function M.consume_device(conf, key)
+    local record = M.load_device(conf, key)
+    if not record then return nil, "not found" end
+    local hash = jwt.token_hash(key)
+    local res, err = bao_request(conf, "DELETE", conf.device_prefix .. hash)
+    if not res then return nil, err end
+    return record, nil
 end
 
 function M.store_session(conf, bearer, record)

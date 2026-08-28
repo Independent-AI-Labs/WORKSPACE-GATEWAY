@@ -104,7 +104,7 @@ route: "/kimi"
 auth:
   type: oauth
   methods:
-    - id: kimi-headless
+    - id: kimi-device-oauth
       flow: device_authorization
       route: /kimi/auth
 options:
@@ -325,7 +325,7 @@ local function access_route_tests()
             assert_eq(body.auth_route, "/kimi/auth", "opencode auth_route")
             check(body.auth_methods ~= nil, "opencode auth_methods present")
             if body.auth_methods then
-                assert_eq(body.auth_methods[1].id, "kimi-headless", "opencode auth method id")
+                assert_eq(body.auth_methods[1].id, "kimi-device-oauth", "opencode auth method id")
                 assert_eq(body.auth_methods[1].flow, "device_authorization", "opencode auth method flow")
             end
             assert_eq(body.provider.name, "Kimi Device OAuth", "opencode provider.name")

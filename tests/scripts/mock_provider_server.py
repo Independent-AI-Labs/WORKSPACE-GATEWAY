@@ -55,6 +55,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 },
                 "auth_type": "oauth",
                 "auth_route": "/gateway/providers/test-oauth/auth",
+                "auth_methods": [
+                    {
+                        "id": "test-headless",
+                        "flow": "device_authorization",
+                        "route": "/gateway/providers/test-oauth/auth",
+                    }
+                ],
+            })
+            return
+        if self.path.startswith("/gateway/providers/test-browser-only/opencode"):
+            self._send_json({
+                "provider": {
+                    "name": "Test Browser Only",
+                    "npm": "test-browser-only",
+                    "options": {"baseURL": "http://gateway/test"},
+                    "models": {"m1": {"name": "M1"}},
+                },
+                "auth_type": "oauth",
+                "auth_route": "/test/auth",
+                "auth_methods": [
+                    {
+                        "id": "test-browser",
+                        "flow": "authorization_code_pkce",
+                        "route": "/test/auth",
+                    }
+                ],
             })
             return
         if self.path.startswith("/gateway/providers/test-api-key/opencode"):

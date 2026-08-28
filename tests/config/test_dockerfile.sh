@@ -38,7 +38,7 @@ HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" || ech
 assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" || echo "")
-assert_eq "Copies plugins/custom/ (including OpenAI OAuth)" "22" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (including OpenAI OAuth)" "23" "$HAS_CUSTOM_PLUGINS"
 
 HAS_MODEL_REGISTRY=$(grep -c 'model_registry.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies model_registry.lua" "1" "$HAS_MODEL_REGISTRY"
@@ -60,6 +60,9 @@ assert_eq "Copies kimi_device.lua" "1" "$HAS_KIMI_DEVICE"
 
 HAS_KIMI_TOKENS=$(grep -c 'kimi_tokens.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies kimi_tokens.lua" "1" "$HAS_KIMI_TOKENS"
+
+HAS_OAUTH_SESSION=$(grep -c 'oauth_session.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies oauth_session.lua" "1" "$HAS_OAUTH_SESSION"
 
 HAS_PROVIDER_SYNC=$(grep -c 'provider-sync.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies provider-sync.lua" "1" "$HAS_PROVIDER_SYNC"

@@ -116,6 +116,8 @@ refreshes transparently) and two API-key alternatives.
 |----|-------------|
 | NFR-1.1 | Token refresh MUST be invisible to the client (no client-side refresh logic required). |
 | NFR-1.2 | OAuth and API hosts MUST be HTTPS on `kimi.com` domains (or configured overrides). |
+| NFR-1.3 | OAuth HTTPS transport MUST verify TLS certificates (`ssl_verify`, default true; overridable only for explicit operator configuration). |
+| NFR-1.4 | A refreshed session that cannot be persisted in OpenBao MUST terminate the request with 503 (shared `oauth_session.ensure_fresh`); the gateway MUST NOT continue with an unpersisted rotated refresh token. |
 
 ## 4. Constraints
 

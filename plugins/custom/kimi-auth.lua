@@ -1,10 +1,11 @@
 local core = require("apisix.core")
-local cjson = require("cjson.safe")
 local jwt = require("apisix.plugins.kimi_jwt")
 local device = require("apisix.plugins.kimi_device")
 local tokens = require("apisix.plugins.kimi_tokens")
 local ok, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
 if not ok then oauth_broker = require("oauth_broker") end
+local ok_session, session = pcall(require, "apisix.plugins.oauth_session")
+if not ok_session then session = require("oauth_session") end
 
 local plugin_name = "kimi-auth"
 
@@ -49,6 +50,10 @@ plugin.schema = {
             type = "integer",
             default = 300,
         },
+        ssl_verify = {
+            type = "boolean",
+            default = true,
+        },
     },
 }
 
@@ -56,29 +61,8 @@ function plugin.check_schema(conf)
     return core.schema.check(plugin.schema, conf)
 end
 
-local function extract_bearer(auth_header)
-    if not auth_header then return nil end
-    if type(auth_header) == "table" then
-        auth_header = auth_header[1]
-    end
-    if not auth_header then return nil end
-    return auth_header:match("^%s*[Bb]earer%s+(.+)%s*$")
-end
-
 local function starts_with(value, prefix)
     return value and value:sub(1, #prefix) == prefix
-end
-
-local function read_json_body(ctx)
-    local body = core.request.get_body()
-    if not body or body == "" then return {} end
-    if type(body) == "table" then
-        --APISIX may return a table when the body is large; not expected here.
-        body = body[1] or ""
-    end
-    local ok, parsed = pcall(cjson.decode, body)
-    if not ok or type(parsed) ~= "table" then return {} end
-    return parsed
 end
 
 local function session_record(bearer, token_info, session_id)
@@ -132,7 +116,7 @@ local function start_device_flow(conf, ctx)
 end
 
 local function poll_device_flow(conf, ctx)
-    local body = read_json_body(ctx)
+    local body = session.json_body()
     local device_code = body.device_code
     if not device_code or device_code == "" then
         return 400, { error = "kimi-auth: missing device_code" }
@@ -183,42 +167,24 @@ local function poll_device_flow(conf, ctx)
     }
 end
 
-local function refresh_session(conf, session)
-    local refreshed, err = device.refresh_access_token(conf, session.refresh_token)
-    if not refreshed then
-        if err == "invalid_grant" then
-            return nil, "invalid_grant"
-        end
-        return nil, err
-    end
-    return refreshed, nil
-end
-
-local function ensure_fresh_token(conf, bearer, session)
-    local access_token = session.access_token
-    if jwt.is_expiring(access_token, conf.refresh_threshold) then
-        local refreshed, err = refresh_session(conf, session)
-        if not refreshed then
-            return nil, err
-        end
-        local updated = session_record(bearer, refreshed, session.session_id)
-        updated.sub = session.sub
-        updated.issued_access_token_hash = session.issued_access_token_hash
-        local _, store_err = tokens.store_session(conf, bearer, updated)
-        if store_err then
-            core.log.error("kimi-auth: failed to update session after refresh: ", store_err)
-            --Continue with refreshed token even if storage fails.
-        end
-        access_token = refreshed.access_token
-    end
-    return access_token, nil
-end
-
-local function load_session_by_bearer(conf, bearer)
+local function load_session_by_bearer(conf, bearer_value)
     --Sessions resolve by sha256(issued access token) only. Refresh rewrites
     --the same record, so the client-held credential resolves for the session
     --lifetime; any other bearer is an explicit 401.
-    return tokens.load_session_by_bearer(conf, bearer)
+    return tokens.load_session_by_bearer(conf, bearer_value)
+end
+
+local function ensure_fresh(conf, bearer_value, current)
+    return session.ensure_fresh(conf, tokens, bearer_value, current, {
+        prefix = "kimi-auth",
+        refresh = device.refresh_access_token,
+        build_record = function(b, refreshed, old)
+            local record = session_record(b, refreshed, old.session_id)
+            record.sub = old.sub
+            record.issued_access_token_hash = old.issued_access_token_hash
+            return record
+        end,
+    })
 end
 
 function plugin.access(conf, ctx)
@@ -231,8 +197,7 @@ function plugin.access(conf, ctx)
         return poll_device_flow(conf, ctx)
     end
 
-    local auth_header = core.request.header(ctx, "Authorization")
-    local bearer = extract_bearer(auth_header)
+    local bearer = session.bearer(ctx)
     if not bearer or bearer == "" then
         return 401, { error = "kimi-auth: missing Authorization header" }
     end
@@ -241,33 +206,25 @@ function plugin.access(conf, ctx)
         return 401, { error = "kimi-auth: API keys are not accepted on /kimi; use /kimi-key" }
     end
 
-    local session, lookup_err = load_session_by_bearer(conf, bearer)
-    if not session then
+    local session_record_loaded, lookup_err = load_session_by_bearer(conf, bearer)
+    if not session_record_loaded then
         core.log.warn("kimi-auth: session lookup failed: ", lookup_err or "unknown")
         return 401, { error = "kimi-auth: session not found; run device flow first" }
     end
 
-    local fresh, refresh_err = ensure_fresh_token(conf, bearer, session)
+    local fresh, fresh_session, status, err_body = ensure_fresh(conf, bearer, session_record_loaded)
     if not fresh then
-        if refresh_err == "invalid_grant" then
-            tokens.delete_session(conf, bearer)
-            return 401, { error = "kimi-auth: re-authenticate" }
-        end
-        core.log.error("kimi-auth: token refresh failed: ", refresh_err or "unknown")
-        return 503, { error = "kimi-auth: token refresh failed" }
+        return status, err_body
     end
+    local fresh_record = fresh_session
 
-    local key_id = session.issued_access_token_hash and session.issued_access_token_hash:sub(1, 16)
+    local key_id = fresh_record.issued_access_token_hash and fresh_record.issued_access_token_hash:sub(1, 16)
         or jwt.token_hash(bearer):sub(1, 16)
-    local user_id = session.sub or ""
-    local tenant_id = session.session_id and session.session_id ~= "" and session.session_id or "default"
+    local user_id = fresh_record.sub or ""
+    local tenant_id = fresh_record.session_id and fresh_record.session_id ~= "" and fresh_record.session_id or "default"
 
     ngx.req.set_header("Authorization", "Bearer " .. fresh)
-    ngx.req.set_header("X-Gateway-Key-Id", key_id)
-    ngx.req.set_header("X-Gateway-Tenant-Id", tenant_id)
-    ngx.req.set_header("X-Gateway-User-Id", user_id)
-    ngx.req.set_header("X-Gateway-Rate-Limit-RPM", "100")
-    ngx.req.set_header("X-Gateway-Rate-Limit-Window", "60")
+    session.set_meta_headers(key_id, user_id, tenant_id)
 
     ctx.consumer = {
         username = key_id,

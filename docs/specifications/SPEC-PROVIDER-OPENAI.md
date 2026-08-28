@@ -27,13 +27,9 @@ Bun manifest and lockfile).
 
 The gateway brokers the device flow. It does not expose OpenAI's
 `device_auth_id` or require clients to call OpenAI's device endpoints directly.
-The client receives an opaque gateway device-session code; upstream device
-state remains in the gateway's pending OpenBao record.
-
-The current implementation maps OpenAI `device_auth_id` directly to the
-returned `device_code`; it has server-side state but does not yet mint a
-distinct opaque gateway identifier. This is an implementation gap against the
-broker contract.
+The client receives an opaque gateway device-session code (`gw-<sha256>` of
+request-unique material, minted by `oauth_broker.gateway_device_code`);
+upstream device state remains in the gateway's pending OpenBao record.
 
 | Constant | Value |
 |----------|-------|
@@ -80,12 +76,22 @@ copy the plugin module, re-declare its exported types, or modify the sibling
 5. The plugin sets `Authorization: Bearer <live token>` and, when present, `ChatGPT-Account-Id` from `chatgpt_account_id` or the first organization id in the token claims.
 
 Gateway metadata includes `X-Gateway-Key-Id`, `X-Gateway-Tenant-Id`,
-`X-Gateway-Rate-Limit-RPM: 100`, and `X-Gateway-Rate-Limit-Window: 60`.
+`X-Gateway-Rate-Limit-RPM: 100`, and `X-Gateway-Rate-Limit-Window: 60`,
+set through the shared `oauth_session.set_meta_headers` helper.
 
-OpenCode's native Codex hook additionally sends `originator: opencode`,
-`session-id`, and a dynamic platform User-Agent. `openai-auth.lua` does not
-currently add those headers. This is an implementation gap, not behavior to
-assume from the gateway provider definition.
+The plugin injects `originator: opencode` and forwards a client-supplied
+`session-id` (or `X-OpenCode-Session-Id`). Unlike OpenCode's native hook,
+the User-Agent stays the pinned `opencode/1.18.3`; a dynamic platform
+User-Agent remains a divergence (see §6).
+
+Browser OAuth state is single-use: `kimi_tokens.consume_device` atomically
+DELETEs the pending record before the upstream code exchange, so a replayed
+or concurrent callback receives 400. A failed exchange consumes the state;
+the client restarts the browser login. Session refresh and persistence run
+through the shared `oauth_session.ensure_fresh` helper: unknown expiry
+(neither JWT `exp` nor stored `expires_at`) fails closed into a refresh, and
+a refresh that cannot be persisted terminates with 503 rather than issuing
+a possibly-lost rotated refresh token.
 
 ## 4. Route and Provider
 
@@ -105,17 +111,22 @@ The provider file `workspace-gw-openai-device-oauth.yaml` declares
 | Missing/expired device record | 400 | Device session error |
 | OpenAI poll still pending | 202 | `authorization_pending` |
 | Device/token upstream failure | 502 | OpenAI auth error |
+| Malformed token response (missing refresh_token/expires_in) | 502 | Protocol error (fail closed) |
+| Replayed or concurrent browser callback | 400 | Browser session expired, invalid, or already used |
 | Missing or unknown Bearer session | 401 | Authentication error |
 | Refresh `invalid_grant` | 401 | Session deleted; re-authentication required |
 | Other refresh failure | 503 | Token refresh failure |
+| Refreshed session not persistable | 503 | Token-store failure (refresh result refused) |
 | OpenBao write failure | 503 | Token-store failure |
 
 ## 6. Known Divergences
 
 - The gateway hard-codes `opencode/1.18.3`; OpenCode uses its current
-  `InstallationVersion`.
-- Gateway HTTP requests set `ssl_verify = false`; OpenCode uses normal fetch
-  certificate verification.
+  `InstallationVersion`. `originator` and `session-id` are now injected, so
+  the remaining header divergence is the dynamic platform User-Agent.
+- Device and browser token responses are validated strictly (non-empty
+  `access_token` and `refresh_token`, positive `expires_in`); only the
+  refresh path may retain a previous refresh token when the upstream omits it.
 - OpenCode waits for the device polling interval plus a 3-second safety
   margin; the gateway client controls polling and does not add that margin.
 - The gateway returns a plain `/codex/device` value as

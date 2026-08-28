@@ -106,7 +106,7 @@ pricing is written exactly once, in one place.
 | FR-4.1 | `GET /gateway/providers` MUST return a sorted JSON list of `{ id, name, auth_type }`. |
 | FR-4.2 | `GET /gateway/providers/{id}` MUST return the full enriched provider, or 404 `{ "error": "provider not found" }`. |
 | FR-4.3 | `GET /gateway/providers/{id}/opencode` MUST return an OpenCode provider block whose `options.baseURL` is built at request time from scheme/host/port plus the provider `route`. |
-| FR-4.4 | The `/opencode` response MUST include `auth_type`, and MUST include `auth_route` (`<route>/auth`) only when `auth.type == "oauth"`; OAuth responses MUST also include explicit `auth_methods` with method ids, flow types, and routes. |
+| FR-4.4 | The `/opencode` response MUST include `auth_type`, and MUST include `auth_route` only when `auth.type == "oauth"`; `auth_route` MUST be the first declared method's route (method metadata is authoritative, never reconstructed); OAuth responses MUST also include explicit `auth_methods` with method ids, flow types, and routes. |
 | FR-4.5 | The gateway-owned OpenCode plugin at `res/opencode-plugin/workspace-gateway-auth.ts` MUST be loadable through OpenCode's standard `plugin` config array and MUST consume method-specific gateway routes. |
 | FR-4.5 | `POST /gateway/providers/sync` MUST trigger a sync and return 200 with `{ ok, providers_loaded, models_enriched }`, 202 when a sync is already running, or 503 on failure. |
 | FR-4.6 | All JSON responses MUST set `Content-Type: application/json`; unmatched URIs MUST return 404. |
@@ -118,7 +118,7 @@ pricing is written exactly once, in one place.
 |----|-------------|
 | FR-5.1 | The legacy client script MUST depend only on `bash`, `curl`, and `jq` (no Lua, Python, or Podman) and MUST NOT host an OAuth callback server. |
 | FR-5.2 | The script MUST fetch `GET /gateway/providers/{id}/opencode` and branch on `auth_type`. |
-| FR-5.3 | For the current headless OAuth method, the script MUST run device authorization via `auth_route` (`POST <auth_route>/device`, poll `POST <auth_route>/device/poll`). Browser authorization-code/PKCE MUST be represented by a distinct flow method, not inferred from `auth_type: oauth`. |
+| FR-5.3 | For the current headless OAuth method, the script MUST select the `device_authorization` method explicitly from `auth_methods` and run device authorization via that method's route (`POST <route>/device`, poll `POST <route>/device/poll`). Browser authorization-code/PKCE MUST be represented by a distinct flow method, not inferred from `auth_type: oauth`; a provider offering only browser flows MUST fail with a pointer to the gateway OpenCode auth plugin. |
 | FR-5.4 | For `api_key`/`virtual_key`, the script MUST prompt for the key unless `--no-prompt` is set (then fail). |
 | FR-5.5 | The script MUST insert or replace only the matching `provider.<id>` entry, preserving all other providers and top-level keys; JSONC input is rewritten as plain JSON. |
 | FR-5.6 | The script MUST merge `{ "<id>": { "type": "api", "key": "<token>" } }` into the auth file and set its permissions to `600`. |

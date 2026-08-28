@@ -195,6 +195,28 @@ else
     fail=$((fail + 1))
 fi
 
+# --- Test: browser-only OAuth provider is rejected with a pointer to the plugin ---
+set +e
+BROWSER_ONLY_OUTPUT=$(echo "" | timeout 30 bash "$CLIENT_SCRIPT" \
+    --provider-id test-browser-only \
+    --gateway "$GATEWAY" \
+    --session test-session-browser \
+    --config-file "$CONFIG_FILE" \
+    --auth-file "$AUTH_FILE" \
+    --no-browser \
+    --no-clipboard 2>&1)
+BROWSER_ONLY_RC=$?
+set -e
+
+if [ "$BROWSER_ONLY_RC" -eq 0 ]; then
+    echo "[FAIL] browser-only provider should not complete a device login"
+    fail=$((fail + 1))
+else
+    assert_contains "browser-only provider points to the opencode plugin" \
+        "use the gateway OpenCode auth plugin for browser flows" \
+        "$BROWSER_ONLY_OUTPUT"
+fi
+
 if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
 if ! wait "$SERVER_PID"; then echo "[INFO] wait on $SERVER_PID returned $?" >&2; fi
 

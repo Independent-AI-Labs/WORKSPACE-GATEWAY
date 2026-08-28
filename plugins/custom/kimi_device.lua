@@ -12,7 +12,7 @@ local function encode_form_component(value)
     end)
 end
 
-local function post_form(url, params, timeout)
+local function post_form(url, params, timeout, ssl_verify)
     local httpc = http.new()
     httpc:set_timeout(timeout or 30000)
 
@@ -30,7 +30,7 @@ local function post_form(url, params, timeout)
             ["Accept"] = "application/json",
             ["User-Agent"] = KIMI_USER_AGENT,
         },
-        ssl_verify = false,
+        ssl_verify = ssl_verify ~= false,
     })
 
     if not res then
@@ -43,7 +43,7 @@ end
 
 function M.request_device_authorization(conf)
     local url = conf.oauth_host:gsub("/$", "") .. "/api/oauth/device_authorization"
-    local res, err = post_form(url, { client_id = conf.client_id })
+    local res, err = post_form(url, { client_id = conf.client_id }, nil, conf.ssl_verify)
     if not res then return nil, err end
     if res.status ~= 200 then
         return nil, "device authorization failed (HTTP " .. res.status .. ")"
@@ -71,7 +71,7 @@ function M.poll_device_token(conf, device_code)
         client_id = conf.client_id,
         device_code = device_code,
         grant_type = "urn:ietf:params:oauth:grant-type:device_code",
-    })
+    }, nil, conf.ssl_verify)
     if not res then return nil, err end
 
     local data = res.data
@@ -116,7 +116,7 @@ function M.refresh_access_token(conf, refresh_token)
         client_id = conf.client_id,
         refresh_token = refresh_token,
         grant_type = "refresh_token",
-    })
+    }, nil, conf.ssl_verify)
     if not res then return nil, err end
 
     local data = res.data

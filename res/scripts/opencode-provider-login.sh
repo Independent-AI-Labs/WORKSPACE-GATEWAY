@@ -223,6 +223,23 @@ AUTH_TYPE=$(echo "$OPENCODE_RESP" | jq -r '.auth_type // "none"')
 AUTH_ROUTE=$(echo "$OPENCODE_RESP" | jq -r '.auth_route // empty')
 PROVIDER_NAME=$(echo "$OPENCODE_RESP" | jq -r '.provider.name // empty')
 
+# Select the headless device method explicitly from auth_method metadata;
+# never infer the flow from auth_type alone.
+if [ "$AUTH_TYPE" = "oauth" ]; then
+  DEVICE_METHOD_ROUTE=$(echo "$OPENCODE_RESP" | jq -r \
+    '[.auth_methods // [] | .[] | select(.flow == "device_authorization")][0].route // empty')
+  if [ -n "$DEVICE_METHOD_ROUTE" ]; then
+    AUTH_ROUTE="$DEVICE_METHOD_ROUTE"
+  else
+    NON_DEVICE_METHODS=$(echo "$OPENCODE_RESP" | jq -r \
+      '[.auth_methods // [] | .[] | select(.flow != "device_authorization")] | length')
+    if [ -z "$AUTH_ROUTE" ] || [ "$NON_DEVICE_METHODS" -gt 0 ]; then
+      echo "ERROR: provider offers no headless device method; use the gateway OpenCode auth plugin for browser flows" >&2
+      exit 1
+    fi
+  fi
+fi
+
 echo "Provider: $PROVIDER_NAME"
 echo "Auth type: $AUTH_TYPE"
 echo ""

@@ -52,9 +52,19 @@ client credential.
 
 OpenCode's native requests also add `originator: opencode`, a dynamic
 `opencode/<InstallationVersion> (<platform> <release>; <arch>)` User-Agent,
-and `session-id`. The gateway currently injects only the Bearer credential,
-`ChatGPT-Account-Id` when discoverable, and gateway metadata. These are known
-compatibility gaps, not requirements silently treated as implemented.
+and `session-id`. The gateway injects `originator: opencode` and forwards
+`session-id` (from the client's `session-id` or `X-OpenCode-Session-Id`
+header). The User-Agent remains the pinned `opencode/1.18.3` string; a
+dynamic platform User-Agent is a known compatibility gap, not a requirement
+silently treated as implemented.
+
+Additional hardening in effect: device and browser token responses MUST
+include `access_token`, `refresh_token`, and a positive `expires_in`
+(malformed upstream responses fail closed with a protocol error); browser
+OAuth state is single-use (atomically consumed before the upstream code
+exchange, replayed callbacks get 400); and a refreshed session that cannot
+be persisted in OpenBao terminates the request with 503 instead of issuing
+a possibly-lost rotated refresh token.
 
 ## 4. Storage and Security
 
@@ -84,7 +94,8 @@ compatibility gaps, not requirements silently treated as implemented.
 | OpenAI handshake and refresh | Implemented | `plugins/custom/openai_device.lua` |
 | Provider definition | Implemented | `conf/providers/workspace-gw-openai-device-oauth.yaml` |
 | Browser PKCE OAuth parity | Implemented | `openai-auth.lua`, `openai_device.lua`, and gateway-owned OpenCode plugin |
-| OpenCode auth method registration | Implemented | `res/opencode-plugin/workspace-gateway-auth.ts` and example config |
-| OpenCode request-header parity | Partial | `openai-auth.lua` omits `originator` and `session-id` |
-| Published plugin dependency and Bun workspace metadata | Implemented, landing pending | `res/opencode-plugin/package.json`, `bun.lock`, `tsconfig.json`, Make targets, and generated CI hooks; verified locally, commit not yet landed |
-| Device polling pending-response handling | Implemented, landing pending | `workspace-gateway-auth.ts` accepts HTTP 202; Bun tests cover pending and `slow_down`; verified locally, commit not yet landed |
+| OpenCode auth method registration | Implemented | `res/opencode-plugin/workspace-gateway-auth.ts` and example config; methods are registered from provider-sync `auth_methods` metadata, dispatched by flow |
+| OpenCode request-header parity | Implemented | `openai-auth.lua` injects `originator` and forwards `session-id`; dynamic platform User-Agent remains pinned |
+| Published plugin dependency and Bun workspace metadata | Implemented | `res/opencode-plugin/package.json`, `bun.lock`, `tsconfig.json`, Make targets, and generated CI hooks (landed in `d41db07`) |
+| Device polling pending-response handling | Implemented | `workspace-gateway-auth.ts` accepts HTTP 202; Bun tests cover pending and `slow_down` (landed in `d41db07`) |
+| Single-use browser state and terminal refresh persistence | Implemented | `kimi_tokens.consume_device`, `oauth_session.ensure_fresh` |

@@ -5,6 +5,7 @@ COPY plugins/custom/key-meta.lua /usr/local/apisix/apisix/plugins/key-meta.lua
 COPY plugins/custom/kimi-auth.lua /usr/local/apisix/apisix/plugins/kimi-auth.lua
 COPY plugins/custom/openai-auth.lua /usr/local/apisix/apisix/plugins/openai-auth.lua
 COPY plugins/custom/oauth_broker.lua /usr/local/apisix/apisix/plugins/oauth_broker.lua
+COPY plugins/custom/oauth_session.lua /usr/local/apisix/apisix/plugins/oauth_session.lua
 COPY plugins/custom/kimi_jwt.lua /usr/local/apisix/apisix/plugins/kimi_jwt.lua
 COPY plugins/custom/kimi_device.lua /usr/local/apisix/apisix/plugins/kimi_device.lua
 COPY plugins/custom/kimi_tokens.lua /usr/local/apisix/apisix/plugins/kimi_tokens.lua

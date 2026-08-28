@@ -162,11 +162,18 @@ function M.poll_device_token(conf, device_code, user_code)
         return nil, "token exchange failed (HTTP " .. token.status .. ")"
     end
     local value = token.data
+    if type(value.refresh_token) ~= "string" or value.refresh_token == "" then
+        return nil, "token response missing refresh_token"
+    end
+    local expires_in = tonumber(value.expires_in)
+    if not expires_in or expires_in <= 0 then
+        return nil, "token response missing expires_in"
+    end
     return {
         access_token = value.access_token,
         refresh_token = value.refresh_token,
-        expires_in = tonumber(value.expires_in) or 3600,
-        expires_at = ngx.time() + (tonumber(value.expires_in) or 3600),
+        expires_in = expires_in,
+        expires_at = ngx.time() + expires_in,
         token_type = value.token_type or "Bearer",
         id_token = value.id_token,
         scope = value.scope,
@@ -185,11 +192,17 @@ function M.refresh_access_token(conf, refresh_token)
         return nil, "refresh failed (HTTP " .. res.status .. ")"
     end
     local value = res.data
+    --A missing refresh_token on refresh is tolerated only by retaining the
+    --previous one (documented upstream behavior); missing expiry is not.
+    local expires_in = tonumber(value.expires_in)
+    if not expires_in or expires_in <= 0 then
+        return nil, "refresh response missing expires_in"
+    end
     return {
         access_token = value.access_token,
         refresh_token = value.refresh_token or refresh_token,
-        expires_in = tonumber(value.expires_in) or 3600,
-        expires_at = ngx.time() + (tonumber(value.expires_in) or 3600),
+        expires_in = expires_in,
+        expires_at = ngx.time() + expires_in,
         token_type = value.token_type or "Bearer",
         id_token = value.id_token,
         scope = value.scope,
