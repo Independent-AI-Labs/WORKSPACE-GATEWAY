@@ -7,6 +7,8 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=../config/yaml_helpers.sh
+source "$REPO_ROOT/tests/config/yaml_helpers.sh"
 
 IMAGE="apache/apisix:3.17.0-debian"
 
@@ -19,7 +21,7 @@ for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_kimi_jwt.lua te
   echo ""
   echo "[run.sh] running $test_file..."
   set +e
-  podman run --rm \
+  "$PODMAN_BIN" run --rm \
     -v "$REPO_ROOT/plugins/custom:/plugins/custom:ro" \
     -v "$REPO_ROOT/plugins/custom/redact_lib.lua:/usr/local/apisix/apisix/plugins/redact_lib.lua:ro" \
     -v "$REPO_ROOT/plugins/custom/redact_walk.lua:/usr/local/apisix/apisix/plugins/redact_walk.lua:ro" \

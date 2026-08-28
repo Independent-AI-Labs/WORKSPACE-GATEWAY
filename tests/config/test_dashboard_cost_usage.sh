@@ -47,6 +47,11 @@ assert_eq "$LABEL: p3 has 5 field overrides" "5" "$P3_OVERRIDES"
 P3_COLS=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql | [test("( as )Total";"i"),test("( as )Input";"i"),test("( as )Cached";"i"),test("( as )Output";"i"),test("( as )Reasoning";"i")] | map(select(.))|length' "$F")
 assert_eq "$LABEL: p3 query returns 5 categories" "5" "$P3_COLS"
 
+# p3: billion-scale formatting (B branch before Mil in every multiIf;
+# each branch writes the 1e9 literal twice: threshold and divisor)
+P3_B=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql | [scan("1000000000")] | length' "$F")
+assert_eq "$LABEL: p3 formats billions as B (5 branches)" "10" "$P3_B"
+
 # p3: stat panel positioned top-left
 P3_GRID=$(jq -r '[.panels[]|select(.id==3)][0].gridPos | "y=\(.y),x=\(.x)"' "$F")
 assert_eq "$LABEL: p3 positioned top-left (y=0,x=0)" "y=0,x=0" "$P3_GRID"

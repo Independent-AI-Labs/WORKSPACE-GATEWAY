@@ -14,6 +14,7 @@ local alias_map = {
     ["glm-5"] = "glm-5",
     ["glm-5.1"] = "glm-5.1",
     ["glm-5.2"] = "glm-5.2",
+    ["glm-5.3"] = "glm-5.3",
     ["glm-5p0"] = "glm-5",
     ["glm-5p1"] = "glm-5.1",
     ["glm-5p2"] = "glm-5.2",
@@ -27,6 +28,8 @@ local alias_map = {
     ["z-ai/glm-5"] = "glm-5",
     ["z-ai/glm-5.1"] = "glm-5.1",
     ["z-ai/glm-5.2"] = "glm-5.2",
+    ["z-ai/glm-5.3"] = "glm-5.3",
+    ["zai.glm-5"] = "glm-5",
 }
 M.alias_map = alias_map
 

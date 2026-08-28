@@ -11,18 +11,23 @@ SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 DRY_RUN=false
+FORCE=false
 BACKUP_DIR=""
+PRICING_FILE=""
 CH_URL="${CLICKHOUSE_URL:-http://localhost:8123}"
 DB="${DATABASE:-llm_gateway}"
 BATCH_SIZE="${BATCH_SIZE:-5000}"
 OPENCODE_DBS="${OPENCODE_DBS:-$HOME/.local/share/opencode/opencode.db:$HOME/.local/share/opencode/opencode-dev.db}"
+MODELS_DEV_URL="${MODELS_DEV_URL:-https://models.dev/api.json}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run) DRY_RUN=true; shift ;;
+        --force) FORCE=true; shift ;;
         --clickhouse-url) CH_URL="$2"; shift 2 ;;
         --backup-dir) BACKUP_DIR="$2"; shift 2 ;;
-        *) echo "Usage: $(basename "$0") [--dry-run] [--clickhouse-url <url>] [--backup-dir <dir>]" >&2; exit 2 ;;
+        --pricing-file) PRICING_FILE="$2"; shift 2 ;;
+        *) echo "Usage: $(basename "$0") [--dry-run] [--force] [--clickhouse-url <url>] [--backup-dir <dir>] [--pricing-file <models.dev.json>]" >&2; exit 2 ;;
     esac
 done
 
@@ -48,6 +53,38 @@ awk '
   /^  [^ ]/  { cur=$1; sub(/:$/,"",cur) }
   /^      - /{ print cur "\t" $2 }
 ' "$REPO_ROOT/conf/model-registry.yaml" > "$TMPD/aliases.tsv"
+
+# ---------------------------------------------------------------- pricing
+# models.dev per-1M-token rates (base tier only, mirrors cost_calc.lua):
+#   provider \t model(lower) \t input \t output \t cache_read
+# Providers on flat-fee subscription plans publish all-zero rates; for
+# those we price at the PAYG-equivalent provider listed in SHADOW_MAP.
+SHADOW_MAP="zai-coding-plan:zai"
+
+if [ -z "$PRICING_FILE" ]; then
+    PRICING_FILE="$TMPD/modelsdev.json"
+    if ! curl -sSf --max-time 60 -o "$PRICING_FILE" "$MODELS_DEV_URL"; then
+        echo "[WARN] models.dev fetch failed; rows without upstream cost keep cost=0" >&2
+        : > "$PRICING_FILE"
+    fi
+else
+    if [ ! -f "$PRICING_FILE" ]; then
+        echo "[FAIL] pricing file not found: $PRICING_FILE" >&2
+        exit 1
+    fi
+fi
+
+if [ -s "$PRICING_FILE" ]; then
+    jq -r '
+        to_entries[] | .key as $p |
+        (.value.models // {}) | to_entries[] | .key as $m |
+        (.value.cost // {}) |
+        [$p, ($m | ascii_downcase), (.input // 0), (.output // 0), (.cache_read // 0)] | @tsv
+    ' "$PRICING_FILE" > "$TMPD/pricing.tsv"
+else
+    : > "$TMPD/pricing.tsv"
+fi
+echo "[INFO] pricing entries: $(wc -l < "$TMPD/pricing.tsv")" >&2
 
 # ---------------------------------------------------------------- extract
 # parts stream: message_id \t session_id \t part_tc_ms \t hex("type:text")
@@ -183,6 +220,17 @@ if [ "$DRY_RUN" = true ]; then
     echo "[DRY-RUN] rows to insert: usage_log=$KEPT request_log=$KEPT"
     echo "[DRY-RUN] source duplicates collapsed: $DUPES"
     echo "[DRY-RUN] TTL-expired rows: $TTL_EXPIRED"
+    awk -F'\t' -v shadow="$SHADOW_MAP" '
+        BEGIN { n=split(shadow, pairs, ","); for (i=1;i<=n;i++) { split(pairs[i], kv, ":"); sh[kv[1]]=kv[2] } }
+        NR==FNR { price[$1 ":" $2] = $3+$4+$5; next }
+        ($7+0) == 0 {
+            zero++
+            m=tolower($5); k1=$4 ":" m; k2=$4 ":" $6
+            if ((k1 in price && price[k1]>0) || (k2 in price && price[k2]>0)) res++
+            else if (($4 in sh) && ((sh[$4] ":" m in price && price[sh[$4] ":" m]>0) || (sh[$4] ":" $6 in price && price[sh[$4] ":" $6]>0))) res++
+        }
+        END { printf "[DRY-RUN] rows with cost=0: %d; priced via models.dev: %d; unknown: %d\n", zero+0, res+0, zero-res }
+    ' "$TMPD/pricing.tsv" "$TMPD/dedup.tsv"
     if curl -sSf --max-time 5 "$CH_URL/ping" 2>&1 | grep -q 'Ok.'; then
         EX_U=$(ch "SELECT count() FROM $DB.usage_log WHERE event_id LIKE 'ocm_%'")
         EX_R=$(ch "SELECT count() FROM $DB.request_log WHERE event_id LIKE 'ocr_%'")
@@ -191,6 +239,20 @@ if [ "$DRY_RUN" = true ]; then
         echo "[DRY-RUN] ClickHouse unreachable; existing-row counts not available"
     fi
     exit 0
+fi
+
+# ------------------------------------------------- rerun gate
+# Stable event ids (ocm_<msgid> / ocr_<msgid>) mean a rerun over a
+# populated target skips every existing row without notice, keeping stale cost
+# and schema values. Requiring --force forces the operator through a
+# backup + delete + verify-zero reset first.
+EXISTING=$(ch "SELECT count() FROM $DB.usage_log WHERE event_id LIKE 'ocm_%'")
+if [ "$EXISTING" -gt 0 ] && [ "$FORCE" != true ]; then
+    echo "[FAIL] $EXISTING migrated row(s) already present in $DB.usage_log." >&2
+    echo "       A rerun skips them (stable event ids) and keeps stale values." >&2
+    echo "       Reset first (see SPEC-STATS-MIGRATION.md), verify the count is 0," >&2
+    echo "       then rerun with --force and --backup-dir." >&2
+    exit 1
 fi
 
 # ------------------------------------------------- pre-insert backup
@@ -220,15 +282,38 @@ fi
 # Token mapping replicates sse_usage_lib.lua extract_tokens upstream
 # semantics: prompt INCLUDES cached, completion INCLUDES reasoning
 # (opencode stores input/output/cache.read/reasoning disjoint).
-awk -F'\t' -v OFS='\t' '
+awk -F'\t' -v OFS='\t' -v shadow="$SHADOW_MAP" '
+    BEGIN {
+        n=split(shadow, pairs, ",")
+        for (i=1;i<=n;i++) { split(pairs[i], kv, ":"); sh[kv[1]]=kv[2] }
+    }
+    NR==FNR { price[$1 ":" $2] = $3 " " $4 " " $5; next }
     {
-        cs = ($7+0 > 0) ? "upstream" : "unknown"
+        cost = $7+0
+        cs = (cost > 0) ? "upstream" : "unknown"
+        if (cost == 0) {
+            m = tolower($5)
+            p = ""
+            for (k in keys) delete keys[k]
+            keys[1]=$4 ":" m; keys[2]=$4 ":" $6
+            if ($4 in sh) { keys[3]=sh[$4] ":" m; keys[4]=sh[$4] ":" $6 }
+            for (i=1;i<=4 && p=="";i++)
+                if (keys[i] != "" && keys[i] in price) {
+                    split(price[keys[i]], r, " ")
+                    if (r[1]+r[2]+r[3] > 0) p = price[keys[i]]
+                }
+            if (p != "") {
+                split(p, r, " ")
+                cost = ($8*r[1] + $9*r[2] + $11*r[3] + $10*r[2]) / 1e6
+                cs = "computed"
+            }
+        }
         pt = $8 + $11
         ct = $9 + $10
         print "ocm_" $1, $1, $6, $5, pt, ct, pt+ct, $10+0, $11+0, \
-              0, 1, $7+0, cs, $4, $16
+              0, 1, cost, cs, $4, $16
     }
-' "$TMPD/dedup.tsv" > "$TMPD/usage.tsv"
+' "$TMPD/pricing.tsv" "$TMPD/dedup.tsv" > "$TMPD/usage.tsv"
 
 jq -cRn '
     inputs | split("\t") as $f |

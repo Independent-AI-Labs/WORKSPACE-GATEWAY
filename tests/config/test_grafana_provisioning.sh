@@ -442,6 +442,7 @@ echo "$P20_SQL" | grep -q "row_number() OVER () = 1, '#C9A44C'" && { echo "[PASS
 echo "$P20_SQL" | grep -q "row_number() OVER () = 2, '#A8A9AD'" && { echo "[PASS] p20 SQL bakes in matte silver for rank 2"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing silver color in SQL"; fail=$((fail+1)); }
 echo "$P20_SQL" | grep -q "row_number() OVER () = 3, '#B07A3C'" && { echo "[PASS] p20 SQL bakes in matte bronze for rank 3"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing bronze color in SQL"; fail=$((fail+1)); }
 echo "$P20_SQL" | grep -q 'multiIf' && { echo "[PASS] p20 uses multiIf for Mil/K formatting (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing multiIf formatting"; fail=$((fail+1)); }
+echo "$P20_SQL" | grep -q "' B'" && { echo "[PASS] p20 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing B format"; fail=$((fail+1)); }
 
 # ── p21 Leaderboard panel (in cost-leaderboard) ───────────────────────
 
@@ -481,5 +482,6 @@ echo "$P21_SQL" | grep -q "row_number() OVER () = 1, '#C9A44C'" && { echo "[PASS
 echo "$P21_SQL" | grep -q "row_number() OVER () = 2, '#A8A9AD'" && { echo "[PASS] p21 SQL bakes in matte silver for rank 2"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing silver color in SQL"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -q "row_number() OVER () = 3, '#B07A3C'" && { echo "[PASS] p21 SQL bakes in matte bronze for rank 3"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing bronze color in SQL"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -q 'multiIf' && { echo "[PASS] p21 uses multiIf for Mil/K formatting (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing multiIf formatting"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q "' B'" && { echo "[PASS] p21 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing B format"; fail=$((fail+1)); }
 
 summary

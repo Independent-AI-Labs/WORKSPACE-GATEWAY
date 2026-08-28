@@ -23,11 +23,15 @@ models:
       - glm-5p1
       - accounts/fireworks/models/glm-5p1
       - z-ai/glm-5.1
+  glm-5.3:
+    aliases:
+      - z-ai/glm-5.3
   glm-5:
     aliases:
       - glm-5p0
       - accounts/fireworks/models/glm-5p0
       - z-ai/glm-5
+      - zai.glm-5
   kimi-k2.7-code:
     aliases:
       - kimi-for-coding

@@ -101,8 +101,8 @@ driving this design:
 | `key_id`, `api_key_id` | `''` | no SQLite source |
 | `aborted` | `0` | client DB records no abort state |
 | `is_stream` | `1` | opencode always streams |
-| `cost` | `json_extract(data,'$.cost')` | USD, client-computed |
-| `cost_source` | `'upstream'` if cost > 0 else `'unknown'` | mirrors `resolve_cost` semantics; never `'computed'` |
+| `cost` | `json_extract(data,'$.cost')` when > 0, else models.dev-priced per §4.1 | USD |
+| `cost_source` | `'upstream'` if source cost > 0, `'computed'` if priced via §4.1, else `'unknown'` | mirrors `resolve_cost` semantics |
 | `provider_id` | `json_extract(data,'$.providerID')` | |
 | `pricing_source`, `pricing_snapshot` | `''` | no pricing catalog at migration time |
 | `timestamp` | `datetime(time_created/1000, 'unixepoch')` → ms precision | `time_created` is ms epoch |
@@ -149,8 +149,38 @@ else m = substring after last '/' of m, then alias_map lookup again
 Alias map is read from [`conf/model-registry.yaml`](../../conf/model-registry.yaml)
 at run time (jq/yaml_helpers), never hardcoded. Probed effects:
 `k3`→`kimi-k3`, `kimi-for-coding`→`kimi-k2.7-code`,
-`/zip/MiniCPM5-1B-Q8_0.gguf`→`minicpm5-1b-q8_0.gguf`; `glm-5.3`,
+`/zip/MiniCPM5-1B-Q8_0.gguf`→`minicpm5-1b-q8_0.gguf`,
+`zai.glm-5` (dot-form bedrock id)→`glm-5`; `glm-5.3`,
 `big-pickle`, `gpt-5.6-luna` pass through lowercased.
+
+## 4.1 Pricing Resolution (cost = 0 rows)
+
+Catalog: models.dev (`MODELS_DEV_URL`, or `--pricing-file`), flattened to
+`provider \t model(lower) \t input \t output \t cache_read` (USD per 1M
+tokens, base tier only; tiered overrides ignored, matching `cost_calc.lua`).
+
+Lookup order for a row with source cost 0, first hit with any rate > 0 wins:
+
+1. `providerID : lower(modelID)`
+2. `providerID : canonical(modelID)`
+3. `shadow(providerID) : lower(modelID)` and `shadow(providerID) : canonical(modelID)`
+
+Shadow map: `zai-coding-plan`→`zai`. Subscription-plan providers publish
+all-zero rates on models.dev; the shadow prices those rows at the
+PAYG-equivalent provider so cost dashboards reflect economic value.
+
+Computed cost (mirrors `cost_calc.lua` formula):
+
+```
+cost = ( tokens.input        * input_rate
+       + tokens.output       * output_rate
+       + tokens.cache.read   * cache_read_rate
+       + tokens.reasoning    * output_rate ) / 1e6
+```
+
+Result: `cost_source='computed'`. Rows with no pricing hit keep cost 0,
+`cost_source='unknown'` (free-tier models such as `big-pickle`/`*-free`,
+unlisted providers).
 
 ## 5. Duplicate Detection
 
@@ -199,34 +229,53 @@ reusing the `ch()` curl-POST helper shape from
 `dedupe-model-history.sh`.
 
 ```
-Usage: migrate-opencode-stats.sh [--dry-run] [--clickhouse-url <url>] [--backup-dir <dir>]
+Usage: migrate-opencode-stats.sh [--dry-run] [--force] [--clickhouse-url <url>] [--backup-dir <dir>] [--pricing-file <models.dev.json>]
 Env:   OPENCODE_DBS   colon-separated sqlite paths
                     (default ~/.local/share/opencode/opencode.db:opencode-dev.db)
        CLICKHOUSE_URL default http://localhost:8123
        DATABASE       default llm_gateway
        BATCH_SIZE     default 5000
+       MODELS_DEV_URL default https://models.dev/api.json
 ```
 
 Pipeline (single streaming pass per source, spills nothing to disk except
 one dedup stage file under mktemp):
 
-1. **Extract**: one `sqlite3` query per source db streaming the message's
+1. **Registry + pricing**: alias map from `conf/model-registry.yaml`;
+   pricing TSV from models.dev per §4.1 (or `--pricing-file`).
+2. **Extract**: one `sqlite3` query per source db streaming the message's
    ordered `part` rows (hex-encoded `type:text`) which awk folds into the
    §5.1 `content_hash` via `md5sum`, plus a second query joining
    `message`→`session` for the message/session fields, both emitting TSV.
    Read-only URI `?mode=ro`; sources missing on disk are skipped with a
    warning (FR-1.4 no-op, not error).
-2. **Dedup**: sort by natural key then `message.id`; keep first of each
+3. **Dedup**: sort by natural key then `message.id`; keep first of each
    natural key across ALL sources combined. Report `source_duplicates`.
-3. **Filter**: `--dry-run` stops here and prints: rows to insert per table,
+4. **Filter**: `--dry-run` stops here and prints: rows to insert per table,
    source duplicates collapsed, TTL-expired count
-   (`time_created < now − 13 months`), and, when ClickHouse is reachable,
-   already-present counts.
-4. **Backup** (`--backup-dir`): before any insert, `FORMAT Native` dump of
+   (`time_created < now − 13 months`), pricing coverage of cost-0 rows,
+   and, when ClickHouse is reachable, already-present counts.
+5. **Rerun gate**: if `usage_log` already holds any `ocm_%` row, abort
+   unless `--force` (FR-4.6; stable event ids would otherwise keep
+   stale cost/mapping values without any signal). Reset procedure:
+
+   ```bash
+   # 1. fresh backup (previous --backup-dir dumps suffice if current)
+   # 2. delete migrated rows and wait for the mutations:
+   curl "$CLICKHOUSE_URL/" --data-binary \
+     "ALTER TABLE llm_gateway.usage_log DELETE WHERE event_id LIKE 'ocm_%' SETTINGS mutations_sync=2"
+   curl "$CLICKHOUSE_URL/" --data-binary \
+     "ALTER TABLE llm_gateway.request_log DELETE WHERE event_id LIKE 'ocr_%' SETTINGS mutations_sync=2"
+   curl "$CLICKHOUSE_URL/" --data-binary \
+     "ALTER TABLE llm_gateway.billing_ledger DELETE WHERE event_id LIKE 'ocm_%' SETTINGS mutations_sync=2"
+   # 3. verify all three counts are 0, then:
+   res/scripts/migrate-opencode-stats.sh --force --backup-dir backups/<date>-rerun
+   ```
+6. **Backup** (`--backup-dir`): before any insert, `FORMAT Native` dump of
    `usage_log`, `request_log`, `billing_ledger` plus `manifest.txt`
    (row counts + `sum(cityHash64(*))` per table). Mandatory for the
    production run (FR-4.5).
-5. **Pre-flight check + insert**: per batch of `BATCH_SIZE`: fetch existing
+7. **Pre-flight check + insert**: per batch of `BATCH_SIZE`: fetch existing
    event_ids, drop them, then two `INSERT INTO ... FORMAT JSONEachRow`
    POSTs (usage_log first so the MV fires after its request_log twin is
    trivially cheap; order is not semantic). Any HTTP error aborts (FR-4.2).
@@ -250,7 +299,7 @@ the same prefix.)
 
 | Case | Decision |
 |------|----------|
-| cost = 0 (27,725 rows) | Migrate with `cost_source='unknown'`, cost 0 (auditable, not fabricated) |
+| cost = 0 (27,725 rows) | Priced from models.dev per §4.1 (`cost_source='computed'`); subscription-plan rows via shadow map; still-unpriced rows keep cost 0, `cost_source='unknown'` (never fabricated) |
 | `tokens.cache.write` | Dropped (no destination column; live path drops it too) |
 | `session.agent` NULL (1 session) | `agent_name` from message-level `agent` (present on all assistant rows at probe time); otherwise `session.agent`, else `''` |
 | Orphan `message.session_id` with no `session` row | 0 orphans at probe time; the inner `message`→`session` join drops any such row (session dims unavailable) |
@@ -306,8 +355,8 @@ rehearsal for the real run against dev.
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| `res/scripts/migrate-opencode-stats.sh` | Complete | fixture test 49/49 pass (2026-08-28) |
-| `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + `--full` rehearsal 55/55 pass; rehearsal migrated 61,496 rows, second pass inserted 0 (2026-08-28) |
+| `res/scripts/migrate-opencode-stats.sh` | Complete | fixture test 69/69 pass (2026-08-28, incl. §4.1 pricing, shadow map, `--force` gate) |
+| `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + pricing/shadow + rerun gate + `--full` rehearsal 69/69 pass; rehearsal migrated 61,496 rows, second pass inserted 0 (2026-08-28) |
 | Source probes | Complete | §1 (run 2026-08-28 against live opencode.db) |
 | Schema fit | Verified | all §3 destination columns exist in `conf/clickhouse-init.sql` |
-| Production run against dev ClickHouse | Complete | 61,645 rows in `usage_log` + `request_log` (2026-08-28, incl. token-semantics repair: first run used disjoint opencode counters, was rolled back via documented `ocm_%`/`ocr_%` DELETE and re-run with Lua-convention mapping; post-repair invariants `cached<=prompt`, `reasoning<=completion` = 0 violations); backups at `backups/2026-08-28-pre-migration/`, `-broken-migrated-rows/`, `-pre-repair/` |
+| Production run against dev ClickHouse | Re-run pending | first run 61,645 rows (2026-08-28, after token-semantics repair); re-run with computed pricing via the §6 step-5 reset procedure; backups at `backups/2026-08-28-pre-migration/`, `-broken-migrated-rows/`, `-pre-repair/` |

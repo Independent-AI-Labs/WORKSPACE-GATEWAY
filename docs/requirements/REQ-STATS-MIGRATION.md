@@ -80,7 +80,7 @@ that history visible in the existing Grafana cost/usage dashboards and in
 | FR-2.1 | Every migrated assistant message MUST produce exactly one `usage_log` row and one `request_log` row sharing `request_id = message.id`. |
 | FR-2.2 | Token/cost fields MUST come from the message JSON: `tokens.input`→`prompt_tokens`, `tokens.output`→`completion_tokens`, `tokens.reasoning`→`reasoning_tokens`, `tokens.cache.read`→`cached_tokens`, `cost`→`cost`, `time.created` (ms)→`timestamp`. |
 | FR-2.3 | `total_tokens` MUST equal `input + output` (live-path default convention in `sse_usage_lib.lua` when upstream reports no total). |
-| FR-2.4 | `cost_source` MUST be `'upstream'` when the message cost > 0, else `'unknown'` (cost 0 is unverifiable against the pricing catalog; never fabricated as `computed`). |
+| FR-2.4 | `cost_source` MUST be `'upstream'` when the message cost > 0. When cost = 0, the migrator MUST price the row from the models.dev catalog (per-1M base rates `input`/`output`/`cache_read`, formula mirroring `plugins/custom/cost_calc.lua`: uncached input at `input`, non-reasoning output at `output`, cached at `cache_read`, reasoning at `output`) and mark `cost_source='computed'`; rows on flat-fee subscription providers whose models.dev rates are all zero MUST be priced at the PAYG-equivalent provider via the shadow map (currently `zai-coding-plan`→`zai`). Rows still unpriced keep cost 0 with `cost_source='unknown'`. |
 | FR-2.5 | `model` MUST be the canonical id (same algorithm as `conf/model-registry.yaml` codegen: lowercase → alias map → last `/`-segment → alias map); `model_raw` MUST be the verbatim `modelID`. |
 | FR-2.6 | `request_log` rows MUST carry the real identity fields available in SQLite (`session_id`, `project_id`, `parent_session_id`, `agent_name`, `opencode_version`, `provider`, `model`, `user_agent`), documented synthetic HTTP fields (`method='POST'`, `uri='/v1/chat/completions'`, `status=200`, `stream=true`, `client_ip='0.0.0.0'`, zero latency), pseudo sizes computed from real part chunks (`request_size` = prior session context bytes, `response_size` = own part bytes), and the marker `client_type='migrated'` so dashboards can filter backfilled rows. |
 | FR-2.7 | Synthetic provenance MUST be filterable: migrated rows MUST be identifiable by `event_id LIKE 'ocm_%'` / `'ocr_%'` (live `event_id`s are `route_id + '_' + epoch-seconds` and `msg_...` request_ids never collide with APISIX request ids). |
@@ -98,11 +98,13 @@ that history visible in the existing Grafana cost/usage dashboards and in
 ### FR-4: Operational Interface
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | `--dry-run` MUST report, without writing: per-table row counts to insert, source duplicates collapsed, ClickHouse rows already present, and rows older than the 13-month TTL that ClickHouse will expire. |
+| FR-4.1 | `--dry-run` MUST report, without writing: per-table row counts to insert, source duplicates collapsed, ClickHouse rows already present, rows older than the 13-month TTL that ClickHouse will expire, and pricing coverage (rows with cost = 0, how many resolve via models.dev, how many stay unknown). |
 | FR-4.2 | Inserts MUST be batched (≤ 5,000 rows per HTTP INSERT, `JSONEachRow`) with per-batch failure aborting the run (no silent partial import; safe to re-run). |
 | FR-4.3 | The migrator MUST NOT delete or mutate anything in ClickHouse or SQLite. Rollback is `ALTER TABLE ... DELETE WHERE event_id LIKE 'ocm_%'` / `'ocr_%'` (documented in the spec, not automated). |
 | FR-4.4 | Exit code MUST be 0 on success (including "nothing to do"), non-zero on any source/destination error. |
 | FR-4.5 | `--backup-dir <dir>` MUST, before any insert, dump `usage_log`, `request_log`, and `billing_ledger` as `FORMAT Native` files plus a manifest with row counts and `sum(cityHash64(*))` checksums. The production run against dev MUST use it. |
+| FR-4.6 | Rerun gate: when any `ocm_` row already exists in the target, the migrator MUST abort with reset instructions unless `--force` is passed. Stable event ids make plain reruns keep stale rows without any signal, so a re-migration with changed pricing/mapping MUST go through: backup, documented `ocm_%`/`ocr_%` DELETE (mutations_sync=2), verify zero counts, then `--force --backup-dir`. |
+| FR-4.7 | The pricing catalog MUST come from models.dev (`MODELS_DEV_URL`, default `https://models.dev/api.json`) or an explicit `--pricing-file <path>`; a missing `--pricing-file` path MUST fail the run, an unreachable URL MUST produce a warning with rows priced as `unknown`. |
 
 ### FR-5: Test Isolation
 | ID | Requirement |
@@ -135,7 +137,7 @@ that history visible in the existing Grafana cost/usage dashboards and in
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| `res/scripts/migrate-opencode-stats.sh` | Implemented | fixture + `--full` rehearsal pass (2026-08-28, 55/55) |
-| Fixture test | Implemented | [`tests/test_migrate_opencode_stats.sh`](../../tests/test_migrate_opencode_stats.sh): isolation (FR-5), field map (AC-3), idempotency (AC-1/2), rehearsal (AC-5) |
+| `res/scripts/migrate-opencode-stats.sh` | Implemented | fixture pass 69/69 (2026-08-28, incl. models.dev pricing, shadow map, `--force` gate) |
+| Fixture test | Implemented | [`tests/test_migrate_opencode_stats.sh`](../../tests/test_migrate_opencode_stats.sh): isolation (FR-5), field map (AC-3), idempotency (AC-1/2), pricing/shadow, rerun gate (FR-4.6), rehearsal (AC-5) |
 | ClickHouse schema | Already sufficient | [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql) needs no change |
-| Production run against dev ClickHouse | Complete | 61,645 rows (2026-08-28, after token-semantics repair; invariants verified); backups under `backups/` |
+| Production run against dev ClickHouse | Re-run pending | first run 61,645 rows (2026-08-28); re-run with computed pricing via the FR-4.6 reset procedure |

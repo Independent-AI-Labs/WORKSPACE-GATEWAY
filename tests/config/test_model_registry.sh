@@ -23,6 +23,8 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=yaml_helpers.sh
+source "$SCRIPT_DIR/yaml_helpers.sh"
 IMAGE="apache/apisix:3.17.0-debian"
 
 pass=0
@@ -48,7 +50,7 @@ summary() {
 }
 
 # ---------- 1. functional canonical() tests ----------
-LUA_OUTPUT=$(podman run --rm \
+LUA_OUTPUT=$("$PODMAN_BIN" run --rm \
     -v "$REPO_ROOT/plugins/custom:/plugins/custom:ro" \
     --entrypoint /usr/local/openresty/luajit/bin/luajit \
     "$IMAGE" \
@@ -67,6 +69,9 @@ check("accounts/fireworks/models/glm-5p2 -> glm-5.2", "glm-5.2", r.canonical("ac
 check("Accounts/Fireworks/Models/GLM-5P2 -> glm-5.2", "glm-5.2", r.canonical("Accounts/Fireworks/Models/GLM-5P2"))
 check("glm-5p2 -> glm-5.2", "glm-5.2", r.canonical("glm-5p2"))
 check("z-ai/glm-5.2 -> glm-5.2", "glm-5.2", r.canonical("z-ai/glm-5.2"))
+check("z-ai/glm-5.3 -> glm-5.3", "glm-5.3", r.canonical("z-ai/glm-5.3"))
+check("zai.glm-5 -> glm-5 (dot-form bedrock id)", "glm-5", r.canonical("zai.glm-5"))
+check("glm-5.3 stays glm-5.3", "glm-5.3", r.canonical("glm-5.3"))
 check("glm-5p1 -> glm-5.1", "glm-5.1", r.canonical("glm-5p1"))
 check("kimi-for-coding -> kimi-k2.7-code", "kimi-k2.7-code", r.canonical("kimi-for-coding"))
 check("k3 -> kimi-k3", "kimi-k3", r.canonical("k3"))

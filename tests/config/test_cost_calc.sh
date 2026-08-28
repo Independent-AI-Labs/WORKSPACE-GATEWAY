@@ -7,6 +7,8 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=yaml_helpers.sh
+source "$SCRIPT_DIR/yaml_helpers.sh"
 
 pass=0
 fail=0
@@ -123,15 +125,15 @@ LUAEOF
 # Run the Lua test inside the APISIX container (the only place luajit is
 # available). The module requires zero dependency injection thanks to
 # deferred requires.
-APISIX_CONTAINER=$(podman ps --format '{{.Names}}' | grep -E 'apisix' | sed -n '1p')
+APISIX_CONTAINER=$("$PODMAN_BIN" ps --format '{{.Names}}' | grep -E 'apisix' | sed -n '1p')
 if [ -z "$APISIX_CONTAINER" ]; then
     echo "[FAIL] No apisix container running"
     exit 1
 fi
-podman cp "$MODULE_FILE" "$APISIX_CONTAINER":/tmp/cost_calc_check.lua
-podman cp "$REPO_ROOT/plugins/custom/model_registry.lua" "$APISIX_CONTAINER":/tmp/model_registry.lua
+"$PODMAN_BIN" cp "$MODULE_FILE" "$APISIX_CONTAINER":/tmp/cost_calc_check.lua
+"$PODMAN_BIN" cp "$REPO_ROOT/plugins/custom/model_registry.lua" "$APISIX_CONTAINER":/tmp/model_registry.lua
 
-if ! LUA_OUTPUT=$(podman exec "$APISIX_CONTAINER" luajit -e "
+if ! LUA_OUTPUT=$("$PODMAN_BIN" exec "$APISIX_CONTAINER" luajit -e "
 package.path = '/tmp/?.lua;' .. package.path
 COST_CALC_MODULE = '/tmp/cost_calc_check.lua'
 $(echo "$TEST_LUA" | sed 's/^/  /')

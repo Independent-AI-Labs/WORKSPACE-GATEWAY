@@ -109,6 +109,7 @@ echo "$P20_SQL" | grep -q "coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'u
 # p20: value format matches p3 (multiIf Mil/K + cost in parens)
 echo "$P20_SQL" | grep -q 'multiIf' && { echo "[PASS] $LABEL: p20 uses multiIf for Mil/K formatting (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing multiIf formatting"; fail=$((fail+1)); }
 echo "$P20_SQL" | grep -q "' Mil'" && { echo "[PASS] $LABEL: p20 formats millions as Mil (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing Mil format"; fail=$((fail+1)); }
+echo "$P20_SQL" | grep -q "' B'" && { echo "[PASS] $LABEL: p20 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing B format"; fail=$((fail+1)); }
 echo "$P20_SQL" | grep -q "' K'" && { echo "[PASS] $LABEL: p20 formats thousands as K (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing K format"; fail=$((fail+1)); }
 
 # p20: value_str alias includes the cost in parens ($...)
@@ -181,6 +182,7 @@ echo "$P21_SQL" | grep -q '\${model:singlequote}' && { echo "[PASS] $LABEL: p21 
 
 echo "$P21_SQL" | grep -q 'multiIf' && { echo "[PASS] $LABEL: p21 uses multiIf for Mil/K formatting (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing multiIf formatting"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -q "' Mil'" && { echo "[PASS] $LABEL: p21 formats millions as Mil (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing Mil format"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q "' B'" && { echo "[PASS] $LABEL: p21 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing B format"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -q "' K'" && { echo "[PASS] $LABEL: p21 formats thousands as K (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing K format"; fail=$((fail+1)); }
 
 echo "$P21_SQL" | grep -q "AS name_str" && { echo "[PASS] $LABEL: p21 aliases name_str"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing name_str alias"; fail=$((fail+1)); }

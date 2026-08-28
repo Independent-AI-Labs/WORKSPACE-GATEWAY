@@ -11,6 +11,19 @@
 #     ...
 #   fi
 
+# Container runtime resolution: the PATH "podman" guard wrapper resolves
+# real-podman relative to $0 and breaks when a script is executed through a
+# fd harness; prefer the hermetic workspace-ci runtime.
+if [ -z "${PODMAN_BIN:-}" ]; then
+  if [ -x /opt/workspace-ci/.boot-linux/bin/real-podman ]; then
+    PODMAN_BIN=/opt/workspace-ci/.boot-linux/bin/real-podman
+  elif command -v real-podman 2>&1; then
+    PODMAN_BIN=real-podman
+  else
+    PODMAN_BIN=podman
+  fi
+fi
+
 # version_ge v1 v2 - returns 0 (true) if semver v1 >= v2, else 1.
 # Uses awk to avoid bash array pitfalls under set -u.
 version_ge() {
@@ -37,7 +50,7 @@ yaml_to_json() {
   # Copy YAML file into temp dir for container access
   cp "$yaml_file" "$tmp_dir/input.yaml"
 
-  podman run --rm \
+  "$PODMAN_BIN" run --rm \
     -e 'LUA_PATH=/usr/local/apisix/deps/share/lua/5.1/?.lua;/usr/local/apisix/deps/share/lua/5.1/?/init.lua;;' \
     -e 'LUA_CPATH=/usr/local/apisix/deps/lib/lua/5.1/?.so;;' \
     -v "$tmp_dir:/yaml-tmp:ro" \
