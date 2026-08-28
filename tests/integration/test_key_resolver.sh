@@ -24,7 +24,7 @@ record_fail() {
 }
 
 http_code() {
-    if ! curl -s -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
+    if ! curl -s --max-time 30 -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
 }
 
 wait_for_apisix() {

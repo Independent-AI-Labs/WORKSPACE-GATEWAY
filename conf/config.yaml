@@ -1,3 +1,8 @@
+apisix:
+  # A draining worker must not retain its own listener bucket and blackhole
+  # connections during controlled restarts.
+  enable_reuseport: false
+
 resolver:
   - 10.89.0.1
   - 10.89.1.1

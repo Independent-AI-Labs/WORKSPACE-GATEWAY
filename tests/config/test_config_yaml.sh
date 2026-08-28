@@ -45,6 +45,9 @@ fi
 
 assert_eq "Valid YAML" "ok" "ok"
 
+REUSEPORT=$(echo "$JSON_DATA" | jq -r '.apisix.enable_reuseport')
+assert_eq "apisix.enable_reuseport is false (controlled restart safety)" "false" "$REUSEPORT"
+
 DEPLOY_ROLE=$(echo "$JSON_DATA" | jq -r '.deployment.role')
 assert_eq "deployment.role is traditional" "traditional" "$DEPLOY_ROLE"
 
