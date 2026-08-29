@@ -60,22 +60,58 @@ echo "[INFO] container runtime: $PODMAN_BIN"
 
 TMPD="$(mktemp -d)"
 CONTAINERS=()
+CLEANED=false
+
+# cleanup runs exactly once, on EVERY exit path: normal end, set -e abort,
+# assert failure, signals INT/TERM/HUP. Only SIGKILL bypasses it; that case
+# is covered by --rm on the container and the stale sweep on the next run.
 cleanup() {
+    [ "$CLEANED" = true ] && return 0
+    CLEANED=true
+    # Never let cleanup itself abort or re-trigger: it must always finish.
+    set +e
+    trap - EXIT INT TERM HUP
+    local c stale_all
     for c in "${CONTAINERS[@]:-}"; do
         if [ -n "$c" ]; then
-            if ! "$PODMAN_BIN" rm -f "$c" 2>&1; then
+            # -v: also removes the anonymous /var/lib/clickhouse volume
+            # (~400k inodes per container; leaving them once exhausted the
+            # host inode table -- 57M inodes, 2026-08-29).
+            if ! "$PODMAN_BIN" rm -f -v "$c" 2>&1; then
                 echo "[WARN] failed to remove container $c" >&2
             fi
         fi
     done
+    # Backstop: catch any migtest container this run failed to register
+    # (e.g. killed between podman run and CONTAINERS+=).
+    while IFS= read -r stale_all; do
+        [ -z "$stale_all" ] && continue
+        echo "[WARN] cleanup backstop removing unregistered container: $stale_all" >&2
+        "$PODMAN_BIN" rm -f -v "$stale_all" >&2
+    done < <("$PODMAN_BIN" ps -a --format '{{.Names}}' | awk '$1 ~ /^migtest-ch-/')
     rm -rf "$TMPD"
+    return 0
 }
 trap cleanup EXIT
+trap 'cleanup; trap - INT; kill -INT $$' INT
+trap 'cleanup; trap - TERM; kill -TERM $$' TERM
+trap 'cleanup; trap - HUP; kill -HUP $$' HUP
+
+# Sweep containers leaked by earlier killed runs (trap cannot catch SIGKILL).
+mapfile -t STALE < <("$PODMAN_BIN" ps -a --format '{{.Names}}' | awk '$1 ~ /^migtest-ch-/')
+if (( ${#STALE[@]} )); then
+    echo "[WARN] removing ${#STALE[@]} stale migtest container(s) from prior runs" >&2
+    "$PODMAN_BIN" rm -f -v "${STALE[@]}" >&2
+fi
 
 # ---------------------------------------------------------- fresh CH (FR-5.2)
+# Sets global CH_URL. MUST NOT be called in a command substitution:
+# a subshell would drop the CONTAINERS+= registration and leak the
+# container + its anonymous volume on cleanup.
 start_clickhouse() {
     local name="migtest-ch-$(date +%s)-$RANDOM" port="" out=""
-    if ! out=$("$PODMAN_BIN" run -d --name "$name" \
+    CH_URL=""
+    if ! out=$("$PODMAN_BIN" run -d --rm --name "$name" \
         -p 127.0.0.1::8123 \
         -v "$INIT_SQL:/docker-entrypoint-initdb.d/init.sql:ro" \
         "$CH_IMAGE" 2>&1); then
@@ -87,7 +123,7 @@ start_clickhouse() {
     local i
     for i in $(seq 1 60); do
         if curl -sSf --max-time 2 "http://127.0.0.1:$port/ping" 2>&1 | grep -q 'Ok.'; then
-            printf 'http://127.0.0.1:%s' "$port"
+            CH_URL="http://127.0.0.1:$port"
             return 0
         fi
         sleep 2
@@ -142,7 +178,7 @@ sqlite3 "$FIXTURE" ".backup '$SRC_COPY'"
 assert_eq "copy has no WAL sidecar (FR-5.1)" "false" "$([ -e "$SRC_COPY-wal" ] && echo true || echo false)"
 assert_eq "copy has no SHM sidecar (FR-5.1)" "false" "$([ -e "$SRC_COPY-shm" ] && echo true || echo false)"
 
-CH_URL=$(start_clickhouse) || { echo "[FAIL] ephemeral ClickHouse failed to start"; fail=$((fail+1)); summary; }
+if ! start_clickhouse; then echo "[FAIL] ephemeral ClickHouse failed to start"; fail=$((fail+1)); summary; fi
 echo "[INFO] fresh ClickHouse at $CH_URL"
 assert_fresh "$CH_URL"
 
@@ -293,7 +329,9 @@ if [ "$FULL" = true ]; then
         LIVE_COPY="$TMPD/live-copy.db"
         echo "[INFO] --full: taking WAL-safe .backup of live db (may take a while)"
         sqlite3 "$OPENCODE_LIVE_DB" ".backup '$LIVE_COPY'"
-        CH2_URL=$(start_clickhouse) || { echo "[FAIL] rehearsal ClickHouse failed"; fail=$((fail+1)); summary; }
+        CH2_URL=""
+        if ! start_clickhouse; then echo "[FAIL] rehearsal ClickHouse failed"; fail=$((fail+1)); summary; fi
+        CH2_URL="$CH_URL"
         echo "[INFO] rehearsal ClickHouse at $CH2_URL"
         assert_fresh "$CH2_URL"
 

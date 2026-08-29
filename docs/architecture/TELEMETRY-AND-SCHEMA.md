@@ -8,9 +8,16 @@ graph LR
     HL[http-logger] --> V[Vector]
     V --> RL[request_log]
     SU[sse-usage timer] --> UL[usage_log]
+    MIG[migrate-opencode-stats] --> UL
+    MIG --> RL
     UL --> MV[billing_ledger_mv]
     MV --> BL[billing_ledger]
 ```
+
+Backfill path: `res/scripts/migrate-opencode-stats.sh` writes historical
+opencode SQLite stats into both tables with `ocm_`/`ocr_` event ids and
+`client_type='migrated'`; ledger rows flow through the same MV. Details:
+[SPEC-STATS-MIGRATION](../specifications/SPEC-STATS-MIGRATION.md).
 
 ## Vector pipeline
 

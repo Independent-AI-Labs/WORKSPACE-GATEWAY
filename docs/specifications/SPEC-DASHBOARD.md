@@ -71,7 +71,8 @@ Single query (refId A) with a `WITH totals AS (...)` CTE over
 (`prompt_tokens - cached_tokens`), `cached_tok`, `output_tok`
 (`completion_tokens - reasoning_tokens`), `reasoning_tok`, and `total_cost`,
 then emitting 5 aliased string columns (`Total`, `Input`, `Cached`, `Output`,
-`Reasoning`) formatted via `multiIf` as `"1.2 Mil ($0.35)"`. Cost share per
+`Reasoning`) formatted via `multiIf` as `"1.2 Mil ($0.35)"` (thresholds:
+`>= 1e9` renders `"N B"`, then `>= 1e6` `"N Mil"`, `>= 1e3` `"N K"`). Cost share per
 category: `round(total_cost * <cat>_tok / nullIf(total_tok, 0), 2)`.
 Colors (byName): Total teal, Input cerulean, Cached muted-teal, Output gold,
 Reasoning coral.
@@ -191,7 +192,7 @@ are computed in SQL via `row_number() OVER ()`.
 
 `WITH ranked AS (...)` groups `usage_log` by normalized client key, orders by
 `total_cost DESC LIMIT 100`, then emits `name_str` (`"N. client"`), `value_str`
-(`"1.2 Mil ($34.56)"`), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
+(`"1.2 Mil ($34.56)"`, same B/Mil/K `multiIf` thresholds as p3), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
 `#B07A3C` rank 3, `#FFFFFF` ranks 4-10), `LIMIT 10`.
 
 ### Panel 21: Top Models by Cost & Tokens (stat, CH, grid x:0 y:16 w:24 h:16)

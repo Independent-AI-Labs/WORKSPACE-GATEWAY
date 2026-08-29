@@ -89,7 +89,7 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 | Module | Lines | Purpose |
 |--------|-------|---------|
 | `cost_calc.lua` | 149 | Read-only pricing consumer: `get_pricing` / `compute_cost` / `resolve_cost` |
-| `model_registry.lua` | 64 | GENERATED from `conf/model-registry.yaml` (alias map, canonical ids); regenerate via `res/scripts/gen-model-registry.sh` |
+| `model_registry.lua` | 69 | GENERATED from `conf/model-registry.yaml` (alias map, canonical ids); regenerate via `res/scripts/gen-model-registry.sh` |
 | `provider_sync_catalog.lua` | 507 | Provider/model catalog for `provider-sync` |
 | `provider_sync_pricing.lua` | 105 | Pricing sync; sole writer of provider-scoped `pricing:*` and snapshots |
 | `sse_usage_lib.lua` | 116 | Pure logic for `sse-usage` |

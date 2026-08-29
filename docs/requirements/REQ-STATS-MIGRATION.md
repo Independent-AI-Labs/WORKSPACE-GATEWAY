@@ -1,7 +1,7 @@
 # REQ-STATS-MIGRATION: opencode SQLite Stats Migrator
 
 **Date:** 2026-08-28
-**Status:** Implemented (rehearsed; production run pending operator go-ahead)
+**Status:** Implemented (production run complete 2026-08-28)
 **Type:** Requirements
 **Specification:** [SPEC-STATS-MIGRATION](../specifications/SPEC-STATS-MIGRATION.md)
 
@@ -140,4 +140,4 @@ that history visible in the existing Grafana cost/usage dashboards and in
 | `res/scripts/migrate-opencode-stats.sh` | Implemented | fixture pass 69/69 (2026-08-28, incl. models.dev pricing, shadow map, `--force` gate) |
 | Fixture test | Implemented | [`tests/test_migrate_opencode_stats.sh`](../../tests/test_migrate_opencode_stats.sh): isolation (FR-5), field map (AC-3), idempotency (AC-1/2), pricing/shadow, rerun gate (FR-4.6), rehearsal (AC-5) |
 | ClickHouse schema | Already sufficient | [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql) needs no change |
-| Production run against dev ClickHouse | Re-run pending | first run 61,645 rows (2026-08-28); re-run with computed pricing via the FR-4.6 reset procedure |
+| Production run against dev ClickHouse | Complete | 62,157 rows re-migrated (2026-08-28) via the FR-4.6 reset procedure with computed pricing: cost_source upstream $999.30 (34,329 rows) + computed $893.98 (21,291 rows) + unknown 6,535 (free-tier/unlisted); second `--force` pass idempotent; plain rerun aborts at the gate; backups under `backups/2026-08-28-pre-pricing-rerun/`, `-pricing-rerun/` |

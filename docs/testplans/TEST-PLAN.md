@@ -61,6 +61,13 @@ requires outbound HTTPS and consumes upstream credits.
 
 Podman 5.6.2+, podman-compose, jq, Python 3.10+, curl, git.
 
+Container runtime resolution: test helpers (`tests/config/yaml_helpers.sh`,
+`tests/test_migrate_opencode_stats.sh`) honor `$PODMAN_BIN`, then prefer the
+hermetic workspace-ci runtime at `/opt/workspace-ci/.boot-linux/bin/real-podman`,
+then `real-podman`/`podman` on PATH. The PATH `podman` guard wrapper resolves
+its real binary relative to `$0` and breaks when a script runs through an fd
+harness, so direct invocation of container-using scripts relies on this order.
+
 ### 4.2 Environment variables
 
 | Variable | Required for | Source |
@@ -75,7 +82,10 @@ Podman 5.6.2+, podman-compose, jq, Python 3.10+, curl, git.
 ```
 tests/
   lua/         test_redact_lib.lua, test_sse_usage_lib.lua,
-               test_kimi_jwt.lua, test_provider_sync.lua, run.sh
+               test_kimi_jwt.lua, test_provider_sync.lua,
+               test_provider_pricing.lua, test_oauth_broker.lua,
+               test_oauth_session.lua, test_upstream_pool_lib.lua,
+               provider_sync_test_fixtures.lua, check_syntax.sh, run.sh
   scripts/     test_opencode_provider_login.sh, mock_provider_server.py, run.sh
   config/      test_apisix_yaml.sh, test_apisix_yaml_render.sh,
                test_config_yaml.sh, test_compose.sh, test_dockerfile.sh,
@@ -84,6 +94,7 @@ tests/
                test_model_registry.sh, test_cost_calc.sh,
                test_grafana_provisioning.sh, test_dashboard_cost_usage.sh,
                test_dashboard_ops_health.sh, test_dashboard_cost_leaderboard.sh,
+               test_opencode_gateway_auth.sh, test_provider_sync_route.sh,
                dashboard_assert.sh, yaml_helpers.sh, run.sh
   reconciler/  test_reconciler.sh
   integration/ test_stack_up.sh, test_key_resolver.sh, test_route_relay.sh,
@@ -96,6 +107,7 @@ tests/
   ci/          test_hooks.sh
   e2e/         test_zen_chat.sh, test_zen_stream.sh, test_redact_e2e.sh,
                test_stream_redact.sh, test_invalid_model.sh, run.sh
+  test_migrate_opencode_stats.sh  (opencode stats migrator, FR-5 isolation)
   run_all.sh
 ```
 

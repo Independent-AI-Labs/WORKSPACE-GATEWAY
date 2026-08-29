@@ -83,7 +83,7 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens with per-category cost share, as formatted strings `"NN (Mil\|K)? ($X.XX)"`, with 5 unique column aliases and 5 unique byName color overrides. |
+| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens with per-category cost share, as formatted strings `"NN (B\|Mil\|K)? ($X.XX)"` (billion scale added 2026-08-28), with 5 unique column aliases and 5 unique byName color overrides. |
 | FR-4.2 | p15 (Cost Over Time by Model) MUST be a stacked-area timeseries of per-model cost per minute with a sum legend table. |
 | FR-4.3 | p1 (Total Requests) MUST count `request_log` rows within the time filter, with thresholds teal/gold at 1000/bronze at 10000. |
 | FR-4.4 | p4 (Error Rate %) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |

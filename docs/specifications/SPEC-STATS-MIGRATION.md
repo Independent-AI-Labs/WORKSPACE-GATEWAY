@@ -1,11 +1,11 @@
 # SPEC-STATS-MIGRATION: opencode SQLite Stats Migrator Implementation
 
 **Date:** 2026-08-28
-**Status:** Draft
+**Status:** Implemented
 **Type:** Specification
 **Requirements:** [REQ-STATS-MIGRATION](../requirements/REQ-STATS-MIGRATION.md)
 
-> Specifies `res/scripts/migrate-opencode-stats.sh` (not yet implemented):
+> Specifies `res/scripts/migrate-opencode-stats.sh`:
 > a read-only, idempotent bash migrator from the opencode SQLite client
 > database into `llm_gateway.usage_log` and `llm_gateway.request_log`.
 > All source facts below were probed against the live 10 GiB
@@ -359,4 +359,4 @@ rehearsal for the real run against dev.
 | `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + pricing/shadow + rerun gate + `--full` rehearsal 69/69 pass; rehearsal migrated 61,496 rows, second pass inserted 0 (2026-08-28) |
 | Source probes | Complete | §1 (run 2026-08-28 against live opencode.db) |
 | Schema fit | Verified | all §3 destination columns exist in `conf/clickhouse-init.sql` |
-| Production run against dev ClickHouse | Re-run pending | first run 61,645 rows (2026-08-28, after token-semantics repair); re-run with computed pricing via the §6 step-5 reset procedure; backups at `backups/2026-08-28-pre-migration/`, `-broken-migrated-rows/`, `-pre-repair/` |
+| Production run against dev ClickHouse | Complete | re-run with computed pricing (2026-08-28) via the §6 step-5 reset procedure: 62,157 rows; cost_source upstream $999.30 / computed $893.98 / unknown 6,535 rows; second `--force` pass idempotent, gate blocks plain reruns; backups at `backups/2026-08-28-pre-migration/`, `-broken-migrated-rows/`, `-pre-repair/`, `-pre-pricing-rerun/`, `-pricing-rerun/` |
