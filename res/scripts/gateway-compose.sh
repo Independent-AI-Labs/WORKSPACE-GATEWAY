@@ -56,7 +56,10 @@ case "${1:-}" in
         if [ "$service" = "apisix" ]; then
             bash "$SCRIPT_DIR/drain-apisix.sh"
         fi
-        container_id="$(podman ps -q \
+        # -a: drain-apisix.sh just stopped the container; podman ps without
+        # -a lists only running containers, so the lookup would come up empty
+        # and the service would never be started again.
+        container_id="$(podman ps -aq \
             --filter label=io.podman.compose.project=docker \
             --filter label=io.podman.compose.service="$service")"
         if [ -z "$container_id" ]; then

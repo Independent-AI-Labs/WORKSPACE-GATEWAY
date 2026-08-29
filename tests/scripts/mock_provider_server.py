@@ -45,6 +45,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         self._capture_ua()
+        if self.path == "/gateway/providers":
+            self._send_json([
+                {"id": "test-oauth", "auth_type": "oauth"},
+                {"id": "test-api-key", "auth_type": "api_key"},
+            ])
+            return
         if self.path.startswith("/gateway/providers/test-oauth/opencode"):
             self._send_json({
                 "provider": {

@@ -219,6 +219,10 @@ ch-migrate-status: ## Show ClickHouse schema migration status (golang-migrate ve
 sync-models: ## Trigger provider model sync on the gateway
 	curl -sS -f --max-time 30 -X POST http://localhost:9080/gateway/providers/sync
 
+.PHONY: setup-providers
+setup-providers: ## Install ALL gateway providers into opencode config (auth skipped by default; REQUIRE_AUTH=1 to prompt)
+	bash $(REPO_ROOT)/res/scripts/opencode-provider-login.sh --all $(if $(REQUIRE_AUTH),--require-auth)
+
 # OpenBao-backed virtual key management
 # =============================================================================
 # Key Management

@@ -10,9 +10,13 @@ set -euo pipefail
 #
 # Usage:
 #   bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-device-oauth
+#   make setup-providers   # installs ALL providers (see --all below)
 #
 # Options:
-#   --provider-id ID       Provider ID (required).
+#   --provider-id ID       Provider ID (required unless --all).
+#   --all                  Install every provider from /gateway/providers
+#                          (config blocks only; auth skipped unless --require-auth).
+#   --require-auth         Prompt for keys / run OAuth instead of skipping auth.
 #   --gateway URL        Gateway base URL (default: http://localhost:9080).
 #   --session ID          OAuth session label (default: opencode-<timestamp>).
 #   --config-file PATH    OpenCode config path (default: ~/.config/opencode/opencode.jsonc or .json).
@@ -28,6 +32,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 GATEWAY="http://localhost:9080"
 PROVIDER_ID=""
+ALL=0
+REQUIRE_AUTH=0
+FORWARD_ARGS=()
 SESSION="opencode-$(date +%s)"
 if [ -f "${HOME}/.config/opencode/opencode.jsonc" ]; then
   CONFIG_FILE="${HOME}/.config/opencode/opencode.jsonc"
@@ -42,28 +49,30 @@ NO_PROMPT=0
 DEVICE_TIMEOUT=900
 
 usage() {
-  sed -n '2,25p' "$0"
+  sed -n '2,29p' "$0"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --provider-id)    PROVIDER_ID="$2"; shift 2 ;;
-    --gateway)        GATEWAY="$2"; shift 2 ;;
+    --all)            ALL=1; shift ;;
+    --require-auth)   REQUIRE_AUTH=1; FORWARD_ARGS+=("--require-auth"); shift ;;
+    --gateway)        GATEWAY="$2"; FORWARD_ARGS+=("--gateway" "$2"); shift 2 ;;
     --session)        SESSION="$2"; shift 2 ;;
-    --config-file)    CONFIG_FILE="$2"; shift 2 ;;
-    --auth-file)      AUTH_FILE="$2"; shift 2 ;;
-    --user-agent)     USER_AGENT="$2"; shift 2 ;;
-    --no-browser)     NO_BROWSER=1; shift ;;
-    --no-clipboard)   NO_CLIPBOARD=1; shift ;;
+    --config-file)    CONFIG_FILE="$2"; FORWARD_ARGS+=("--config-file" "$2"); shift 2 ;;
+    --auth-file)      AUTH_FILE="$2"; FORWARD_ARGS+=("--auth-file" "$2"); shift 2 ;;
+    --user-agent)     USER_AGENT="$2"; FORWARD_ARGS+=("--user-agent" "$2"); shift 2 ;;
+    --no-browser)     NO_BROWSER=1; FORWARD_ARGS+=("--no-browser"); shift ;;
+    --no-clipboard)   NO_CLIPBOARD=1; FORWARD_ARGS+=("--no-clipboard"); shift ;;
     --no-prompt)      NO_PROMPT=1; shift ;;
-    --device-timeout) DEVICE_TIMEOUT="$2"; shift 2 ;;
+    --device-timeout) DEVICE_TIMEOUT="$2"; FORWARD_ARGS+=("--device-timeout" "$2"); shift 2 ;;
     --help)           usage; exit 0 ;;
     *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
-if [ -z "$PROVIDER_ID" ]; then
-  echo "ERROR: --provider-id is required" >&2
+if [ "$ALL" -eq 0 ] && [ -z "$PROVIDER_ID" ]; then
+  echo "ERROR: --provider-id is required (or use --all)" >&2
   usage >&2
   exit 1
 fi
@@ -86,6 +95,32 @@ for dep in curl jq; do
     exit 1
   fi
 done
+
+# --- --all: install every provider, one recursive run each ---
+if [ "$ALL" -eq 1 ]; then
+  PROVIDER_LIST=$(curl -sS -A "$USER_AGENT" --connect-timeout 5 --max-time 15 \
+    "${GATEWAY}/gateway/providers" | jq -r 'if type == "array" then .[].id else empty end')
+  if [ -z "$PROVIDER_LIST" ]; then
+    echo "ERROR: no providers returned by ${GATEWAY}/gateway/providers" >&2
+    exit 1
+  fi
+  FAILURES=0
+  for _pid in $PROVIDER_LIST; do
+    echo ""
+    echo "=== Installing provider: ${_pid} ==="
+    if ! bash "$0" --provider-id "$_pid" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}; then
+      echo "WARN: install failed for ${_pid}; continuing with remaining providers" >&2
+      FAILURES=$((FAILURES + 1))
+    fi
+  done
+  echo ""
+  if [ "$FAILURES" -gt 0 ]; then
+    echo "Done with ${FAILURES} failure(s)."
+    exit 1
+  fi
+  echo "All providers installed."
+  exit 0
+fi
 
 TMPDIR=""
 cleanup() {
@@ -224,8 +259,8 @@ AUTH_ROUTE=$(echo "$OPENCODE_RESP" | jq -r '.auth_route // empty')
 PROVIDER_NAME=$(echo "$OPENCODE_RESP" | jq -r '.provider.name // empty')
 
 # Select the headless device method explicitly from auth_method metadata;
-# never infer the flow from auth_type alone.
-if [ "$AUTH_TYPE" = "oauth" ]; then
+# never infer the flow from auth_type alone. Only needed when running auth.
+if [ "$AUTH_TYPE" = "oauth" ] && [ "$REQUIRE_AUTH" -eq 1 ]; then
   DEVICE_METHOD_ROUTE=$(echo "$OPENCODE_RESP" | jq -r \
     '[.auth_methods // [] | .[] | select(.flow == "device_authorization")][0].route // empty')
   if [ -n "$DEVICE_METHOD_ROUTE" ]; then
@@ -247,12 +282,16 @@ echo ""
 ACCESS_TOKEN=""
 USER_KEY=""
 
-# --- Provider-specific authentication ---
+# --- Provider-specific authentication (skipped by default; --require-auth to run) ---
 if [ "$AUTH_TYPE" = "oauth" ]; then
-  if [ -z "$AUTH_ROUTE" ]; then
+  if [ "$REQUIRE_AUTH" -ne 1 ]; then
+    echo "Skipping OAuth for ${PROVIDER_ID} (config-only install)."
+    echo "  Authenticate later: bash ${REPO_ROOT}/res/scripts/opencode-provider-login.sh --provider-id ${PROVIDER_ID} --require-auth"
+    echo ""
+  elif [ -z "$AUTH_ROUTE" ]; then
     echo "ERROR: provider response missing auth_route for OAuth provider" >&2
     exit 1
-  fi
+  else
 
   echo "Starting OAuth device flow..."
   DEVICE_RESP=$(curl_json -X POST "${GATEWAY}${AUTH_ROUTE}/device?session=${SESSION}" -H "Accept: application/json") || {
@@ -365,16 +404,22 @@ if [ "$AUTH_TYPE" = "oauth" ]; then
   echo ""
   echo "OAuth authorization complete."
   echo ""
+  fi
 
 elif [ "$AUTH_TYPE" = "api_key" ] || [ "$AUTH_TYPE" = "virtual_key" ]; then
-  if [ "$NO_PROMPT" -eq 1 ]; then
+  if [ "$REQUIRE_AUTH" -ne 1 ]; then
+    echo "Skipping API key for ${PROVIDER_ID} (config-only install)."
+    echo "  Add key later: bash ${REPO_ROOT}/res/scripts/opencode-provider-login.sh --provider-id ${PROVIDER_ID} --require-auth"
+    echo ""
+  elif [ "$NO_PROMPT" -eq 1 ]; then
     echo "ERROR: provider requires an API key but --no-prompt is set" >&2
     exit 1
-  fi
-  USER_KEY=$(prompt_for_key "Enter API key for ${PROVIDER_NAME}: ")
-  if [ -z "$USER_KEY" ]; then
-    echo "ERROR: API key is required" >&2
-    exit 1
+  else
+    USER_KEY=$(prompt_for_key "Enter API key for ${PROVIDER_NAME}: ")
+    if [ -z "$USER_KEY" ]; then
+      echo "ERROR: API key is required" >&2
+      exit 1
+    fi
   fi
 
 elif [ "$AUTH_TYPE" = "none" ] || [ "$AUTH_TYPE" = "passthrough" ]; then
@@ -417,31 +462,33 @@ if [ ! -s "$TMPDIR/config.json" ]; then
 fi
 mv "$TMPDIR/config.json" "$CONFIG_FILE"
 
-# --- Write auth.json ---
-AUTH_JSON='{}'
-if [ -f "$AUTH_FILE" ]; then
-  AUTH_JSON=$(cat "$AUTH_FILE")
-  if ! _valid_auth=$(echo "$AUTH_JSON" | jq -e .); then
-    echo "ERROR: auth file is not valid JSON: $AUTH_FILE" >&2
+# --- Write auth.json (only when a credential was obtained) ---
+if [ -n "$ACCESS_TOKEN" ] || [ -n "$USER_KEY" ]; then
+  AUTH_JSON='{}'
+  if [ -f "$AUTH_FILE" ]; then
+    AUTH_JSON=$(cat "$AUTH_FILE")
+    if ! _valid_auth=$(echo "$AUTH_JSON" | jq -e .); then
+      echo "ERROR: auth file is not valid JSON: $AUTH_FILE" >&2
+      exit 1
+    fi
+  fi
+
+  if [ "$AUTH_TYPE" = "oauth" ] && [ -n "$ACCESS_TOKEN" ]; then
+    AUTH_JSON=$(echo "$AUTH_JSON" | jq --arg id "$PROVIDER_ID" --arg key "$ACCESS_TOKEN" \
+      '.[$id] = {type: "api", key: $key}')
+  elif [ "$AUTH_TYPE" = "api_key" ] || [ "$AUTH_TYPE" = "virtual_key" ]; then
+    AUTH_JSON=$(echo "$AUTH_JSON" | jq --arg id "$PROVIDER_ID" --arg key "$USER_KEY" \
+      '.[$id] = {type: "api", key: $key}')
+  fi
+
+  echo "$AUTH_JSON" | jq . > "$TMPDIR/auth.json"
+  if [ ! -s "$TMPDIR/auth.json" ]; then
+    echo "ERROR: failed to write auth file" >&2
     exit 1
   fi
+  mv "$TMPDIR/auth.json" "$AUTH_FILE"
+  chmod 600 "$AUTH_FILE"
 fi
-
-if [ "$AUTH_TYPE" = "oauth" ] && [ -n "$ACCESS_TOKEN" ]; then
-  AUTH_JSON=$(echo "$AUTH_JSON" | jq --arg id "$PROVIDER_ID" --arg key "$ACCESS_TOKEN" \
-    '.[$id] = {type: "api", key: $key}')
-elif [ "$AUTH_TYPE" = "api_key" ] || [ "$AUTH_TYPE" = "virtual_key" ]; then
-  AUTH_JSON=$(echo "$AUTH_JSON" | jq --arg id "$PROVIDER_ID" --arg key "$USER_KEY" \
-    '.[$id] = {type: "api", key: $key}')
-fi
-
-echo "$AUTH_JSON" | jq . > "$TMPDIR/auth.json"
-if [ ! -s "$TMPDIR/auth.json" ]; then
-  echo "ERROR: failed to write auth file" >&2
-  exit 1
-fi
-mv "$TMPDIR/auth.json" "$AUTH_FILE"
-chmod 600 "$AUTH_FILE"
 
 # --- Summary ---
 echo ""

@@ -59,6 +59,8 @@ fi
 HELP_OUTPUT=$(bash "$CLIENT_SCRIPT" --help 2>&1 || echo "")
 assert_contains "help shows usage" "Usage:" "$HELP_OUTPUT"
 assert_contains "help mentions provider-id" "--provider-id" "$HELP_OUTPUT"
+assert_contains "help mentions --all" "--all" "$HELP_OUTPUT"
+assert_contains "help mentions --require-auth" "--require-auth" "$HELP_OUTPUT"
 
 # --- Test: missing --provider-id fails ---
 MISSING_OUTPUT=$(bash "$CLIENT_SCRIPT" --gateway http://localhost:9080 2>&1 || echo "")
@@ -109,6 +111,7 @@ GATEWAY="http://127.0.0.1:$PORT"
 set +e
 CLIENT_OUTPUT=$(timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-oauth \
+    --require-auth \
     --gateway "$GATEWAY" \
     --session test-session \
     --config-file "$CONFIG_FILE" \
@@ -167,10 +170,11 @@ else
     fail=$((fail + 1))
 fi
 
-# --- Test: api_key provider with piped input ---
+# --- Test: api_key provider with piped input (requires auth explicitly) ---
 set +e
 API_KEY_OUTPUT=$(echo "test-api-key-value" | timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-api-key \
+    --require-auth \
     --gateway "$GATEWAY" \
     --session test-session-api \
     --config-file "$CONFIG_FILE" \
@@ -199,6 +203,7 @@ fi
 set +e
 BROWSER_ONLY_OUTPUT=$(echo "" | timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-browser-only \
+    --require-auth \
     --gateway "$GATEWAY" \
     --session test-session-browser \
     --config-file "$CONFIG_FILE" \
@@ -216,6 +221,68 @@ else
         "use the gateway OpenCode auth plugin for browser flows" \
         "$BROWSER_ONLY_OUTPUT"
 fi
+
+# --- Test: api_key provider skips auth by default (config-only install) ---
+SKIP_CONFIG="$TMPDIR/opencode-skip.json"
+SKIP_AUTH="$TMPDIR/auth-skip.json"
+set +e
+SKIP_OUTPUT=$(timeout 30 bash "$CLIENT_SCRIPT" \
+    --provider-id test-api-key \
+    --gateway "$GATEWAY" \
+    --config-file "$SKIP_CONFIG" \
+    --auth-file "$SKIP_AUTH" \
+    --no-browser < /dev/null 2>&1)
+SKIP_RC=$?
+set -e
+
+assert_eq "default api_key install exits 0" "0" "$SKIP_RC"
+assert_contains "default api_key install reports skip" "Skipping API key" "$SKIP_OUTPUT"
+if [ -f "$SKIP_CONFIG" ]; then
+    SKIP_NAME=$(jq -r '.provider."test-api-key".name // "__missing__"' "$SKIP_CONFIG")
+else
+    SKIP_NAME="__missing__"
+fi
+assert_eq "default api_key install writes config" "Test API Key" "$SKIP_NAME"
+if [ -f "$SKIP_AUTH" ]; then
+    SKIP_KEY=$(jq -r '."test-api-key".key // "__missing__"' "$SKIP_AUTH")
+else
+    SKIP_KEY="__missing__"
+fi
+assert_eq "default api_key install writes NO auth entry" "__missing__" "$SKIP_KEY"
+
+# --- Test: --all installs every provider (config-only by default) ---
+ALL_CONFIG="$TMPDIR/opencode-all.json"
+ALL_AUTH="$TMPDIR/auth-all.json"
+set +e
+ALL_OUTPUT=$(timeout 60 bash "$CLIENT_SCRIPT" \
+    --all \
+    --gateway "$GATEWAY" \
+    --config-file "$ALL_CONFIG" \
+    --auth-file "$ALL_AUTH" \
+    --no-browser \
+    --no-clipboard < /dev/null 2>&1)
+ALL_RC=$?
+set -e
+
+assert_eq "--all exits 0" "0" "$ALL_RC"
+assert_contains "--all installs oauth provider" "test-oauth" "$ALL_OUTPUT"
+assert_contains "--all installs api-key provider" "test-api-key" "$ALL_OUTPUT"
+assert_contains "--all reports completion" "All providers installed" "$ALL_OUTPUT"
+if [ -f "$ALL_CONFIG" ]; then
+    ALL_OAUTH_NAME=$(jq -r '.provider."test-oauth".name // "__missing__"' "$ALL_CONFIG")
+    ALL_APIKEY_NAME=$(jq -r '.provider."test-api-key".name // "__missing__"' "$ALL_CONFIG")
+else
+    ALL_OAUTH_NAME="__missing__"
+    ALL_APIKEY_NAME="__missing__"
+fi
+assert_eq "--all writes oauth provider config" "Test OAuth" "$ALL_OAUTH_NAME"
+assert_eq "--all writes api-key provider config" "Test API Key" "$ALL_APIKEY_NAME"
+if [ -f "$ALL_AUTH" ]; then
+    ALL_AUTH_COUNT=$(jq 'length' "$ALL_AUTH")
+else
+    ALL_AUTH_COUNT=0
+fi
+assert_eq "--all writes NO auth entries by default" "0" "$ALL_AUTH_COUNT"
 
 if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
 if ! wait "$SERVER_PID"; then echo "[INFO] wait on $SERVER_PID returned $?" >&2; fi

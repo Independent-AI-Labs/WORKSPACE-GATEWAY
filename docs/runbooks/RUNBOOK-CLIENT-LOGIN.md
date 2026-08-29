@@ -42,8 +42,20 @@ curl -s http://localhost:9080/gateway/providers | jq .
 
 ### 2. Run the login script
 
+Install ALL providers at once (config-only; keys/OAuth deferred by default):
+
+```bash
+make setup-providers
+# or, prompting for keys and running OAuth device flows:
+make setup-providers REQUIRE_AUTH=1
+```
+
+Install or re-authenticate a single provider:
+
 ```bash
 bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-device-oauth
+# with key prompt / OAuth (otherwise config-only):
+bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-zai-api-key --require-auth
 ```
 
 ### 2a. Preferred OpenCode OAuth setup
@@ -94,7 +106,9 @@ contract is documented.
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--provider-id ID` | (required) | Provider ID |
+| `--provider-id ID` | (required unless `--all`) | Provider ID |
+| `--all` | off | Install every provider from `/gateway/providers` (config-only unless `--require-auth`) |
+| `--require-auth` | off | Prompt for API keys / run OAuth instead of skipping auth |
 | `--gateway URL` | `http://localhost:9080` | Gateway base URL (must be http/https) |
 | `--session ID` | `opencode-<timestamp>` | OAuth session label |
 | `--config-file PATH` | `~/.config/opencode/opencode.jsonc` (or `.json`) | OpenCode config path |

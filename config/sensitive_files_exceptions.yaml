@@ -9,3 +9,4 @@ safe_exceptions:
   - workspace-gw-opencode-go-virtual-key.yaml
   - workspace-gw-opencode-zen-api-key.yaml
   - opencode-workspace-gw-opencode-zen-api-key.example.json
+  - workspace-gw-zai-api-key.yaml

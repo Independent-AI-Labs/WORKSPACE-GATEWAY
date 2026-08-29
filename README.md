@@ -116,6 +116,7 @@ and [Supported Providers](#supported-providers)). Diagram authoring rules:
 | `relay-kimi` | `/kimi/*` | `kimi-auth` headless device authorization | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
+| `relay-zai-key` | `/zai-key/*` | Direct key passthrough | Z.ai GLM Coding Plan (`api.z.ai`) → `/api/coding/paas/v4/*` |
 | `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile (`host.docker.internal:8765`) |
 
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
@@ -124,8 +125,9 @@ DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
 upstream node in `apisix.yaml.j2` to point at any other compatible API.
 Additional providers = new relay route + upstream node; see
 [`docs/specifications/SPEC-PROVIDER-XAI.md`](docs/specifications/SPEC-PROVIDER-XAI.md)
-for the xAI Grok draft spec and [`docs/specifications/SPEC-PROVIDER-KIMI.md`](docs/specifications/SPEC-PROVIDER-KIMI.md)
-for the Moonshot Kimi spec.
+for the xAI Grok draft spec, [`docs/specifications/SPEC-PROVIDER-KIMI.md`](docs/specifications/SPEC-PROVIDER-KIMI.md)
+for the Moonshot Kimi spec, and [`docs/specifications/SPEC-PROVIDER-ZAI.md`](docs/specifications/SPEC-PROVIDER-ZAI.md)
+for the Z.ai GLM spec.
 
 ---
 
@@ -276,8 +278,9 @@ has no `Authorization` flow.
    shared dict (5s TTL in dev, 300s in prod).
 
 2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): Used on the
-   `/opencode/*` and `/kimi-key/*` routes. Passed through to upstream as-is.
-   No OpenBao lookup. Users bring their own upstream provider API keys.
+   `/opencode/*`, `/kimi-key/*`, and `/zai-key/*` routes. Passed through to
+   upstream as-is. No OpenBao lookup. Users bring their own upstream provider
+   API keys.
 
 3. **Upstream key pools**: Named pools of upstream API keys shared by one or
    more virtual keys. The `key-resolver` plugin selects keys sticky-style and
@@ -419,20 +422,32 @@ reload provisioning. See [`docs/specifications/SPEC-DASHBOARD.md`](docs/specific
 ## opencode Integration
 
 The gateway registers canonical auth-mode providers: OpenCode Go virtual/API
-key, OpenCode Zen API key, llamafile no-auth, and three Moonshot Kimi modes
-(device OAuth, virtual key, and API key) as custom providers in opencode.
+key, OpenCode Zen API key, llamafile no-auth, three Moonshot Kimi modes
+(device OAuth, virtual key, and API key), and Z.ai GLM API-key passthrough
+as custom providers in opencode.
 
 ```bash
-# Sync all models from gateway into opencode config
+# Refresh the gateway-side provider/model catalog (does NOT touch client config)
 make sync-models
+
+# Install ALL gateway providers into opencode config (auth skipped by default)
+make setup-providers
+
+# Same, prompting for API keys / running OAuth device flows:
+make setup-providers REQUIRE_AUTH=1
+
+# Add a key for one provider later:
+bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-zai-api-key --require-auth
 ```
 
-This fetches `/opencode_federated/v1/models` (Go tier, `*-free` models
-filtered out) and `/opencode_zen/v1/models` (all Zen/free models) from the
-gateway, enriches each model with canonical metadata (name, context limit,
-capabilities, cost, modalities) from [models.dev](https://models.dev),
-and also fetches `/llamafile/v1/models` for the local llamafile upstream.
-It writes provider entries into `~/.config/opencode/opencode.jsonc` for the
+This enriches the gateway catalog from `/opencode_federated/v1/models` (Go
+tier, `*-free` models filtered out), `/opencode_zen/v1/models` (all Zen/free
+models), and `/llamafile/v1/models` (local llamafile upstream), with canonical
+metadata (name, context limit, capabilities, cost, modalities) from
+[models.dev](https://models.dev).
+Provider entries are written into `~/.config/opencode/opencode.jsonc` by
+the login script above (fetches the ready-made block from
+`/gateway/providers/<id>/opencode`), for the
 OpenCode and Kimi access modes, plus llamafile:
 
 - `workspace-gw-opencode-go-virtual-key`: virtual-key mode, Go tier
@@ -442,6 +457,7 @@ OpenCode and Kimi access modes, plus llamafile:
 - `workspace-gw-kimi-device-oauth`: device OAuth (gateway-managed Kimi token)
 - `workspace-gw-kimi-virtual-key`: virtual-key mode for Kimi (`vgw-*`)
 - `workspace-gw-kimi-api-key`: API-key passthrough for Kimi
+- `workspace-gw-zai-api-key`: API-key passthrough for Z.ai GLM (Coding Plan endpoint)
 
 For the OAuth providers, use the login script in
 [`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)
@@ -570,7 +586,8 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make pool-key ARGS='list'` | List upstream key pools |
 | `make pool-key ARGS='create kimi'` | Create a new upstream key pool |
 | `make pool-key ARGS='add kimi k1 sk-...'` | Add a key to an upstream pool |
-| `make sync-models` | Sync models from gateway to opencode config |
+| `make sync-models` | Refresh gateway-side provider/model catalog |
+| `make setup-providers` | Install all gateway providers into opencode config (`REQUIRE_AUTH=1` to prompt for keys) |
 
 ### Quality Gates
 

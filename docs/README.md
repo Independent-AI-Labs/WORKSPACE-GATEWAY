@@ -27,6 +27,7 @@ as not implemented.
 | [`requirements/REQ-PROVIDER-KIMI.md`](requirements/REQ-PROVIDER-KIMI.md) | Moonshot Kimi provider integration |
 | [`requirements/REQ-PROVIDER-OPENAI.md`](requirements/REQ-PROVIDER-OPENAI.md) | OpenAI browser/headless OAuth provider integration |
 | [`requirements/REQ-PROVIDER-SYNC.md`](requirements/REQ-PROVIDER-SYNC.md) | Provider catalog/pricing sync service |
+| [`requirements/REQ-PROVIDER-ZAI.md`](requirements/REQ-PROVIDER-ZAI.md) | Z.ai GLM provider integration (own-key passthrough) |
 | [`requirements/REQ-PROVIDER-XAI.md`](requirements/REQ-PROVIDER-XAI.md) | xAI Grok provider integration (Draft) |
 | [`requirements/REQ-REDACT.md`](requirements/REQ-REDACT.md) | PII redaction plugin (v1) |
 | [`requirements/REQ-REDACT-ENGINE.md`](requirements/REQ-REDACT-ENGINE.md) | NER redaction engine (Draft, v2) |
@@ -46,6 +47,7 @@ as not implemented.
 | [`specifications/SPEC-PROVIDER-KIMI.md`](specifications/SPEC-PROVIDER-KIMI.md) | kimi-auth plugin and Kimi routes |
 | [`specifications/SPEC-PROVIDER-OPENAI.md`](specifications/SPEC-PROVIDER-OPENAI.md) | openai-auth plugin and ChatGPT relay |
 | [`specifications/SPEC-PROVIDER-SYNC.md`](specifications/SPEC-PROVIDER-SYNC.md) | provider-sync plugin implementation |
+| [`specifications/SPEC-PROVIDER-ZAI.md`](specifications/SPEC-PROVIDER-ZAI.md) | Z.ai GLM passthrough routes |
 | [`specifications/SPEC-PROVIDER-XAI.md`](specifications/SPEC-PROVIDER-XAI.md) | xAI provider implementation (Draft) |
 | [`specifications/SPEC-REDACT.md`](specifications/SPEC-REDACT.md) | redact plugin implementation |
 | [`specifications/SPEC-REDACT-ENGINE.md`](specifications/SPEC-REDACT-ENGINE.md) | NER engine implementation (Draft) |

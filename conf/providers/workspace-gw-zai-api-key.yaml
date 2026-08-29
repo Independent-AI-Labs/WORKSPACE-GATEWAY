@@ -1,0 +1,25 @@
+---
+id: workspace-gw-zai-api-key
+name: "Workspace GW (Z.ai API Key)"
+provider:
+  id: zai
+  label: Z.ai
+route: "/zai-key"
+npm: "@ai-sdk/openai-compatible"
+auth:
+  type: api_key
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+model_source:
+  type: models_dev_provider
+  provider: zai
+  normalize:
+    strip_prefix: "z-ai/"
+    lowercase: true
+pricing:
+  source:
+    type: models_dev
+    provider: zai
+  missing_policy: unknown
