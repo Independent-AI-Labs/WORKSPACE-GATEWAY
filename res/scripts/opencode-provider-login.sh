@@ -28,7 +28,11 @@ set -euo pipefail
 #   --device-timeout SEC  OAuth polling timeout in seconds (default: 900).
 #   --help                Show this help.
 
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+_SELF="${BASH_SOURCE[0]}"
+case "$_SELF" in
+  /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;;
+esac
+REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
 
 GATEWAY="http://localhost:9080"
 PROVIDER_ID=""

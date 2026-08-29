@@ -260,7 +260,7 @@ test_client_virtual_key() {
     local test_key="test-virtual-key-$(date +%s)"
     local output
     set +e
-    output=$(echo "$test_key" | run_client_login workspace-gw-opencode-go-virtual-key --no-browser 2>&1)
+    output=$(echo "$test_key" | run_client_login workspace-gw-opencode-go-virtual-key --no-browser --require-auth 2>&1)
     local status=$?
     set -e
     if [ "$status" -ne 0 ]; then
@@ -377,7 +377,7 @@ test_oauth_client_timeout() {
     rm -f "$CONFIG_FILE" "$AUTH_FILE"
     local output
     set +e
-    output=$(run_client_login workspace-gw-kimi-device-oauth --no-browser --device-timeout 5 2>&1)
+    output=$(run_client_login workspace-gw-kimi-device-oauth --no-browser --require-auth --device-timeout 5 2>&1)
     local status=$?
     set -e
     if [ "$status" -eq 0 ]; then
