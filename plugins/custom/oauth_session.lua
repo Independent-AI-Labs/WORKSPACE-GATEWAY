@@ -1,11 +1,11 @@
--- Shared OAuth session behavior for kimi-auth and openai-auth.
+-- Shared OAuth session behavior for oauth-auth (all OAuth providers).
 -- Only identical session/refresh/header logic lives here; provider protocol
--- differences stay in kimi_device.lua / openai_device.lua and the plugins.
+-- differences stay in oauth_device.lua engines and per-route plugin config.
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
-local ok, jwt = pcall(require, "apisix.plugins.kimi_jwt")
+local ok, jwt = pcall(require, "apisix.plugins.oauth_jwt")
 if not ok then
-    jwt = require("kimi_jwt")
+    jwt = require("oauth_jwt")
 end
 
 local M = {}

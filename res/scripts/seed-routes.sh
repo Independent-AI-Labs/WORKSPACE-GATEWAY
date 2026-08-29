@@ -68,7 +68,7 @@ required_plugins = {
     plugin_name
     for route in routes
     for plugin_name in (route.get('plugins') or {})
-    if plugin_name in {'key-resolver', 'key-meta', 'kimi-auth', 'openai-auth',
+    if plugin_name in {'key-resolver', 'key-meta', 'oauth-auth',
                        'provider-sync', 'redact', 'sse-usage'}
 }
 plugins_req = urllib.request.Request(

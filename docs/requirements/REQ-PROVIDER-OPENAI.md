@@ -13,7 +13,7 @@
 
 ## 1. Scope
 
-- `openai-auth` device/browser start, callback, bearer validation, refresh, and header injection
+- `oauth-auth` device/browser start, callback, bearer validation, refresh, and header injection
 - OpenBao pending-device and OAuth-session records
 - The `/openai/*` relay and `workspace-gw-openai-device-oauth` provider mapping
 - Compatibility notes against `../opencode/packages/core/src/plugin/provider/openai.ts`
@@ -26,13 +26,13 @@ This document does not define OpenAI model catalog or pricing synchronization.
 | ID | Requirement |
 |----|-------------|
 | FR-1.1 | The gateway SHALL expose `relay-openai` at `/openai/*`, rewrite the path to `/backend-api/codex/responses`, and proxy HTTPS to `chatgpt.com:443`. |
-| FR-1.2 | The route MUST use `openai-auth`; unauthenticated requests MUST NOT reach the upstream. |
+| FR-1.2 | The route MUST use `oauth-auth`; unauthenticated requests MUST NOT reach the upstream. |
 | FR-1.3 | Device start MUST broker upstream authorization at `/openai/auth/device?session=<id>`, retain upstream state, and return an opaque gateway `device_code` with the verification payload. |
 | FR-1.4 | Device polling MUST accept only the opaque gateway `{ "device_code": ... }`, resolve upstream state, and return HTTP 202 with `authorization_pending` while OpenAI reports HTTP 403 or 404. |
 | FR-1.5 | A successful poll MUST exchange OpenAI's `authorization_code` and `code_verifier` at `/oauth/token`, store the session, delete the pending device record, and return `access_token`, `expires_in`, and `session_id`. |
 | FR-1.6 | Proxy requests MUST require a Bearer token, resolve the session by the hash of the client-issued token, and refresh when expiry is within 300 seconds by default. |
 | FR-1.7 | The plugin MUST set the refreshed upstream Bearer token, `ChatGPT-Account-Id` when available, and gateway key, tenant, and rate-limit headers. |
-| FR-1.8 | `workspace-gw-openai-device-oauth` MUST use route `/openai`, OAuth plugin `openai-auth`, npm package `@ai-sdk/openai`, and models.dev provider `openai`. |
+| FR-1.8 | `workspace-gw-openai-device-oauth` MUST use route `/openai`, OAuth plugin `oauth-auth`, npm package `@ai-sdk/openai`, and models.dev provider `openai`. |
 | FR-1.9 | The provider-sync response MUST identify `chatgpt-headless` with flow `device_authorization` and `chatgpt-browser` with flow `authorization_code_pkce`. |
 | FR-1.10 | The gateway-owned OpenCode plugin MUST register both methods for `workspace-gw-openai-device-oauth` through OpenCode's standard `Hooks.auth` mechanism. |
 | FR-1.11 | Browser OAuth MUST use OpenCode's loopback callback `http://localhost:1455/auth/callback`; the gateway MUST validate state and perform the upstream code exchange. |
@@ -47,7 +47,7 @@ headless. The gateway-owned plugin registers both methods for the gateway
 provider. Browser OAuth uses
 `/oauth/authorize`, PKCE S256, state validation, and the loopback callback
 `http://localhost:1455/auth/callback`; the callback code is submitted to
-`openai-auth`, which performs the token exchange and returns a gateway-issued
+`oauth-auth`, which performs the token exchange and returns a gateway-issued
 client credential.
 
 OpenCode's native requests also add `originator: opencode`, a dynamic
@@ -90,12 +90,12 @@ a possibly-lost rotated refresh token.
 | Item | Status | Evidence |
 |------|--------|----------|
 | Relay and rewrite | Implemented | `conf/apisix.yaml`, `relay-openai` |
-| OAuth plugin | Implemented | `plugins/custom/openai-auth.lua` |
-| OpenAI handshake and refresh | Implemented | `plugins/custom/openai_device.lua` |
+| OAuth plugin | Implemented | `plugins/custom/oauth-auth.lua` (generic plugin; OpenAI is a `chatgpt_device` config set on `relay-openai`) |
+| OpenAI handshake and refresh | Implemented | `plugins/custom/oauth_device.lua` (`chatgpt_device` engine) |
 | Provider definition | Implemented | `conf/providers/workspace-gw-openai-device-oauth.yaml` |
-| Browser PKCE OAuth parity | Implemented | `openai-auth.lua`, `openai_device.lua`, and gateway-owned OpenCode plugin |
+| Browser PKCE OAuth parity | Implemented | `oauth-auth.lua` (`browser_flow`), `oauth_device.lua`, and gateway-owned OpenCode plugin |
 | OpenCode auth method registration | Implemented | `res/opencode-plugin/workspace-gateway-auth.ts` and example config; methods are registered from provider-sync `auth_methods` metadata, dispatched by flow |
-| OpenCode request-header parity | Implemented | `openai-auth.lua` injects `originator` and forwards `session-id`; dynamic platform User-Agent remains pinned |
+| OpenCode request-header parity | Implemented | `oauth-auth.lua` injects `originator` and forwards `session-id`; dynamic platform User-Agent remains pinned |
 | Published plugin dependency and Bun workspace metadata | Implemented | `res/opencode-plugin/package.json`, `bun.lock`, `tsconfig.json`, Make targets, and generated CI hooks (landed in `d41db07`) |
 | Device polling pending-response handling | Implemented | `workspace-gateway-auth.ts` accepts HTTP 202; Bun tests cover pending and `slow_down` (landed in `d41db07`) |
-| Single-use browser state and terminal refresh persistence | Implemented | `kimi_tokens.consume_device`, `oauth_session.ensure_fresh` |
+| Single-use browser state and terminal refresh persistence | Implemented | `oauth_store.consume_device`, `oauth_session.ensure_fresh` |

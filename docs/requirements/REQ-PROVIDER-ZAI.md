@@ -60,7 +60,7 @@ credential logic and proxies transparently.
 |----|-------------|
 | FR-1.1 | The gateway SHALL expose 2 Z.ai routes: `relay-zai-key` (`/zai-key/*`) and `relay-zai-key-v1` (`/zai-key/v1/*`). |
 | FR-1.2 | Both routes MUST proxy to `api.z.ai:443` over HTTPS and rewrite the path to `/api/coding/paas/v4/*` (Coding Plan endpoint; NOT the general `/api/paas/v4`). |
-| FR-1.3 | Both routes MUST attach neither `kimi-auth` nor `key-resolver`; the client `Authorization: Bearer <zai-key>` header MUST be forwarded as-is. |
+| FR-1.3 | Both routes MUST attach neither `oauth-auth` nor `key-resolver`; the client `Authorization: Bearer <zai-key>` header MUST be forwarded as-is. |
 | FR-1.4 | Both routes MUST attach the common relay plugin stack (`key-meta`, `limit-count` 100/60s keyed on `http_x_key_hash`, `prometheus`, `request-id`, `http-logger`, `proxy-buffering` disabled, `redact`, `sse-usage`). |
 | FR-1.5 | `/zai-key/v1/*` exists so OpenAI-SDK-style base URLs (`.../zai-key/v1`) work without double-`v1` paths. |
 

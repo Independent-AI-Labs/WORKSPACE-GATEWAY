@@ -11,7 +11,7 @@
 > in the `gateway-cache` shared dict, and exposes read-only `/gateway/providers*`
 > endpoints for OpenCode clients. `provider-sync` is the SOLE writer of
 > `pricing:*` keys. Explicitly excluded: storing client secrets, replacing
-> `kimi-auth`, and editing routing/upstream config.
+> `oauth-auth`, and editing routing/upstream config.
 
 ---
 
@@ -130,7 +130,7 @@ pricing is written exactly once, in one place.
 | FR-6.1 | `/gateway/providers*` endpoints MUST be read-only and return public metadata only (no credentials). |
 | FR-6.2 | The route MUST apply `limit-count` rate limiting (60 req/min per `remote_addr`). |
 | FR-6.3 | The service MUST remain auth-agnostic; operators MAY add `key-auth`/`forward-auth` to the route without plugin changes. |
-| FR-6.4 | The plugin MUST NOT store client secrets; OAuth token custody remains with `kimi-auth`/OpenBao. |
+| FR-6.4 | The plugin MUST NOT store client secrets; OAuth token custody remains with `oauth-auth`/OpenBao. |
 
 ## 3. Non-Functional Requirements
 

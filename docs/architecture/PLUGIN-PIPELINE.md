@@ -11,7 +11,7 @@ Plugins run in **priority order** (highest first) per Nginx phase. See
 ```mermaid
 graph LR
     subgraph access [access phase]
-        KA["kimi-auth 2560 (kimi routes)"]
+        KA["oauth-auth 2560 (kimi routes)"]
         KR["key-resolver 2555 (federated)"]
         KM["key-meta 2530"]
         RD["redact 2500"]
@@ -39,7 +39,7 @@ graph LR
 | Plugin | Priority | Type | Phases |
 |--------|----------|------|--------|
 | `provider-sync` | 2570 | Custom | access (+ init warmup) |
-| `kimi-auth` | 2560 | Custom | access |
+| `oauth-auth` | 2560 | Custom | access |
 | `key-resolver` | 2555 | Custom | access |
 | `key-meta` | 2530 | Custom | access, log |
 | `redact` | 2500 | Custom | access, header_filter, body_filter, log |
@@ -59,7 +59,7 @@ Source: [`conf/apisix.yaml`](../../conf/apisix.yaml). Legend: y = enabled.
 |--------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | `proxy-rewrite` | y | y | y | y | y | y | y | y | y | - |
 | `key-resolver` | - | y | - | - | y | y | - | - | - | - |
-| `kimi-auth` | - | - | y | y | - | - | - | - | - | - |
+| `oauth-auth` | - | - | y | y | - | - | - | - | - | - |
 | `key-meta` | y | y | y | y | y | y | y | y | - | - |
 | `provider-sync` | - | - | - | - | - | - | - | - | - | y |
 | `redact` | y | y | y | y | y | y | y | y | y | - |
@@ -80,7 +80,7 @@ provider-sync.
   passthrough); `vgw-*` resolved via OpenBao on the federated route.
   Both rewrite to `/zen/go/`. `relay-opencode-zen` is own-key passthrough
   rewriting to `/zen/` (OpenCode Zen/free upstream).
-- **kimi routes:** `kimi-auth` on `relay-kimi` / `relay-kimi-v1`;
+- **kimi routes:** `oauth-auth` on `relay-kimi` / `relay-kimi-v1`;
   `key-resolver` on federated routes; `kimi-key*` routes pass keys through
   with `key-meta` only. All rewrite to `/coding/v1/`.
 - **llamafile:** no auth plugins; per-IP rate limit; rewrite to `/`.

@@ -72,8 +72,8 @@ assert_eq "key-resolver in plugins list" "1" "$PLUGINS_KEY_RESOLVER"
 PLUGINS_KEY_META=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "key-meta")] | length')
 assert_eq "key-meta in plugins list" "1" "$PLUGINS_KEY_META"
 
-PLUGINS_KIMI_AUTH=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "kimi-auth")] | length')
-assert_eq "kimi-auth in plugins list" "1" "$PLUGINS_KIMI_AUTH"
+PLUGINS_OAUTH_AUTH=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "oauth-auth")] | length')
+assert_eq "oauth-auth in plugins list" "1" "$PLUGINS_OAUTH_AUTH"
 
 PLUGINS_PROVIDER_SYNC=$(echo "$JSON_DATA" | jq '[.plugins[] | select(. == "provider-sync")] | length')
 assert_eq "provider-sync in plugins list" "1" "$PLUGINS_PROVIDER_SYNC"

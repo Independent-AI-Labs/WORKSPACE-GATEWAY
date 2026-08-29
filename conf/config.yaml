@@ -28,8 +28,7 @@ deployment:
 plugins:
   - key-resolver
   - key-meta
-  - kimi-auth
-  - openai-auth
+  - oauth-auth
   - provider-sync
   - ai-rate-limiting
   - proxy-buffering

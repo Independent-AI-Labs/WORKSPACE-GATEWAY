@@ -16,10 +16,10 @@ Bun manifest and lockfile).
 
 | Component | Responsibility |
 |-----------|----------------|
-| `openai-auth` | APISIX access-phase device flow, session lookup, refresh, and header injection |
-| `openai_device.lua` | OpenAI device authorization, poll, authorization-code exchange, and refresh HTTP calls |
-| `kimi_jwt.lua` | Token hashing, expiry checks, and JWT claim decoding |
-| `kimi_tokens.lua` | OpenBao KVv2 device/session CRUD |
+| `oauth-auth` (generic plugin, OpenAI config set: `protocol: chatgpt_device`) | APISIX access-phase device flow, session lookup, refresh, and header injection |
+| `oauth_device.lua` | Protocol engines; `chatgpt_device` covers OpenAI device authorization, poll, authorization-code exchange, and refresh HTTP calls |
+| `oauth_jwt.lua` | Token hashing, expiry checks, and JWT claim decoding |
+| `oauth_store.lua` | OpenBao KVv2 device/session CRUD |
 | `relay-openai` | HTTPS relay from `/openai/*` to ChatGPT Codex responses |
 | `workspace-gateway-auth.ts` | Gateway-owned OpenCode `Hooks.auth` adapter using the published plugin package |
 
@@ -58,7 +58,7 @@ opens `/oauth/authorize` with `scope=openid profile email offline_access`,
 `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`, and
 `originator=opencode`, then receives the code at
 `http://localhost:1455/auth/callback`. The gateway-owned plugin exposes this
-method through `openai-auth`; the plugin submits the callback code and state to
+method through `oauth-auth`; the plugin submits the callback code and state to
 the gateway, which performs the upstream exchange. This upstream contract was
 verified against OpenCode source on 2026-08-06.
 
@@ -84,7 +84,7 @@ The plugin injects `originator: opencode` and forwards a client-supplied
 the User-Agent stays the pinned `opencode/1.18.3`; a dynamic platform
 User-Agent remains a divergence (see §6).
 
-Browser OAuth state is single-use: `kimi_tokens.consume_device` atomically
+Browser OAuth state is single-use: `oauth_store.consume_device` atomically
 DELETEs the pending record before the upstream code exchange, so a replayed
 or concurrent callback receives 400. A failed exchange consumes the state;
 the client restarts the browser login. Session refresh and persistence run
@@ -97,17 +97,17 @@ a possibly-lost rotated refresh token.
 
 | Route | URI | Rewrite | Auth |
 |-------|-----|---------|------|
-| `relay-openai` | `/openai/*` | `^/openai/(.*)` -> `/backend-api/codex/responses` | `openai-auth` |
+| `relay-openai` | `/openai/*` | `^/openai/(.*)` -> `/backend-api/codex/responses` | `oauth-auth` |
 
 The provider file `workspace-gw-openai-device-oauth.yaml` declares
 `workspace-gw-openai-device-oauth`, route `/openai`, `@ai-sdk/openai`, OAuth auth via
-`openai-auth`, and models.dev provider `openai`.
+`oauth-auth`, and models.dev provider `openai`.
 
 ## 5. Failure Behavior
 
 | Condition | Status | Result |
 |-----------|--------|--------|
-| Missing device code | 400 | `openai-auth: missing device_code` |
+| Missing device code | 400 | `oauth-auth: missing device_code` |
 | Missing/expired device record | 400 | Device session error |
 | OpenAI poll still pending | 202 | `authorization_pending` |
 | Device/token upstream failure | 502 | OpenAI auth error |

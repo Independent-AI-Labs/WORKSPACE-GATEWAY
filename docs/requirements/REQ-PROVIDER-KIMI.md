@@ -6,7 +6,7 @@
 **Specification:** [SPEC-PROVIDER-KIMI](../specifications/SPEC-PROVIDER-KIMI.md)
 
 > Mandates the Moonshot Kimi integration: RFC 8628 device-code OAuth managed by
-> the `kimi-auth` plugin, token custody in OpenBao with transparent refresh, and
+> the `oauth-auth` plugin, token custody in OpenBao with transparent refresh, and
 > three first-class access modes (OAuth, federated virtual key, own API key)
 > across 6 Kimi relay routes to `api.kimi.com/coding/v1`. Explicitly excluded:
 > the Kimi local server relay, ACP bridging, and the documented device-code OAuth
@@ -17,10 +17,10 @@
 
 **Cross-references:**
 - [SPEC-PROVIDER-KIMI](../specifications/SPEC-PROVIDER-KIMI.md): companion specification
-- [`plugins/custom/kimi-auth.lua`](../../plugins/custom/kimi-auth.lua): device start/poll/proxy phases
-- [`plugins/custom/kimi_device.lua`](../../plugins/custom/kimi_device.lua): OAuth HTTP helpers
-- [`plugins/custom/kimi_jwt.lua`](../../plugins/custom/kimi_jwt.lua): JWT decode/expiry/hash
-- [`plugins/custom/kimi_tokens.lua`](../../plugins/custom/kimi_tokens.lua): OpenBao token storage
+- [`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua): device start/poll/proxy phases
+- [`plugins/custom/oauth_device.lua`](../../plugins/custom/oauth_device.lua): OAuth HTTP helpers
+- [`plugins/custom/oauth_jwt.lua`](../../plugins/custom/oauth_jwt.lua): JWT decode/expiry/hash
+- [`plugins/custom/oauth_store.lua`](../../plugins/custom/oauth_store.lua): OpenBao token storage
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): 6 `relay-kimi*` routes
  - [`conf/providers/workspace-gw-kimi-device-oauth.yaml`](../../conf/providers/workspace-gw-kimi-device-oauth.yaml) and siblings: provider definitions
 
@@ -38,7 +38,7 @@ refreshes transparently) and two API-key alternatives.
 
 **This document OWNS the requirements for:**
 - Device-code OAuth handshake endpoints (`/kimi/auth/device`, `/kimi/auth/device/poll`)
-- `kimi-auth` proxy authentication, session lookup, and automatic refresh
+- `oauth-auth` proxy authentication, session lookup, and automatic refresh
 - OpenBao storage layout for device records and OAuth sessions
 - The 6 Kimi relay routes and their auth mode assignment
 - The three client access modes and their OpenCode provider ids
@@ -66,9 +66,9 @@ refreshes transparently) and two API-key alternatives.
 |----|-------------|
 | FR-1.1 | The gateway SHALL expose 6 Kimi routes: `relay-kimi` (`/kimi/*`), `relay-kimi-v1` (`/kimi/v1/*`), `relay-kimi-federated` (`/kimi-federated/*`), `relay-kimi-federated-v1` (`/kimi-federated/v1/*`), `relay-kimi-key` (`/kimi-key/*`), `relay-kimi-key-v1` (`/kimi-key/v1/*`). |
 | FR-1.2 | All 6 routes MUST proxy to `api.kimi.com:443` over HTTPS and rewrite the path to `/coding/v1/*`. |
-| FR-1.3 | `/kimi/*` routes MUST use `kimi-auth` (not `key-resolver`); `/kimi-federated/*` routes MUST use `key-resolver` with `upstream_key_env: KIMI_API_KEY` and `virtual_key_prefix: vgw-`; `/kimi-key/*` routes MUST use no auth plugin. |
+| FR-1.3 | `/kimi/*` routes MUST use `oauth-auth` (not `key-resolver`); `/kimi-federated/*` routes MUST use `key-resolver` with `upstream_key_env: KIMI_API_KEY` and `virtual_key_prefix: vgw-`; `/kimi-key/*` routes MUST use no auth plugin. |
 | FR-1.4 | Console API keys (`sk-...`) MUST be rejected on `/kimi/*` with a pointer to `/kimi-key`; `sk-` keys MUST NOT be accepted on `/kimi-federated/*`. |
-| FR-1.5 | The device endpoints `/kimi/auth/device` and `/kimi/auth/device/poll` MUST be handled inside `kimi-auth` before any upstream proxying. |
+| FR-1.5 | The device endpoints `/kimi/auth/device` and `/kimi/auth/device/poll` MUST be handled inside `oauth-auth` before any upstream proxying. |
 
 ### FR-2: Device-Code OAuth
 
@@ -124,7 +124,7 @@ refreshes transparently) and two API-key alternatives.
 | ID | Constraint | Source |
 |----|------------|--------|
 | C-1 | RFC 8628 device code only; no PKCE/browser redirect | kimi-code oauth source and live endpoint probe (2026-08-06) |
-| C-2 | `kimi-auth` priority 2560 (before key-meta 2530) | plugins/custom/kimi-auth.lua |
+| C-2 | `oauth-auth` priority 2560 (before key-meta 2530) | plugins/custom/oauth-auth.lua |
 | C-3 | Device code TTL 900s; single-use | legacy kimi spec §9 |
 
 ## 5. Assumptions
@@ -143,7 +143,7 @@ None. (Resolved: three-mode split; OAuth sessions keyed by issued-token hash;
 
 | # | Test | Maps to |
 |---|------|---------|
-| V1 | [`tests/lua/test_kimi_jwt.lua`](../../tests/lua/test_kimi_jwt.lua) | FR-3.x (claim decode, expiry, hash) |
+| V1 | [`tests/lua/test_oauth_jwt.lua`](../../tests/lua/test_oauth_jwt.lua) | FR-3.x (claim decode, expiry, hash) |
 | V2 | [`tests/config/test_apisix_yaml.sh`](../../tests/config/test_apisix_yaml.sh) | FR-1.1-FR-1.3 |
 | V3 | [`tests/integration/test_route_relay.sh`](../../tests/integration/test_route_relay.sh) | FR-1.x |
 | V4 | [`tests/integration/test_provider_sync_client.sh`](../../tests/integration/test_provider_sync_client.sh) | FR-2.x device-flow timeout handling |
@@ -153,7 +153,7 @@ None. (Resolved: three-mode split; OAuth sessions keyed by issued-token hash;
 | Item | Status | Evidence |
 |------|--------|----------|
 | FR-1.x 6 routes | Implemented | conf/apisix.yaml `relay-kimi*` |
-| FR-2.x device flow | Implemented | kimi-auth.lua, kimi_device.lua |
-| FR-3.x proxy auth + refresh | Implemented | kimi-auth.lua `plugin.access` |
-| FR-4.x OpenBao storage | Implemented | kimi_tokens.lua |
+| FR-2.x device flow | Implemented | oauth-auth.lua, oauth_device.lua |
+| FR-3.x proxy auth + refresh | Implemented | oauth-auth.lua `plugin.access` |
+| FR-4.x OpenBao storage | Implemented | oauth_store.lua |
 | FR-5.x provider YAMLs | Implemented | conf/providers/workspace-gw-kimi-*.yaml |

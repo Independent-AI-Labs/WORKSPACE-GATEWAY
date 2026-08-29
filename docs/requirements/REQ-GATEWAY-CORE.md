@@ -60,9 +60,9 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 | FR-2.2 | `relay-opencode` (`/opencode/*`) MUST proxy-rewrite to `/zen/go/$1` on upstream `opencode.ai:443` (https, pass_host node) and MUST NOT attach `key-resolver` (direct key passthrough). |
 | FR-2.3 | `relay-opencode-federated` (`/opencode_federated/*`) MUST rewrite to `/zen/go/$1` on `opencode.ai:443` and MUST attach `key-resolver` with `upstream_key_env: OPENCODE_API_KEY` and `virtual_key_prefix: vgw-`. |
 | FR-2.4 | `relay-opencode-zen` (`/opencode_zen/*`) MUST rewrite to `/zen/$1` on `opencode.ai:443` (the OpenCode Zen/free upstream) and MUST NOT attach `key-resolver` (own-key passthrough). |
-| FR-2.5 | `relay-kimi` (`/kimi/*`) and `relay-kimi-v1` (`/kimi/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach `kimi-auth` (federated OAuth device-flow auth). |
+| FR-2.5 | `relay-kimi` (`/kimi/*`) and `relay-kimi-v1` (`/kimi/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach `oauth-auth` (federated OAuth device-flow auth). |
 | FR-2.6 | `relay-kimi-federated` (`/kimi-federated/*`) and `relay-kimi-federated-v1` (`/kimi-federated/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach `key-resolver` with `upstream_key_env: KIMI_API_KEY`. |
-| FR-2.7 | `relay-kimi-key` (`/kimi-key/*`) and `relay-kimi-key-v1` (`/kimi-key/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach neither `kimi-auth` nor `key-resolver` (gateway-provisioned key / passthrough). |
+| FR-2.7 | `relay-kimi-key` (`/kimi-key/*`) and `relay-kimi-key-v1` (`/kimi-key/v1/*`) MUST rewrite to `/coding/v1/$1` on `api.kimi.com:443` and MUST attach neither `oauth-auth` nor `key-resolver` (gateway-provisioned key / passthrough). |
 | FR-2.8 | `relay-llamafile` (`/llamafile/*`) MUST rewrite to `/$1` on `host.docker.internal:8765` over http (local llamafile VM, no auth plugin). |
 | FR-2.9 | `gateway-provider-sync` (`/gateway/providers*`) MUST target `127.0.0.1:9080` (http, pass_host pass) and MUST attach the `provider-sync` plugin. |
 
@@ -80,7 +80,7 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 ### FR-4: Plugin Registration
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | [`conf/config.yaml`](../../conf/config.yaml) MUST register custom plugins `key-resolver`, `key-meta`, `kimi-auth`, `provider-sync`, `sse-usage`, `redact` in the `plugins:` list. |
+| FR-4.1 | [`conf/config.yaml`](../../conf/config.yaml) MUST register custom plugins `key-resolver`, `key-meta`, `oauth-auth`, `provider-sync`, `sse-usage`, `redact` in the `plugins:` list. |
 | FR-4.2 | The `plugins:` list MUST also include built-ins used on routes: `ai-rate-limiting`, `proxy-buffering`, `proxy-rewrite`, `http-logger`, `prometheus`, `request-id`, `limit-count`. |
 | FR-4.3 | Lua shared dicts `redact_state: 1m`, `key_cache: 5m`, `gateway-cache: 2m`, `quota_counters: 5m` MUST be declared under `nginx_config.http.custom_lua_shared_dict`. |
 | FR-4.4 | Prometheus plugin_attr MUST export on `0.0.0.0:9100` and MUST add the `key_hash` extra label (from `$http_x_key_hash`) to http_status, http_latency, bandwidth, and llm_* metrics. |

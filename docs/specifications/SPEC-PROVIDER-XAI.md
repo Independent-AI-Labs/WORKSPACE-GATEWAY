@@ -17,7 +17,7 @@
 
 **Cross-references:**
 - [REQ-PROVIDER-XAI](../requirements/REQ-PROVIDER-XAI.md): requirements contract
-- SPEC-PROVIDER-KIMI / REQ-PROVIDER-KIMI: implemented analog ([`plugins/custom/kimi-auth.lua`](../../plugins/custom/kimi-auth.lua), [`plugins/custom/kimi_jwt.lua`](../../plugins/custom/kimi_jwt.lua), [`plugins/custom/kimi_tokens.lua`](../../plugins/custom/kimi_tokens.lua), [`plugins/custom/kimi_device.lua`](../../plugins/custom/kimi_device.lua))
+- SPEC-PROVIDER-KIMI / REQ-PROVIDER-KIMI: implemented analog ([`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua), [`plugins/custom/oauth_jwt.lua`](../../plugins/custom/oauth_jwt.lua), [`plugins/custom/oauth_store.lua`](../../plugins/custom/oauth_store.lua), [`plugins/custom/oauth_device.lua`](../../plugins/custom/oauth_device.lua))
 - Legacy PROVIDER-XAI-GROK design (v1.1, absorbed)
 - [`docs/architecture/README.md`](../architecture/README.md): architecture hub
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): route definitions (no `/grok` routes yet)

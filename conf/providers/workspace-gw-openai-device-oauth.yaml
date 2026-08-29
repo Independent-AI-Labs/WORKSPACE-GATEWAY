@@ -8,7 +8,7 @@ route: "/openai"
 npm: "@ai-sdk/openai"
 auth:
   type: oauth
-  plugin: openai-auth
+  plugin: oauth-auth
   methods:
     - id: chatgpt-headless
       flow: device_authorization

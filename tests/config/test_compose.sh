@@ -177,17 +177,17 @@ assert_eq "APISIX mounts key-meta.lua" "1" "$HAS_KEY_META_MOUNT"
 HAS_SSE_USAGE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "sse-usage.lua" || echo "")
 assert_eq "APISIX mounts sse-usage.lua" "1" "$HAS_SSE_USAGE_MOUNT"
 
-HAS_KIMI_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi-auth.lua" || echo "")
-assert_eq "APISIX mounts kimi-auth.lua" "1" "$HAS_KIMI_AUTH_MOUNT"
+HAS_OAUTH_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth-auth.lua" || echo "")
+assert_eq "APISIX mounts oauth-auth.lua" "1" "$HAS_OAUTH_AUTH_MOUNT"
 
-HAS_KIMI_JWT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_jwt.lua" || echo "")
-assert_eq "APISIX mounts kimi_jwt.lua" "1" "$HAS_KIMI_JWT_MOUNT"
+HAS_OAUTH_JWT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_jwt.lua" || echo "")
+assert_eq "APISIX mounts oauth_jwt.lua" "1" "$HAS_OAUTH_JWT_MOUNT"
 
-HAS_KIMI_DEVICE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_device.lua" || echo "")
-assert_eq "APISIX mounts kimi_device.lua" "1" "$HAS_KIMI_DEVICE_MOUNT"
+HAS_OAUTH_DEVICE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_device.lua" || echo "")
+assert_eq "APISIX mounts oauth_device.lua" "1" "$HAS_OAUTH_DEVICE_MOUNT"
 
-HAS_KIMI_TOKENS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "kimi_tokens.lua" || echo "")
-assert_eq "APISIX mounts kimi_tokens.lua" "1" "$HAS_KIMI_TOKENS_MOUNT"
+HAS_OAUTH_STORE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_store.lua" || echo "")
+assert_eq "APISIX mounts oauth_store.lua" "1" "$HAS_OAUTH_STORE_MOUNT"
 
 HAS_OAUTH_SESSION_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_session.lua" || echo "")
 assert_eq "APISIX mounts oauth_session.lua" "1" "$HAS_OAUTH_SESSION_MOUNT"
@@ -211,7 +211,7 @@ HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.l
 assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
-assert_eq "APISIX has 28 volume mounts (4 config + 24 plugins)" "28" "$APISIX_VOLUME_COUNT"
+assert_eq "APISIX has 26 volume mounts (4 config + 22 plugins)" "26" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || echo "")

@@ -38,7 +38,7 @@ HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" || ech
 assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" || echo "")
-assert_eq "Copies plugins/custom/ (including OpenAI OAuth)" "23" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (generic OAuth plugin set)" "21" "$HAS_CUSTOM_PLUGINS"
 
 HAS_MODEL_REGISTRY=$(grep -c 'model_registry.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies model_registry.lua" "1" "$HAS_MODEL_REGISTRY"
@@ -49,17 +49,17 @@ assert_eq "Copies key-resolver.lua" "1" "$HAS_KEY_RESOLVER"
 HAS_KEY_META=$(grep -c 'key-meta.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies key-meta.lua" "1" "$HAS_KEY_META"
 
-HAS_KIMI_AUTH=$(grep -c 'kimi-auth.lua' "$DOCKERFILE" || echo "")
-assert_eq "Copies kimi-auth.lua" "1" "$HAS_KIMI_AUTH"
+HAS_OAUTH_AUTH=$(grep -c 'oauth-auth.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies oauth-auth.lua" "1" "$HAS_OAUTH_AUTH"
 
-HAS_KIMI_JWT=$(grep -c 'kimi_jwt.lua' "$DOCKERFILE" || echo "")
-assert_eq "Copies kimi_jwt.lua" "1" "$HAS_KIMI_JWT"
+HAS_OAUTH_JWT=$(grep -c 'oauth_jwt.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies oauth_jwt.lua" "1" "$HAS_OAUTH_JWT"
 
-HAS_KIMI_DEVICE=$(grep -c 'kimi_device.lua' "$DOCKERFILE" || echo "")
-assert_eq "Copies kimi_device.lua" "1" "$HAS_KIMI_DEVICE"
+HAS_OAUTH_DEVICE=$(grep -c 'oauth_device.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies oauth_device.lua" "1" "$HAS_OAUTH_DEVICE"
 
-HAS_KIMI_TOKENS=$(grep -c 'kimi_tokens.lua' "$DOCKERFILE" || echo "")
-assert_eq "Copies kimi_tokens.lua" "1" "$HAS_KIMI_TOKENS"
+HAS_OAUTH_STORE=$(grep -c 'oauth_store.lua' "$DOCKERFILE" || echo "")
+assert_eq "Copies oauth_store.lua" "1" "$HAS_OAUTH_STORE"
 
 HAS_OAUTH_SESSION=$(grep -c 'oauth_session.lua' "$DOCKERFILE" || echo "")
 assert_eq "Copies oauth_session.lua" "1" "$HAS_OAUTH_SESSION"

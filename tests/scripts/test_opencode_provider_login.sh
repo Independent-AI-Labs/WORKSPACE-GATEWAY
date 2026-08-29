@@ -160,10 +160,11 @@ else
     fail=$((fail + 1))
 fi
 
-# Verify User-Agent was sent on the opencode request.
+# Verify the neutral default User-Agent was sent on the opencode request
+# (provider-specific UAs are the gateway's concern, not the client's).
 if [ -f "$LOG_FILE" ]; then
-    assert_contains "server saw Kimi User-Agent" \
-        "Kimi CLI (Linux 6.17.0-35-generic x64)" \
+    assert_contains "server saw neutral default User-Agent" \
+        "UA=workspace-gateway-login/0.1" \
         "$(cat "$LOG_FILE")"
 else
     echo "[FAIL] server log missing"

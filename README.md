@@ -113,7 +113,7 @@ and [Supported Providers](#supported-providers)). Diagram authoring rules:
 | `relay-opencode` | `/opencode/*` | Direct key passthrough | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-federated` | `/opencode_federated/*` | Virtual keys (`vgw-*`) via OpenBao | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-zen` | `/opencode_zen/*` | Direct key passthrough | OpenCode Zen (`opencode.ai`) → `/zen/*` |
-| `relay-kimi` | `/kimi/*` | `kimi-auth` headless device authorization | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
+| `relay-kimi` | `/kimi/*` | `oauth-auth` headless device authorization | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-zai-key` | `/zai-key/*` | Direct key passthrough | Z.ai GLM Coding Plan (`api.z.ai`) → `/api/coding/paas/v4/*` |
@@ -162,7 +162,7 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 | Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
 | Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
 | Upstream key pool rotation | `key-resolver` + `upstream_pool_lib.lua`: sticky selection, auto-rotate on 429/402/403 | Custom |
-| Kimi headless device-authorization flow | `kimi-auth` + `kimi_device`/`kimi_jwt`/`kimi_tokens`: OpenBao session storage, transparent refresh | Custom |
+| OAuth device/browser flows (any provider) | `oauth-auth` + `oauth_device`/`oauth_jwt`/`oauth_store`: protocol engines + per-route config, OpenBao session storage, transparent refresh | Custom |
 | SSE token extraction | `sse-usage`: buffers SSE, extracts usage, writes ClickHouse | Custom |
 | Per-key rate limiting (RPM) | `limit-count` + `key-meta` | Built-in + custom Lua |
 | Per-key token/cost budget | `key-resolver` + `sse-usage` + `ngx.shared` | Custom Lua |

@@ -44,8 +44,8 @@ as not implemented.
 | [`specifications/SPEC-DASHBOARD.md`](specifications/SPEC-DASHBOARD.md) | Grafana dashboards implementation |
 | [`specifications/SPEC-ENTERPRISE-AUTH.md`](specifications/SPEC-ENTERPRISE-AUTH.md) | Enterprise auth implementation |
 | [`specifications/SPEC-PLUGIN-FOUNDATION.md`](specifications/SPEC-PLUGIN-FOUNDATION.md) | Custom Lua plugin development foundation |
-| [`specifications/SPEC-PROVIDER-KIMI.md`](specifications/SPEC-PROVIDER-KIMI.md) | kimi-auth plugin and Kimi routes |
-| [`specifications/SPEC-PROVIDER-OPENAI.md`](specifications/SPEC-PROVIDER-OPENAI.md) | openai-auth plugin and ChatGPT relay |
+| [`specifications/SPEC-PROVIDER-KIMI.md`](specifications/SPEC-PROVIDER-KIMI.md) | oauth-auth plugin and Kimi routes |
+| [`specifications/SPEC-PROVIDER-OPENAI.md`](specifications/SPEC-PROVIDER-OPENAI.md) | oauth-auth plugin and ChatGPT relay |
 | [`specifications/SPEC-PROVIDER-SYNC.md`](specifications/SPEC-PROVIDER-SYNC.md) | provider-sync plugin implementation |
 | [`specifications/SPEC-PROVIDER-ZAI.md`](specifications/SPEC-PROVIDER-ZAI.md) | Z.ai GLM passthrough routes |
 | [`specifications/SPEC-PROVIDER-XAI.md`](specifications/SPEC-PROVIDER-XAI.md) | xAI provider implementation (Draft) |

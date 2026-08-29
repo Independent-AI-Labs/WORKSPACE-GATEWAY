@@ -1,7 +1,7 @@
 -- Shared gateway-side OAuth device-code generation.
-local ok, jwt = pcall(require, "apisix.plugins.kimi_jwt")
+local ok, jwt = pcall(require, "apisix.plugins.oauth_jwt")
 if not ok then
-    jwt = require("kimi_jwt")
+    jwt = require("oauth_jwt")
 end
 
 local M = {}

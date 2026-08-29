@@ -35,7 +35,7 @@ The enterprise profile adds a corporate identity layer and single-provider
 AI translation on top of the gateway using only APISIX built-in plugins. It
 replaces what earlier architectures did with Kong Enterprise plugins and
 custom Rust Proxy-Wasm filters. The deployed gateway's routes and auth model
-(`key-resolver`, `kimi-auth`, shared-key passthrough) are unchanged; this
+(`key-resolver`, `oauth-auth`, shared-key passthrough) are unchanged; this
 profile defines additional routes for enterprise environments.
 
 ## 2. Architectural Principles

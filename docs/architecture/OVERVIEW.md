@@ -28,14 +28,14 @@ Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 | `relay-opencode` | `/opencode/*` | `/zen/go/$1` | Direct key passthrough (`key-meta`) |
 | `relay-opencode-federated` | `/opencode_federated/*` | `/zen/go/$1` | `vgw-*` via `key-resolver` + OpenBao |
 | `relay-opencode-zen` | `/opencode_zen/*` | `/zen/$1` | Direct key passthrough (`key-meta`) |
-| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT headless OAuth (`openai-auth`) |
+| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT headless OAuth (`oauth-auth`) |
 
 ### Kimi (`api.kimi.com:443`, rewrite to `/coding/v1/`)
 
 | Route id | Prefix | Auth |
 |----------|--------|------|
-| `relay-kimi` | `/kimi/*` | `kimi-auth` OAuth device flow |
-| `relay-kimi-v1` | `/kimi/v1/*` | `kimi-auth` |
+| `relay-kimi` | `/kimi/*` | `oauth-auth` OAuth device flow |
+| `relay-kimi-v1` | `/kimi/v1/*` | `oauth-auth` |
 | `relay-kimi-federated` | `/kimi-federated/*` | `key-resolver` + OpenBao |
 | `relay-kimi-federated-v1` | `/kimi-federated/v1/*` | `key-resolver` + OpenBao |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough (`key-meta`) |
@@ -61,7 +61,7 @@ Registered in `conf/config.yaml`:
 |--------|------|
 | `key-resolver` | Virtual keys via OpenBao; passthrough for non-`vgw-` |
 | `key-meta` | `X-Key-Hash` header for per-key `limit-count` scoping |
-| `kimi-auth` | Kimi OAuth device-code auth and token lifecycle |
+| `oauth-auth` | Kimi OAuth device-code auth and token lifecycle |
 | `provider-sync` | Read-only `/gateway/providers` catalog + pricing API |
 | `sse-usage` | SSE/JSON token extraction; ClickHouse `usage_log` INSERT |
 | `redact` | PII anonymize + re-hydrate |
@@ -76,7 +76,7 @@ Registered in `conf/config.yaml`:
 | `provider_sync_pricing.lua` | `provider-sync`  -  sole writer of `pricing:*` in `gateway-cache` |
 | `sse_usage_lib.lua` | `sse-usage` pure logic core |
 | `redact_lib.lua` | `redact` pure logic core |
-| `kimi_device.lua` / `kimi_jwt.lua` / `kimi_tokens.lua` | `kimi-auth` |
+| `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | `oauth-auth` |
 
 ## Built-in plugins (on routes)
 

@@ -7,8 +7,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/yaml_helpers.sh"
-pass=0
-fail=0
+pass=0; fail=0
 
 assert_eq() {
     local desc="$1"
@@ -324,8 +323,8 @@ assert_eq "relay-kimi: upstream scheme is https" "https" "$KIMI_SCHEME"
 KIMI_NODE=$(echo "$KIMI_ROUTE" | jq -r '.upstream.nodes | keys[0]')
 assert_eq "relay-kimi: upstream node is api.kimi.com:443" "api.kimi.com:443" "$KIMI_NODE"
 
-KIMI_HAS_KIMI_AUTH=$(echo "$KIMI_ROUTE" | jq '.plugins | has("kimi-auth")')
-assert_eq "relay-kimi: kimi-auth plugin present" "true" "$KIMI_HAS_KIMI_AUTH"
+KIMI_HAS_KIMI_AUTH=$(echo "$KIMI_ROUTE" | jq '.plugins | has("oauth-auth")')
+assert_eq "relay-kimi: oauth-auth plugin present" "true" "$KIMI_HAS_KIMI_AUTH"
 
 KIMI_HAS_PROXY_REWRITE=$(echo "$KIMI_ROUTE" | jq '.plugins | has("proxy-rewrite")')
 assert_eq "relay-kimi: proxy-rewrite plugin present" "true" "$KIMI_HAS_PROXY_REWRITE"
@@ -378,8 +377,8 @@ assert_eq "relay-kimi-v1: upstream scheme is https" "https" "$KIMI_V1_SCHEME"
 KIMI_V1_NODE=$(echo "$KIMI_V1_ROUTE" | jq -r '.upstream.nodes | keys[0]')
 assert_eq "relay-kimi-v1: upstream node is api.kimi.com:443" "api.kimi.com:443" "$KIMI_V1_NODE"
 
-KIMI_V1_HAS_KIMI_AUTH=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("kimi-auth")')
-assert_eq "relay-kimi-v1: kimi-auth plugin present" "true" "$KIMI_V1_HAS_KIMI_AUTH"
+KIMI_V1_HAS_KIMI_AUTH=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("oauth-auth")')
+assert_eq "relay-kimi-v1: oauth-auth plugin present" "true" "$KIMI_V1_HAS_KIMI_AUTH"
 
 KIMI_V1_HAS_PROXY_REWRITE=$(echo "$KIMI_V1_ROUTE" | jq '.plugins | has("proxy-rewrite")')
 assert_eq "relay-kimi-v1: proxy-rewrite plugin present" "true" "$KIMI_V1_HAS_PROXY_REWRITE"
@@ -438,8 +437,8 @@ assert_eq "relay-kimi-federated: key-resolver upstream_key_env is KIMI_API_KEY" 
 KIMI_FED_KEY_RESOLVER_PREFIX=$(echo "$KIMI_FED_ROUTE" | jq -r '.plugins["key-resolver"].virtual_key_prefix')
 assert_eq "relay-kimi-federated: key-resolver virtual_key_prefix is vgw-" "vgw-" "$KIMI_FED_KEY_RESOLVER_PREFIX"
 
-KIMI_FED_HAS_KIMI_AUTH=$(echo "$KIMI_FED_ROUTE" | jq '.plugins | has("kimi-auth")')
-assert_eq "relay-kimi-federated: no kimi-auth plugin (virtual-key, not OAuth)" "false" "$KIMI_FED_HAS_KIMI_AUTH"
+KIMI_FED_HAS_KIMI_AUTH=$(echo "$KIMI_FED_ROUTE" | jq '.plugins | has("oauth-auth")')
+assert_eq "relay-kimi-federated: no oauth-auth plugin (virtual-key, not OAuth)" "false" "$KIMI_FED_HAS_KIMI_AUTH"
 
 KIMI_FED_REWRITE_REGEX=$(echo "$KIMI_FED_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
 assert_eq "relay-kimi-federated: proxy-rewrite regex strips /kimi-federated/" "^/kimi-federated/(.*)" "$KIMI_FED_REWRITE_REGEX"
@@ -459,8 +458,8 @@ assert_eq "relay-kimi-federated-v1: uri is /kimi-federated/v1/*" "/kimi-federate
 KIMI_FED_V1_HAS_KEY_RESOLVER=$(echo "$KIMI_FED_V1_ROUTE" | jq '.plugins | has("key-resolver")')
 assert_eq "relay-kimi-federated-v1: key-resolver plugin present" "true" "$KIMI_FED_V1_HAS_KEY_RESOLVER"
 
-KIMI_FED_V1_HAS_KIMI_AUTH=$(echo "$KIMI_FED_V1_ROUTE" | jq '.plugins | has("kimi-auth")')
-assert_eq "relay-kimi-federated-v1: no kimi-auth plugin (virtual-key, not OAuth)" "false" "$KIMI_FED_V1_HAS_KIMI_AUTH"
+KIMI_FED_V1_HAS_KIMI_AUTH=$(echo "$KIMI_FED_V1_ROUTE" | jq '.plugins | has("oauth-auth")')
+assert_eq "relay-kimi-federated-v1: no oauth-auth plugin (virtual-key, not OAuth)" "false" "$KIMI_FED_V1_HAS_KIMI_AUTH"
 
 KIMI_FED_V1_REWRITE_REGEX=$(echo "$KIMI_FED_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
 assert_eq "relay-kimi-federated-v1: proxy-rewrite regex strips /kimi-federated/v1/" "^/kimi-federated/v1/(.*)" "$KIMI_FED_V1_REWRITE_REGEX"
@@ -480,8 +479,8 @@ assert_eq "relay-kimi-key: uri is /kimi-key/*" "/kimi-key/*" "$KIMI_KEY_URI"
 KIMI_KEY_NODE=$(echo "$KIMI_KEY_ROUTE" | jq -r '.upstream.nodes | keys[0]')
 assert_eq "relay-kimi-key: upstream node is api.kimi.com:443" "api.kimi.com:443" "$KIMI_KEY_NODE"
 
-KIMI_KEY_HAS_KIMI_AUTH=$(echo "$KIMI_KEY_ROUTE" | jq '.plugins | has("kimi-auth")')
-assert_eq "relay-kimi-key: no kimi-auth plugin (passthrough)" "false" "$KIMI_KEY_HAS_KIMI_AUTH"
+KIMI_KEY_HAS_KIMI_AUTH=$(echo "$KIMI_KEY_ROUTE" | jq '.plugins | has("oauth-auth")')
+assert_eq "relay-kimi-key: no oauth-auth plugin (passthrough)" "false" "$KIMI_KEY_HAS_KIMI_AUTH"
 
 KIMI_KEY_REWRITE_REGEX=$(echo "$KIMI_KEY_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
 assert_eq "relay-kimi-key: proxy-rewrite regex strips /kimi-key/" "^/kimi-key/(.*)" "$KIMI_KEY_REWRITE_REGEX"
@@ -498,8 +497,8 @@ assert_eq "relay-kimi-key-v1: id is relay-kimi-key-v1" "relay-kimi-key-v1" "$KIM
 KIMI_KEY_V1_URI=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.uri')
 assert_eq "relay-kimi-key-v1: uri is /kimi-key/v1/*" "/kimi-key/v1/*" "$KIMI_KEY_V1_URI"
 
-KIMI_KEY_V1_HAS_KIMI_AUTH=$(echo "$KIMI_KEY_V1_ROUTE" | jq '.plugins | has("kimi-auth")')
-assert_eq "relay-kimi-key-v1: no kimi-auth plugin (passthrough)" "false" "$KIMI_KEY_V1_HAS_KIMI_AUTH"
+KIMI_KEY_V1_HAS_KIMI_AUTH=$(echo "$KIMI_KEY_V1_ROUTE" | jq '.plugins | has("oauth-auth")')
+assert_eq "relay-kimi-key-v1: no oauth-auth plugin (passthrough)" "false" "$KIMI_KEY_V1_HAS_KIMI_AUTH"
 
 KIMI_KEY_V1_REWRITE_REGEX=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[0]')
 assert_eq "relay-kimi-key-v1: proxy-rewrite regex strips /kimi-key/v1/" "^/kimi-key/v1/(.*)" "$KIMI_KEY_V1_REWRITE_REGEX"
@@ -509,4 +508,5 @@ assert_eq "relay-kimi-key-v1: proxy-rewrite replacement is /coding/v1/" '/coding
 
 source "$SCRIPT_DIR/test_provider_sync_route.sh"
 source "$SCRIPT_DIR/test_zai_provider.sh"
+source "$SCRIPT_DIR/test_oauth_auth_routes.sh"
 summary

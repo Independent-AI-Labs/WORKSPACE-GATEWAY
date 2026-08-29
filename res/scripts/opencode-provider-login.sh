@@ -21,7 +21,7 @@ set -euo pipefail
 #   --session ID          OAuth session label (default: opencode-<timestamp>).
 #   --config-file PATH    OpenCode config path (default: ~/.config/opencode/opencode.jsonc or .json).
 #   --auth-file PATH      OpenCode auth path (default: ~/.local/share/opencode/auth.json).
-#   --user-agent UA       User-Agent sent on all requests (default: Kimi CLI string).
+#   --user-agent UA       User-Agent sent on all requests (default: workspace-gateway-login/0.1).
 #   --no-browser          Do not open the browser for OAuth.
 #   --no-clipboard        Do not copy OAuth values to the system clipboard.
 #   --no-prompt           Do not prompt for API keys (fail if needed).
@@ -46,7 +46,7 @@ else
   CONFIG_FILE="${HOME}/.config/opencode/opencode.json"
 fi
 AUTH_FILE="${HOME}/.local/share/opencode/auth.json"
-USER_AGENT="Kimi CLI (Linux 6.17.0-35-generic x64)"
+USER_AGENT="workspace-gateway-login/0.1"
 NO_BROWSER=0
 NO_CLIPBOARD=0
 NO_PROMPT=0

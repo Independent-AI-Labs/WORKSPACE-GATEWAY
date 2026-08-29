@@ -174,8 +174,7 @@
         required_custom_plugins:
           - key-resolver
           - key-meta
-          - kimi-auth
-          - openai-auth
+          - oauth-auth
           - provider-sync
           - redact
           - sse-usage
@@ -412,8 +411,7 @@
         required_custom_plugins:
           - key-resolver
           - key-meta
-          - kimi-auth
-          - openai-auth
+          - oauth-auth
           - provider-sync
           - redact
           - sse-usage

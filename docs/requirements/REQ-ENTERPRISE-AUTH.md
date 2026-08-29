@@ -10,7 +10,7 @@
 > legacy AD authentication (`ldap-auth`, Kerberos via `forward-auth` in v2),
 > and canonical provider translation (`ai-proxy`). These features are **not
 > part of the deployed gateway**; the current deployment authenticates via
-> `key-resolver` virtual keys, `kimi-auth`, and shared-key passthrough. They
+> `key-resolver` virtual keys, `oauth-auth`, and shared-key passthrough. They
 > are recorded here as an opt-in target configuration for enterprise
 > environments. Nothing in this document is implemented in the current
 > codebase.
@@ -51,7 +51,7 @@ single-provider AI translation, using only APISIX built-in plugins
 - Single-provider `ai-proxy` translation and `stream_options.include_usage` enforcement
 
 **This document DOES NOT:**
-- Replace the deployed auth model (`key-resolver` + OpenBao virtual keys, `kimi-auth`)
+- Replace the deployed auth model (`key-resolver` + OpenBao virtual keys, `oauth-auth`)
 - Mandate any of these features; each is independently opt-in
 - Cover custom Lua glue beyond the small header-injection filters noted in the spec
 

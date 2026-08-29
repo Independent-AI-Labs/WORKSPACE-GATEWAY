@@ -86,7 +86,7 @@ One provider document per file; `id` is authoritative.
 | `route` | string | yes | Gateway route prefix (e.g. `/kimi`) |
 | `npm` | string | yes | OpenCode SDK package |
 | `auth.type` | enum | yes | `oauth` / `api_key` / `virtual_key` / `none` / `passthrough` |
-| `auth.plugin` | string | for oauth | e.g. `kimi-auth` |
+| `auth.plugin` | string | for oauth | e.g. `oauth-auth` |
 | `auth.api_key` | string | for virtual_key | e.g. `vgw-kimi-key` |
 | `options.headers` | object | no | Static headers copied to the client block |
 | `model_source.type` | enum | yes | `models_dev_provider` / `gateway` / `llamafile` |

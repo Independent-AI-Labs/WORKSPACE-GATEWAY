@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-GATEWAY-CORE](../requirements/REQ-GATEWAY-CORE.md)
 
-> Implements the gateway data plane on APISIX 3.17.0 in traditional/etcd mode. Key invariants: 12 routes in etcd (seeded from `conf/apisix.yaml`), pure-Lua request path (no sidecars), custom plugins registered in `conf/config.yaml`, per-route auth via `kimi-auth`/`openai-auth` (OAuth) or `key-resolver` (OpenBao virtual keys).
+> Implements the gateway data plane on APISIX 3.17.0 in traditional/etcd mode. Key invariants: 12 routes in etcd (seeded from `conf/apisix.yaml`), pure-Lua request path (no sidecars), custom plugins registered in `conf/config.yaml`, per-route auth via `oauth-auth`/`oauth-auth` (OAuth) or `key-resolver` (OpenBao virtual keys).
 
 ---
 
@@ -44,7 +44,7 @@ client
   v
 +-------------------------------------------+
 | APISIX (traditional, etcd-backed)         |
-|  proxy-rewrite -> auth (kimi-auth |       |
+|  proxy-rewrite -> auth (oauth-auth |       |
 |  key-resolver) -> key-meta ->             |
 |  limit-count -> redact -> upstream        |
 |  telemetry: http-logger  prometheus       |
@@ -71,8 +71,8 @@ Verified against [`conf/apisix.yaml`](../../conf/apisix.yaml).
 | relay-opencode | /opencode/* | ^/opencode/(.*) → /zen/go/$1 | https://opencode.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
 | relay-opencode-federated | /opencode_federated/* | ^/opencode_federated/(.*) → /zen/go/$1 | https://opencode.ai:443 | key-resolver (OPENCODE_API_KEY) | 100/60s @ x_key_hash |
 | relay-opencode-zen | /opencode_zen/* | ^/opencode_zen/(.*) → /zen/$1 | https://opencode.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
-| relay-kimi | /kimi/* | ^/kimi/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | kimi-auth | 100/60s @ x_key_hash |
-| relay-kimi-v1 | /kimi/v1/* | ^/kimi/v1/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | kimi-auth | 100/60s @ x_key_hash |
+| relay-kimi | /kimi/* | ^/kimi/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | oauth-auth | 100/60s @ x_key_hash |
+| relay-kimi-v1 | /kimi/v1/* | ^/kimi/v1/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | oauth-auth | 100/60s @ x_key_hash |
 | relay-kimi-federated | /kimi-federated/* | ^/kimi-federated/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | key-resolver (KIMI_API_KEY) | 100/60s @ x_key_hash |
 | relay-kimi-federated-v1 | /kimi-federated/v1/* | ^/kimi-federated/v1/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | key-resolver (KIMI_API_KEY) | 100/60s @ x_key_hash |
 | relay-kimi-key | /kimi-key/* | ^/kimi-key/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | none | 100/60s @ x_key_hash |
@@ -91,7 +91,7 @@ All relay routes additionally attach: `key-meta` (except relay-llamafile and gat
 | deployment.role | traditional |
 | config_provider | etcd (`http://etcd:2379`, prefix `/apisix`, timeout 30) |
 | admin key | `${{ADMIN_KEY}}`, role admin, allow_admin 0.0.0.0/0, admin UI enabled |
-| plugins | key-resolver, key-meta, kimi-auth, provider-sync, ai-rate-limiting, proxy-buffering, proxy-rewrite, http-logger, prometheus, request-id, redact, sse-usage, limit-count |
+| plugins | key-resolver, key-meta, oauth-auth, provider-sync, ai-rate-limiting, proxy-buffering, proxy-rewrite, http-logger, prometheus, request-id, redact, sse-usage, limit-count |
 | prometheus export | 0.0.0.0:9100; `key_hash: $http_x_key_hash` extra label on http_status, http_latency, bandwidth, llm_latency, llm_prompt_tokens, llm_completion_tokens, llm_active_connections |
 | nginx envs | OPENCODE_API_KEY, OPENBAO_TOKEN |
 | shared dicts | redact_state 1m, key_cache 5m, gateway-cache 2m, quota_counters 5m |

@@ -137,7 +137,41 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/openai/(.*)", "/backend-api/codex/responses"]
-      openai-auth: {}
+      oauth-auth:
+        auth_base: /openai/auth
+        protocol: chatgpt_device
+        oauth_host: "https://auth.openai.com"
+        client_id: "app_EMoamEEZ73f0CkXaXp7hrann"
+        user_agent: "opencode/1.18.3"
+        device_authorize_path: /api/accounts/deviceauth/usercode
+        device_poll_path: /api/accounts/deviceauth/token
+        device_callback_path: /deviceauth/callback
+        verification_path: /codex/device
+        token_path: /oauth/token
+        authorize_path: /oauth/authorize
+        authorize_params:
+          scope: "openid profile email offline_access"
+          id_token_add_organizations: "true"
+          codex_cli_simplified_flow: "true"
+          originator: "opencode"
+        browser_flow: true
+        token_prefix: "secret/data/gateway/openai-tokens/"
+        device_prefix: "secret/data/gateway/openai-device/"
+        refresh_rotation_required: false
+        strip_request_fields:
+          - max_output_tokens
+        fixed_upstream_headers:
+          originator: "opencode"
+        alias_headers:
+          X-OpenCode-Session-Id: "session-id"
+        account_claim_paths:
+          - claim: chatgpt_account_id
+          - claim: "https://api.openai.com/auth"
+            field: chatgpt_account_id
+          - claim: organizations
+            index: 1
+            field: id
+        account_header: ChatGPT-Account-Id
       key-meta: {}
       limit-count:
         count: 100
@@ -178,7 +212,17 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/kimi/(.*)", "/coding/v1/$1"]
-      kimi-auth: {}
+      oauth-auth:
+        auth_base: /kimi/auth
+        oauth_host: "https://auth.kimi.com"
+        client_id: "17e5f671-d194-4dfb-9706-5516cb48c098"
+        device_authorize_path: /api/oauth/device_authorization
+        token_path: /api/oauth/token
+        user_agent: "Kimi CLI (Linux 6.17.0-35-generic x64)"
+        token_prefix: "secret/data/gateway/kimi-tokens/"
+        device_prefix: "secret/data/gateway/kimi-device/"
+        reject_key_prefix: "sk-"
+        reject_key_pointer: /kimi-key
       key-meta: {}
       limit-count:
         count: 100
@@ -219,7 +263,17 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/kimi/v1/(.*)", "/coding/v1/$1"]
-      kimi-auth: {}
+      oauth-auth:
+        auth_base: /kimi/auth
+        oauth_host: "https://auth.kimi.com"
+        client_id: "17e5f671-d194-4dfb-9706-5516cb48c098"
+        device_authorize_path: /api/oauth/device_authorization
+        token_path: /api/oauth/token
+        user_agent: "Kimi CLI (Linux 6.17.0-35-generic x64)"
+        token_prefix: "secret/data/gateway/kimi-tokens/"
+        device_prefix: "secret/data/gateway/kimi-device/"
+        reject_key_prefix: "sk-"
+        reject_key_pointer: /kimi-key
       key-meta: {}
       limit-count:
         count: 100

@@ -1,4 +1,4 @@
-local jwt = require("kimi_jwt")
+local jwt = require("oauth_jwt")
 
 local pass = 0
 local fail = 0

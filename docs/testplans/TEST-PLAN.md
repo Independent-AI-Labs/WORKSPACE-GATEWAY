@@ -82,7 +82,7 @@ harness, so direct invocation of container-using scripts relies on this order.
 ```
 tests/
   lua/         test_redact_lib.lua, test_sse_usage_lib.lua,
-               test_kimi_jwt.lua, test_provider_sync.lua,
+               test_oauth_jwt.lua, test_provider_sync.lua,
                test_provider_pricing.lua, test_oauth_broker.lua,
                test_oauth_session.lua, test_upstream_pool_lib.lua,
                provider_sync_test_fixtures.lua, check_syntax.sh, run.sh
@@ -134,7 +134,7 @@ against the pure modules. Assert-based, non-zero exit on failure.
 across complete, truncated, and chunked event streams; token counts are
 upstream-reported only (no estimation; unreported dimensions assert to 0).
 
-**kimi_jwt / provider_sync** (`test_kimi_jwt.lua`, `test_provider_sync.lua`):
+**oauth_jwt / provider_sync** (`test_oauth_jwt.lua`, `test_provider_sync.lua`):
 JWT claim decoding/expiry/token-hash helpers; provider-sync catalog/pricing
 logic.
 
@@ -156,7 +156,7 @@ Representative checks:
   `test_apisix_yaml_render.sh` validates env substitution.
 - **config.yaml** (`test_config_yaml.sh`, 30+): `role: traditional`,
   `config_provider: etcd`, etcd host `http://etcd:2379`; custom plugins
-  registered (`key-resolver`, `key-meta`, `kimi-auth`, `provider-sync`,
+  registered (`key-resolver`, `key-meta`, `oauth-auth`, `provider-sync`,
   `sse-usage`, `redact`); shared dicts `redact_state`, `key_cache`,
   `gateway-cache`, `quota_counters`; `nginx_config.envs` includes
   `OPENCODE_API_KEY`, `OPENBAO_TOKEN`; prometheus export on `:9100`.

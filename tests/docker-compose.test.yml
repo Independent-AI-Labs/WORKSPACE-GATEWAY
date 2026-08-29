@@ -19,14 +19,12 @@ services:
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
       - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
       - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
-      - ../../plugins/custom/kimi-auth.lua:/usr/local/apisix/apisix/plugins/kimi-auth.lua:ro
-      - ../../plugins/custom/openai-auth.lua:/usr/local/apisix/apisix/plugins/openai-auth.lua:ro
+      - ../../plugins/custom/oauth-auth.lua:/usr/local/apisix/apisix/plugins/oauth-auth.lua:ro
       - ../../plugins/custom/oauth_broker.lua:/usr/local/apisix/apisix/plugins/oauth_broker.lua:ro
       - ../../plugins/custom/oauth_session.lua:/usr/local/apisix/apisix/plugins/oauth_session.lua:ro
-      - ../../plugins/custom/kimi_jwt.lua:/usr/local/apisix/apisix/plugins/kimi_jwt.lua:ro
-      - ../../plugins/custom/kimi_device.lua:/usr/local/apisix/apisix/plugins/kimi_device.lua:ro
-      - ../../plugins/custom/kimi_tokens.lua:/usr/local/apisix/apisix/plugins/kimi_tokens.lua:ro
-      - ../../plugins/custom/openai_device.lua:/usr/local/apisix/apisix/plugins/openai_device.lua:ro
+      - ../../plugins/custom/oauth_jwt.lua:/usr/local/apisix/apisix/plugins/oauth_jwt.lua:ro
+      - ../../plugins/custom/oauth_device.lua:/usr/local/apisix/apisix/plugins/oauth_device.lua:ro
+      - ../../plugins/custom/oauth_store.lua:/usr/local/apisix/apisix/plugins/oauth_store.lua:ro
       - ../../plugins/custom/provider-sync.lua:/usr/local/apisix/apisix/plugins/provider-sync.lua:ro
       - ../../plugins/custom/provider_sync_aliases.lua:/usr/local/apisix/apisix/plugins/provider_sync_aliases.lua:ro
       - ../../plugins/custom/provider_sync_catalog.lua:/usr/local/apisix/apisix/plugins/provider_sync_catalog.lua:ro

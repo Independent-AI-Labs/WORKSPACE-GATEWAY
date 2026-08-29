@@ -8,7 +8,7 @@ route: "/kimi"
 npm: "@ai-sdk/openai-compatible"
 auth:
   type: oauth
-  plugin: kimi-auth
+  plugin: oauth-auth
   methods:
     - id: kimi-device-oauth
       flow: device_authorization

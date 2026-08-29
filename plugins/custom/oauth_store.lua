@@ -1,7 +1,7 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
 local http = require("resty.http")
-local jwt = require("apisix.plugins.kimi_jwt")
+local jwt = require("apisix.plugins.oauth_jwt")
 
 local M = {}
 

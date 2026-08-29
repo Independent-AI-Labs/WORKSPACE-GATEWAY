@@ -4,7 +4,7 @@
 
 Extract-testable-core pattern: `*_lib.lua` (pure logic) + `*.lua` (APISIX
 adapter). Six plugins are registered in `conf/config.yaml`:
-`key-resolver`, `key-meta`, `kimi-auth`, `provider-sync`, `sse-usage`,
+`key-resolver`, `key-meta`, `oauth-auth`, `provider-sync`, `sse-usage`,
 `redact`. All sources live in [`plugins/custom/`](../../plugins/custom/).
 
 ## key-resolver
@@ -35,14 +35,17 @@ Computes hash of request identity for `limit-count` scoping via header
 `X-Key-Hash` (`http_x_key_hash`). Not enabled on llamafile or
 `gateway-provider-sync` (those use `remote_addr` for rate limiting).
 
-## kimi-auth
+## oauth-auth
 
-**File:** `kimi-auth.lua` (286 lines); libraries `kimi_device.lua`,
-`kimi_jwt.lua`, `kimi_tokens.lua`
-**Priority:** 2560 | **Phase:** access | **Routes:** `relay-kimi*`
+**File:** `oauth-auth.lua`; libraries `oauth_device.lua`, `oauth_jwt.lua`,
+`oauth_store.lua`
+**Priority:** 2560 | **Phase:** access | **Routes:** `relay-kimi*`, `relay-openai`
 
-Kimi OAuth device-code authentication: device flow endpoints, JWT handling,
-token storage/refresh, and upstream credential injection for Kimi routes.
+Generic OAuth device/browser authentication for any provider. All provider
+differences are per-route config in `conf/apisix.yaml` (`auth_base`, protocol
+engine `rfc8628` or `chatgpt_device`, endpoints, client_id, UA, OpenBao
+prefixes, key-rejection, header extras). Adding an OAuth provider is config
+plus a provider YAML, not new Lua.
 
 ## provider-sync
 
@@ -94,4 +97,4 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 | `provider_sync_pricing.lua` | 105 | Pricing sync; sole writer of provider-scoped `pricing:*` and snapshots |
 | `sse_usage_lib.lua` | 116 | Pure logic for `sse-usage` |
 | `redact_lib.lua` | 100 | Pure logic for `redact` |
-| `kimi_device.lua` / `kimi_jwt.lua` / `kimi_tokens.lua` | 150/60/104 | `kimi-auth` helpers |
+| `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | 291/60/118 | `oauth-auth` helpers: protocol engines, JWT decode/hash, OpenBao CRUD |
