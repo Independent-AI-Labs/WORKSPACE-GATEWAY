@@ -5,8 +5,9 @@ set -euo pipefail
 # Generic thin client for setting up an OpenCode provider from WORKSPACE-GATEWAY.
 #
 # Fetches the provider block from the gateway's provider-sync service, performs
-# provider-specific authentication, and writes the provider into the user's
-# OpenCode config and auth files.
+# provider-specific authentication, writes the provider into the user's
+# OpenCode config and auth files, and registers the gateway auth plugin for
+# OAuth providers so browser/device flows appear in the OpenCode /connect UI.
 #
 # Usage:
 #   bash res/scripts/opencode-provider-login.sh --provider-id workspace-gw-kimi-device-oauth
@@ -27,12 +28,25 @@ set -euo pipefail
 #   --no-prompt           Do not prompt for API keys (fail if needed).
 #   --device-timeout SEC  OAuth polling timeout in seconds (default: 900).
 #   --help                Show this help.
+#
+# Auth plugin: for OAuth providers this run registers the gateway-owned
+# OpenCode auth plugin (res/opencode-plugin/workspace-gateway-auth.ts) in the
+# config "plugin" array, idempotently and per provider.
 
 _SELF="${BASH_SOURCE[0]}"
 case "$_SELF" in
   /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;;
 esac
 REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
+#When invoked through a /proc file descriptor the derived root is bogus;
+#make always runs recipes from the repo root, so use cwd instead.
+if [ ! -f "$REPO_ROOT/res/scripts/opencode-provider-login.sh" ]; then
+  REPO_ROOT="$(pwd)"
+fi
+if [ ! -f "$REPO_ROOT/res/scripts/opencode-provider-login.sh" ]; then
+  echo "ERROR: cannot locate repo root (invoked as $_SELF, cwd $(pwd))" >&2
+  exit 1
+fi
 
 GATEWAY="http://localhost:9080"
 PROVIDER_ID=""
@@ -142,63 +156,8 @@ curl_json() {
   curl -sS -A "$USER_AGENT" --connect-timeout 5 --max-time 15 "$url" "$@"
 }
 
-# Strip // and /* */ comments from JSONC while respecting string literals.
-# Slow but dependency-free; works for the small OpenCode config files.
-strip_jsonc_comments() {
-  local input="$1"
-  local output=""
-  local in_string=0
-  local in_line_comment=0
-  local in_block_comment=0
-  local escaped=0
-  local len=${#input}
-
-  for (( i=0; i<len; i++ )); do
-    local ch="${input:$i:1}"
-    if [ $in_string -eq 1 ]; then
-      if [ $escaped -eq 1 ]; then
-        escaped=0
-      elif [ "$ch" = "\\" ]; then
-        escaped=1
-      elif [ "$ch" = '"' ]; then
-        in_string=0
-      fi
-      output="${output}${ch}"
-    elif [ $in_line_comment -eq 1 ]; then
-      if [ "$ch" = $'\n' ]; then
-        in_line_comment=0
-        output="${output}${ch}"
-      fi
-    elif [ $in_block_comment -eq 1 ]; then
-      if [ "$ch" = "*" ]; then
-        local next="${input:$((i+1)):1}"
-        if [ "$next" = "/" ]; then
-          in_block_comment=0
-          i=$((i+1))
-        fi
-      fi
-    else
-      if [ "$ch" = '"' ]; then
-        in_string=1
-        output="${output}${ch}"
-      elif [ "$ch" = "/" ]; then
-        local next="${input:$((i+1)):1}"
-        if [ "$next" = "/" ]; then
-          in_line_comment=1
-          i=$((i+1))
-        elif [ "$next" = "*" ]; then
-          in_block_comment=1
-          i=$((i+1))
-        else
-          output="${output}${ch}"
-        fi
-      else
-        output="${output}${ch}"
-      fi
-    fi
-  done
-  echo "$output"
-}
+# Shared helpers (JSONC stripping, auth-plugin registration).
+source "$REPO_ROOT/res/scripts/opencode-client-lib.sh" || exit 1
 
 read_config_json() {
   local path="$1"
@@ -458,6 +417,8 @@ if [ -z "$MERGED_CONFIG" ]; then
   exit 1
 fi
 
+register_auth_plugin
+
 # Pretty-print and write back.
 echo "$MERGED_CONFIG" | jq . > "$TMPDIR/config.json"
 if [ ! -s "$TMPDIR/config.json" ]; then
@@ -497,9 +458,9 @@ fi
 # --- Summary ---
 echo ""
 echo "=== Login complete ==="
-echo "  Provider id: $PROVIDER_ID"
-echo "  Config file: $CONFIG_FILE"
-echo "  Auth file:   $AUTH_FILE"
+echo "  Provider id:  $PROVIDER_ID"
+echo "  Config file:  $CONFIG_FILE"
+echo "  Auth file:    $AUTH_FILE"
 echo ""
 echo "Run a quick chat with:"
 echo "  opencode -m ${PROVIDER_ID}/<model-id>"

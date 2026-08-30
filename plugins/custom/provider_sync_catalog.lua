@@ -26,9 +26,6 @@ M.DEFAULT_TTL = DEFAULT_TTL
 M.DEFAULT_STALE = DEFAULT_STALE
 M.DEFAULT_SYNC_TIMEOUT = DEFAULT_SYNC_TIMEOUT
 M.DEFAULT_WARMUP = DEFAULT_WARMUP
-M.DEFAULT_OUTPUT_LIMIT = DEFAULT_OUTPUT_LIMIT
-M.KIMI_USER_AGENT = KIMI_USER_AGENT
-M.GENERIC_USER_AGENT = GENERIC_USER_AGENT
 
 local function ensure_deps_path()
     local deps_lua = "/usr/local/apisix/deps/share/lua/5.1"
@@ -59,46 +56,30 @@ local function get_http()
 end
 local function read_file(path)
     local f, err = io.open(path, "r")
-    if not f then
-        return nil, err
-    end
+    if not f then return nil, err end
     local content = f:read("*a")
     f:close()
     return content, nil
 end
 local function list_yaml_files(dir)
     local files = {}
-    local p = io.popen('ls -1 "' .. dir .. '"/*.yaml 2>/dev/null')
-    if p then
-        for line in p:lines() do
-            table.insert(files, line)
+    for _, ext in ipairs({ "yaml", "yml" }) do
+        local p = io.popen('ls -1 "' .. dir .. '"/*.' .. ext .. ' 2>/dev/null')
+        if p then
+            for line in p:lines() do files[#files + 1] = line end
+            p:close()
         end
-        p:close()
-    end
-    p = io.popen('ls -1 "' .. dir .. '"/*.yml 2>/dev/null')
-    if p then
-        for line in p:lines() do
-            table.insert(files, line)
-        end
-        p:close()
     end
     return files
 end
 local function load_yaml(path)
     local lyaml, err = get_lyaml()
-    if not lyaml then
-        return nil, "lyaml not available: " .. (err or "unknown")
-    end
+    if not lyaml then return nil, "lyaml not available: " .. (err or "unknown") end
     local content, read_err = read_file(path)
-    if not content then
-        return nil, "cannot read " .. path .. ": " .. (read_err or "unknown")
-    end
+    if not content then return nil, "cannot read " .. path .. ": " .. (read_err or "unknown") end
     local ok, parsed = pcall(lyaml.load, content)
-    if not ok then
+    if not ok or type(parsed) ~= "table" then
         return nil, "yaml parse error in " .. path .. ": " .. tostring(parsed)
-    end
-    if type(parsed) ~= "table" then
-        return nil, "yaml parse error in " .. path .. ": not a table"
     end
     return parsed, nil
 end
@@ -285,9 +266,7 @@ local function extract_model_ids(data)
 
     if data.data and type(data.data) == "table" then
         for _, item in ipairs(data.data) do
-            if type(item) == "table" and item.id then
-                table.insert(ids, item.id)
-            end
+            if type(item) == "table" and item.id then ids[#ids + 1] = item.id end
         end
         return ids
     end
@@ -303,7 +282,28 @@ local function extract_model_ids(data)
 
     return ids
 end
-local function build_models_from_endpoint(provider, data, model_metadata)
+--Limit borrowing index (FR-2.7): model id -> models.dev limit, first
+--provider in sorted-name order wins. Built once per gateway/llamafile
+--provider so endpoint models without a metadata limit still get a context
+--cap. Never adds models, cost, or capability flags.
+local function models_dev_limit_index(models_dev)
+    local index, names = {}, {}
+    if type(models_dev) ~= "table" then return index end
+    for name in pairs(models_dev) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local block = models_dev[name]
+        if type(block) == "table" then
+            for id, model in pairs(block.models or {}) do
+                if type(model) == "table" and model.limit and index[id] == nil then
+                    index[id] = model.limit
+                end
+            end
+        end
+    end
+    return index
+end
+local function build_models_from_endpoint(provider, data, model_metadata, limit_index)
     local pct = provider.context_limit_pct or 100
     local ceiling = provider.context_limit_ceiling
     local models = {}
@@ -327,10 +327,11 @@ local function build_models_from_endpoint(provider, data, model_metadata)
             attachment = f.attachment or false,
             tool_call = f.tool_call ~= false,
         }
-        if f.limit then
+        local src_limit = f.limit or limit_index[model_id]
+        if src_limit then
             entry.limit = {
-                context = scale_limit(f.limit.context, pct, ceiling),
-                output = f.limit.output or DEFAULT_OUTPUT_LIMIT,
+                context = scale_limit(src_limit.context, pct, ceiling),
+                output = src_limit.output or DEFAULT_OUTPUT_LIMIT,
             }
         end
         if f.cost then
@@ -351,13 +352,9 @@ local function build_models_from_endpoint(provider, data, model_metadata)
     return models
 end
 local function matches_any(model_id, patterns)
-    if not patterns or type(patterns) ~= "table" then
-        return false
-    end
+    if type(patterns) ~= "table" then return false end
     for _, pat in ipairs(patterns) do
-        if pat and pat ~= "" and string.find(model_id, pat) then
-            return true
-        end
+        if pat and pat ~= "" and string.find(model_id, pat) then return true end
     end
     return false
 end
@@ -406,7 +403,8 @@ local function enrich_provider_models(provider, models_dev)
                            "; provider will sync with zero models")
             return {}
         end
-        models = build_models_from_endpoint(provider, data, model_metadata)
+        models = build_models_from_endpoint(provider, data, model_metadata,
+            models_dev_limit_index(models_dev))
         if not next(models) then
             core.log.error("provider_sync: endpoint ", full_url,
                            " for provider ", provider.id,

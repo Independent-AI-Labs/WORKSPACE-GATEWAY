@@ -161,7 +161,14 @@ From `plugins/custom/provider-sync.lua:32-67`:
      `http://localhost:9080`, `User-Agent: WORKSPACE-GW/0.1`, optional Bearer);
      on failure or empty id list, log an error and sync the provider with
      zero models. `model_metadata` entries overlay metadata onto
-     endpoint-reported ids only.
+     endpoint-reported ids only. When an entry ends up without a limit,
+     `build_models_from_endpoint` borrows `limit.context`/`limit.output` from
+     the models.dev catalog by exact normalized-id match: a
+     `model_id -> limit` index is built over all models.dev providers in
+     sorted-name order (first provider to declare the id wins), the borrowed
+     context runs through `scale_limit` with the provider's
+     `context_limit_pct`/`context_limit_ceiling`, and borrowing never adds
+     models, ids, cost, or capability flags.
    - Unknown source type: warn, empty model list.
 5. Apply `model_aliases`: copy the target entry under each alias id.
 6. Resolve each provider/model price from declared overrides, then the declared
@@ -196,6 +203,8 @@ it triggers one sync; if `ts` exists but the enriched blob is gone it returns
 
 `has_attachment` is true when `modalities.input` contains `image` or `video`.
 `scale_limit` floors `context * pct / 100` and clamps to `ceiling` when > 0.
+Endpoint-sourced entries without a metadata limit borrow their limit from the
+models.dev index (section 6, step 4) before scaling.
 
 ## 7. HTTP Endpoints (`plugin.access`)
 
@@ -266,6 +275,24 @@ flows and returns gateway-issued credentials through OpenCode's native auth
 store. The shell script remains a compatibility installer and does not host an
 OAuth callback server.
 
+Plugin registration (`register_auth_plugin`): when the `/opencode` response
+carries a non-empty `auth_methods` list, the script writes a per-provider
+wrapper at `<config dir>/plugin/wg-auth-<provider-id>.ts`:
+
+```ts
+import plugin from "<REPO_ROOT>/res/opencode-plugin/workspace-gateway-auth.ts"
+export default (input: any) => plugin(input, { provider: "<id>", gateway: "<url>" })
+```
+
+and adds the wrapper's absolute path as a plain string entry in the config
+`plugin` array. Distinct wrapper files are required because OpenCode
+collapses config entries whose spec resolves to the same target file (the
+last entry's options win). Registration rewrites the wrapper and replaces
+its entry in place; unrelated entries are preserved. Providers with no OAuth
+methods get no wrapper or entry, stale wrappers are deleted, and legacy
+`file://` tuple entries pointing at the engine with the provider's id are
+removed on sight.
+
 Safe-merge rules: only the matching provider key is touched; other providers
 and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 
@@ -298,6 +325,7 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 | `plugins/custom/provider_sync_catalog.lua` | YAML load, enrichment, sync, cache | owns defaults and cache keys |
 | `plugins/custom/provider_sync_pricing.lua` | `pricing:*` writer + snapshot publisher | provider-aware resolution; sole writer |
 | `conf/providers/*.yaml` | 8 provider definitions | incl. `model_aliases`, `model_metadata`, pricing policy |
+| `res/opencode-plugin/workspace-gateway-auth.ts` | OpenCode auth plugin | metadata-driven device/browser methods |
 | `conf/apisix.yaml` | `gateway-provider-sync` route | limit-count 60 RPM |
 | `res/scripts/opencode-provider-login.sh` | Client login | bash+curl+jq only |
 | `tests/lua/test_provider_sync.lua` | Unit tests | mock ngx + fixtures |

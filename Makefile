@@ -308,6 +308,33 @@ gw-systemd-logs: ## Tail gateway systemd unit logs
 	journalctl --user -u gateway-compose -f
 
 # =============================================================================
+# Production / staging stack (REQ-GATEWAY-CORE FR-5). Isolated project on
+# offset ports; build + verify HERE before restarting dev onto new code.
+# =============================================================================
+.PHONY: gw-prod-build gw-prod-start gw-prod-stop gw-prod-redeploy gw-prod-verify gw-prod-status gw-prod-logs
+
+gw-prod-build: ## Build production image localhost/workspace-gateway:0.1.0
+	$(SCRIPT_BASH) res/scripts/gateway-prod.sh build
+
+gw-prod-start: ## Start prod stack on :9081 (etcd, openbao, clickhouse, vector, apisix) + seed routes
+	$(SCRIPT_BASH) res/scripts/gateway-prod.sh start
+
+gw-prod-stop: ## Stop prod stack (drains apisix)
+	$(SCRIPT_BASH) res/scripts/gateway-prod.sh stop
+
+gw-prod-redeploy: ## Stop + start + verify prod stack
+	$(SCRIPT_BASH) res/scripts/gateway-prod.sh redeploy
+
+gw-prod-verify: ## Health report: containers, root, provider sync, device flow, 401, routes
+	$(SCRIPT_BASH) res/scripts/gateway-prod.sh verify
+
+gw-prod-status: ## Show prod stack status
+	$(SCRIPT_BASH) res/scripts/gateway-prod.sh status
+
+gw-prod-logs: ## Tail prod apisix logs
+	$(SCRIPT_BASH) res/scripts/gateway-prod.sh logs-api
+
+# =============================================================================
 # Cleanup
 # =============================================================================
 .PHONY: clean

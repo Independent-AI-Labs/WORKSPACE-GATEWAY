@@ -100,6 +100,29 @@ Note: `ai-rate-limiting` is registered but not attached to any route. `cost_calc
 
 ## 6. Edge Cases & Decisions
 
+### 6.1 Production stack and staged rollout
+
+`res/docker/docker-compose.prod.yml` defines a second, isolated instance of
+the gateway (project name `workspace-gateway-prod`, ports offset from dev,
+separate volumes; same image family, tag `localhost/workspace-gateway:<v>`).
+Make targets mirror the sibling-project convention:
+
+```
+make gw-prod-build     # podman build from the projects root context
+make gw-prod-start     # start prod stack
+make gw-prod-stop      # stop prod stack
+make gw-prod-redeploy  # restart + verify
+make gw-prod-verify    # health report: containers, routes, provider sync
+make gw-prod-status    # compose status
+make gw-prod-logs      # tail logs
+```
+
+Rollout procedure: build the image, `gw-prod-start` (staging role), verify
+with `gw-prod-verify` (routes seeded, provider-sync warm, relay sanity check), and
+only then restart the dev stack onto the same code (`make gw-restart-service
+SVC=apisix` after `make gw-update`). Dev is never restarted against an
+untested image.
+
 - No `cors` plugin is configured on any route; callers are server-side agents, not browsers.
 - `relay-llamafile` and `gateway-provider-sync` rate-limit by `remote_addr` (no caller key).
 - `pass_host: node` on relay routes preserves upstream Host; `gateway-provider-sync` uses `pass_host: pass`.
@@ -114,6 +137,7 @@ Note: `ai-rate-limiting` is registered but not attached to any route. `cost_calc
 | [`conf/config.yaml`](../../conf/config.yaml) | Deployment mode, plugin registration, shared dicts |  -  |
 | [`res/scripts/seed-routes.sh`](../../res/scripts/seed-routes.sh) | Seeds etcd from apisix.yaml |  -  |
 | [`res/docker/docker-compose.yml`](../../res/docker/docker-compose.yml) | Stack definition |  -  |
+| [`res/docker/docker-compose.prod.yml`](../../res/docker/docker-compose.prod.yml) | Isolated prod/staging stack |  -  |
 | [`plugins/custom/`](../../plugins/custom) | Custom plugin sources |  -  |
 
 ## 8. Implementation Status

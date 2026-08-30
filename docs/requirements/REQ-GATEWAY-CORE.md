@@ -86,6 +86,14 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 | FR-4.4 | Prometheus plugin_attr MUST export on `0.0.0.0:9100` and MUST add the `key_hash` extra label (from `$http_x_key_hash`) to http_status, http_latency, bandwidth, and llm_* metrics. |
 | FR-4.5 | `OPENCODE_API_KEY` and `OPENBAO_TOKEN` MUST be declared under `nginx_config.envs`. |
 
+### FR-5: Production Build & Staged Rollout
+| ID | Requirement |
+|----|-------------|
+| FR-5.1 | The repository MUST provide a production image build via `make gw-prod-build`, mirroring the sibling-project convention (Podman build from the projects root context, image `localhost/workspace-gateway:<version>`, compose file `res/docker/docker-compose.prod.yml`). |
+| FR-5.2 | The production stack MUST be operable through `make gw-prod-start/stop/redeploy/status/logs` and health-checkable through `make gw-prod-verify`, without root. |
+| FR-5.3 | The production compose MUST be isolated from the dev stack (separate project name, ports, volumes) so both can run concurrently; prod MUST NOT mount dev volumes or use dev ports. |
+| FR-5.4 | Rollout safety: a gateway code change MUST be built and verified on the prod stack (staging role) BEFORE the dev stack is restarted onto the new code; dev MUST NOT be restarted against an untested image. |
+
 ## 3. Non-Functional Requirements
 | ID | Requirement |
 |----|-------------|
@@ -125,4 +133,5 @@ None.
 | FR-2.1-FR-2.9 | Implemented | conf/apisix.yaml (12 routes) |
 | FR-3.1-FR-3.7 | Implemented | conf/apisix.yaml plugin blocks |
 | FR-4.1-FR-4.5 | Implemented | conf/config.yaml:23-75 |
+| FR-5.1-FR-5.4 | Implemented | Makefile gw-prod-*; res/docker/docker-compose.prod.yml |
 | NFR-1.1-1.3 | Implemented | docs/architecture/OVERVIEW.md; no sidecars in res/docker |

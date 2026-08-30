@@ -13,6 +13,7 @@ COPY plugins/custom/provider_sync_catalog.lua /usr/local/apisix/apisix/plugins/p
 COPY plugins/custom/provider_sync_aliases.lua /usr/local/apisix/apisix/plugins/provider_sync_aliases.lua
 COPY plugins/custom/provider_sync_contract.lua /usr/local/apisix/apisix/plugins/provider_sync_contract.lua
 COPY plugins/custom/sse-usage.lua /usr/local/apisix/apisix/plugins/sse-usage.lua
+COPY plugins/custom/upstream_pool_lib.lua /usr/local/apisix/apisix/plugins/upstream_pool_lib.lua
 COPY plugins/custom/sse_usage_lib.lua /usr/local/apisix/apisix/plugins/sse_usage_lib.lua
 COPY plugins/custom/cost_calc.lua /usr/local/apisix/apisix/plugins/cost_calc.lua
 COPY plugins/custom/model_registry.lua /usr/local/apisix/apisix/plugins/model_registry.lua

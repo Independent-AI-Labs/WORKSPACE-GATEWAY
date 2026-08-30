@@ -424,6 +424,17 @@ local function filter_tests()
             check(zen.models["minimax-m3"] ~= nil, "filter[9] zen keeps paid minimax-m3")
             check(zen.models["deepseek-v4-flash-free"] ~= nil, "filter[10] zen keeps free deepseek-v4-flash-free")
             check(zen.models["mimo-v2.5-free"] ~= nil, "filter[11] zen keeps free mimo-v2.5-free")
+            local borrowed = zen.models["minimax-m3"]
+            if borrowed then
+                assert_eq(borrowed.limit ~= nil and borrowed.limit.context, 204800,
+                    "filter[14] endpoint model borrows models.dev context limit")
+                assert_eq(borrowed.limit ~= nil and borrowed.limit.output, 16384,
+                    "filter[15] endpoint model borrows models.dev output limit")
+            end
+            local unmatched = zen.models["glm-5.2"]
+            if unmatched then
+                check(unmatched.limit == nil, "filter[16] unmatched endpoint model keeps no limit")
+            end
         end
     end
 

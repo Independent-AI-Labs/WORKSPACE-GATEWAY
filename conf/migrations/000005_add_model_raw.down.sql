@@ -1,6 +1,6 @@
 -- Reverse of 000005: drop model_raw from usage_log and billing_ledger and
 -- recreate billing_ledger_mv without it. Historical data in model_raw is
--- discarded; model/model_name (canonical) are untouched.
+-- model/model_name (canonical) are untouched.
 
 DROP VIEW IF EXISTS llm_gateway.billing_ledger_mv;
 

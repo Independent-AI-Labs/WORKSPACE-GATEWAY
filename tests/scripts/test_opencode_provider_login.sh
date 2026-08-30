@@ -134,6 +134,28 @@ if [ "$CLIENT_RC" -ne 0 ]; then
 fi
 
 assert_contains "client script reports login complete" "Login complete" "$CLIENT_OUTPUT"
+assert_contains "client script registers the auth plugin" \
+    "Auth plugin registered for test-oauth" "$CLIENT_OUTPUT"
+
+# Plugin registration shape (FR-5.7): per-provider wrapper file with baked
+# options under <config dir>/plugin, referenced as a plain string spec.
+EXPECTED_WRAPPER="$(dirname "$CONFIG_FILE")/plugin/wg-auth-test-oauth.ts"
+if [ -f "$EXPECTED_WRAPPER" ]; then
+    assert_contains "wrapper imports the repo engine" \
+        "res/opencode-plugin/workspace-gateway-auth.ts" "$(cat "$EXPECTED_WRAPPER")"
+    assert_contains "wrapper bakes the provider id" \
+        'provider: "test-oauth"' "$(cat "$EXPECTED_WRAPPER")"
+    assert_contains "wrapper bakes the gateway url" \
+        "gateway: \"$GATEWAY\"" "$(cat "$EXPECTED_WRAPPER")"
+else
+    echo "[FAIL] wrapper not created: $EXPECTED_WRAPPER"
+    fail=$((fail + 1))
+fi
+if [ -f "$CONFIG_FILE" ]; then
+    PLUGIN_HITS=$(jq --arg w "$EXPECTED_WRAPPER" \
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" || echo "0")
+    assert_eq "plugin entry for test-oauth registered once" "1" "$PLUGIN_HITS"
+fi
 
 # Verify config file has the provider block.
 if [ -f "$CONFIG_FILE" ]; then
@@ -198,6 +220,26 @@ if [ -f "$AUTH_FILE" ]; then
 else
     echo "[FAIL] auth file missing after api_key login"
     fail=$((fail + 1))
+fi
+
+# api_key providers get no plugin entry or wrapper, and the earlier
+# test-oauth entry survives untouched (idempotent, per-provider registration).
+if [ -f "$CONFIG_FILE" ]; then
+    APIKEY_WRAPPER="$(dirname "$CONFIG_FILE")/plugin/wg-auth-test-api-key.ts"
+    APIKEY_PLUGIN_HITS=$(jq --arg w "$APIKEY_WRAPPER" \
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" || echo "0")
+    assert_eq "no plugin entry for api_key provider" "0" "$APIKEY_PLUGIN_HITS"
+    if [ -f "$APIKEY_WRAPPER" ]; then
+        echo "[FAIL] wrapper created for api_key provider: $APIKEY_WRAPPER"
+        fail=$((fail + 1))
+    else
+        echo "[PASS] no wrapper for api_key provider"
+        pass=$((pass + 1))
+    fi
+    OAUTH_WRAPPER="$(dirname "$CONFIG_FILE")/plugin/wg-auth-test-oauth.ts"
+    OAUTH_PLUGIN_STILL=$(jq --arg w "$OAUTH_WRAPPER" \
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" || echo "0")
+    assert_eq "test-oauth plugin entry preserved" "1" "$OAUTH_PLUGIN_STILL"
 fi
 
 # --- Test: browser-only OAuth provider is rejected with a pointer to the plugin ---
@@ -278,6 +320,16 @@ else
 fi
 assert_eq "--all writes oauth provider config" "Test OAuth" "$ALL_OAUTH_NAME"
 assert_eq "--all writes api-key provider config" "Test API Key" "$ALL_APIKEY_NAME"
+if [ -f "$ALL_CONFIG" ]; then
+    ALL_WRAPPER="$(dirname "$ALL_CONFIG")/plugin/wg-auth-test-oauth.ts"
+    ALL_PLUGIN_HITS=$(jq --arg w "$ALL_WRAPPER" \
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$ALL_CONFIG" || echo "0")
+    assert_eq "--all registers oauth plugin entry" "1" "$ALL_PLUGIN_HITS"
+    ALL_APIKEY_WRAPPER="$(dirname "$ALL_CONFIG")/plugin/wg-auth-test-api-key.ts"
+    ALL_APIKEY_PLUGIN_HITS=$(jq --arg w "$ALL_APIKEY_WRAPPER" \
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$ALL_CONFIG" || echo "0")
+    assert_eq "--all registers no api_key plugin entry" "0" "$ALL_APIKEY_PLUGIN_HITS"
+fi
 if [ -f "$ALL_AUTH" ]; then
     ALL_AUTH_COUNT=$(jq 'length' "$ALL_AUTH")
 else

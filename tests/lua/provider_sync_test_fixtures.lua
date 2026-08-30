@@ -26,6 +26,15 @@ M.fake_models_dev = {
             },
         },
     },
+    minimax = {
+        models = {
+            ["minimax-m3"] = {
+                name = "MiniMax M3", reasoning = true, attachment = false,
+                tool_call = true, limit = { context = 204800, output = 16384 },
+                cost = { input = 0.2, output = 0.9 },
+            },
+        },
+    },
 }
 M.fake_gateway_models = {
     data = {
