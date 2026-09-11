@@ -137,19 +137,20 @@ assert_eq "canonicalization defined only in model_registry.lua" \
     "$REPO_ROOT/plugins/custom/model_registry.lua " "$NORMALIZE_DEFS"
 
 COST_CALC_NORMALIZE_RC=0
-COST_CALC_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/cost_calc.lua" ) || { NORMALIZE_DEFS_RC=$?; NORMALIZE_DEFS=""; }
+COST_CALC_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/cost_calc.lua" ) || { COST_CALC_NORMALIZE_RC=$?; COST_CALC_NORMALIZE="0"; }
 assert_eq "cost_calc.lua has no normalize_key" "0" "$COST_CALC_NORMALIZE"
 
 SSE_USAGE_NORMALIZE_RC=0
-SSE_USAGE_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/sse-usage.lua" ) || { COST_CALC_NORMALIZE_RC=$?; COST_CALC_NORMALIZE=""; }
+SSE_USAGE_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/sse-usage.lua" ) || { SSE_USAGE_NORMALIZE_RC=$?; SSE_USAGE_NORMALIZE="0"; }
 assert_eq "sse-usage.lua has no normalize_key" "0" "$SSE_USAGE_NORMALIZE"
 
 # vector.toml: the last-slash regex must appear only inside GENERATED block
 VECTOR_TOML="$REPO_ROOT/conf/vector.toml"
 REGEX_COUNT_RC=0
-REGEX_COUNT=$(grep -c 'parse_regex(model_lower' "$VECTOR_TOML" ) || { SSE_USAGE_NORMALIZE_RC=$?; SSE_USAGE_NORMALIZE=""; }
+REGEX_COUNT=$(grep -c 'parse_regex(model_lower' "$VECTOR_TOML" ) || { REGEX_COUNT_RC=$?; REGEX_COUNT="0"; }
 assert_eq "vector.toml model regex exactly once (generated block)" "1" "$REGEX_COUNT"
-OLD_VRL=$(grep -c 'parse_regex(model_norm' "$VECTOR_TOML" ) || { REGEX_COUNT_RC=$?; REGEX_COUNT=""; }
+OLD_VRL_RC=0
+OLD_VRL=$(grep -c 'parse_regex(model_norm' "$VECTOR_TOML" ) || { OLD_VRL_RC=$?; OLD_VRL="0"; }
 assert_eq "vector.toml has no hand-written model_norm remap" "0" "$OLD_VRL"
 
 summary

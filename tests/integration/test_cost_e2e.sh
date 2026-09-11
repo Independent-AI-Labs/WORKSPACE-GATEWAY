@@ -51,10 +51,11 @@ fi
 
 # Resolve the model id from /llamafile/v1/models.
 MODELS_JSON_RC=0
-MODELS_JSON=$(curl -fsS --max-time 10 "$GATEWAY_URL/llamafile/v1/models" ) || { BOUNDARY_RC=$?; BOUNDARY=""; }
+MODELS_JSON=$(curl -fsS --max-time 10 "$GATEWAY_URL/llamafile/v1/models" ) || { MODELS_JSON_RC=$?; MODELS_JSON=""; }
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
-    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' ) || { MODELS_JSON_RC=$?; MODELS_JSON=""; }
+    MODEL_ID_RC=0
+    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' ) || { MODEL_ID_RC=$?; MODEL_ID=""; }
 fi
 assert_eq "llamafile /v1/models returned a model id" "yes" "$(if [ -n "$MODEL_ID" ]; then printf 'yes'; else printf 'no'; fi)"
 if [ -z "$MODEL_ID" ]; then
@@ -74,7 +75,8 @@ HTTP_CODE=$(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-
     -H "Content-Type: application/json" \
     -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}],\"stream\":false}" \
     ) || { HTTP_CODE_RC=$?; HTTP_CODE="000"; }
-LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { RESP_BODY_RC=$?; RESP_BODY=""; }
+LIVE_RID_RC=0
+LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { LIVE_RID_RC=$?; LIVE_RID=""; }
 rm -f "$RESP_HEADERS" "$RESP_BODY"
 
 echo "[INFO] chat HTTP $HTTP_CODE X-Request-Id=$LIVE_RID"

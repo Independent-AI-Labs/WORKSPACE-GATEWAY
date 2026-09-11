@@ -32,9 +32,10 @@ curl_code_RC=0
 curl_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" )
 [ "$curl_code" = "000" ] && { echo "[SKIP] APISIX not reachable"; exit 0; }
 ch_code_RC=0
-ch_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" ) || { curl_code_RC=$?; curl_code="000"; }
+ch_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" ) || { ch_code_RC=$?; ch_code="000"; }
 [ "$ch_code" != "200" ] && { echo "[SKIP] ClickHouse not reachable"; exit 0; }
-prom_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$PROM_URL/-/healthy" ) || { ch_code_RC=$?; ch_code="000"; }
+prom_code_RC=0
+prom_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$PROM_URL/-/healthy" ) || { prom_code_RC=$?; prom_code="000"; }
 [ "$prom_code" != "200" ] && { echo "[SKIP] Prometheus not reachable"; exit 0; }
 
 echo "=== Dashboard Query Integration Tests (extracted from JSON) ==="
@@ -83,7 +84,8 @@ find_panel_file() {
     local pid="$1"
     for df in "${ALL_DASHBOARDS[@]}"; do
         local n
-        n=$(jq --arg pid "$pid" '[.panels[] | select(.id == ($pid | tonumber))] | length' "$df" ) || { CH_MODEL_LIST_RC=$?; CH_MODEL_LIST="0"; }
+        n_RC=0
+        n=$(jq --arg pid "$pid" '[.panels[] | select(.id == ($pid | tonumber))] | length' "$df" ) || { n_RC=$?; n="0"; }
         [ "$n" -gt 0 ] && { printf '%s' "$df"; return; }
     done
 }
@@ -168,7 +170,8 @@ echo "--- Q1: ClickHouse Query Execution (all panels, all targets) ---"
 while IFS=$'\t' read -r pid ref; do
     sql_RC=0
     sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")")
-    hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { sql_RC=$?; sql="000"; }
+    hc_RC=0
+    hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
     [ "$hc" = "200" ] && rp "Q1: p${pid}-${ref} HTTP 200" || rf "Q1: p${pid}-${ref} HTTP $hc"
 done < <(for df in "${ALL_DASHBOARDS[@]}"; do
     jq -r '.panels[] | select(.datasource.uid == "clickhouse") | .id as $pid | .targets[] | [$pid, .refId] | @tsv' "$df"
@@ -406,7 +409,8 @@ SELECT total_tok FROM totals FORMAT TabSeparated"
     # p4 Error Rate: single key query returns HTTP 200 (filter doesn't break SQL)
     P4_SQL_RC=0
     P4_SQL=$(sub_ch "$(get_ch_sql 4 A)" "$SKL")
-    P4_HC=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$P4_SQL" ) || { P4_SQL_RC=$?; P4_SQL="000"; }
+    P4_HC_RC=0
+    P4_HC=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$P4_SQL" ) || { P4_HC_RC=$?; P4_HC="000"; }
     [ "$P4_HC" = "200" ] && rp "Q14: p4 single_key HTTP 200" || rf "Q14: p4 single_key HTTP $P4_HC"
 fi
 echo ""
@@ -423,7 +427,7 @@ if [ -n "$SM" ] && [ "$SM" != "unknown" ]; then
         sql_RC=0
         sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")" "$CH_KEY_LIST" "$SML")
         hc_RC=0
-        hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { sql_RC=$?; sql="000"; }
+        hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
         [ "$hc" = "200" ] && rp "Q15: p${pid}-${ref} single model HTTP 200" || rf "Q15: p${pid}-${ref} single model HTTP $hc"
     done
 else
@@ -439,15 +443,17 @@ echo ""
 echo "--- Q16: Dashboard Macro Verification ---"
 CA=0
 for df in "${ALL_DASHBOARDS[@]}"; do
-    c=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$df" ) || { hc_RC=$?; hc="0"; }
+    c_RC=0
+    c=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$df" ) || { c_RC=$?; c="0"; }
     CA_RC=0
     CA=$((CA + c))
 done
 [ "$CA" = "0" ] && rp "Q16: no \$__conditionalAll (all 3 dashboards)" || rf "Q16: $CA conditionalAll macros found"
 AK_RC=0
-AK=$(jq -r '[.templating.list[]|select(.name=="api_key")]|if length==0 then "error" else (.[0].allValue|if .==null or .=="" then "None" else . end) end' "$COST_USAGE_FILE" ) || { CA_RC=$?; CA="error"; }
+AK=$(jq -r '[.templating.list[]|select(.name=="api_key")]|if length==0 then "error" else (.[0].allValue|if .==null or .=="" then "None" else . end) end' "$COST_USAGE_FILE" ) || { AK_RC=$?; AK="error"; }
 [ "$AK" = "None" ] && rp "Q16: api_key no allValue" || rf "Q16: api_key allValue=$AK"
-MQ=$(jq -r '[.templating.list[]|select(.name=="model")]|if length==0 then "error" else (.[0].query|ascii_upcase|if test("UNION") then "union" else "single" end) end' "$COST_USAGE_FILE" ) || { AK_RC=$?; AK="error"; }
+MQ_RC=0
+MQ=$(jq -r '[.templating.list[]|select(.name=="model")]|if length==0 then "error" else (.[0].query|ascii_upcase|if test("UNION") then "union" else "single" end) end' "$COST_USAGE_FILE" ) || { MQ_RC=$?; MQ="error"; }
 [ "$MQ" = "union" ] && rp "Q16: model variable UNIONs both tables" || rf "Q16: model variable no UNION"
 echo ""
 

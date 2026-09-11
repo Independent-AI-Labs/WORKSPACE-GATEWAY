@@ -34,7 +34,6 @@ assert_contains() {
         pass=$((pass + 1))
     else
         echo "[FAIL] $desc -- missing: $needle in: $haystack"
-        fail_RC=0
         fail=$((fail + 1))
     fi
 }
@@ -58,7 +57,7 @@ fi
 
 # --- Test: --help works ---
 HELP_OUTPUT_RC=0
-HELP_OUTPUT=$(bash "$CLIENT_SCRIPT" --help 2>&1 ) || { fail_RC=$?; fail=""; }
+HELP_OUTPUT=$(bash "$CLIENT_SCRIPT" --help 2>&1 ) || HELP_OUTPUT_RC=$?
 assert_contains "help shows usage" "Usage:" "$HELP_OUTPUT"
 assert_contains "help mentions provider-id" "--provider-id" "$HELP_OUTPUT"
 assert_contains "help mentions --all" "--all" "$HELP_OUTPUT"
@@ -66,11 +65,12 @@ assert_contains "help mentions --require-auth" "--require-auth" "$HELP_OUTPUT"
 
 # --- Test: missing --provider-id fails ---
 MISSING_OUTPUT_RC=0
-MISSING_OUTPUT=$(bash "$CLIENT_SCRIPT" --gateway http://localhost:9080 2>&1 ) || { HELP_OUTPUT_RC=$?; HELP_OUTPUT=""; }
+MISSING_OUTPUT=$(bash "$CLIENT_SCRIPT" --gateway http://localhost:9080 2>&1 ) || MISSING_OUTPUT_RC=$?
 assert_contains "missing provider-id errors" "ERROR: --provider-id is required" "$MISSING_OUTPUT"
 
 # --- Test: invalid gateway fails ---
-INVALID_GATEWAY=$(bash "$CLIENT_SCRIPT" --provider-id test --gateway ftp://bad 2>&1 ) || { MISSING_OUTPUT_RC=$?; MISSING_OUTPUT=""; }
+INVALID_GATEWAY_RC=0
+INVALID_GATEWAY=$(bash "$CLIENT_SCRIPT" --provider-id test --gateway ftp://bad 2>&1 ) || INVALID_GATEWAY_RC=$?
 assert_contains "invalid gateway errors" "ERROR: --gateway must be an http(s) URL" "$INVALID_GATEWAY"
 
 # --- Test: full OAuth flow with the simulated server ---
@@ -150,7 +150,6 @@ if [ -f "$EXPECTED_WRAPPER" ]; then
         "gateway: \"$GATEWAY\"" "$(cat "$EXPECTED_WRAPPER")"
 else
     echo "[FAIL] wrapper not created: $EXPECTED_WRAPPER"
-    fail_RC=0
     fail=$((fail + 1))
 fi
 if [ -f "$CONFIG_FILE" ]; then
@@ -163,28 +162,29 @@ fi
 # Verify config file has the provider block.
 if [ -f "$CONFIG_FILE" ]; then
     CONFIG_NAME_RC=0
-    CONFIG_NAME=$(jq -r '.provider."test-oauth".name' "$CONFIG_FILE" ) || { fail_RC=$?; fail="__missing__"; }
+    CONFIG_NAME=$(jq -r '.provider."test-oauth".name' "$CONFIG_FILE" ) || { CONFIG_NAME_RC=$?; CONFIG_NAME="__missing__"; }
     assert_eq "config file provider name" "Test OAuth" "$CONFIG_NAME"
-    CONFIG_NPM=$(jq -r '.provider."test-oauth".npm' "$CONFIG_FILE" ) || { CONFIG_NAME_RC=$?; CONFIG_NAME="__missing__"; }
+    CONFIG_NPM_RC=0
+    CONFIG_NPM=$(jq -r '.provider."test-oauth".npm' "$CONFIG_FILE" ) || { CONFIG_NPM_RC=$?; CONFIG_NPM="__missing__"; }
     assert_eq "config file provider npm" "test-oauth" "$CONFIG_NPM"
     BASEURL_RC=0
     BASEURL=$(jq -r '.provider."test-oauth".options.baseURL' "$CONFIG_FILE") || { BASEURL_RC=$?; BASEURL="__missing__"; }
     assert_eq "config file baseURL" "http://gateway/test" "$BASEURL"
 else
     echo "[FAIL] config file not created: $CONFIG_FILE"
-    fail_RC=0
     fail=$((fail + 1))
 fi
 
 # Verify auth file has the token.
 if [ -f "$AUTH_FILE" ]; then
     AUTH_KEY_RC=0
-    AUTH_KEY=$(jq -r '."test-oauth".key' "$AUTH_FILE" ) || { fail_RC=$?; fail="__missing__"; }
+    AUTH_KEY=$(jq -r '."test-oauth".key' "$AUTH_FILE" ) || { AUTH_KEY_RC=$?; AUTH_KEY="__missing__"; }
     AUTH_TYPE_RC=0
-    AUTH_TYPE=$(jq -r '."test-oauth".type' "$AUTH_FILE" ) || { AUTH_KEY_RC=$?; AUTH_KEY="__missing__"; }
+    AUTH_TYPE=$(jq -r '."test-oauth".type' "$AUTH_FILE" ) || { AUTH_TYPE_RC=$?; AUTH_TYPE="__missing__"; }
     assert_eq "auth file type" "api" "$AUTH_TYPE"
     assert_eq "auth file key" "test-access-token" "$AUTH_KEY"
-    AUTH_PERMS=$(stat -c '%a' "$AUTH_FILE" ) || { AUTH_TYPE_RC=$?; AUTH_TYPE="__missing__"; }
+    AUTH_PERMS_RC=0
+    AUTH_PERMS=$(stat -c '%a' "$AUTH_FILE" ) || { AUTH_PERMS_RC=$?; AUTH_PERMS="__missing__"; }
     assert_eq "auth file permissions" "600" "$AUTH_PERMS"
 else
     echo "[FAIL] auth file not created: $AUTH_FILE"

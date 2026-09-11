@@ -83,7 +83,8 @@ wait_for_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$GATEWAY/" ) || { fail_RC=$?; fail=""; }
+        code_RC=0
+        code=$(http_code "$GATEWAY/" ) || { code_RC=$?; code=""; }
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             record_pass "APISIX reachable at $GATEWAY (HTTP $code)"
             return 0
@@ -182,7 +183,7 @@ verify_provider_in_config() {
     local expected_name="$2"
     local actual_name
     actual_name_RC=0
-    actual_name=$(jq -r ".provider.\"$provider_id\".name // \"__missing__\"" "$CONFIG_FILE" ) || { auth_type_RC=$?; auth_type="__missing__"; }
+    actual_name=$(jq -r ".provider.\"$provider_id\".name // \"__missing__\"" "$CONFIG_FILE" ) || { actual_name_RC=$?; actual_name="__missing__"; }
     assert_eq "config contains $provider_id with name '$expected_name'" "$expected_name" "$actual_name"
 }
 
@@ -191,7 +192,7 @@ verify_provider_base_url() {
     local expected_base_url="$2"
     local actual
     actual_RC=0
-    actual=$(jq -r ".provider.\"$provider_id\".options.baseURL // \"__missing__\"" "$CONFIG_FILE" ) || { actual_name_RC=$?; actual_name="__missing__"; }
+    actual=$(jq -r ".provider.\"$provider_id\".options.baseURL // \"__missing__\"" "$CONFIG_FILE" ) || { actual_RC=$?; actual="__missing__"; }
     assert_eq "config $provider_id baseURL is '$expected_base_url'" "$expected_base_url" "$actual"
 }
 
@@ -201,8 +202,9 @@ verify_auth_entry() {
     local actual_type
     local actual_key
     actual_type_RC=0
-    actual_type=$(jq -r ".\"$provider_id\".type // \"__missing__\"" "$AUTH_FILE" ) || { actual_RC=$?; actual="__missing__"; }
-    actual_key=$(jq -r ".\"$provider_id\".key // \"__missing__\"" "$AUTH_FILE" ) || { actual_type_RC=$?; actual_type="__missing__"; }
+    actual_type=$(jq -r ".\"$provider_id\".type // \"__missing__\"" "$AUTH_FILE" ) || { actual_type_RC=$?; actual_type="__missing__"; }
+    actual_key_RC=0
+    actual_key=$(jq -r ".\"$provider_id\".key // \"__missing__\"" "$AUTH_FILE" ) || { actual_key_RC=$?; actual_key="__missing__"; }
     assert_eq "auth entry $provider_id type is 'api'" "api" "$actual_type"
     assert_eq "auth entry $provider_id key matches" "$expected_key" "$actual_key"
 }
@@ -239,7 +241,7 @@ test_client_no_auth_kimi_own() {
     verify_provider_base_url workspace-gw-kimi-api-key "$GATEWAY/kimi-key"
     local model_count
     model_count_RC=0
-    model_count=$(jq -r '.provider."workspace-gw-kimi-api-key".models | length' "$CONFIG_FILE" ) || { output_RC=$?; output="0"; }
+    model_count=$(jq -r '.provider."workspace-gw-kimi-api-key".models | length' "$CONFIG_FILE" ) || { model_count_RC=$?; model_count="0"; }
     if [ "$model_count" -gt 0 ]; then
         record_pass "kimi-own config has enriched models (count=$model_count)"
     else
@@ -248,7 +250,8 @@ test_client_no_auth_kimi_own() {
     local alias
     for alias in kimi-for-coding kimi-for-coding-highspeed k3; do
         local alias_cost
-        alias_cost=$(jq -r ".provider.\"workspace-gw-kimi-api-key\".models.\"$alias\".cost.input // \"__missing__\"" "$CONFIG_FILE" ) || { model_count_RC=$?; model_count="__missing__"; }
+        alias_cost_RC=0
+        alias_cost=$(jq -r ".provider.\"workspace-gw-kimi-api-key\".models.\"$alias\".cost.input // \"__missing__\"" "$CONFIG_FILE" ) || { alias_cost_RC=$?; alias_cost="__missing__"; }
         if [ "$alias_cost" != "__missing__" ]; then
             record_pass "kimi-own alias $alias present with cost (input=$alias_cost)"
         else
@@ -274,7 +277,8 @@ test_client_virtual_key() {
     verify_provider_base_url workspace-gw-opencode-go-virtual-key "$GATEWAY/opencode_federated/v1"
     verify_auth_entry workspace-gw-opencode-go-virtual-key "$test_key"
     local perms
-    perms=$(stat -c '%a' "$AUTH_FILE" ) || { output_RC=$?; output="__missing__"; }
+    perms_RC=0
+    perms=$(stat -c '%a' "$AUTH_FILE" ) || { perms_RC=$?; perms="__missing__"; }
     assert_eq "auth file permissions are 600" "600" "$perms"
 }
 
@@ -301,7 +305,8 @@ EOF
         return 1
     fi
     local existing_name
-    existing_name=$(jq -r '.provider."existing-earlier".name // "__missing__"' "$CONFIG_FILE" ) || { output_RC=$?; output="__missing__"; }
+    existing_name_RC=0
+    existing_name=$(jq -r '.provider."existing-earlier".name // "__missing__"' "$CONFIG_FILE" ) || { existing_name_RC=$?; existing_name="__missing__"; }
     assert_eq "config merge preserves existing provider" "Earlier Provider" "$existing_name"
     verify_provider_in_config workspace-gw-llamafile-no-auth "Workspace GW (llamafile No Auth)"
 }

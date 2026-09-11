@@ -34,7 +34,8 @@ setup_endpoints() {
         echo "[SKIP] APISIX not reachable at $GATEWAY_URL"
         return 1
     fi
-    ch_health=$(curl -fsS --max-time 5 "$CH_URL/?query=SELECT+1" ) || { curl_code_RC=$?; curl_code=""; }
+    ch_health_RC=0
+    ch_health=$(curl -fsS --max-time 5 "$CH_URL/?query=SELECT+1" ) || { ch_health_RC=$?; ch_health=""; }
     if [ "$ch_health" != "1" ]; then
         echo "[SKIP] ClickHouse not reachable at $CH_URL"
         return 1

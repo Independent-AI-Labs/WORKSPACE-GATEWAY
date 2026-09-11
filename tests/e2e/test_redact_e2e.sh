@@ -67,9 +67,9 @@ else
 fi
 
 redact_header_RC=0
-redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' ) || { body_RC=$?; body=""; }
+redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' ) || { redact_header_RC=$?; redact_header=""; }
 redact_value_RC=0
-redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' ) || { redact_header_RC=$?; redact_header=""; }
+redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' ) || { redact_value_RC=$?; redact_value=""; }
 
 if [ "$redact_value" = "1" ]; then
     check "Response contains X-Redact-Active: 1 header" "0"
@@ -91,7 +91,8 @@ CH_URL="http://localhost:8123"
 PII_TOKEN="[EMAIL_1]"
 
 echo "[INFO] Querying ClickHouse for logged request body..."
-logged_req_body=$(curl -fsS "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" ) || { redact_value_RC=$?; redact_value=""; }
+logged_req_body_RC=0
+logged_req_body=$(curl -fsS "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" ) || { logged_req_body_RC=$?; logged_req_body=""; }
 
 if grep -q "$PII_TOKEN" <<< "$logged_req_body"; then
     check "ClickHouse logged request body contains redaction token" "0"

@@ -53,10 +53,11 @@ fi
 
 # Parse the first model id from /llamafile/v1/models.
 MODELS_JSON_RC=0
-MODELS_JSON=$(curl -fsS --max-time 10 "$GATEWAY_URL/llamafile/v1/models" ) || { BOUNDARY_RC=$?; BOUNDARY=""; }
+MODELS_JSON=$(curl -fsS --max-time 10 "$GATEWAY_URL/llamafile/v1/models" ) || { MODELS_JSON_RC=$?; MODELS_JSON=""; }
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
-    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' ) || { MODELS_JSON_RC=$?; MODELS_JSON=""; }
+    MODEL_ID_RC=0
+    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' ) || { MODEL_ID_RC=$?; MODEL_ID=""; }
 fi
 assert_eq "llamafile /v1/models returned a model id" "yes" "$(if [ -n "$MODEL_ID" ]; then printf 'yes'; else printf 'no'; fi)"
 if [ -z "$MODEL_ID" ]; then
@@ -77,7 +78,7 @@ HTTP_CODE=$(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-
     -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word: ok\"}],\"stream\":false}" \
     ) || { HTTP_CODE_RC=$?; HTTP_CODE="000"; }
 LIVE_RID_RC=0
-LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { RESP_BODY_RC=$?; RESP_BODY=""; }
+LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { LIVE_RID_RC=$?; LIVE_RID=""; }
 rm -f "$RESP_HEADERS"
 
 echo "[INFO] chat HTTP $HTTP_CODE X-Request-Id=$LIVE_RID"
@@ -98,7 +99,8 @@ fi
 # plugin is responsible for estimating tokens in that case. Token-count
 # correctness is therefore asserted from usage_log downstream, NOT from the
 # raw HTTP response usage object.
-HAS_CHOICES=$(jq -r 'if ((.choices | length) > 0) then "yes" else "no" end' "$RESP_BODY" ) || { LIVE_RID_RC=$?; LIVE_RID="no"; }
+HAS_CHOICES_RC=0
+HAS_CHOICES=$(jq -r 'if ((.choices | length) > 0) then "yes" else "no" end' "$RESP_BODY" ) || { HAS_CHOICES_RC=$?; HAS_CHOICES="no"; }
 rm -f "$RESP_BODY"
 assert_eq "llamafile response body has a choices array" "yes" "$HAS_CHOICES"
 

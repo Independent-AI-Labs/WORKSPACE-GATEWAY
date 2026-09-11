@@ -33,7 +33,8 @@ wait_for_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$GATEWAY/" ) || { fail_RC=$?; fail=""; }
+        code_RC=0
+        code=$(http_code "$GATEWAY/" ) || { code_RC=$?; code=""; }
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             return 0
         fi
@@ -50,7 +51,8 @@ wait_for_openbao() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$OPENBAO_ADDR/v1/sys/health" ) || { attempt_RC=$?; attempt=""; }
+        code_RC=0
+        code=$(http_code "$OPENBAO_ADDR/v1/sys/health" ) || { code_RC=$?; code=""; }
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             return 0
         fi

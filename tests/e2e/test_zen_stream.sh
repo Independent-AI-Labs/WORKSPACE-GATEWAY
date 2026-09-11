@@ -63,7 +63,7 @@ if [ "$http_code" = "200" ]; then
 else
     echo "[DEBUG] http_code=$http_code"
     body_debug_RC=0
-    body_debug=$(cat "$body_file" ) || { body_file_RC=$?; body_file=""; }
+    body_debug=$(cat "$body_file" ) || { body_debug_RC=$?; body_debug=""; }
     echo "[DEBUG] body=$body_debug"
     check "Streaming chat with minimax-m3 returns 200 (got $http_code)" "1"
     rm -f "$headers_file" "$body_file"
@@ -76,7 +76,7 @@ else
 fi
 
 content_type_RC=0
-content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' ) || { body_debug_RC=$?; body_debug=""; }
+content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' ) || { content_type_RC=$?; content_type=""; }
 
 if grep -qi "text/event-stream" <<< "$content_type"; then
     check "Response Content-Type contains text/event-stream" "0"
@@ -85,7 +85,8 @@ else
     check "Response Content-Type contains text/event-stream" "1"
 fi
 
-sse_count=$(grep -c '^data:' "$body_file" ) || { content_type_RC=$?; content_type="0"; }
+sse_count_RC=0
+sse_count=$(grep -c '^data:' "$body_file" ) || { sse_count_RC=$?; sse_count="0"; }
 if [ "$sse_count" -gt 0 ]; then
     check "Response body contains SSE data events" "0"
 else

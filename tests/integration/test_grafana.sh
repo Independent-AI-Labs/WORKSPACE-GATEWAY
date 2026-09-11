@@ -49,12 +49,12 @@ wait_for_url "http://localhost:9092/-/healthy" "Gateway Prometheus on port 9092"
 # ── 2. Prometheus scraping APISIX ─────────────────────────────────────
 
 PROM_TARGETS_RC=0
-PROM_TARGETS=$(curl -sS http://localhost:9092/api/v1/targets ) || { attempt_RC=$?; attempt=""; }
+PROM_TARGETS=$(curl -sS http://localhost:9092/api/v1/targets ) || { PROM_TARGETS_RC=$?; PROM_TARGETS=""; }
 if [ -z "$PROM_TARGETS" ]; then
     record_fail "Prometheus targets API returned empty"
 else
     APISIX_HEALTH_RC=0
-    APISIX_HEALTH=$(echo "$PROM_TARGETS" | jq -r '[.data.activeTargets[] | select(.scrapePool == "gateway-apisix")][0].health // "not_found"' ) || { PROM_TARGETS_RC=$?; PROM_TARGETS="parse_error"; }
+    APISIX_HEALTH=$(echo "$PROM_TARGETS" | jq -r '[.data.activeTargets[] | select(.scrapePool == "gateway-apisix")][0].health // "not_found"' ) || { APISIX_HEALTH_RC=$?; APISIX_HEALTH="parse_error"; }
 
     if [ "$APISIX_HEALTH" = "up" ]; then
         record_pass "Prometheus is scraping APISIX (target up)"
@@ -68,7 +68,7 @@ fi
 wait_for_url "http://localhost:3030/api/health" "Grafana on port 3030" 60
 
 GRAFANA_VERSION_RC=0
-GRAFANA_VERSION=$(curl -sS http://localhost:3030/api/health | jq -r '.version // "unknown"' ) || { APISIX_HEALTH_RC=$?; APISIX_HEALTH="unknown"; }
+GRAFANA_VERSION=$(curl -sS http://localhost:3030/api/health | jq -r '.version // "unknown"' ) || { GRAFANA_VERSION_RC=$?; GRAFANA_VERSION="unknown"; }
 # Min version 12.4.0 (time-range pan/zoom GA). Use awk semver compare.
 if awk -v a="$GRAFANA_VERSION" -v b="12.4.0" 'BEGIN{n=split(a,va,".");m=split(b,vb,".");for(i=1;i<=(n>m?n:m);i++){x=va[i]+0;y=vb[i]+0;if(x>y)exit 0;if(x<y)exit 1}exit 0}'; then
     record_pass "Grafana version >= 12.4.0 (got $GRAFANA_VERSION)"
@@ -79,9 +79,9 @@ fi
 # ── 4. Grafana datasources provisioned ────────────────────────────────
 
 DATASOURCES_RC=0
-DATASOURCES=$(curl -sS http://admin:admin@localhost:3030/api/datasources ) || { GRAFANA_VERSION_RC=$?; GRAFANA_VERSION="[]"; }
+DATASOURCES=$(curl -sS http://admin:admin@localhost:3030/api/datasources ) || { DATASOURCES_RC=$?; DATASOURCES="[]"; }
 DS_COUNT_RC=0
-DS_COUNT=$(echo "$DATASOURCES" | jq 'length' ) || { DATASOURCES_RC=$?; DATASOURCES="0"; }
+DS_COUNT=$(echo "$DATASOURCES" | jq 'length' ) || { DS_COUNT_RC=$?; DS_COUNT="0"; }
 
 if [ "$DS_COUNT" = "2" ]; then
     record_pass "Grafana has 2 datasources provisioned"
@@ -90,7 +90,7 @@ else
 fi
 
 DS_NAMES_RC=0
-DS_NAMES=$(echo "$DATASOURCES" | jq -r '[.[].name] | sort | join(",")' ) || { DS_COUNT_RC=$?; DS_COUNT=""; }
+DS_NAMES=$(echo "$DATASOURCES" | jq -r '[.[].name] | sort | join(",")' ) || { DS_NAMES_RC=$?; DS_NAMES=""; }
 
 if [ "$DS_NAMES" = "ClickHouse,Prometheus" ]; then
     record_pass "Grafana has Prometheus and ClickHouse datasources"
@@ -101,7 +101,7 @@ fi
 # ── 5. Dashboards provisioned (3 split dashboards) ───────────────────
 
 DASHBOARDS_RC=0
-DASHBOARDS=$(curl -sS http://admin:admin@localhost:3030/api/search ) || { DS_NAMES_RC=$?; DS_NAMES="[]"; }
+DASHBOARDS=$(curl -sS http://admin:admin@localhost:3030/api/search ) || { DASHBOARDS_RC=$?; DASHBOARDS="[]"; }
 
 for dash_info in "Gateway Cost & Usage|gateway-cost-usage" \
                  "Gateway Operations & Health|gateway-ops-health" \
@@ -109,7 +109,7 @@ for dash_info in "Gateway Cost & Usage|gateway-cost-usage" \
     dash_title="${dash_info%%|*}"
     dash_uid="${dash_info##*|}"
     has_dash_RC=0
-    has_dash=$(echo "$DASHBOARDS" | jq --arg t "$dash_title" '[.[] | select(.title == $t)] | length > 0' ) || { DASHBOARDS_RC=$?; DASHBOARDS="false"; }
+    has_dash=$(echo "$DASHBOARDS" | jq --arg t "$dash_title" '[.[] | select(.title == $t)] | length > 0' ) || { has_dash_RC=$?; has_dash="false"; }
     if [ "$has_dash" = "true" ]; then
         record_pass "$dash_title dashboard is provisioned"
     else
@@ -121,10 +121,11 @@ done
 
 for dash_uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; do
     dash_json_RC=0
-    dash_json=$(curl -sS "http://admin:admin@localhost:3030/api/dashboards/uid/$dash_uid" ) || { has_dash_RC=$?; has_dash="{}"; }
+    dash_json=$(curl -sS "http://admin:admin@localhost:3030/api/dashboards/uid/$dash_uid" ) || { dash_json_RC=$?; dash_json="{}"; }
     dash_from_RC=0
-    dash_from=$(echo "$dash_json" | jq -r '.dashboard.time.from // "missing"' ) || { dash_json_RC=$?; dash_json="parse_error"; }
-    dash_refresh=$(echo "$dash_json" | jq -r '.dashboard.refresh // "missing"' ) || { dash_from_RC=$?; dash_from="parse_error"; }
+    dash_from=$(echo "$dash_json" | jq -r '.dashboard.time.from // "missing"' ) || { dash_from_RC=$?; dash_from="parse_error"; }
+    dash_refresh_RC=0
+    dash_refresh=$(echo "$dash_json" | jq -r '.dashboard.refresh // "missing"' ) || { dash_refresh_RC=$?; dash_refresh="parse_error"; }
     if [ "$dash_from" = "now-7d" ] && [ "$dash_refresh" = "5s" ]; then
         record_pass "$dash_uid defaults: now-7d / 5s"
     else

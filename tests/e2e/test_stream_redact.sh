@@ -67,7 +67,7 @@ else
 fi
 
 content_type_RC=0
-content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' ) || { body_RC=$?; body=""; }
+content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' ) || { content_type_RC=$?; content_type=""; }
 if grep -qi "text/event-stream" <<< "$content_type"; then
     check "Streaming response Content-Type is text/event-stream" "0"
 else
@@ -75,8 +75,9 @@ else
 fi
 
 redact_header_RC=0
-redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' ) || { content_type_RC=$?; content_type=""; }
-redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' ) || { redact_header_RC=$?; redact_header=""; }
+redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' ) || { redact_header_RC=$?; redact_header=""; }
+redact_value_RC=0
+redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' ) || { redact_value_RC=$?; redact_value=""; }
 if [ "$redact_value" = "1" ]; then
     check "Streaming response has X-Redact-Active: 1 header" "0"
 else
