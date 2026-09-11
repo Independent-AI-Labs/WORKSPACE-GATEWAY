@@ -34,7 +34,6 @@ record_pass() {
 
 record_fail() {
     echo "[FAIL] $1"
-    fail_RC=0
     fail=$((fail + 1))
 }
 
@@ -156,7 +155,6 @@ test_provider_opencode() {
     local name
     name=$(get_json_field "$resp" '.provider.name')
     local auth_type
-    auth_type_RC=0
     auth_type=$(get_json_field "$resp" '.auth_type')
     if [ "$name" = "$expected_name" ]; then
         record_pass "opencode block for $provider_id has name '$expected_name'"
@@ -230,7 +228,6 @@ test_client_no_auth_kimi_own() {
     rm -f "$CONFIG_FILE" "$AUTH_FILE"
     local output
     status=0
-    output_RC=0
     output=$(echo "test-kimi-api-key" | run_client_login workspace-gw-kimi-api-key --no-browser 2>&1) || status=$?
     if [ "$status" -ne 0 ]; then
         record_fail "client login for kimi-own failed (status=$status) -- output: $output"
@@ -266,7 +263,6 @@ test_client_virtual_key() {
     local test_key="test-virtual-key-$(date +%s)"
     local output
     status=0
-    output_RC=0
     output=$(echo "$test_key" | run_client_login workspace-gw-opencode-go-virtual-key --no-browser --require-auth 2>&1) || status=$?
     if [ "$status" -ne 0 ]; then
         record_fail "client login for virtual_key failed (status=$status) -- output: $output"
@@ -298,7 +294,6 @@ test_config_merge() {
 EOF
     local output
     status=0
-    output_RC=0
     output=$(run_client_login workspace-gw-llamafile-no-auth --no-browser 2>&1) || status=$?
     if [ "$status" -ne 0 ]; then
         record_fail "config merge login failed (status=$status) -- output: $output"

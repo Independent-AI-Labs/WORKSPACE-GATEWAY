@@ -45,7 +45,6 @@ if [ -z "${GATEWAY_API_KEY:-}" ]; then
 fi
 
 headers_file=$(mktemp)
-body_file_RC=0
 body_file=$(mktemp)
 
 http_code_RC=0

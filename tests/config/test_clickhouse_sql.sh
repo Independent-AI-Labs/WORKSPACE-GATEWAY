@@ -20,7 +20,6 @@ assert_eq() {
         pass=$((pass + 1))
     else
         echo "[FAIL] $desc -- expected: $expected, actual: $actual"
-        fail_RC=0
         fail=$((fail + 1))
     fi
 }

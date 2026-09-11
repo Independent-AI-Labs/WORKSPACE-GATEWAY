@@ -30,7 +30,6 @@ source "$SCRIPT_DIR/lib_event_align.sh" || exit 1
 pass=0
 fail=0
 
-BOUNDARY_RC=0
 BOUNDARY=$(date +%s)
 echo "[INFO] boundary=$BOUNDARY"
 
@@ -66,7 +65,6 @@ echo "[INFO] using model id: $MODEL_ID"
 
 # Send one non-streaming chat request; capture X-Request-Id.
 RESP_HEADERS=$(mktemp)
-RESP_BODY_RC=0
 RESP_BODY=$(mktemp)
 HTTP_CODE_RC=0
 HTTP_CODE=$(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \

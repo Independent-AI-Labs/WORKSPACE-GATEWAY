@@ -32,7 +32,7 @@ rs() { echo "[SKIP] $1"; skip=$((skip+1)); }
 
 # Skip if Grafana not running
 gf_code_RC=0
-gf_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GRAFANA_URL/api/health" )
+gf_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GRAFANA_URL/api/health" ) || { gf_code_RC=$?; gf_code="000"; }
 if [ "$gf_code" != "200" ]; then
     echo "[SKIP] Grafana not reachable (HTTP $gf_code)"
     exit 0
@@ -63,7 +63,6 @@ if ! FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S'); then
         FROM_TS=$(date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
     fi
 fi
-TO_TS_RC=0
 TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
 
 # Find which dashboard file contains a panel with the given title
@@ -284,7 +283,6 @@ else
 fi
 
 # Verify latency values are reasonable (0.001 to 300 seconds)
-T5_LATS_RC=0
 T5_LATS=$(echo "$T5_RESP" | jq -r '.results.A.frames[0].data.values[1][]')
 T5_BAD=0
 for lat in $T5_LATS; do

@@ -18,7 +18,6 @@ record_pass() {
 
 record_fail() {
     echo "[FAIL] $1"
-    fail_RC=0
     fail=$((fail + 1))
 }
 

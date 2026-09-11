@@ -64,7 +64,6 @@ send_chat() {
 
 # Test 1: Non-streaming chat with minimax-m3
 http_code=$(send_chat "minimax-m3" "Say hello in one word")
-body_RC=0
 body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 
@@ -84,7 +83,6 @@ fi
 
 # Test 2: Different model (mimo-v2.5)
 http_code=$(send_chat "mimo-v2.5" "Reply with the single word: ok")
-body_RC=0
 body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 

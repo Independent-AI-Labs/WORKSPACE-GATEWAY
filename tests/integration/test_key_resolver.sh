@@ -20,7 +20,6 @@ record_pass() {
 
 record_fail() {
     echo "[FAIL] $1"
-    fail_RC=0
     fail=$((fail + 1))
 }
 
@@ -38,7 +37,6 @@ wait_for_apisix() {
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             return 0
         fi
-        attempt_RC=0
         attempt=$((attempt + 1))
         sleep 2
     done

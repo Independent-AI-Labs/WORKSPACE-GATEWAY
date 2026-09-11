@@ -131,7 +131,6 @@ assert_eq "only provider_sync_catalog.lua references models.dev" \
     "$REPO_ROOT/plugins/custom/provider_sync_catalog.lua " "$MODELS_DEV_FETCHES"
 
 # ---------- 4. single-normalizer guards ----------
-NORMALIZE_DEFS_RC=0
 NORMALIZE_DEFS=$(grep -rln 'function.*normalize_key\|function.*canonical' "$REPO_ROOT/plugins/custom/" | tr '\n' ' ')
 assert_eq "canonicalization defined only in model_registry.lua" \
     "$REPO_ROOT/plugins/custom/model_registry.lua " "$NORMALIZE_DEFS"

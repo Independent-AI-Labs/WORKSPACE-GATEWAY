@@ -57,7 +57,6 @@ http_code=$(curl -sS -D "$headers_file" -o "$body_file" -w "%{http_code}" \
     -H "Content-Type: application/json" \
     -d "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":true}" ) || { http_code_RC=$?; http_code="000"; }
 
-body_RC=0
 body=$(cat "$body_file")
 
 if [ "$http_code" = "200" ]; then

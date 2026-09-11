@@ -28,7 +28,6 @@ export GATEWAY_URL CH_URL
 
 setup_endpoints() {
     # Returns 0 if both endpoints are reachable, 1 otherwise.
-    curl_code_RC=0
     curl_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" )
     if [ "$curl_code" = "000" ]; then
         echo "[SKIP] APISIX not reachable at $GATEWAY_URL"

@@ -155,7 +155,6 @@ assert_eq "APISIX exposes port 9100 for prometheus" "1" "$APISIX_PORT_9100"
 APISIX_PORT_9180=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(endswith(":9180:9180") or . == "9180:9180")] | length')
 assert_eq "APISIX exposes port 9180 for Admin API + Dashboard" "1" "$APISIX_PORT_9180"
 
-APISIX_MOUNTS_RC=0
 APISIX_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.apisix.volumes[]')
 HAS_APISIX_YAML_RC=0
 HAS_APISIX_YAML=$(echo "$APISIX_MOUNTS" | grep -c "apisix.yaml" ) || { HAS_APISIX_YAML_RC=$?; HAS_APISIX_YAML="0"; }
@@ -233,7 +232,6 @@ assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
 assert_eq "APISIX has 26 volume mounts (4 config + 22 plugins)" "26" "$APISIX_VOLUME_COUNT"
 
-CLICKHOUSE_MOUNTS_RC=0
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL_RC=0
 HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" ) || { HAS_INIT_SQL_RC=$?; HAS_INIT_SQL="0"; }
@@ -244,7 +242,6 @@ assert_eq "ClickHouse disables metric log writers" "1" "$HAS_DISABLED_METRIC_LOG
 CLICKHOUSE_NO_CHOWN=$(echo "$JSON_DATA" | jq -r '[.services.clickhouse.environment[] | select(. == "CLICKHOUSE_DO_NOT_CHOWN=1")] | length')
 assert_eq "ClickHouse skips recursive volume chown" "1" "$CLICKHOUSE_NO_CHOWN"
 
-VECTOR_MOUNTS_RC=0
 VECTOR_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.vector.volumes[]')
 HAS_VECTOR_TOML_RC=0
 HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" ) || { HAS_VECTOR_TOML_RC=$?; HAS_VECTOR_TOML="0"; }
@@ -280,13 +277,11 @@ assert_eq "Has grafana-data volume" "true" "$HAS_GRAFANA_VOLUME"
 HAS_ETCD_VOLUME=$(echo "$JSON_DATA" | jq '.volumes | has("etcd-data")')
 assert_eq "Has etcd-data volume" "true" "$HAS_ETCD_VOLUME"
 
-APISIX_ENV_FILE_RC=0
 APISIX_ENV_FILE=$(echo "$JSON_DATA" | jq -r '.services.apisix.env_file[]')
 HAS_ENV_FILE_RC=0
 HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" ) || { HAS_ENV_FILE_RC=$?; HAS_ENV_FILE="0"; }
 assert_eq "APISIX has env_file pointing to .env" "1" "$HAS_ENV_FILE"
 
-APISIX_DEPS_RC=0
 APISIX_DEPS=$(echo "$JSON_DATA" | jq -r '.services.apisix.depends_on[]')
 HAS_OPENBAO_DEP_RC=0
 HAS_OPENBAO_DEP=$(echo "$APISIX_DEPS" | grep -c "openbao" ) || { HAS_OPENBAO_DEP_RC=$?; HAS_OPENBAO_DEP="0"; }

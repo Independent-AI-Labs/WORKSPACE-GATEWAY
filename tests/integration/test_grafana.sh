@@ -31,7 +31,6 @@ wait_for_url() {
             record_pass "$name is ready ($url)"
             return 0
         fi
-        attempt_RC=0
         attempt=$((attempt + 1))
         sleep 3
     done

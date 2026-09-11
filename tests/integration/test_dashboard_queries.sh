@@ -28,7 +28,6 @@ rf() { echo "[FAIL] $1"; fail=$((fail+1)); }
 rs() { echo "[SKIP] $1"; skip=$((skip+1)); }
 
 # ── Skip if stack not running ──────────────────────────────────────────
-curl_code_RC=0
 curl_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" )
 [ "$curl_code" = "000" ] && { echo "[SKIP] APISIX not reachable"; exit 0; }
 ch_code_RC=0
@@ -47,7 +46,6 @@ if ! FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S'); then
         FROM_TS=$(date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
     fi
 fi
-TO_TS_RC=0
 TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
 echo "[INFO] Time range: $FROM_TS to $TO_TS"
 
@@ -56,9 +54,12 @@ ALL_KEYS_RC=0
 ALL_KEYS=$(curl -fsS "$CH_URL/" --data-binary \
     "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.usage_log ORDER BY k FORMAT TabSeparated" \
     ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
-[ -z "$ALL_KEYS" ] && ALL_KEYS=$(curl -fsS "$CH_URL/" --data-binary \
+if [ -z "$ALL_KEYS" ]; then
+    ALL_KEYS_RC=0
+    ALL_KEYS=$(curl -fsS "$CH_URL/" --data-binary \
     "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log ORDER BY k FORMAT TabSeparated" \
-    ) || { TO_TS_RC=$?; TO_TS=""; }
+    ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
+fi
 [ -z "$ALL_KEYS" ] && ALL_KEYS="unknown"
 CH_KEY_LIST=$(echo "$ALL_KEYS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd, -)
 [ -z "$CH_KEY_LIST" ] && CH_KEY_LIST="'unknown'"
@@ -71,7 +72,6 @@ ALL_MODELS=$(curl -fsS "$CH_URL/" --data-binary \
     "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model FORMAT TabSeparated" \
     ) || { ALL_MODELS_RC=$?; ALL_MODELS=""; }
 [ -z "$ALL_MODELS" ] && ALL_MODELS="unknown"
-CH_MODEL_LIST_RC=0
 CH_MODEL_LIST=$(echo "$ALL_MODELS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd, -)
 [ -z "$CH_MODEL_LIST" ] && CH_MODEL_LIST="'unknown'"
 echo "[INFO] Models: $(echo "$ALL_MODELS" | grep -c '.')"
@@ -168,7 +168,6 @@ in_range() { awk "BEGIN{exit !($1 >= $2 && $1 <= $3)}"; }
 echo "--- Q1: ClickHouse Query Execution (all panels, all targets) ---"
 # Iterate over every ClickHouse panel + target across all 3 dashboards
 while IFS=$'\t' read -r pid ref; do
-    sql_RC=0
     sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")")
     hc_RC=0
     hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
@@ -407,7 +406,6 @@ SELECT total_tok FROM totals FORMAT TabSeparated"
         || rf "Q14: p3 single($P3_SINGLE) >= all($PT) -- filter not narrowing"
 
     # p4 Error Rate: single key query returns HTTP 200 (filter doesn't break SQL)
-    P4_SQL_RC=0
     P4_SQL=$(sub_ch "$(get_ch_sql 4 A)" "$SKL")
     P4_HC_RC=0
     P4_HC=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$P4_SQL" ) || { P4_HC_RC=$?; P4_HC="000"; }
@@ -424,7 +422,6 @@ if [ -n "$SM" ] && [ "$SM" != "unknown" ]; then
     SML="'$SM'"
     for pid_ref in "3:A" "8:A" "15:A"; do
         pid="${pid_ref%%:*}"; ref="${pid_ref##*:}"
-        sql_RC=0
         sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")" "$CH_KEY_LIST" "$SML")
         hc_RC=0
         hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
@@ -445,7 +442,6 @@ CA=0
 for df in "${ALL_DASHBOARDS[@]}"; do
     c_RC=0
     c=$(jq '[.panels[].targets[]|(.rawSql//.expr//"")|select(.!=null)|select(test("\\$\\$__conditionalAll"))]|length' "$df" ) || { c_RC=$?; c="0"; }
-    CA_RC=0
     CA=$((CA + c))
 done
 [ "$CA" = "0" ] && rp "Q16: no \$__conditionalAll (all 3 dashboards)" || rf "Q16: $CA conditionalAll macros found"
