@@ -99,7 +99,7 @@ that history visible in the existing Grafana cost/usage dashboards and in
 | ID | Requirement |
 |----|-------------|
 | FR-4.1 | `--dry-run` MUST report, without writing: per-table row counts to insert, source duplicates collapsed, ClickHouse rows already present, rows older than the 13-month TTL that ClickHouse will expire, and pricing coverage (rows with cost = 0, how many resolve via models.dev, how many stay unknown). |
-| FR-4.2 | Inserts MUST be batched (≤ 5,000 rows per HTTP INSERT, `JSONEachRow`) with per-batch failure aborting the run (no silent partial import; safe to re-run). |
+| FR-4.2 | Inserts MUST be batched (≤ 5,000 rows per HTTP INSERT, `JSONEachRow`) with per-batch failure aborting the run (no partial import without an abort log; safe to re-run). |
 | FR-4.3 | The migrator MUST NOT delete or mutate anything in ClickHouse or SQLite. Rollback is `ALTER TABLE ... DELETE WHERE event_id LIKE 'ocm_%'` / `'ocr_%'` (documented in the spec, not automated). |
 | FR-4.4 | Exit code MUST be 0 on success (including "nothing to do"), non-zero on any source/destination error. |
 | FR-4.5 | `--backup-dir <dir>` MUST, before any insert, dump `usage_log`, `request_log`, and `billing_ledger` as `FORMAT Native` files plus a manifest with row counts and `sum(cityHash64(*))` checksums. The production run against dev MUST use it. |
@@ -121,7 +121,7 @@ that history visible in the existing Grafana cost/usage dashboards and in
 | NFR-1 | Runtime MUST complete the full ~61k-row backfill in minutes (streaming sqlite3 cursor → batched HTTP inserts; no full in-memory row set). |
 | NFR-2 | The script MUST be plain bash + `sqlite3` + `curl` + `jq` + `md5sum`/`openssl`, matching `res/scripts/` conventions (see `dedupe-model-history.sh`). |
 | NFR-3 | ClickHouse endpoint MUST be configurable (`CLICKHOUSE_URL`, default `http://localhost:8123`), database via `DATABASE` (default `llm_gateway`). |
-| NFR-4 | Live-gateway compatibility: migrator rows MUST NOT use `event_id` formats produced by Vector (`route_id_seconds`) or sse-usage, and MUST NOT collide with APISIX `request_id` values. |
+| NFR-4 | Live-gateway interop: migrator rows MUST NOT use `event_id` formats produced by Vector (`route_id_seconds`) or sse-usage, and MUST NOT collide with APISIX `request_id` values. |
 
 ## 5. Acceptance Criteria
 

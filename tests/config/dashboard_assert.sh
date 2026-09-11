@@ -127,10 +127,10 @@ check_dashboard_basics() {
     ch_meta=$(jq -r '[.panels[]|select(.datasource.uid=="clickhouse")|.targets[]|select(has("meta") or has("editorType") or has("pluginVersion"))]|length' "$f")
     assert_eq "$label S13: no ClickHouse target has meta/editorType/pluginVersion" "0" "$ch_meta"
 
-    # S1: CH targets use format table or timeseries (not numeric/legacy)
+    # S1: CH targets use format table or timeseries (not numeric/earlier)
     local ch_bad_fmt
     ch_bad_fmt=$(jq -r '[.panels[]|select(.datasource.uid=="clickhouse")|.targets[]|select(.format!=null)|select(.format!="table" and .format!="timeseries")]|length' "$f")
-    assert_eq "$label S1: no ClickHouse panel uses numeric/legacy format" "0" "$ch_bad_fmt"
+    assert_eq "$label S1: no ClickHouse panel uses numeric/earlier format" "0" "$ch_bad_fmt"
 
     # S2: CH timeseries panels use format timeseries
     local ch_ts_bad

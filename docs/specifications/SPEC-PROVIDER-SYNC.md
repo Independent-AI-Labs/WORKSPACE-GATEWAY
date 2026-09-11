@@ -262,7 +262,7 @@ Options: `--provider-id` (required), `--gateway` (default
 `--device-timeout` (default 900s).
 
 Flow: validate `curl`/`jq` and gateway URL -> fetch the `/opencode` block ->
-branch on `auth_type` (oauth: legacy headless device flow via `auth_route`; api_key/
+branch on `auth_type` (oauth: earlier headless device flow via `auth_route`; api_key/
 virtual_key: prompt unless `--no-prompt`) -> strip JSONC comments -> `jq` merge
 `.provider[$id] = $block.provider` -> merge
 `{ "<id>": { "type": "api", "key": "<token>" } }` into `auth.json` with
@@ -272,7 +272,7 @@ The preferred OAuth path is the gateway-owned OpenCode plugin at
 `res/opencode-plugin/workspace-gateway-auth.ts`, loaded through the standard
 OpenCode `plugin` config array. It registers method-specific browser/device
 flows and returns gateway-issued credentials through OpenCode's native auth
-store. The shell script remains a compatibility installer and does not host an
+store. The shell script remains an earlier-generation installer and does not host an
 OAuth callback server.
 
 Plugin registration (`register_auth_plugin`): when the `/opencode` response
@@ -289,7 +289,7 @@ and adds the wrapper's absolute path as a plain string entry in the config
 collapses config entries whose spec resolves to the same target file (the
 last entry's options win). Registration rewrites the wrapper and replaces
 its entry in place; unrelated entries are preserved. Providers with no OAuth
-methods get no wrapper or entry, stale wrappers are deleted, and legacy
+methods get no wrapper or entry, stale wrappers are deleted, and earlier
 `file://` tuple entries pointing at the engine with the provider's id are
 removed on sight.
 
@@ -328,8 +328,8 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 | `res/opencode-plugin/workspace-gateway-auth.ts` | OpenCode auth plugin | metadata-driven device/browser methods |
 | `conf/apisix.yaml` | `gateway-provider-sync` route | limit-count 60 RPM |
 | `res/scripts/opencode-provider-login.sh` | Client login | bash+curl+jq only |
-| `tests/lua/test_provider_sync.lua` | Unit tests | mock ngx + fixtures |
-| `tests/scripts/test_opencode_provider_login.sh` | Script tests | mock gateway |
+| `tests/lua/test_provider_sync.lua` | Unit tests | simulated ngx + fixtures |
+| `tests/scripts/test_opencode_provider_login.sh` | Script tests | simulated gateway |
 | `tests/integration/test_provider_sync_client.sh` | Live end-to-end | real stack |
 
 ## 13. Implementation Status

@@ -12,7 +12,7 @@ End-user procedure for installing a gateway-managed provider into a local
 OpenCode configuration using
 [`res/scripts/opencode-provider-login.sh`](../../res/scripts/opencode-provider-login.sh).
 The script fetches a ready-to-use provider block from the gateway's
-provider-sync service, performs legacy headless device/API-key setup, and writes
+provider-sync service, performs earlier headless device/API-key setup, and writes
 the provider into the user's OpenCode config and auth files. Browser/device
 OAuth through OpenCode's native auth UI uses the gateway-owned plugin described
 below. Background: [SPEC-PROVIDER-SYNC](../specifications/SPEC-PROVIDER-SYNC.md),
@@ -124,7 +124,7 @@ contract is documented.
 1. Fetches `GET <gateway>/gateway/providers/<id>/opencode` and reads
    `.provider`, `.auth_type`, and `.auth_route`.
 2. Authenticates according to `auth_type`:
-    - `oauth` in the legacy script: starts the brokered headless device flow via
+    - `oauth` in the earlier script: starts the brokered headless device flow via
      `POST <gateway><auth_route>/device?session=<session>`, prints the user code
      and verification URL, opens the browser (unless `--no-browser`), and polls
       `POST <gateway><auth_route>/device/poll` with the opaque gateway device code until an `access_token` is

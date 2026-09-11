@@ -1,0 +1,60 @@
+# Per-project exceptions, schema v5 (final model): one rule id +
+# one anchored exact file per entry, with full provenance.
+exceptions:
+  - rule: brealm-b
+    path: ^docs/requirements/REQ\-ENTERPRISE\-AUTH\.md$
+    rationale: 'Keycloak realm / APISIX openid-connect ''realm'' field / WWW-Authenticate challenge: platform
+      literal.'
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: brealm-b
+    path: ^docs/specifications/SPEC\-ENTERPRISE\-AUTH\.md$
+    rationale: 'Keycloak realm / APISIX openid-connect ''realm'' field / WWW-Authenticate challenge: platform
+      literal.'
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: s-object-b
+    path: ^docs/specifications/SPEC\-PROVIDER\-SYNC\.md$
+    rationale: Quotes the upstream APISIX config schema type 'object' in the field tables.
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: bcompatibility-b
+    path: ^docs/audits/AUDIT\-GATEWAY\-AUTOMATION\-2026\-08\.md$
+    rationale: Audit transcript quotes prior wording verbatim.
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: blegacy-b
+    path: ^docs/audits/AUDIT\-OAUTH\-LOGIN\-SURFACE\-2026\-08\.md$
+    rationale: Audit transcript quotes prior wording verbatim.
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: bsilent
+    path: ^docs/audits/AUDIT\-OAUTH\-LOGIN\-SURFACE\-2026\-08\.md$
+    rationale: Audit transcript quotes prior wording verbatim.
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: bcompatibility-b
+    path: ^docs/audits/AUDIT\-OAUTH\-LOGIN\-SURFACE\-2026\-08\.md$
+    rationale: Audit transcript quotes prior wording verbatim.
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: bmock-b
+    path: ^docs/audits/AUDIT\-OAUTH\-LOGIN\-SURFACE\-2026\-08\.md$
+    rationale: Audit transcript quotes prior wording verbatim.
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove when the quote ends.
+  - rule: protected-bare-system-interpreter
+    path: ^tests/config/test_apisix_yaml_render\.sh$
+    rationale: uv-run hermetic python with an intervening --with jinja2 flag; the bare-interpreter regex
+      cannot see past the flag.
+    owner: workspace-ci
+    review_date: '2026-09-11'
+    removal: Remove if the invocation is restructured.

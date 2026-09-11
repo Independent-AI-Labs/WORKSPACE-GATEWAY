@@ -19,7 +19,7 @@
 **Cross-references:**
 - [SPEC-REDACT-ENGINE](../specifications/SPEC-REDACT-ENGINE.md): companion specification
 - REQ-REDACT / SPEC-REDACT: implemented Lua regex+dictionary redaction predecessor ([`plugins/custom/redact.lua`](../../plugins/custom/redact.lua), [`plugins/custom/redact_lib.lua`](../../plugins/custom/redact_lib.lua))
-- Legacy PLUGIN-REDACT-ENGINE design (AMI-PROP-LLMGW-PLUGIN-REDACT-ENGINE-v2.0, absorbed)
+- Earlier PLUGIN-REDACT-ENGINE design (AMI-PROP-LLMGW-PLUGIN-REDACT-ENGINE-v2.0, absorbed)
 - [`SPEC-REDACT`](../specifications/SPEC-REDACT.md): Lua plugin spec that calls this service
 
 ---
@@ -97,7 +97,7 @@ sidecar so that CPU-bound neural inference never blocks an nginx worker.
 | NFR-1.2 | Prometheus metric labels MUST NOT contain original text; only `kind`. |
 | NFR-1.3 | Metrics endpoint `GET /metrics` SHOULD expose `ner_engine_requests_total`, `ner_engine_inference_seconds` histogram, `ner_engine_entities_total{kind}`, `ner_engine_failures_total{error_type}`. |
 | NFR-1.4 | Non-localhost deployments MUST use mTLS (`--tls-cert`/`--tls-key`/`--tls-ca-cert`) so only APISIX can call the engine. |
-| NFR-1.5 | Every non-2xx response MUST carry an `error` field; failures are never silent. |
+| NFR-1.5 | Every non-2xx response MUST carry an `error` field; failures are never unreported. |
 | NFR-1.6 | BERT-tiny int8 inference SHOULD complete in <30ms per clause. |
 | NFR-1.7 | Container memory limit SHOULD be >= 512Mi (model RSS ~15-110MB). |
 
@@ -105,10 +105,10 @@ sidecar so that CPU-bound neural inference never blocks an nginx worker.
 
 | ID | Constraint | Source |
 |----|------------|--------|
-| C-1 | No regex, no dictionary, no token minting in the sidecar; detection only | legacy redact-engine spec §1 |
-| C-2 | Single static native binary (not wasm); ONNX Runtime via `ort` crate | legacy redact-engine spec §3 |
-| C-3 | Off-thread invocation only; nginx worker must never block on inference | legacy redact-engine spec §1 |
-| C-4 | English-only in v2 | legacy redact-engine spec §12 |
+| C-1 | No regex, no dictionary, no token minting in the sidecar; detection only | earlier redact-engine spec §1 |
+| C-2 | Single static native binary (not wasm); ONNX Runtime via `ort` crate | earlier redact-engine spec §3 |
+| C-3 | Off-thread invocation only; nginx worker must never block on inference | earlier redact-engine spec §1 |
+| C-4 | English-only in v2 | earlier redact-engine spec §12 |
 
 ## 5. Assumptions
 

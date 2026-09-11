@@ -7,7 +7,7 @@
 
 > This document captures optional enterprise hardening features mined from the
 > original design docs: OIDC bearer-only authentication (`openid-connect`),
-> legacy AD authentication (`ldap-auth`, Kerberos via `forward-auth` in v2),
+> earlier AD authentication (`ldap-auth`, Kerberos via `forward-auth` in v2),
 > and canonical provider translation (`ai-proxy`). These features are **not
 > part of the deployed gateway**; the current deployment authenticates via
 > `key-resolver` virtual keys, `oauth-auth`, and shared-key passthrough. They
@@ -16,7 +16,7 @@
 > codebase.
 >
 > Multi-provider failover (`ai-proxy-multi`) was removed from scope: the
-> gateway does not do silent cross-provider failover. Quota/rate-limit
+> gateway does not do unreported cross-provider failover. Quota/rate-limit
 > exhaustion is handled explicitly by upstream key pools with sticky
 > selection and rotation (see [KEY-MANAGEMENT](../architecture/KEY-MANAGEMENT.md)
 > and [RUNBOOK-KEYS](../runbooks/RUNBOOK-KEYS.md)).
@@ -25,8 +25,8 @@
 
 **Cross-references:**
 - [SPEC-ENTERPRISE-AUTH](../specifications/SPEC-ENTERPRISE-AUTH.md): companion specification
-- Legacy BUILTIN-PLUGINS §1-4 (absorbed)
-- Legacy DEPLOYMENT §4.1 (absorbed)
+- Earlier BUILTIN-PLUGINS §1-4 (absorbed)
+- Earlier DEPLOYMENT §4.1 (absorbed)
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): actual deployed routes (none of these plugins present)
 - [`conf/config.yaml`](../../conf/config.yaml): registered plugin list
 
@@ -46,7 +46,7 @@ single-provider AI translation, using only APISIX built-in plugins
 **This document OWNS the requirements for:**
 - Bearer-only OIDC authentication against an enterprise IdP (e.g. Keycloak realm `enterprise`)
 - Claim-to-header mapping for tenant/user/tier context
-- LDAP simple-bind authentication against legacy AD
+- LDAP simple-bind authentication against earlier AD
 - Kerberos/Negotiate validation (v2, via `forward-auth`)
 - Single-provider `ai-proxy` translation and `stream_options.include_usage` enforcement
 
@@ -80,7 +80,7 @@ single-provider AI translation, using only APISIX built-in plugins
 
 | ID | Requirement |
 |----|-------------|
-| FR-2.1 | Legacy AD environments MAY use the built-in `ldap-auth` plugin with LDAPS, a service-account bind DN, and `uid: sAMAccountName`. |
+| FR-2.1 | Earlier AD environments MAY use the built-in `ldap-auth` plugin with LDAPS, a service-account bind DN, and `uid: sAMAccountName`. |
 | FR-2.2 | LDAP bind credentials MUST come from the secret store, never inline plaintext. |
 | FR-2.3 | Where `X-Tenant-ID` / `X-Routing-Tier` must derive from AD attributes, the deployment MUST use `forward-auth` to an external auth service (or a minimal Lua post-processor), since `ldap-auth` does not natively inject custom headers. |
 | FR-2.4 | Kerberos/SPN (Negotiate) validation MAY be added in a v2 via `forward-auth` to an external Kerberos validation service; v1 covers LDAP simple bind only. |
@@ -95,7 +95,7 @@ single-provider AI translation, using only APISIX built-in plugins
 
 ### FR-4: Multi-Provider Failover (REMOVED FROM SCOPE)
 
-The gateway does not perform silent cross-provider failover. A request is
+The gateway does not perform unreported cross-provider failover. A request is
 bound to one explicit upstream; failure returns an explicit error to the
 client. Quota/rate-limit exhaustion of upstream API keys is handled by
 upstream key pools with sticky selection and explicit rotation on 429/402/403

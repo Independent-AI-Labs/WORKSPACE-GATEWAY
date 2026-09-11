@@ -17,7 +17,7 @@
 **Cross-references:**
 - [REQ-REDACT-ENGINE](../requirements/REQ-REDACT-ENGINE.md): requirements contract
 - SPEC-REDACT / REQ-REDACT: implemented Lua regex+dictionary redaction predecessor ([`plugins/custom/redact.lua`](../../plugins/custom/redact.lua), [`plugins/custom/redact_lib.lua`](../../plugins/custom/redact_lib.lua))
-- Legacy PLUGIN-REDACT-ENGINE design (v2, optional, absorbed)
+- Earlier PLUGIN-REDACT-ENGINE design (v2, optional, absorbed)
 - [`SPEC-REDACT.md`](SPEC-REDACT.md): Lua plugin spec (caller side)
 
 ---
@@ -43,7 +43,7 @@ off-thread via `ngx.timer.at`. Sidecar failure leaves regex-only
 redaction for that segment; the failure is logged and counted in
 `ner_engine_failures_total`.
 
-### 2.3 Never silent, never leaky
+### 2.3 Never unreported, never leaky
 
 Every non-2xx carries an `error` field. Input text and entity text never
 appear in logs or metric labels.

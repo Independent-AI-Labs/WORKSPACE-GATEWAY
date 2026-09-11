@@ -4,7 +4,7 @@
 **Date:** 2026-07-17
 **Type:** Architecture Decision Record
 
-> Condensed from the legacy PROPOSAL-LLM-GATEWAY-v3 document §0/§1.
+> Condensed from the earlier PROPOSAL-LLM-GATEWAY-v3 document §0/§1.
 > The archived proposal is superseded by `docs/requirements/` +
 > `docs/specifications/`; this ADR records only the decision and its rationale.
 

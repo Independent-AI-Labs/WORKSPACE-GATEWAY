@@ -20,11 +20,12 @@ record_pass() {
 
 record_fail() {
     echo "[FAIL] $1"
+    fail_RC=0
     fail=$((fail + 1))
 }
 
 http_code() {
-    if ! curl -s --max-time 30 -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
+    if ! curl -sS --max-time 30 -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
 }
 
 wait_for_apisix() {
@@ -32,10 +33,11 @@ wait_for_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$GATEWAY/" || echo "")
+        code=$(http_code "$GATEWAY/" ) || { fail_RC=$?; fail=""; }
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             return 0
         fi
+        attempt_RC=0
         attempt=$((attempt + 1))
         sleep 2
     done
@@ -48,7 +50,7 @@ wait_for_openbao() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$OPENBAO_ADDR/v1/sys/health" || echo "")
+        code=$(http_code "$OPENBAO_ADDR/v1/sys/health" ) || { attempt_RC=$?; attempt=""; }
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             return 0
         fi
@@ -95,7 +97,7 @@ test_fed_correct_key_not_401() {
 test_fed_issued_key_works() {
     local new_key
     new_key="vgw-test-$(date +%s)"
-    curl -sf -o /dev/null -X POST \
+    curl -fsS -o /dev/null -X POST \
         -H "X-Vault-Token: $OPENBAO_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{\"data\":{\"virtual_key\":\"$new_key\",\"upstream_key\":\"\",\"tenant_id\":\"test-tenant\",\"user_id\":\"test-user\",\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}}" \
@@ -117,7 +119,7 @@ test_fed_issued_key_works() {
 test_fed_revoked_key_rejected() {
     local rev_key
     rev_key="vgw-revoked-$(date +%s)"
-    curl -sf -o /dev/null -X POST \
+    curl -fsS -o /dev/null -X POST \
         -H "X-Vault-Token: $OPENBAO_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{\"data\":{\"virtual_key\":\"$rev_key\",\"upstream_key\":\"\",\"tenant_id\":\"test\",\"user_id\":\"test\",\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}}" \
@@ -133,7 +135,7 @@ test_fed_revoked_key_rejected() {
         return 1
     fi
 
-    curl -sf -o /dev/null -X POST \
+    curl -fsS -o /dev/null -X POST \
         -H "X-Vault-Token: $OPENBAO_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{\"data\":{\"virtual_key\":\"$rev_key\",\"upstream_key\":\"\",\"tenant_id\":\"test\",\"user_id\":\"test\",\"active\":false,\"created_at\":\"2026-01-01T00:00:00Z\",\"revoked_at\":\"2026-01-02T00:00:00Z\"}}" \

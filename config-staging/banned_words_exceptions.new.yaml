@@ -1,0 +1,13 @@
+exceptions:
+  - rule: brealm-b
+    path: ^docs/requirements/REQ\-ENTERPRISE\-AUTH\.md$
+    rationale: Legacy broad carve-out narrowed to the exact files that quote the rule.
+    owner: workspace-ci
+    review_date: '2026-09-06'
+    removal: Per-file review pending; remove when the quoting ends.
+  - rule: brealm-b
+    path: ^docs/specifications/SPEC\-ENTERPRISE\-AUTH\.md$
+    rationale: Legacy broad carve-out narrowed to the exact files that quote the rule.
+    owner: workspace-ci
+    review_date: '2026-09-06'
+    removal: Per-file review pending; remove when the quoting ends.

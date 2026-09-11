@@ -7,7 +7,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
 # shellcheck source=../config/yaml_helpers.sh
-source "$REPO_ROOT/tests/config/yaml_helpers.sh"
+source "$REPO_ROOT/tests/config/yaml_helpers.sh" || exit 1
 
 for file in "$REPO_ROOT"/plugins/custom/*.lua; do
   [ -f "$file" ] || continue

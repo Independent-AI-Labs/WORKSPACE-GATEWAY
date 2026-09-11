@@ -29,8 +29,9 @@ if [ -z "${GATEWAY_API_KEY:-}" ]; then
 fi
 
 apisix_check=$(mktemp)
-curl_code=$(curl -s -o "$apisix_check" -w "%{http_code}" --max-time 5 \
-    http://localhost:9080/ || echo "000")
+curl_code_RC=0
+curl_code=$(curl -sS -o "$apisix_check" -w "%{http_code}" --max-time 5 \
+    http://localhost:9080/ ) || { curl_code_RC=$?; curl_code="000"; }
 rm -f "$apisix_check"
 
 if [ "$curl_code" = "000" ]; then

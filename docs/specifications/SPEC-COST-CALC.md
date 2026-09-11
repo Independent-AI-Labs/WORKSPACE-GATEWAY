@@ -15,7 +15,7 @@
 - [`plugins/custom/provider_sync_pricing.lua`](../../plugins/custom/provider_sync_pricing.lua): sole `pricing:*` writer
 - [`plugins/custom/model_registry.lua`](../../plugins/custom/model_registry.lua): canonical model ids (generated)
 - [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua): sole in-tree caller
-- Legacy COST-CALC-LUA spec (v1.3 head note current; writer path removed, absorbed)
+- Earlier COST-CALC-LUA spec (v1.3 head note current; writer path removed, absorbed)
 
 ---
 
@@ -93,7 +93,7 @@ All fields coerced via `tonumber(...) or 0`; missing `cache_read` = 0; nil `toke
 
 ## 9. Edge Cases & Decisions
 
-- The legacy writer path (`warmup()`, `fetch_and_cache()`, `normalize_key()` from the legacy COST-CALC-LUA spec) is REMOVED; the module contains no writer code.
+- The earlier writer path (`warmup()`, `fetch_and_cache()`, `normalize_key()` from the earlier COST-CALC-LUA spec) is REMOVED; the module contains no writer code.
 - Provider-scoped records eliminate cross-provider key collisions; sync publishes an immutable pricing snapshot and active snapshot generation.
 - On unknown pricing, cost is 0 and `cost_source = unknown`; billing rows remain auditable rather than dropped.
 
@@ -116,4 +116,4 @@ All fields coerced via `tonumber(...) or 0`; missing `cache_read` = 0; nil `toke
 | Single-writer guard | Implemented | tests/config/test_model_registry.sh:113-116 |
 | Canonical keying | Implemented | cost_calc.lua:66 |
 | LuaJIT-testable deferred requires | Implemented | cost_calc.lua:16-31, 43-50 |
-| Legacy writer path | Removed | absent from cost_calc.lua |
+| Earlier writer path | Removed | absent from cost_calc.lua |

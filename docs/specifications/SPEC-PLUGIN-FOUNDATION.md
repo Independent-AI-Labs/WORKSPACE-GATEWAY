@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-GATEWAY-CORE](../requirements/REQ-GATEWAY-CORE.md)
 
-> Corrected engineering foundation for the custom Lua plugins in [`plugins/custom/`](../../plugins/custom). Key correction over the legacy foundation doc: deployment is **traditional role with etcd config provider**  -  NOT "standalone YAML, no etcd" as the old doc claimed. Plugins are COPYed flat into `apisix/plugins/` and registered by name in `conf/config.yaml`.
+> Corrected engineering foundation for the custom Lua plugins in [`plugins/custom/`](../../plugins/custom). Key correction over the earlier foundation doc: deployment is **traditional role with etcd config provider**  -  NOT "standalone YAML, no etcd" as the old doc claimed. Plugins are COPYed flat into `apisix/plugins/` and registered by name in `conf/config.yaml`.
 
 ---
 
@@ -85,8 +85,8 @@ Each plugin defines `plugin.schema` (Lua table, APISIX schema DSL) and `plugin.c
 
 ## 5. Edge Cases & Decisions
 
-- The legacy doc's claim of `deployment.role: data_plane` / `config_provider: yaml` is wrong for this repo; corrected to traditional/etcd (see REQ-GATEWAY-CORE FR-1).
-- The legacy doc's `semantic-cache` plugin does not exist in the codebase; it is not described here.
+- The earlier doc's claim of `deployment.role: data_plane` / `config_provider: yaml` is wrong for this repo; corrected to traditional/etcd (see REQ-GATEWAY-CORE FR-1).
+- The earlier doc's `semantic-cache` plugin does not exist in the codebase; it is not described here.
 - `redact-patterns.json` (not `.yaml`) is the actual patterns file, mounted at `/etc/apisix/redact-patterns.json`.
 - Library modules use deferred requires so they run under plain LuaJIT in `tests/lua/`.
 
@@ -108,4 +108,4 @@ Each plugin defines `plugin.schema` (Lua table, APISIX schema DSL) and `plugin.c
 | Flat COPY image layout | Implemented | res/docker/Dockerfile.apisix:3-17 |
 | etcd/traditional deployment | Implemented | conf/config.yaml:5-21 |
 | Shared dicts + envs | Implemented | conf/config.yaml:65-75 |
-| semantic-cache plugin | Not implemented | referenced only in legacy docs; no source file |
+| semantic-cache plugin | Not implemented | referenced only in earlier docs; no source file |

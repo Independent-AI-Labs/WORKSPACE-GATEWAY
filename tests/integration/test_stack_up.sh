@@ -54,7 +54,9 @@ teardown() {
         return 0
     fi
     echo "[INFO] Tearing down stack..."
-    $TEST_COMPOSE down || echo "[WARN] teardown: podman-compose down failed (status=$?)"
+    DOWN_RC=0
+    $TEST_COMPOSE down || DOWN_RC=$?
+    if [ "$DOWN_RC" -ne 0 ]; then echo "[WARN] teardown: podman-compose down failed (status=$DOWN_RC)"; fi
     if [ "$fail" -gt 0 ]; then
         echo "test_stack_up: $pass passed, $fail failed"
         exit 1
@@ -69,7 +71,7 @@ wait_for_url() {
     local max_attempts="${3:-30}"
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
-        if curl -sf -o /dev/null "$url"; then
+        if curl -fsS -o /dev/null "$url"; then
             record_pass "$name is ready ($url)"
             return 0
         fi
@@ -107,7 +109,7 @@ step1_build() {
         return 0
     fi
     echo "[INFO] Building APISIX image..."
-    if podman build -t "$IMAGE_TAG" -f "$DOCKERFILE" "$REPO_ROOT"; then
+    if podman build --progress=plain -t "$IMAGE_TAG" -f "$DOCKERFILE" "$REPO_ROOT"; then
         record_pass "Build APISIX image"
         return 0
     fi
@@ -117,7 +119,7 @@ step1_build() {
 
 step2_start() {
     echo "[INFO] Creating external network if needed..."
-    podman network create dataops_default 2>&1 || echo "  (network may already exist)"
+    if ! podman network create dataops_default 2>&1; then echo "  (network already exists)"; fi
     echo "[INFO] Starting stack..."
     if $TEST_COMPOSE up -d; then
         record_pass "Start stack"
@@ -132,7 +134,7 @@ step3_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:9080/" || echo "000")
+        code=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:9080/") || code="000"
         if [ "$code" != "000" ]; then
             record_pass "APISIX on port 9080 is ready (HTTP $code)"
             return 0
@@ -154,7 +156,7 @@ step5_admin_api() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-KEY: $ADMIN_KEY" "http://localhost:9180/apisix/admin/routes" || echo "000")
+        code=$(curl -sS -o /dev/null -w "%{http_code}" -H "X-API-KEY: $ADMIN_KEY" "http://localhost:9180/apisix/admin/routes") || code="000"
         if [ "$code" != "000" ]; then
             record_pass "APISIX Admin API on port 9180 is ready (HTTP $code)"
             return 0
@@ -201,7 +203,7 @@ step9_tables() {
     local max_attempts=15
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
-        if out=$(curl -sf "http://localhost:8123/?query=$query" 2>&1); then
+        if out=$(curl -fsS "http://localhost:8123/?query=$query" 2>&1); then
             record_pass "ClickHouse request_log table exists (count=$out)"
             return 0
         fi

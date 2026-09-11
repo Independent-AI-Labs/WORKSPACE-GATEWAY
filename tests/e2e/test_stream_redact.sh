@@ -49,13 +49,15 @@ fi
 headers_file=$(mktemp)
 body_file=$(mktemp)
 
-http_code=$(curl -s -D "$headers_file" -o "$body_file" -w "%{http_code}" \
+http_code_RC=0
+http_code=$(curl -sS -D "$headers_file" -o "$body_file" -w "%{http_code}" \
     --max-time 60 \
     -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":true}" || echo "000")
+    -d "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":true}" ) || { http_code_RC=$?; http_code="000"; }
 
+body_RC=0
 body=$(cat "$body_file")
 
 if [ "$http_code" = "200" ]; then
@@ -64,15 +66,17 @@ else
     check "Streaming redaction request returns 200 (got $http_code)" "1"
 fi
 
-content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' || echo "")
+content_type_RC=0
+content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' ) || { body_RC=$?; body=""; }
 if grep -qi "text/event-stream" <<< "$content_type"; then
     check "Streaming response Content-Type is text/event-stream" "0"
 else
     check "Streaming response Content-Type is text/event-stream (got: $content_type)" "1"
 fi
 
-redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' || echo "")
-redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' || echo "")
+redact_header_RC=0
+redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' ) || { content_type_RC=$?; content_type=""; }
+redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' ) || { redact_header_RC=$?; redact_header=""; }
 if [ "$redact_value" = "1" ]; then
     check "Streaming response has X-Redact-Active: 1 header" "0"
 else

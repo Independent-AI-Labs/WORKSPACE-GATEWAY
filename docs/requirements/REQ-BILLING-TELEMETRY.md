@@ -52,7 +52,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 | FR-1.1 | APISIX `http-logger` MUST POST every request/response (with bodies, truncated at 256 KiB / 1 MiB) to Vector at `http://vector:8080/ingest`. |
 | FR-1.2 | Vector MUST remap each event and batch-insert into `llm_gateway.request_log` with retry (5 attempts, backoff, memory buffer with block-when-full). |
 | FR-1.3 | The `sse-usage` plugin MUST extract usage from SSE streams and JSON responses and MUST INSERT one row per tracked request into `llm_gateway.usage_log` via `POST ... INSERT INTO llm_gateway.usage_log FORMAT JSONEachRow` from an `ngx.timer.at` context (not the request path). |
-| FR-1.4 | usage_log INSERTs MUST retry up to 3 times (delays 0.1s, 0.5s, 2.0s) and MUST log errors on failure; divergence data MUST NOT be silently discarded. |
+| FR-1.4 | usage_log INSERTs MUST retry up to 3 times (delays 0.1s, 0.5s, 2.0s) and MUST log errors on failure; divergence data MUST NOT be discarded without a log. |
 | FR-1.5 | For SSE responses, usage_log MUST be the authoritative token source (request_log token fields may be 0 for SSE). |
 
 ### FR-2: Correlation

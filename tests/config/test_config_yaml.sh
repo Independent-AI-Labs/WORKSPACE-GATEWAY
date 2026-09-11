@@ -7,7 +7,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$SCRIPT_DIR/yaml_helpers.sh"
+source "$SCRIPT_DIR/yaml_helpers.sh" || exit 1
 
 pass=0
 fail=0

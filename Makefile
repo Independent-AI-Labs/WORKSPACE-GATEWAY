@@ -170,7 +170,7 @@ gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 	echo "=== Waiting for Grafana health ==="
 	for i in 1 2 3 4 5 6 7 8 9 10 15 20; do \
 		if curl -sS -f --max-time 2 http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health; then \
-			curl -sS http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health | python3 -c "import json,sys; print('Grafana version:', json.load(sys.stdin)['version'])"; break; \
+			curl -sS http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health | uv run python -c "import json,sys; print('Grafana version:', json.load(sys.stdin)['version'])"; break; \
 		fi; \
 		echo "  waiting... (attempt $$i/20)"; sleep 2; \
 	done

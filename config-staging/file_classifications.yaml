@@ -1,0 +1,20 @@
+# Exact-file classifications (reviewed); roots are structural facts.
+test_roots:
+  - tests/
+doc_roots:
+  - docs/
+doc_files:
+  - README.md
+files:
+  config/banned_words_exceptions.yaml:
+    class: policy-definition
+    owner: workspace-ci
+  config/file_classifications.yaml:
+    class: policy-definition
+    owner: workspace-ci
+  res/LOGO.png:
+    class: binary
+    owner: workspace-ci
+  res/gateway-screenshot.jpg:
+    class: binary
+    owner: workspace-ci

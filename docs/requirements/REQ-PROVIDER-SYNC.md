@@ -118,13 +118,13 @@ pricing is written exactly once, in one place.
 
 | ID | Requirement |
 |----|-------------|
-| FR-5.1 | The legacy client script MUST depend only on `bash`, `curl`, and `jq` (no Lua, Python, or Podman) and MUST NOT host an OAuth callback server. |
+| FR-5.1 | The earlier client script MUST depend only on `bash`, `curl`, and `jq` (no Lua, Python, or Podman) and MUST NOT host an OAuth callback server. |
 | FR-5.2 | The script MUST fetch `GET /gateway/providers/{id}/opencode` and branch on `auth_type`. |
 | FR-5.3 | For the current headless OAuth method, the script MUST select the `device_authorization` method explicitly from `auth_methods` and run device authorization via that method's route (`POST <route>/device`, poll `POST <route>/device/poll`). Browser authorization-code/PKCE MUST be represented by a distinct flow method, not inferred from `auth_type: oauth`; a provider offering only browser flows MUST fail with a pointer to the gateway OpenCode auth plugin. |
 | FR-5.4 | For `api_key`/`virtual_key`, the script MUST prompt for the key unless `--no-prompt` is set (then fail). |
 | FR-5.5 | The script MUST insert or replace only the matching `provider.<id>` entry, preserving all other providers and top-level keys; JSONC input is rewritten as plain JSON. |
 | FR-5.6 | The script MUST merge `{ "<id>": { "type": "api", "key": "<token>" } }` into the auth file and set its permissions to `600`. |
-| FR-5.7 | For every OAuth provider (`auth_methods` non-empty), the script MUST register the gateway auth plugin in the OpenCode config `plugin` array. Because OpenCode collapses config entries that share one target file (last entry wins), each provider MUST get its own generated wrapper `~/.config/opencode/plugin/wg-auth-<provider-id>.ts` (imports `res/opencode-plugin/workspace-gateway-auth.ts`, bakes `{provider, gateway}` options) referenced as a plain string entry. Registration MUST be idempotent (rewrite wrapper, replace entry in place, no duplicates), MUST preserve unrelated plugin entries, and MUST remove the wrapper and entry (including legacy `file://` tuple entries) when a provider loses its OAuth methods. Providers without OAuth methods MUST NOT get an entry. |
+| FR-5.7 | For every OAuth provider (`auth_methods` non-empty), the script MUST register the gateway auth plugin in the OpenCode config `plugin` array. Because OpenCode collapses config entries that share one target file (last entry wins), each provider MUST get its own generated wrapper `~/.config/opencode/plugin/wg-auth-<provider-id>.ts` (imports `res/opencode-plugin/workspace-gateway-auth.ts`, bakes `{provider, gateway}` options) referenced as a plain string entry. Registration MUST be idempotent (rewrite wrapper, replace entry in place, no duplicates), MUST preserve unrelated plugin entries, and MUST remove the wrapper and entry (including earlier `file://` tuple entries) when a provider loses its OAuth methods. Providers without OAuth methods MUST NOT get an entry. |
 
 ### FR-6: Security Model
 
@@ -180,7 +180,7 @@ the APISIX image; provider dir mounted into the container.)
 | FR-2.x sync & enrichment | Implemented | provider_sync_catalog.lua `M.sync` |
 | FR-3.x pricing single writer | Implemented | provider_sync_pricing.lua |
 | FR-4.x endpoints | Implemented | provider-sync.lua `plugin.access` |
-| FR-5.x client script | Implemented | res/scripts/opencode-provider-login.sh (legacy device/API-key installer) |
+| FR-5.x client script | Implemented | res/scripts/opencode-provider-login.sh (earlier device/API-key installer) |
 | FR-2.7 models.dev limit borrowing | Implemented | provider_sync_catalog.lua `build_models_from_endpoint` |
 | FR-5.7 plugin registration | Implemented | opencode-provider-login.sh `register_auth_plugin` |
 | FR-4.5 native OAuth plugin | Implemented | res/opencode-plugin/workspace-gateway-auth.ts |

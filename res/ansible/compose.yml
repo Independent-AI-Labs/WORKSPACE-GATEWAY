@@ -15,21 +15,15 @@
     systemd_dir: '{{ ansible_env.HOME }}/.config/systemd/user'
     venv_compose: '{{ project_root }}/.venv/bin/podman-compose'
     ci_podman: /opt/workspace-ci/.boot-linux/bin/podman
+    probe_log: /var/tmp/workspace-gateway-probes.log
 
   tasks:
     - name: Resolve project root
       tags: [always]
-      block:
-        - name: Get absolute project path
-          ansible.builtin.command: realpath {{ project_root }}
-          register: resolved_root
-          changed_when: false
-
-        - name: Set resolved paths
-          ansible.builtin.set_fact:
-            project_root: '{{ resolved_root.stdout }}'
-            compose_file: '{{ resolved_root.stdout }}/res/docker/docker-compose.yml'
-            venv_compose: '{{ resolved_root.stdout }}/.venv/bin/podman-compose'
+      ansible.builtin.set_fact:
+        project_root: '{{ project_root | realpath }}'
+        compose_file: '{{ (project_root | realpath) }}/res/docker/docker-compose.yml'
+        venv_compose: '{{ (project_root | realpath) }}/.venv/bin/podman-compose'
 
     - name: Detect container runtime
       tags: [always]
@@ -40,16 +34,10 @@
           register: podman_stat
           changed_when: false
 
-        - name: Find podman
-          ansible.builtin.command: realpath {{ ci_podman }}
-          register: podman_check
-          changed_when: false
-          failed_when: not podman_stat.stat.exists
-
         - name: Fail if podman missing
           ansible.builtin.fail:
-            msg: 'podman not on PATH'
-          when: podman_check.rc != 0
+            msg: 'podman not found at {{ ci_podman }}'
+          when: not podman_stat.stat.exists
 
         - name: Check venv podman-compose
           ansible.builtin.stat:
@@ -61,23 +49,26 @@
             msg: 'Run make install in WORKSPACE-GATEWAY first (missing {{ venv_compose }})'
           when: not compose_stat.stat.exists
 
-        - name: Resolve canonical podman wrapper path
-          ansible.builtin.command: readlink -f {{ podman_check.stdout }}
-          register: canonical_podman
-          changed_when: false
-
         - name: Set runtime facts
           ansible.builtin.set_fact:
-            podman_path: '{{ canonical_podman.stdout }}'
-            podman_bin_dir: '{{ canonical_podman.stdout | dirname }}'
+            podman_path: '{{ ci_podman | realpath }}'
+            podman_bin_dir: '{{ (ci_podman | realpath) | dirname }}'
             compose_cmd: '{{ venv_compose }}'
+
+    - name: Check external dataops network presence
+      tags: [deploy, start, restart]
+      ansible.builtin.shell: '{{ podman_path }} network exists dataops_default >> {{ probe_log }} 2>&1'
+      register: dataops_network_probe
+      changed_when: false
+      failed_when: dataops_network_probe.rc not in [0, 1]
 
     - name: Ensure external dataops network exists before Compose start
       tags: [deploy, start, restart]
-      ansible.builtin.command: '{{ podman_path }} network create dataops_default'
-      register: dataops_network
-      changed_when: dataops_network.rc == 0
-      failed_when: dataops_network.rc != 0 and 'already exists' not in (dataops_network.stderr | default(''))
+      ansible.builtin.shell: '{{ podman_path }} network create dataops_default >> {{ probe_log }} 2>&1'
+      register: dataops_network_create
+      changed_when: true
+      failed_when: dataops_network_create.rc != 0
+      when: dataops_network_probe.rc == 1
 
     - name: Deploy gateway systemd unit (one-time provisioning)
       tags: [deploy]
@@ -89,7 +80,7 @@
             mode: '0755'
 
         - name: Enable systemd user linger
-          ansible.builtin.command: loginctl enable-linger {{ ansible_user_id }}
+          ansible.builtin.shell: loginctl enable-linger {{ ansible_user_id }} >> {{ probe_log }} 2>&1
           register: linger_result
           changed_when: linger_result.rc == 0
           failed_when: linger_result.rc != 0
@@ -115,10 +106,10 @@
 
     - name: Check gateway systemd unit state before start
       tags: [start]
-      ansible.builtin.command: systemctl --user is-active {{ gateway_unit }}
+      ansible.builtin.shell: systemctl --user is-active {{ gateway_unit }} >> {{ probe_log }} 2>&1
       register: gateway_active
       changed_when: false
-      failed_when: false
+      failed_when: gateway_active.rc not in [0, 3]
 
     - name: Refresh gateway systemd unit
       tags: [start, restart]
@@ -144,7 +135,7 @@
         timeout: 3
       register: gateway_host_health
       changed_when: false
-      failed_when: false
+      failed_when: gateway_host_health.status is defined and gateway_host_health.status not in [200, 429, 501, 503]
 
     - name: Start gateway compose when inactive
       tags: [start]
@@ -188,22 +179,16 @@
       tags: [status, never]
       block:
         - name: Check gateway service
-          ansible.builtin.command: systemctl --user is-active {{ gateway_unit }}
+          ansible.builtin.shell: systemctl --user is-active {{ gateway_unit }} >> {{ probe_log }} 2>&1
           register: gateway_status
           failed_when: gateway_status.rc not in [0, 3]
           changed_when: false
 
         - name: List gateway containers
-          ansible.builtin.command:
-            argv:
-              - '{{ podman_path }}'
-              - ps
-              - --filter
-              - label=io.podman.compose.project=docker
-              - --format
-              - 'table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}\t{{ "{{" }}.Ports{{ "}}" }}'
+          ansible.builtin.shell: '{{ podman_path }} ps --filter label=io.podman.compose.project=docker --format "table {{{{ .Names }}}}\t{{{{ .Status }}}}\t{{{{ .Ports }}}}" >> {{ probe_log }} 2>&1'
           register: gateway_containers
           changed_when: false
+          failed_when: gateway_containers.rc != 0
 
         - name: Display status
           ansible.builtin.debug:

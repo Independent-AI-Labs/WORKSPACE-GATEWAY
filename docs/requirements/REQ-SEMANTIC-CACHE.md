@@ -17,7 +17,7 @@
 
 **Cross-references:**
 - [SPEC-SEMANTIC-CACHE](../specifications/SPEC-SEMANTIC-CACHE.md): companion specification
-- Legacy PLUGIN-SEMANTIC-CACHE design (AMI-PROP-LLMGW-PLUGIN-SEMANTIC-CACHE-v2.0, absorbed)
+- Earlier PLUGIN-SEMANTIC-CACHE design (AMI-PROP-LLMGW-PLUGIN-SEMANTIC-CACHE-v2.0, absorbed)
 - [`plugins/custom/redact.lua`](../../plugins/custom/redact.lua): existing plugin whose priority ordering (2500) the cache design references
 
 ---
@@ -119,10 +119,10 @@ failing client requests when cache infrastructure is unavailable.
 
 | ID | Constraint | Source |
 |----|------------|--------|
-| C-1 | No cache-adapter sidecar; Redis VSS queries are plain Redis commands via `lua-resty-redis` | legacy semantic-cache spec §1 |
-| C-2 | Only Lua-sidecar is the Rust embedding service | legacy semantic-cache spec §9 |
-| C-3 | Missing tenant/tier is a security failure and fails closed (403) | legacy semantic-cache spec §10 |
-| C-4 | Cached responses are stored post-re-hydration; the `redact` plugin re-runs on cached HIT | legacy semantic-cache spec §12 |
+| C-1 | No cache-adapter sidecar; Redis VSS queries are plain Redis commands via `lua-resty-redis` | earlier semantic-cache spec §1 |
+| C-2 | Only Lua-sidecar is the Rust embedding service | earlier semantic-cache spec §9 |
+| C-3 | Missing tenant/tier is a security failure and fails closed (403) | earlier semantic-cache spec §10 |
+| C-4 | Cached responses are stored post-re-hydration; the `redact` plugin re-runs on cached HIT | earlier semantic-cache spec §12 |
 
 ## 5. Assumptions
 

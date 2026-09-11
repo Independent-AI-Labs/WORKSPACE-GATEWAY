@@ -18,11 +18,12 @@ record_pass() {
 
 record_fail() {
     echo "[FAIL] $1"
+    fail_RC=0
     fail=$((fail + 1))
 }
 
 http_code() {
-    if ! curl -s -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
+    if ! curl -sS -o /dev/null -w "%{http_code}" "$@"; then echo "[INFO] curl failed in http_code" >&2; fi
 }
 
 wait_for_apisix() {
@@ -30,7 +31,7 @@ wait_for_apisix() {
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
         local code
-        code=$(http_code "$GATEWAY/" || echo "")
+        code=$(http_code "$GATEWAY/" ) || { fail_RC=$?; fail=""; }
         if [ -n "$code" ] && [ "$code" != "000" ]; then
             return 0
         fi

@@ -24,7 +24,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=yaml_helpers.sh
-source "$SCRIPT_DIR/yaml_helpers.sh"
+source "$SCRIPT_DIR/yaml_helpers.sh" || exit 1
 IMAGE="apache/apisix:3.17.0-debian"
 
 pass=0
@@ -131,21 +131,25 @@ assert_eq "only provider_sync_catalog.lua references models.dev" \
     "$REPO_ROOT/plugins/custom/provider_sync_catalog.lua " "$MODELS_DEV_FETCHES"
 
 # ---------- 4. single-normalizer guards ----------
+NORMALIZE_DEFS_RC=0
 NORMALIZE_DEFS=$(grep -rln 'function.*normalize_key\|function.*canonical' "$REPO_ROOT/plugins/custom/" | tr '\n' ' ')
 assert_eq "canonicalization defined only in model_registry.lua" \
     "$REPO_ROOT/plugins/custom/model_registry.lua " "$NORMALIZE_DEFS"
 
-COST_CALC_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/cost_calc.lua" || echo "")
+COST_CALC_NORMALIZE_RC=0
+COST_CALC_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/cost_calc.lua" ) || { NORMALIZE_DEFS_RC=$?; NORMALIZE_DEFS=""; }
 assert_eq "cost_calc.lua has no normalize_key" "0" "$COST_CALC_NORMALIZE"
 
-SSE_USAGE_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/sse-usage.lua" || echo "")
+SSE_USAGE_NORMALIZE_RC=0
+SSE_USAGE_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/sse-usage.lua" ) || { COST_CALC_NORMALIZE_RC=$?; COST_CALC_NORMALIZE=""; }
 assert_eq "sse-usage.lua has no normalize_key" "0" "$SSE_USAGE_NORMALIZE"
 
 # vector.toml: the last-slash regex must appear only inside GENERATED block
 VECTOR_TOML="$REPO_ROOT/conf/vector.toml"
-REGEX_COUNT=$(grep -c 'parse_regex(model_lower' "$VECTOR_TOML" || echo "")
+REGEX_COUNT_RC=0
+REGEX_COUNT=$(grep -c 'parse_regex(model_lower' "$VECTOR_TOML" ) || { SSE_USAGE_NORMALIZE_RC=$?; SSE_USAGE_NORMALIZE=""; }
 assert_eq "vector.toml model regex exactly once (generated block)" "1" "$REGEX_COUNT"
-OLD_VRL=$(grep -c 'parse_regex(model_norm' "$VECTOR_TOML" || echo "")
+OLD_VRL=$(grep -c 'parse_regex(model_norm' "$VECTOR_TOML" ) || { REGEX_COUNT_RC=$?; REGEX_COUNT=""; }
 assert_eq "vector.toml has no hand-written model_norm remap" "0" "$OLD_VRL"
 
 summary

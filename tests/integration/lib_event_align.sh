@@ -28,12 +28,13 @@ export GATEWAY_URL CH_URL
 
 setup_endpoints() {
     # Returns 0 if both endpoints are reachable, 1 otherwise.
-    curl_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" || echo "000")
+    curl_code_RC=0
+    curl_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" )
     if [ "$curl_code" = "000" ]; then
         echo "[SKIP] APISIX not reachable at $GATEWAY_URL"
         return 1
     fi
-    ch_health=$(curl -sf --max-time 5 "$CH_URL/?query=SELECT+1" || echo "")
+    ch_health=$(curl -fsS --max-time 5 "$CH_URL/?query=SELECT+1" ) || { curl_code_RC=$?; curl_code=""; }
     if [ "$ch_health" != "1" ]; then
         echo "[SKIP] ClickHouse not reachable at $CH_URL"
         return 1
@@ -42,7 +43,7 @@ setup_endpoints() {
 }
 
 ch_query() {
-    curl -sf --max-time 15 -G "$CH_URL/" --data-urlencode "query=$1 FORMAT TabSeparated" || echo ""
+    curl -fsS --max-time 15 -G "$CH_URL/" --data-urlencode "query=$1 FORMAT TabSeparated"
 }
 
 count_recent() {
@@ -79,18 +80,18 @@ assert_eq() {
 # usage_log row (Lua) and the request_log row (Vector) for ONE request.
 assert_alignment() {
     local u_eid="$1" u_rid="$2" r_eid="$3" r_rid="$4"
-    assert_eq "usage_log.request_id is populated (non-empty)" "yes" "$([ -n "$u_rid" ] && echo yes || echo no)"
-    assert_eq "usage_log.event_id is not the legacy constant relay-opencode_0" "no" "$([ "$u_eid" = "relay-opencode_0" ] && echo yes || echo no)"
-    assert_eq "request_log row found for the same request_id" "yes" "$([ -n "$r_eid" ] && echo yes || echo no)"
-    assert_eq "request_log.request_id is populated (non-empty)" "yes" "$([ -n "$r_rid" ] && echo yes || echo no)"
+    assert_eq "usage_log.request_id is populated (non-empty)" "yes" "$(if [ -n "$u_rid" ]; then printf 'yes'; else printf 'no'; fi)"
+    assert_eq "usage_log.event_id is not the earlier constant relay-opencode_0" "no" "$(if [ "$u_eid" = "relay-opencode_0" ]; then printf 'yes'; else printf 'no'; fi)"
+    assert_eq "request_log row found for the same request_id" "yes" "$(if [ -n "$r_eid" ]; then printf 'yes'; else printf 'no'; fi)"
+    assert_eq "request_log.request_id is populated (non-empty)" "yes" "$(if [ -n "$r_rid" ]; then printf 'yes'; else printf 'no'; fi)"
     if [ -n "$r_eid" ] && [ -n "$u_eid" ]; then
         assert_eq "request_id matches between usage_log and request_log" "$u_rid" "$r_rid"
         assert_eq "event_id matches between usage_log and request_log" "$u_eid" "$r_eid"
         # event_id suffix must be integer-seconds (10-11 digit epoch), proving
-        # the legacy constant-suffix bug is gone on BOTH write paths.
+        # the earlier constant-suffix bug is gone on BOTH write paths.
         u_suffix="$(printf '%s' "$u_eid" | sed 's/^.*_\([0-9]\+\)$/\1/')"
         assert_eq "usage_log.event_id suffix is integer-seconds epoch" "true" \
-            "$([ "${#u_suffix}" -ge 10 ] && [ "${#u_suffix}" -le 11 ] && echo true || echo false)"
+            "$(if [ "${#u_suffix}" -ge 10 ] && [ "${#u_suffix}" -le 11 ]; then printf 'true'; else printf 'false'; fi)"
     fi
 }
 
@@ -99,7 +100,8 @@ assert_alignment() {
 # to decide whether to exercise the no-credit local LLM path.
 llamafile_reachable() {
     local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-        "$GATEWAY_URL/llamafile/v1/models" || echo "000")
+    code_RC=0
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 \
+        "$GATEWAY_URL/llamafile/v1/models" ) || { code_RC=$?; code="000"; }
     [ "$code" != "000" ] && [ "$code" != "404" ]
 }

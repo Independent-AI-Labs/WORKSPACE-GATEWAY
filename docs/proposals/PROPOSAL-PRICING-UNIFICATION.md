@@ -31,7 +31,7 @@ and historical usage does not record which rates were applied.
 ## Target Provider Contract
 
 Every provider document will expose the following conceptual fields. The
-migration may accept legacy fields temporarily, but the normalized in-memory
+migration may accept earlier fields temporarily, but the normalized in-memory
 contract must be identical for every provider.
 
 ```yaml

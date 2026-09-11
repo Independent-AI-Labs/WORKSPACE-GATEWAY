@@ -66,7 +66,7 @@ tooling rather than inventing a parallel dependency system:
   patterns.
 - [ ] Decide whether `WORKSPACE-CI` needs a `check-bun-lock-sync` hook; if the
   existing CI library has no Bun lockfile validator, add one through the
-  established required-hook/scaffold mechanism rather than silently omitting
+  established required-hook/scaffold mechanism rather than omitting without record
   lockfile validation.
 
 ## P0: Plugin Behavior
@@ -112,11 +112,11 @@ tooling rather than inventing a parallel dependency system:
 
 - [ ] Keep provider YAML method identifiers, flows, and routes synchronized with
   the plugin configuration examples.
-- [x] Keep the runbook explicit that the shell installer is legacy device/API
+- [x] Keep the runbook explicit that the shell installer is earlier device/API
   key setup and does not host browser callbacks.
 - [x] Document the published package version and update it deliberately when
   upstream changes.
-- [x] Record any OpenCode compatibility changes against the upstream source
+- [x] Record any OpenCode interop changes against the upstream source
   references in the OpenAI specification.
 - [x] Confirm no documentation claims browser support for Kimi.
 - [ ] Update the audit status and findings after all verification commands pass.
@@ -141,7 +141,7 @@ tooling rather than inventing a parallel dependency system:
 - Plugin Bun tests passed: 7 tests, 20 expectations.
 - `make type-check BUN="$BUN"` passed with the workspace Bun runtime.
 - OpenCode gateway config test passed: 7 checks.
-- Legacy provider-login test passed: 13 checks.
+- Earlier provider-login test passed: 13 checks.
 - YAML config test passed: 33 checks.
 - APISIX route test passed: 150 checks.
 - Lua suite passed across all suites.

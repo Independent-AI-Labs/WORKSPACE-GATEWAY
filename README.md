@@ -104,7 +104,7 @@ Deeper flows are diagrammed in the section that owns each concern:
 Each new provider is a relay route + upstream node (or single-target
 `ai-proxy`; see [`docs/specifications/SPEC-ENTERPRISE-AUTH.md`](docs/specifications/SPEC-ENTERPRISE-AUTH.md)
 and [Supported Providers](#supported-providers)). Diagram authoring rules:
-[`../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md).
+`WORKFLOW-CREATING-DIAGRAMS.md` (in WORKSPACE-CI's `workflows/`).
 
 ### Sample deployments in this repo
 
@@ -664,7 +664,7 @@ is the consumer-side required-hooks manifest consumed by
 
 ## Documentation
 
-- **[`../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md`](../CI/workflows/WORKFLOW-CREATING-DIAGRAMS.md)** : How we author and review architecture diagrams
+- **`WORKFLOW-CREATING-DIAGRAMS.md`** (in WORKSPACE-CI's `workflows/`): How we author and review architecture diagrams
 - **[`docs/README.md`](docs/README.md)** : Documentation hub: full tree and reading order
 - **[`docs/architecture/README.md`](docs/architecture/README.md)** : Architecture hub: components, plugins, data flows, schema
 - **[`docs/requirements/`](docs/requirements/)** : Functional/non-functional requirements (REQ-*, RFC 2119)

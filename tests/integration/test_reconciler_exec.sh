@@ -26,8 +26,9 @@ check() {
     fi
 }
 
-ch_ping=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-    "$CH_URL/ping" || echo "000")
+ch_ping_RC=0
+ch_ping=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 \
+    "$CH_URL/ping" ) || { ch_ping_RC=$?; ch_ping="000"; }
 if [ "$ch_ping" != "200" ]; then
     echo "[SKIP] ClickHouse not reachable, skipping reconciler execution tests"
     exit 0

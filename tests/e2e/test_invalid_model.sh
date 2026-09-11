@@ -47,12 +47,13 @@ fi
 
 body_file=$(mktemp)
 
-http_code=$(curl -s -o "$body_file" -w "%{http_code}" --max-time 30 \
+http_code_RC=0
+http_code=$(curl -sS -o "$body_file" -w "%{http_code}" --max-time 30 \
     -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"model":"nonexistent-model-xyz-12345","messages":[{"role":"user","content":"hello"}],"stream":false}' \
-    || echo "000")
+    ) || { http_code_RC=$?; http_code="000"; }
 
 body=$(cat "$body_file")
 rm -f "$body_file"

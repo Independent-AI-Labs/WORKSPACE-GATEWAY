@@ -253,7 +253,7 @@ check(stored_sessions["at-browser"] ~= nil
     and stored_sessions["at-browser"].account_id == "acct-from-idtoken",
     "account claim resolved from id_token claim path")
 
--- claim path: nested organizations[1].id fallback.
+-- claim path: nested organizations[1].id secondary source.
 local org_token = make_jwt({ organizations = { { id = "org-77" } } })
 local record = { access_token = "t", refresh_token = "r", expires_in = 60 }
 local resolved = nil

@@ -45,14 +45,16 @@ if [ -z "${GATEWAY_API_KEY:-}" ]; then
 fi
 
 headers_file=$(mktemp)
+body_file_RC=0
 body_file=$(mktemp)
 
-http_code=$(curl -s -D "$headers_file" -o "$body_file" -w "%{http_code}" \
+http_code_RC=0
+http_code=$(curl -sS -D "$headers_file" -o "$body_file" -w "%{http_code}" \
     --max-time 90 \
     -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Stream the words one two three"}],"stream":true}' || echo "000")
+    -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Stream the words one two three"}],"stream":true}' ) || { http_code_RC=$?; http_code="000"; }
 
 # Test 2: Streaming chat with minimax-m3
 
@@ -60,7 +62,8 @@ if [ "$http_code" = "200" ]; then
     check "Streaming chat with minimax-m3 returns 200" "0"
 else
     echo "[DEBUG] http_code=$http_code"
-    body_debug=$(cat "$body_file" || echo "")
+    body_debug_RC=0
+    body_debug=$(cat "$body_file" ) || { body_file_RC=$?; body_file=""; }
     echo "[DEBUG] body=$body_debug"
     check "Streaming chat with minimax-m3 returns 200 (got $http_code)" "1"
     rm -f "$headers_file" "$body_file"
@@ -72,7 +75,8 @@ else
     exit 0
 fi
 
-content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' || echo "")
+content_type_RC=0
+content_type=$(grep -i '^content-type:' "$headers_file" | tr -d '\r' ) || { body_debug_RC=$?; body_debug=""; }
 
 if grep -qi "text/event-stream" <<< "$content_type"; then
     check "Response Content-Type contains text/event-stream" "0"
@@ -81,7 +85,7 @@ else
     check "Response Content-Type contains text/event-stream" "1"
 fi
 
-sse_count=$(grep -c '^data:' "$body_file" || echo "0")
+sse_count=$(grep -c '^data:' "$body_file" ) || { content_type_RC=$?; content_type="0"; }
 if [ "$sse_count" -gt 0 ]; then
     check "Response body contains SSE data events" "0"
 else

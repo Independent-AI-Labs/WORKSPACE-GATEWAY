@@ -23,7 +23,7 @@ end
 
 local now = ngx.time()
 
--- needs_refresh: JWT exp wins, stored expiry is the fallback, unknown is fail-closed.
+-- needs_refresh: JWT exp wins, stored expiry is the secondary source, unknown is fail-closed.
 assert(session.needs_refresh(jwt_with_exp(now + 3600), nil, 300) == false, "future JWT exp must not refresh")
 assert(session.needs_refresh(jwt_with_exp(now + 60), nil, 300) == true, "near JWT exp must refresh")
 assert(session.needs_refresh("opaque-token", now + 3600, 300) == false, "stored expiry must be honored")

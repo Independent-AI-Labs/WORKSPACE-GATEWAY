@@ -8,7 +8,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=yaml_helpers.sh
-source "$SCRIPT_DIR/yaml_helpers.sh"
+source "$SCRIPT_DIR/yaml_helpers.sh" || exit 1
 
 pass=0
 fail=0

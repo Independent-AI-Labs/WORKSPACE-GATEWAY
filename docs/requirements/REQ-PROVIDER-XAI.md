@@ -18,7 +18,7 @@
 **Cross-references:**
 - [SPEC-PROVIDER-XAI](../specifications/SPEC-PROVIDER-XAI.md): companion specification
 - REQ-PROVIDER-KIMI: implemented analog provider ([`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua)). Since the generic `oauth-auth` consolidation, implementing xAI is a provider YAML + an `oauth-auth` config set on the relay route (no new Lua plugin), unless xAI's upstream contract needs a third protocol engine in `oauth_device.lua`.
-- Legacy PROVIDER-XAI-GROK design (AMI-PROP-LLMGW-PROVIDER-XAI-GROK-v1.1, absorbed)
+- Earlier PROVIDER-XAI-GROK design (AMI-PROP-LLMGW-PROVIDER-XAI-GROK-v1.1, absorbed)
 - [`docs/architecture/README.md`](../architecture/README.md): architecture hub
 
 ---
@@ -125,10 +125,10 @@ OpenAI-compatible endpoint at `http://gateway:9080/grok`.
 
 | ID | Constraint | Source |
 |----|------------|--------|
-| C-1 | Plugin priority 2560 (before `key-meta` 2530) | legacy xai spec §4.1 |
-| C-2 | No `vgw-` keys in the Grok OAuth flow | legacy xai spec §1.3 |
-| C-3 | Standard PKCE exchange only (no challenge echo) | legacy xai spec §3.5 |
-| C-4 | Loopback redirect only for the official public client_id | legacy xai spec §9.3 |
+| C-1 | Plugin priority 2560 (before `key-meta` 2530) | earlier xai spec §4.1 |
+| C-2 | No `vgw-` keys in the Grok OAuth flow | earlier xai spec §1.3 |
+| C-3 | Standard PKCE exchange only (no challenge echo) | earlier xai spec §3.5 |
+| C-4 | Loopback redirect only for the official public client_id | earlier xai spec §9.3 |
 
 ## 5. Assumptions
 
@@ -153,7 +153,7 @@ OpenAI-compatible endpoint at `http://gateway:9080/grok`.
 | V2 | Unit: token exchange form omits challenge fields | FR-1.3 |
 | V3 | Unit: pasted callback parsing (full URL, fragment, bare code) | FR-1.3 |
 | V4 | Unit: `is_expiring` with skew | FR-3.3 |
-| V5 | Integration: device flow end-to-end against mock token endpoint | FR-1.5 |
+| V5 | Integration: device flow end-to-end against a simulated token endpoint | FR-1.5 |
 | V6 | Integration: stale access token still resolves after refresh rotation | FR-3.4 |
 | V7 | Integration: unknown Bearer yields 401 | FR-3.7 |
 | V8 | Integration: discovery endpoint pinning rejects non-x.ai hosts | FR-2.5 |

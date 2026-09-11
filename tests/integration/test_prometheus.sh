@@ -19,15 +19,17 @@ check() {
     fi
 }
 
-curl_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
-    "$GATEWAY_URL/" || echo "000")
+curl_code_RC=0
+curl_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 \
+    "$GATEWAY_URL/" ) || { curl_code_RC=$?; curl_code="000"; }
 if [ "$curl_code" = "000" ]; then
     echo "[SKIP] APISIX not reachable, skipping Prometheus tests"
     exit 0
 fi
 
-metrics_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-    "$METRICS_URL/apisix/prometheus/metrics" || echo "000")
+metrics_code_RC=0
+metrics_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 \
+    "$METRICS_URL/apisix/prometheus/metrics" ) || { metrics_code_RC=$?; metrics_code="000"; }
 
 if [ "$metrics_code" = "200" ]; then
     check "Prometheus metrics endpoint returns 200" "0"
@@ -35,8 +37,9 @@ else
     check "Prometheus metrics endpoint returns 200 (got $metrics_code)" "1"
 fi
 
-metrics_body=$(curl -s --max-time 10 \
-    "$METRICS_URL/apisix/prometheus/metrics" || echo "")
+metrics_body_RC=0
+metrics_body=$(curl -sS --max-time 10 \
+    "$METRICS_URL/apisix/prometheus/metrics" ) || { metrics_body_RC=$?; metrics_body=""; }
 
 if grep -q "apisix_" <<< "$metrics_body"; then
     check "Prometheus metrics body contains apisix_ metrics" "0"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tiny HTTP mock for testing opencode-provider-login.sh.
+"""Tiny simulated-provider HTTP server for testing opencode-provider-login.sh.
 
 This is a test fixture, not project runtime code. It exposes the three endpoints
 used by the client OAuth flow and records the last User-Agent it received.

@@ -49,12 +49,13 @@ send_chat() {
     local prompt="$2"
     local tmpfile
     tmpfile=$(mktemp)
-    http_code=$(curl -s -o "$tmpfile" -w "%{http_code}" \
+    http_code_RC=0
+    http_code=$(curl -sS -o "$tmpfile" -w "%{http_code}" \
         --max-time 60 \
         -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
         -H "Authorization: Bearer $GATEWAY_API_KEY" \
         -H "Content-Type: application/json" \
-        -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"stream\":false}" || echo "000")
+        -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"$prompt\"}],\"stream\":false}" ) || { http_code_RC=$?; http_code="000"; }
     body=$(cat "$tmpfile")
     rm -f "$tmpfile"
     echo "$http_code"
@@ -63,11 +64,12 @@ send_chat() {
 
 # Test 1: Non-streaming chat with minimax-m3
 http_code=$(send_chat "minimax-m3" "Say hello in one word")
+body_RC=0
 body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 
 if [ "$http_code" = "200" ]; then
-    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' || echo "")
+    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' ) || { body_RC=$?; body=""; }
     if [ -n "$content" ]; then
         check "Non-streaming chat with minimax-m3 returns 200 with content" "0"
     else
@@ -81,11 +83,12 @@ fi
 
 # Test 2: Different model (mimo-v2.5)
 http_code=$(send_chat "mimo-v2.5" "Reply with the single word: ok")
+body_RC=0
 body=$(cat /tmp/e2e_chat_body.json)
 rm -f /tmp/e2e_chat_body.json
 
 if [ "$http_code" = "200" ]; then
-    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' || echo "")
+    content=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' ) || { body_RC=$?; body=""; }
     if [ -n "$content" ]; then
         check "Chat with mimo-v2.5 returns 200 with content" "0"
     else

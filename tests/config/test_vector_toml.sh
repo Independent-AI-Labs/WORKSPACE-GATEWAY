@@ -20,6 +20,7 @@ assert_eq() {
         pass=$((pass + 1))
     else
         echo "[FAIL] $desc -- expected: $expected, actual: $actual"
+        fail_RC=0
         fail=$((fail + 1))
     fi
 }
@@ -34,84 +35,109 @@ summary() {
 
 VECTOR_TOML="$REPO_ROOT/conf/vector.toml"
 
-HAS_HTTP_SERVER=$(grep -c 'type = "http_server"' "$VECTOR_TOML" || echo "")
+HAS_HTTP_SERVER_RC=0
+HAS_HTTP_SERVER=$(grep -c 'type = "http_server"' "$VECTOR_TOML" ) || { fail_RC=$?; fail=""; }
 assert_eq "Source type http_server" "1" "$HAS_HTTP_SERVER"
 
-HAS_ADDRESS=$(grep -c 'address = "0.0.0.0:8080"' "$VECTOR_TOML" || echo "")
+HAS_ADDRESS_RC=0
+HAS_ADDRESS=$(grep -c 'address = "0.0.0.0:8080"' "$VECTOR_TOML" ) || { HAS_HTTP_SERVER_RC=$?; HAS_HTTP_SERVER=""; }
 assert_eq "Address 0.0.0.0:8080" "1" "$HAS_ADDRESS"
 
-HAS_PATH=$(grep -c 'path = "/ingest"' "$VECTOR_TOML" || echo "")
+HAS_PATH_RC=0
+HAS_PATH=$(grep -c 'path = "/ingest"' "$VECTOR_TOML" ) || { HAS_ADDRESS_RC=$?; HAS_ADDRESS=""; }
 assert_eq "Path /ingest" "1" "$HAS_PATH"
 
-HAS_CLICKHOUSE_SINK=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" || echo "")
+HAS_CLICKHOUSE_SINK_RC=0
+HAS_CLICKHOUSE_SINK=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" ) || { HAS_PATH_RC=$?; HAS_PATH=""; }
 assert_eq "Sink type clickhouse" "1" "$HAS_CLICKHOUSE_SINK"
 
-HAS_ENDPOINT=$(grep -c 'http://clickhouse:8123' "$VECTOR_TOML" || echo "")
+HAS_ENDPOINT_RC=0
+HAS_ENDPOINT=$(grep -c 'http://clickhouse:8123' "$VECTOR_TOML" ) || { HAS_CLICKHOUSE_SINK_RC=$?; HAS_CLICKHOUSE_SINK=""; }
 assert_eq "Endpoint http://clickhouse:8123" "1" "$HAS_ENDPOINT"
 
-HAS_TABLE=$(grep -c 'table = "request_log"' "$VECTOR_TOML" || echo "")
+HAS_TABLE_RC=0
+HAS_TABLE=$(grep -c 'table = "request_log"' "$VECTOR_TOML" ) || { HAS_ENDPOINT_RC=$?; HAS_ENDPOINT=""; }
 assert_eq "Table request_log" "1" "$HAS_TABLE"
 
-HAS_DATABASE=$(grep -c 'database = "llm_gateway"' "$VECTOR_TOML" || echo "")
+HAS_DATABASE_RC=0
+HAS_DATABASE=$(grep -c 'database = "llm_gateway"' "$VECTOR_TOML" ) || { HAS_TABLE_RC=$?; HAS_TABLE=""; }
 assert_eq "Database is llm_gateway" "1" "$HAS_DATABASE"
 
-HAS_SKIP_UNKNOWN=$(grep -c 'skip_unknown_fields = true' "$VECTOR_TOML" || echo "")
+HAS_SKIP_UNKNOWN_RC=0
+HAS_SKIP_UNKNOWN=$(grep -c 'skip_unknown_fields = true' "$VECTOR_TOML" ) || { HAS_DATABASE_RC=$?; HAS_DATABASE=""; }
 assert_eq "skip_unknown_fields is true" "1" "$HAS_SKIP_UNKNOWN"
 
-HAS_REMAP=$(grep -c 'type = "remap"' "$VECTOR_TOML" || echo "")
+HAS_REMAP_RC=0
+HAS_REMAP=$(grep -c 'type = "remap"' "$VECTOR_TOML" ) || { HAS_SKIP_UNKNOWN_RC=$?; HAS_SKIP_UNKNOWN=""; }
 assert_eq "Has remap transform" "1" "$HAS_REMAP"
 
-HAS_REQ_BODY_PARSE=$(grep -c 'parse_json' "$VECTOR_TOML" || echo "")
-assert_eq "Remap uses parse_json for model extraction" "true" "$([ "$HAS_REQ_BODY_PARSE" -ge 1 ] && echo true || echo false)"
+HAS_REQ_BODY_PARSE_RC=0
+HAS_REQ_BODY_PARSE=$(grep -c 'parse_json' "$VECTOR_TOML" ) || { HAS_REMAP_RC=$?; HAS_REMAP=""; }
+assert_eq "Remap uses parse_json for model extraction" "true" "$(if [ "$HAS_REQ_BODY_PARSE" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
 
-HAS_TOKEN_EXTRACT=$(grep -c 'prompt_tokens' "$VECTOR_TOML" || echo "")
+HAS_TOKEN_EXTRACT_RC=0
+HAS_TOKEN_EXTRACT=$(grep -c 'prompt_tokens' "$VECTOR_TOML" ) || { HAS_REQ_BODY_PARSE_RC=$?; HAS_REQ_BODY_PARSE=""; }
 assert_eq "Remap extracts prompt_tokens" "1" "$HAS_TOKEN_EXTRACT"
 
-HAS_KEY_ID=$(grep -c 'x-gateway-key-id' "$VECTOR_TOML" || echo "")
+HAS_KEY_ID_RC=0
+HAS_KEY_ID=$(grep -c 'x-gateway-key-id' "$VECTOR_TOML" ) || { HAS_TOKEN_EXTRACT_RC=$?; HAS_TOKEN_EXTRACT=""; }
 assert_eq "Remap extracts x-gateway-key-id header" "1" "$HAS_KEY_ID"
 
-HAS_TENANT_ID=$(grep -c 'x-gateway-tenant-id' "$VECTOR_TOML" || echo "")
+HAS_TENANT_ID_RC=0
+HAS_TENANT_ID=$(grep -c 'x-gateway-tenant-id' "$VECTOR_TOML" ) || { HAS_KEY_ID_RC=$?; HAS_KEY_ID=""; }
 assert_eq "Remap extracts x-gateway-tenant-id header" "1" "$HAS_TENANT_ID"
 
-HAS_SESSION_ID=$(grep -c 'x-session-id' "$VECTOR_TOML" || echo "")
+HAS_SESSION_ID_RC=0
+HAS_SESSION_ID=$(grep -c 'x-session-id' "$VECTOR_TOML" ) || { HAS_TENANT_ID_RC=$?; HAS_TENANT_ID=""; }
 assert_eq "Remap extracts x-session-id header" "1" "$HAS_SESSION_ID"
 
-HAS_REQUEST_ID=$(grep -c 'request_id' "$VECTOR_TOML" || echo "")
-assert_eq "Remap references request_id" "true" "$([ "$HAS_REQUEST_ID" -ge 1 ] && echo true || echo false)"
+HAS_REQUEST_ID_RC=0
+HAS_REQUEST_ID=$(grep -c 'request_id' "$VECTOR_TOML" ) || { HAS_SESSION_ID_RC=$?; HAS_SESSION_ID=""; }
+assert_eq "Remap references request_id" "true" "$(if [ "$HAS_REQUEST_ID" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
 
 # request_id must be sourced from the X-Request-Id request header (set by
 # the APISIX request-id plugin), since nginx's $request_id is not exposed
 # to Vector except via the request header.
-RID_FROM_HDR=$(grep -c '\.request_id = to_string!(get!(req_headers, \["x-request-id"\])' "$VECTOR_TOML" || echo "")
-assert_eq "Remap extracts request_id from x-request-id request header" "true" "$([ "$RID_FROM_HDR" -ge 1 ] && echo true || echo false)"
+RID_FROM_HDR_RC=0
+RID_FROM_HDR=$(grep -c '\.request_id = to_string!(get!(req_headers, \["x-request-id"\])' "$VECTOR_TOML" ) || { HAS_REQUEST_ID_RC=$?; HAS_REQUEST_ID=""; }
+assert_eq "Remap extracts request_id from x-request-id request header" "true" "$(if [ "$RID_FROM_HDR" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
 
-# VRL must NOT read request_id from the legacy top-level logger field -
+# VRL must NOT read request_id from the earlier top-level logger field -
 # the log_format override was removed (it dropped all default fields).
-RID_LEGACY=$(grep -c '\.request_id = to_string!(\.request_id || "")' "$VECTOR_TOML" || echo "")
-assert_eq "Remap does not read request_id from top-level logger field (regression guard)" "true" "$([ "$RID_LEGACY" -eq 0 ] && echo true || echo false)"
+RID_LEGACY_RC=0
+RID_LEGACY=$(grep -c '\.request_id = to_string!(\.request_id || "")' "$VECTOR_TOML" ) || { RID_FROM_HDR_RC=$?; RID_FROM_HDR=""; }
+assert_eq "Remap does not read request_id from top-level logger field (regression guard)" "true" "$(if [ "$RID_LEGACY" -eq 0 ]; then printf 'true'; else printf 'false'; fi)"
 
-HAS_MODEL_NORM=$(grep -c 'downcase(model_raw)' "$VECTOR_TOML" || echo "")
+HAS_MODEL_NORM_RC=0
+HAS_MODEL_NORM=$(grep -c 'downcase(model_raw)' "$VECTOR_TOML" ) || { RID_LEGACY_RC=$?; RID_LEGACY=""; }
 assert_eq "Remap normalizes model to lowercase" "1" "$HAS_MODEL_NORM"
 
-HAS_MODEL_SUFFIX=$(grep -c "parse_regex(model_lower" "$VECTOR_TOML" || echo "")
+HAS_MODEL_SUFFIX_RC=0
+HAS_MODEL_SUFFIX=$(grep -c "parse_regex(model_lower" "$VECTOR_TOML" ) || { HAS_MODEL_NORM_RC=$?; HAS_MODEL_NORM=""; }
 assert_eq "Remap strips provider prefix from model (generated block)" "1" "$HAS_MODEL_SUFFIX"
 
-HAS_GEN_BEGIN=$(grep -c '# BEGIN GENERATED MODEL CANONICALIZATION' "$VECTOR_TOML" || echo "")
+HAS_GEN_BEGIN_RC=0
+HAS_GEN_BEGIN=$(grep -c '# BEGIN GENERATED MODEL CANONICALIZATION' "$VECTOR_TOML" ) || { HAS_MODEL_SUFFIX_RC=$?; HAS_MODEL_SUFFIX=""; }
 assert_eq "Remap model canonicalization is codegen-marked (BEGIN)" "1" "$HAS_GEN_BEGIN"
 
-HAS_GEN_END=$(grep -c '# END GENERATED MODEL CANONICALIZATION' "$VECTOR_TOML" || echo "")
+HAS_GEN_END_RC=0
+HAS_GEN_END=$(grep -c '# END GENERATED MODEL CANONICALIZATION' "$VECTOR_TOML" ) || { HAS_GEN_BEGIN_RC=$?; HAS_GEN_BEGIN=""; }
 assert_eq "Remap model canonicalization is codegen-marked (END)" "1" "$HAS_GEN_END"
 
-HAS_ALIAS_MAP=$(grep -c 'model_alias_map = {' "$VECTOR_TOML" || echo "")
+HAS_ALIAS_MAP_RC=0
+HAS_ALIAS_MAP=$(grep -c 'model_alias_map = {' "$VECTOR_TOML" ) || { HAS_GEN_END_RC=$?; HAS_GEN_END=""; }
 assert_eq "Remap uses generated alias map" "1" "$HAS_ALIAS_MAP"
 
-HAS_RETRY=$(grep -c 'retry_attempts' "$VECTOR_TOML" || echo "")
+HAS_RETRY_RC=0
+HAS_RETRY=$(grep -c 'retry_attempts' "$VECTOR_TOML" ) || { HAS_ALIAS_MAP_RC=$?; HAS_ALIAS_MAP=""; }
 assert_eq "ClickHouse sink has retry_attempts" "1" "$HAS_RETRY"
 
-HAS_BUFFER=$(grep -c 'when_full = "block"' "$VECTOR_TOML" || echo "")
+HAS_BUFFER_RC=0
+HAS_BUFFER=$(grep -c 'when_full = "block"' "$VECTOR_TOML" ) || { HAS_RETRY_RC=$?; HAS_RETRY=""; }
 assert_eq "ClickHouse sink has memory buffer block policy" "1" "$HAS_BUFFER"
 
-HAS_BATCH=$(grep -cx 'max_events = 1000' "$VECTOR_TOML" || echo "")
+HAS_BATCH_RC=0
+HAS_BATCH=$(grep -cx 'max_events = 1000' "$VECTOR_TOML" ) || { HAS_BUFFER_RC=$?; HAS_BUFFER=""; }
 assert_eq "ClickHouse sink has batch max_events=1000" "1" "$HAS_BATCH"
 
 # --- event_id / timestamp math (must match sse-usage.lua) ---
@@ -121,22 +147,26 @@ assert_eq "ClickHouse sink has batch max_events=1000" "1" "$HAS_BATCH"
 #   2. derive event_id from floor(ms / 1000) - integer seconds - so it
 #      matches sse-usage.lua's math.floor(ngx.var.start_time) where
 #      ngx start_time is epoch-seconds with ms precision.
-ST_MS_RAW=$(grep -c 'start_time_ms = to_int(.start_time || 0) ?? 0' "$VECTOR_TOML" || echo "")
+ST_MS_RAW_RC=0
+ST_MS_RAW=$(grep -c 'start_time_ms = to_int(.start_time || 0) ?? 0' "$VECTOR_TOML" ) || { HAS_BATCH_RC=$?; HAS_BATCH=""; }
 assert_eq "Remap reads .start_time as milliseconds directly (no *1000)" "1" "$ST_MS_RAW"
 
-ST_DIV=$(grep -c 'start_time_int = to_int(start_time_ms / 1000)' "$VECTOR_TOML" || echo "")
+ST_DIV_RC=0
+ST_DIV=$(grep -c 'start_time_int = to_int(start_time_ms / 1000)' "$VECTOR_TOML" ) || { ST_MS_RAW_RC=$?; ST_MS_RAW=""; }
 assert_eq "Remap derives event_id seconds via start_time_ms / 1000" "1" "$ST_DIV"
 
 # Regression guard: must NOT multiply .start_time by 1000 (it is already ms).
-ST_BUG=$(grep -c 'start_time_f \* 1000' "$VECTOR_TOML" || echo "")
+ST_BUG_RC=0
+ST_BUG=$(grep -c 'start_time_f \* 1000' "$VECTOR_TOML" ) || { ST_DIV_RC=$?; ST_DIV=""; }
 assert_eq "Remap does NOT multiply start_time by 1000 (regression guard)" "0" "$ST_BUG"
 
 # timestamp uses from_unix_timestamp with "milliseconds" unit on start_time_ms.
-ST_TS=$(grep -c 'from_unix_timestamp(start_time_ms, "milliseconds")' "$VECTOR_TOML" || echo "")
+ST_TS_RC=0
+ST_TS=$(grep -c 'from_unix_timestamp(start_time_ms, "milliseconds")' "$VECTOR_TOML" ) || { ST_BUG_RC=$?; ST_BUG=""; }
 assert_eq "Remap builds timestamp from start_time_ms (milliseconds unit)" "1" "$ST_TS"
 
 # Only ONE console/debug sink remains absent (single clickhouse sink).
-SINK_COUNT=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" || echo "")
+SINK_COUNT=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" ) || { ST_TS_RC=$?; ST_TS=""; }
 assert_eq "Single clickhouse sink (debug sink removed)" "1" "$SINK_COUNT"
 
 summary

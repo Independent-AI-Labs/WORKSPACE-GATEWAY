@@ -48,13 +48,15 @@ fi
 headers_file=$(mktemp)
 body_file=$(mktemp)
 
-http_code=$(curl -s -D "$headers_file" -o "$body_file" -w "%{http_code}" \
+http_code_RC=0
+http_code=$(curl -sS -D "$headers_file" -o "$body_file" -w "%{http_code}" \
     --max-time 60 \
     -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
     -H "Authorization: Bearer $GATEWAY_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":false}" || echo "000")
+    -d "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":false}" ) || { http_code_RC=$?; http_code="000"; }
 
+body_RC=0
 body=$(cat "$body_file")
 
 if [ "$http_code" = "200" ]; then
@@ -64,8 +66,10 @@ else
     check "Redaction E2E request with PII returns 200 (got $http_code)" "1"
 fi
 
-redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' || echo "")
-redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' || echo "")
+redact_header_RC=0
+redact_header=$(grep -i '^x-redact-active:' "$headers_file" | tr -d '\r' ) || { body_RC=$?; body=""; }
+redact_value_RC=0
+redact_value=$(printf '%s' "$redact_header" | tr -dc '0-9' ) || { redact_header_RC=$?; redact_header=""; }
 
 if [ "$redact_value" = "1" ]; then
     check "Response contains X-Redact-Active: 1 header" "0"
@@ -87,7 +91,7 @@ CH_URL="http://localhost:8123"
 PII_TOKEN="[EMAIL_1]"
 
 echo "[INFO] Querying ClickHouse for logged request body..."
-logged_req_body=$(curl -sf "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" || echo "")
+logged_req_body=$(curl -fsS "$CH_URL/?query=SELECT+req_body+FROM+llm_gateway.request_log+ORDER+BY+timestamp+DESC+LIMIT+1+FORMAT+TabSeparated" ) || { redact_value_RC=$?; redact_value=""; }
 
 if grep -q "$PII_TOKEN" <<< "$logged_req_body"; then
     check "ClickHouse logged request body contains redaction token" "0"

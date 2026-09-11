@@ -6,7 +6,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$SCRIPT_DIR/yaml_helpers.sh"
+source "$SCRIPT_DIR/yaml_helpers.sh" || exit 1
 pass=0; fail=0
 
 assert_eq() {
@@ -506,7 +506,7 @@ assert_eq "relay-kimi-key-v1: proxy-rewrite regex strips /kimi-key/v1/" "^/kimi-
 KIMI_KEY_V1_REWRITE_REPLACE=$(echo "$KIMI_KEY_V1_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex_uri[1]')
 assert_eq "relay-kimi-key-v1: proxy-rewrite replacement is /coding/v1/" '/coding/v1/$1' "$KIMI_KEY_V1_REWRITE_REPLACE"
 
-source "$SCRIPT_DIR/test_provider_sync_route.sh"
-source "$SCRIPT_DIR/test_zai_provider.sh"
-source "$SCRIPT_DIR/test_oauth_auth_routes.sh"
+source "$SCRIPT_DIR/test_provider_sync_route.sh" || exit 1
+source "$SCRIPT_DIR/test_zai_provider.sh" || exit 1
+source "$SCRIPT_DIR/test_oauth_auth_routes.sh" || exit 1
 summary

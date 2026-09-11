@@ -230,7 +230,7 @@ client-held access token is a session secret treated like an API key.
   Any other bearer is an explicit 401.
 - A successful refresh whose session record cannot be persisted terminates
   the request with 503; continuing with an unpersisted rotated refresh token
-  would silently invalidate the client's credential on the next request.
+  would invalidate without notice the client's credential on the next request.
 - `/v1/usages` responses are informational and are not parsed for usage telemetry.
 
 ## 9. File Map

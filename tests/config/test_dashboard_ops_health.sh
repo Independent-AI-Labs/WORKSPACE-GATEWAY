@@ -12,7 +12,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
     _SELF="$SHG_SCRIPT_PATH"
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
-source "$SCRIPT_DIR/dashboard_assert.sh"
+source "$SCRIPT_DIR/dashboard_assert.sh" || exit 1
 
 F="$OPS_HEALTH_FILE"
 LABEL="ops-health"

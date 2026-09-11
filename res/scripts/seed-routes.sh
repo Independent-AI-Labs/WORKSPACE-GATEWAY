@@ -31,7 +31,7 @@ if [ -z "${ADMIN_KEY:-}" ]; then
   exit 1
 fi
 
-PYTHON=$(command -v python3 || command -v python)
+PYTHON="uv run --with pyyaml python"
 
 exec "$PYTHON" -u -c "
 import os, sys, json, urllib.request, urllib.error, yaml

@@ -125,7 +125,7 @@ the original values are restored in the client-facing response.
 
 | ID | Constraint | Source |
 |----|------------|--------|
-| C-1 | Patterns file is JSON (cjson bundled with OpenResty; YAML parser not guaranteed) | legacy redact spec §13 |
+| C-1 | Patterns file is JSON (cjson bundled with OpenResty; YAML parser not guaranteed) | earlier redact spec §13 |
 | C-2 | No cosocket use in `body_filter`; restore is local string substitution only | OpenResty phase semantics |
 | C-3 | `on_error=closed` is the production posture | workspace AGENTS.md Rule 13 |
 

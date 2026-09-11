@@ -1,0 +1,9 @@
+# Per-project exceptions, schema v5 (final model): one rule id +
+# one anchored exact file per entry, with full provenance.
+exceptions:
+  - rule: brealm-b
+    path: ^docs/$
+    rationale: Quoted forbidden vocabulary required by this file's reviewed role.
+    owner: workspace-ci
+    review_date: '2026-09-06'
+    removal: Remove when the file no longer quotes the rule.

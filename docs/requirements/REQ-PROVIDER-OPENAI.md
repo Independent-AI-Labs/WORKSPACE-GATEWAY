@@ -6,7 +6,7 @@
 **Specification:** [SPEC-PROVIDER-OPENAI](../specifications/SPEC-PROVIDER-OPENAI.md)
 
 > Defines the gateway-managed OpenAI ChatGPT/Codex OAuth provider and records
-> its compatibility boundary with OpenCode's native OpenAI integration. The
+> its interop boundary with OpenCode's native OpenAI integration. The
 > gateway exposes both OpenCode-compatible OpenAI OAuth methods: browser
 > authorization-code/PKCE and headless device authorization. OpenCode loads the
 > gateway-owned external auth plugin; provider JSON alone does not define OAuth.
@@ -55,8 +55,8 @@ OpenCode's native requests also add `originator: opencode`, a dynamic
 and `session-id`. The gateway injects `originator: opencode` and forwards
 `session-id` (from the client's `session-id` or `X-OpenCode-Session-Id`
 header). The User-Agent remains the pinned `opencode/1.18.3` string; a
-dynamic platform User-Agent is a known compatibility gap, not a requirement
-silently treated as implemented.
+dynamic platform User-Agent is a known interop gap, not a requirement
+treated as implemented without evidence.
 
 Additional hardening in effect: device and browser token responses MUST
 include `access_token`, `refresh_token`, and a positive `expires_in`
@@ -81,7 +81,7 @@ a possibly-lost rotated refresh token.
 |------|----------|
 | `tests/config/test_apisix_yaml.sh` | OpenAI relay route and plugin wiring |
 | `tests/integration/test_provider_sync_client.sh` | OpenAI provider detail and OpenCode mapping |
-| `tests/scripts/test_opencode_provider_login.sh` | Legacy device-flow installer behavior |
+| `tests/scripts/test_opencode_provider_login.sh` | Earlier device-flow installer behavior |
 | `res/opencode-plugin/workspace-gateway-auth.ts` | Native OpenCode browser/device method registration |
 | `res/opencode-plugin/workspace-gateway-auth.test.ts` | Plugin method/device/browser callback unit tests |
 

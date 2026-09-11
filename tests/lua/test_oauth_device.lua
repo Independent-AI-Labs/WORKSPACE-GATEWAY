@@ -174,7 +174,7 @@ check(url:find("state=st%-1", 1) ~= nil, "browser URL state")
 check(url:find("scope=openid", 1) ~= nil and url:find("originator=opencode", 1) ~= nil, "browser URL extra params")
 check(url:find("code_challenge_method=S256", 1) ~= nil, "browser URL S256")
 
--- engine() default and unknown fallback.
+-- engine() default and unknown-value branch.
 check(device.engine({}).refresh_access_token ~= nil, "engine default rfc8628")
 check(device.engine({ protocol = "bogus" }) == device.engine({}), "engine unknown falls back")
 

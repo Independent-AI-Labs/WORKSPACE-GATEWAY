@@ -37,7 +37,7 @@ Each stage is independently runnable and yields a pass/fail exit code.
 | Stage | Name | Runner | Dependencies |
 |-------|------|--------|--------------|
 | 1 | Lua Unit Tests | `tests/lua/run.sh` | APISIX image (resty CLI) |
-| 2 | Script Tests | `tests/scripts/run.sh` | Python (mock provider server) |
+| 2 | Script Tests | `tests/scripts/run.sh` | Python (simulated provider server) |
 | 3 | Config Validation | `tests/config/run.sh` | jq + Python |
 | 4 | Reconciler Tests | `tests/reconciler/test_reconciler.sh` | None |
 | 5 | Integration Tests | `tests/integration/run.sh` | podman-compose stack |
@@ -141,7 +141,7 @@ logic.
 ## 7. Stage 2: Script Tests
 
 `test_opencode_provider_login.sh` exercises the client login script against
-`mock_provider_server.py` (a local mock of `/gateway/providers*`): flag
+`mock_provider_server.py` (a local simulation of `/gateway/providers*`): flag
 validation, provider block merge into config, auth.json writing, error paths
 (bad provider id, `--no-prompt` with api_key auth, invalid config).
 

@@ -25,11 +25,12 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
-source "$SCRIPT_DIR/lib_event_align.sh"
+source "$SCRIPT_DIR/lib_event_align.sh" || exit 1
 
 pass=0
 fail=0
 
+BOUNDARY_RC=0
 BOUNDARY=$(date +%s)
 echo "[INFO] boundary=$BOUNDARY"
 
@@ -51,12 +52,13 @@ if ! llamafile_reachable; then
 fi
 
 # Parse the first model id from /llamafile/v1/models.
-MODELS_JSON=$(curl -sf --max-time 10 "$GATEWAY_URL/llamafile/v1/models" || echo "")
+MODELS_JSON_RC=0
+MODELS_JSON=$(curl -fsS --max-time 10 "$GATEWAY_URL/llamafile/v1/models" ) || { BOUNDARY_RC=$?; BOUNDARY=""; }
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
-    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' || echo "")
+    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' ) || { MODELS_JSON_RC=$?; MODELS_JSON=""; }
 fi
-assert_eq "llamafile /v1/models returned a model id" "yes" "$([ -n "$MODEL_ID" ] && echo yes || echo no)"
+assert_eq "llamafile /v1/models returned a model id" "yes" "$(if [ -n "$MODEL_ID" ]; then printf 'yes'; else printf 'no'; fi)"
 if [ -z "$MODEL_ID" ]; then
     echo ""
     echo "llamafile e2e tests: $pass passed, $fail failed"
@@ -66,18 +68,21 @@ echo "[INFO] using model id: $MODEL_ID"
 
 # Send a NON-STREAMING chat request, capturing the X-Request-Id response header.
 RESP_HEADERS=$(mktemp)
+RESP_BODY_RC=0
 RESP_BODY=$(mktemp)
-HTTP_CODE=$(curl -s -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
+HTTP_CODE_RC=0
+HTTP_CODE=$(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
     -X POST "$GATEWAY_URL/llamafile/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the single word: ok\"}],\"stream\":false}" \
-    || echo "000")
-LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' || echo "")
+    ) || { HTTP_CODE_RC=$?; HTTP_CODE="000"; }
+LIVE_RID_RC=0
+LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { RESP_BODY_RC=$?; RESP_BODY=""; }
 rm -f "$RESP_HEADERS"
 
 echo "[INFO] chat HTTP $HTTP_CODE X-Request-Id=$LIVE_RID"
 assert_eq "llamafile chat/completions returned 200" "200" "$HTTP_CODE"
-assert_eq "llamafile response carries X-Request-Id header" "yes" "$([ -n "$LIVE_RID" ] && echo yes || echo no)"
+assert_eq "llamafile response carries X-Request-Id header" "yes" "$(if [ -n "$LIVE_RID" ]; then printf 'yes'; else printf 'no'; fi)"
 
 if [ "$HTTP_CODE" != "200" ] || [ -z "$LIVE_RID" ]; then
     rm -f "$RESP_BODY"
@@ -88,12 +93,12 @@ if [ "$HTTP_CODE" != "200" ] || [ -z "$LIVE_RID" ]; then
 fi
 
 # Verify the response body is valid JSON with a choices array (proves the
-# upstream is a real LLM, not a stub). NOTE: the local llamafile server
+# upstream is a real LLM, not a stand-in). NOTE: the local llamafile server
 # frequently returns usage = 0 in its response body - the sse-usage Lua
 # plugin is responsible for estimating tokens in that case. Token-count
 # correctness is therefore asserted from usage_log downstream, NOT from the
 # raw HTTP response usage object.
-HAS_CHOICES=$(jq -r 'if ((.choices | length) > 0) then "yes" else "no" end' "$RESP_BODY" || echo "no")
+HAS_CHOICES=$(jq -r 'if ((.choices | length) > 0) then "yes" else "no" end' "$RESP_BODY" ) || { LIVE_RID_RC=$?; LIVE_RID="no"; }
 rm -f "$RESP_BODY"
 assert_eq "llamafile response body has a choices array" "yes" "$HAS_CHOICES"
 
@@ -110,7 +115,7 @@ for i in $(seq 1 25); do
     sleep 1
 done
 
-assert_eq "usage_log row appears for this run's request_id" "$LIVE_RID" "$([ -n "$U_RID" ] && echo "$U_RID" || echo "(none)")"
+assert_eq "usage_log row appears for this run's request_id" "$LIVE_RID" "$(if [ -n "$U_RID" ]; then printf '%s' "$U_RID"; else printf '(none)'; fi)"
 
 # Poll request_log for the row matching THIS request_id (Vector write).
 R_EID=""
@@ -124,7 +129,7 @@ for i in $(seq 1 25); do
     fi
     sleep 1
 done
-assert_eq "request_log row appears for this run's request_id" "$LIVE_RID" "$([ -n "$R_RID" ] && echo "$R_RID" || echo "(none)")"
+assert_eq "request_log row appears for this run's request_id" "$LIVE_RID" "$(if [ -n "$R_RID" ]; then printf '%s' "$R_RID"; else printf '(none)'; fi)"
 
 # Core alignment assertions (request_id + event_id match on both tables).
 assert_alignment "$U_EID" "$U_RID" "$R_EID" "$R_RID"
@@ -145,12 +150,12 @@ if [ -n "$U_RID" ]; then
     # Model must be canonicalized by model_registry.canonical(): lowercase,
     # last path segment (provider prefix stripped). The local model id is
     # /zip/<name>.gguf -> <name>.gguf lowercased (registry alias).
-    assert_eq "usage_log.model is populated (non-empty)" "yes" "$([ -n "$U_MODEL" ] && echo yes || echo no)"
-    assert_eq "usage_log.model is normalized (lowercase)" "true" "$([ "$U_MODEL" = "$(printf '%s' "$U_MODEL" | tr 'A-Z' 'a-z')" ] && echo true || echo false)"
+    assert_eq "usage_log.model is populated (non-empty)" "yes" "$(if [ -n "$U_MODEL" ]; then printf 'yes'; else printf 'no'; fi)"
+    assert_eq "usage_log.model is normalized (lowercase)" "true" "$(if [ "$U_MODEL" = "$(printf '%s' "$U_MODEL" | tr 'A-Z' 'a-z')" ]; then printf 'true'; else printf 'false'; fi)"
     EXPECTED_NORM=$(printf '%s' "$MODEL_ID" | sed 's|.*/||' | tr 'A-Z' 'a-z')
     assert_eq "usage_log.model matches canonical(model id)" "$EXPECTED_NORM" "$U_MODEL"
-    assert_eq "usage_log tokens persisted > 0 (prompt)" "true" "$([ "${U_PROMPT:-0}" -gt 0 ] && echo true || echo false)"
-    assert_eq "usage_log tokens persisted > 0 (total)" "true" "$([ "${U_TOTAL:-0}" -gt 0 ] && echo true || echo false)"
+    assert_eq "usage_log tokens persisted > 0 (prompt)" "true" "$(if [ "${U_PROMPT:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
+    assert_eq "usage_log tokens persisted > 0 (total)" "true" "$(if [ "${U_TOTAL:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
 fi
 
 echo ""

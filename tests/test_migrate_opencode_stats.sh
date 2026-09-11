@@ -68,8 +68,8 @@ CLEANED=false
 cleanup() {
     [ "$CLEANED" = true ] && return 0
     CLEANED=true
-    # Never let cleanup itself abort or re-trigger: it must always finish.
-    set +e
+    # Never re-trigger: clear traps first. Every fallible command below is
+    # guarded individually so cleanup always runs to completion.
     trap - EXIT INT TERM HUP
     local c stale_all
     for c in "${CONTAINERS[@]:-}"; do
@@ -87,9 +87,13 @@ cleanup() {
     while IFS= read -r stale_all; do
         [ -z "$stale_all" ] && continue
         echo "[WARN] cleanup backstop removing unregistered container: $stale_all" >&2
-        "$PODMAN_BIN" rm -f -v "$stale_all" >&2
+        if ! "$PODMAN_BIN" rm -f -v "$stale_all" >&2; then
+            echo "[WARN] failed to remove backstop container $stale_all" >&2
+        fi
     done < <("$PODMAN_BIN" ps -a --format '{{.Names}}' | awk '$1 ~ /^migtest-ch-/')
-    rm -rf "$TMPD"
+    if ! rm -rf "$TMPD"; then
+        echo "[WARN] failed to remove temp dir $TMPD" >&2
+    fi
     return 0
 }
 trap cleanup EXIT
@@ -175,8 +179,10 @@ JSON
 
 SRC_COPY="$TMPD/fixture-copy.db"
 sqlite3 "$FIXTURE" ".backup '$SRC_COPY'"
-assert_eq "copy has no WAL sidecar (FR-5.1)" "false" "$([ -e "$SRC_COPY-wal" ] && echo true || echo false)"
-assert_eq "copy has no SHM sidecar (FR-5.1)" "false" "$([ -e "$SRC_COPY-shm" ] && echo true || echo false)"
+file_exists() { if [ -e "$1" ]; then printf 'true'; else printf 'false'; fi; }
+text_matches() { if echo "$1" | grep -q "$2"; then printf 'true'; else printf 'false'; fi; }
+assert_eq "copy has no WAL sidecar (FR-5.1)" "false" "$(file_exists "$SRC_COPY-wal")"
+assert_eq "copy has no SHM sidecar (FR-5.1)" "false" "$(file_exists "$SRC_COPY-shm")"
 
 if ! start_clickhouse; then echo "[FAIL] ephemeral ClickHouse failed to start"; fail=$((fail+1)); summary; fi
 echo "[INFO] fresh ClickHouse at $CH_URL"
@@ -207,11 +213,11 @@ assert_eq "run1 request_log inserted" \
     "$(echo "$RUN1" | grep 'request_log:')"
 assert_eq "backup manifest rows (3 tables)" "3" "$(wc -l < "$BACKUP_DIR/manifest.txt")"
 assert_eq "backup usage_log native dump exists" "true" \
-    "$([ -f "$BACKUP_DIR/usage_log.native" ] && echo true || echo false)"
+    "$(file_exists "$BACKUP_DIR/usage_log.native")"
 assert_eq "backup request_log native dump exists" "true" \
-    "$([ -f "$BACKUP_DIR/request_log.native" ] && echo true || echo false)"
+    "$(file_exists "$BACKUP_DIR/request_log.native")"
 assert_eq "backup billing_ledger native dump exists" "true" \
-    "$([ -f "$BACKUP_DIR/billing_ledger.native" ] && echo true || echo false)"
+    "$(file_exists "$BACKUP_DIR/billing_ledger.native")"
 assert_eq "backup manifest pre-insert counts are 0" "3" \
     "$(grep -c 'rows=0' "$BACKUP_DIR/manifest.txt")"
 
@@ -285,14 +291,12 @@ assert_eq "billing_ledger MV row model" "kimi-k3" "$(echo "$BL" | jq -r .model_n
 assert_eq "billing_ledger MV row cost" "0.5" "$(echo "$BL" | jq -r .cost)"
 
 # ---------------------------------------------------------- rerun gate
-set +e
-GUARD_OUT=$(OPENCODE_DBS="$SRC_COPY" bash "$MIGRATOR" --clickhouse-url "$CH_URL" --pricing-file "$PRICING_FIXTURE" 2>&1)
-GUARD_RC=$?
-set -e
+GUARD_RC=0
+GUARD_OUT=$(OPENCODE_DBS="$SRC_COPY" bash "$MIGRATOR" --clickhouse-url "$CH_URL" --pricing-file "$PRICING_FIXTURE" 2>&1) || GUARD_RC=$?
 echo "$GUARD_OUT"
 assert_eq "rerun without --force aborts" "1" "$GUARD_RC"
 assert_eq "rerun gate message" "true" \
-    "$(echo "$GUARD_OUT" | grep -q 'already present in llm_gateway.usage_log' && echo true || echo false)"
+    "$(text_matches "$GUARD_OUT" 'already present in llm_gateway.usage_log')"
 
 # ---------------------------------------------------------- idempotency (--force)
 RUN2=$(OPENCODE_DBS="$SRC_COPY" bash "$MIGRATOR" --clickhouse-url "$CH_URL" --force --pricing-file "$PRICING_FIXTURE")

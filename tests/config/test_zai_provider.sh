@@ -47,7 +47,7 @@ assert_eq "relay-zai-key-v1: proxy-rewrite replacement is /api/coding/paas/v4/" 
 for pf in "$REPO_ROOT"/conf/providers/*.yaml; do
     pname=$(basename "$pf")
     prow=$(yaml_to_json "$pf" | jq -r '.route // empty')
-    assert_eq "$pname: top-level route present (provider-sync.lua:86 nil-guard)" "yes" "$([ -n "$prow" ] && echo yes || echo no)"
+    assert_eq "$pname: top-level route present (provider-sync.lua:86 nil-guard)" "yes" "$(if [ -n "$prow" ]; then printf 'yes'; else printf 'no'; fi)"
     pnpm=$(yaml_to_json "$pf" | jq -r '.npm // empty')
-    assert_eq "$pname: top-level npm present" "yes" "$([ -n "$pnpm" ] && echo yes || echo no)"
+    assert_eq "$pname: top-level npm present" "yes" "$(if [ -n "$pnpm" ]; then printf 'yes'; else printf 'no'; fi)"
 done

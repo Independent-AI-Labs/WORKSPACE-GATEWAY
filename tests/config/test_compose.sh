@@ -7,7 +7,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$SCRIPT_DIR/yaml_helpers.sh"
+source "$SCRIPT_DIR/yaml_helpers.sh" || exit 1
 
 pass=0
 fail=0
@@ -155,74 +155,96 @@ assert_eq "APISIX exposes port 9100 for prometheus" "1" "$APISIX_PORT_9100"
 APISIX_PORT_9180=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(endswith(":9180:9180") or . == "9180:9180")] | length')
 assert_eq "APISIX exposes port 9180 for Admin API + Dashboard" "1" "$APISIX_PORT_9180"
 
+APISIX_MOUNTS_RC=0
 APISIX_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.apisix.volumes[]')
-HAS_APISIX_YAML=$(echo "$APISIX_MOUNTS" | grep -c "apisix.yaml" || echo "")
+HAS_APISIX_YAML_RC=0
+HAS_APISIX_YAML=$(echo "$APISIX_MOUNTS" | grep -c "apisix.yaml" ) || { APISIX_MOUNTS_RC=$?; APISIX_MOUNTS=""; }
 assert_eq "APISIX mounts apisix.yaml" "1" "$HAS_APISIX_YAML"
 
-HAS_CONFIG_YAML=$(echo "$APISIX_MOUNTS" | grep -c "config.yaml" || echo "")
+HAS_CONFIG_YAML_RC=0
+HAS_CONFIG_YAML=$(echo "$APISIX_MOUNTS" | grep -c "config.yaml" ) || { HAS_APISIX_YAML_RC=$?; HAS_APISIX_YAML=""; }
 assert_eq "APISIX mounts config.yaml" "1" "$HAS_CONFIG_YAML"
 
-HAS_REDACT_PATTERNS=$(echo "$APISIX_MOUNTS" | grep -c "redact-patterns.json" || echo "")
+HAS_REDACT_PATTERNS_RC=0
+HAS_REDACT_PATTERNS=$(echo "$APISIX_MOUNTS" | grep -c "redact-patterns.json" ) || { HAS_CONFIG_YAML_RC=$?; HAS_CONFIG_YAML=""; }
 assert_eq "APISIX mounts redact-patterns.json" "1" "$HAS_REDACT_PATTERNS"
 
-HAS_PROVIDERS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "conf/providers" || echo "")
+HAS_PROVIDERS_MOUNT_RC=0
+HAS_PROVIDERS_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "conf/providers" ) || { HAS_REDACT_PATTERNS_RC=$?; HAS_REDACT_PATTERNS=""; }
 assert_eq "APISIX mounts conf/providers" "1" "$HAS_PROVIDERS_MOUNT"
 
-HAS_COST_CALC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "cost_calc.lua" || echo "")
+HAS_COST_CALC_MOUNT_RC=0
+HAS_COST_CALC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "cost_calc.lua" ) || { HAS_PROVIDERS_MOUNT_RC=$?; HAS_PROVIDERS_MOUNT=""; }
 assert_eq "APISIX mounts cost_calc.lua" "1" "$HAS_COST_CALC_MOUNT"
 
-HAS_KEY_META_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "key-meta.lua" || echo "")
+HAS_KEY_META_MOUNT_RC=0
+HAS_KEY_META_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "key-meta.lua" ) || { HAS_COST_CALC_MOUNT_RC=$?; HAS_COST_CALC_MOUNT=""; }
 assert_eq "APISIX mounts key-meta.lua" "1" "$HAS_KEY_META_MOUNT"
 
-HAS_SSE_USAGE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "sse-usage.lua" || echo "")
+HAS_SSE_USAGE_MOUNT_RC=0
+HAS_SSE_USAGE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "sse-usage.lua" ) || { HAS_KEY_META_MOUNT_RC=$?; HAS_KEY_META_MOUNT=""; }
 assert_eq "APISIX mounts sse-usage.lua" "1" "$HAS_SSE_USAGE_MOUNT"
 
-HAS_OAUTH_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth-auth.lua" || echo "")
+HAS_OAUTH_AUTH_MOUNT_RC=0
+HAS_OAUTH_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth-auth.lua" ) || { HAS_SSE_USAGE_MOUNT_RC=$?; HAS_SSE_USAGE_MOUNT=""; }
 assert_eq "APISIX mounts oauth-auth.lua" "1" "$HAS_OAUTH_AUTH_MOUNT"
 
-HAS_OAUTH_JWT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_jwt.lua" || echo "")
+HAS_OAUTH_JWT_MOUNT_RC=0
+HAS_OAUTH_JWT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_jwt.lua" ) || { HAS_OAUTH_AUTH_MOUNT_RC=$?; HAS_OAUTH_AUTH_MOUNT=""; }
 assert_eq "APISIX mounts oauth_jwt.lua" "1" "$HAS_OAUTH_JWT_MOUNT"
 
-HAS_OAUTH_DEVICE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_device.lua" || echo "")
+HAS_OAUTH_DEVICE_MOUNT_RC=0
+HAS_OAUTH_DEVICE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_device.lua" ) || { HAS_OAUTH_JWT_MOUNT_RC=$?; HAS_OAUTH_JWT_MOUNT=""; }
 assert_eq "APISIX mounts oauth_device.lua" "1" "$HAS_OAUTH_DEVICE_MOUNT"
 
-HAS_OAUTH_STORE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_store.lua" || echo "")
+HAS_OAUTH_STORE_MOUNT_RC=0
+HAS_OAUTH_STORE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_store.lua" ) || { HAS_OAUTH_DEVICE_MOUNT_RC=$?; HAS_OAUTH_DEVICE_MOUNT=""; }
 assert_eq "APISIX mounts oauth_store.lua" "1" "$HAS_OAUTH_STORE_MOUNT"
 
-HAS_OAUTH_SESSION_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_session.lua" || echo "")
+HAS_OAUTH_SESSION_MOUNT_RC=0
+HAS_OAUTH_SESSION_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_session.lua" ) || { HAS_OAUTH_STORE_MOUNT_RC=$?; HAS_OAUTH_STORE_MOUNT=""; }
 assert_eq "APISIX mounts oauth_session.lua" "1" "$HAS_OAUTH_SESSION_MOUNT"
 
-HAS_PROVIDER_SYNC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider-sync.lua" || echo "")
+HAS_PROVIDER_SYNC_MOUNT_RC=0
+HAS_PROVIDER_SYNC_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider-sync.lua" ) || { HAS_OAUTH_SESSION_MOUNT_RC=$?; HAS_OAUTH_SESSION_MOUNT=""; }
 assert_eq "APISIX mounts provider-sync.lua" "1" "$HAS_PROVIDER_SYNC_MOUNT"
 
-HAS_PROVIDER_SYNC_CATALOG_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_catalog.lua" || echo "")
+HAS_PROVIDER_SYNC_CATALOG_MOUNT_RC=0
+HAS_PROVIDER_SYNC_CATALOG_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_catalog.lua" ) || { HAS_PROVIDER_SYNC_MOUNT_RC=$?; HAS_PROVIDER_SYNC_MOUNT=""; }
 assert_eq "APISIX mounts provider_sync_catalog.lua" "1" "$HAS_PROVIDER_SYNC_CATALOG_MOUNT"
-HAS_PROVIDER_SYNC_ALIASES_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_aliases.lua" || echo "")
+HAS_PROVIDER_SYNC_ALIASES_MOUNT_RC=0
+HAS_PROVIDER_SYNC_ALIASES_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_aliases.lua" ) || { HAS_PROVIDER_SYNC_CATALOG_MOUNT_RC=$?; HAS_PROVIDER_SYNC_CATALOG_MOUNT=""; }
 assert_eq "APISIX mounts provider_sync_aliases.lua" "1" "$HAS_PROVIDER_SYNC_ALIASES_MOUNT"
-HAS_PROVIDER_SYNC_CONTRACT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_contract.lua" || echo "")
+HAS_PROVIDER_SYNC_CONTRACT_MOUNT_RC=0
+HAS_PROVIDER_SYNC_CONTRACT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_contract.lua" ) || { HAS_PROVIDER_SYNC_ALIASES_MOUNT_RC=$?; HAS_PROVIDER_SYNC_ALIASES_MOUNT=""; }
 assert_eq "APISIX mounts provider_sync_contract.lua" "1" "$HAS_PROVIDER_SYNC_CONTRACT_MOUNT"
 
-HAS_MODEL_REGISTRY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "model_registry.lua" || echo "")
+HAS_MODEL_REGISTRY_MOUNT_RC=0
+HAS_MODEL_REGISTRY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "model_registry.lua" ) || { HAS_PROVIDER_SYNC_CONTRACT_MOUNT_RC=$?; HAS_PROVIDER_SYNC_CONTRACT_MOUNT=""; }
 assert_eq "APISIX mounts model_registry.lua" "1" "$HAS_MODEL_REGISTRY_MOUNT"
 
-HAS_PROVIDER_SYNC_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_pricing.lua" || echo "")
+HAS_PROVIDER_SYNC_PRICING_MOUNT_RC=0
+HAS_PROVIDER_SYNC_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_pricing.lua" ) || { HAS_MODEL_REGISTRY_MOUNT_RC=$?; HAS_MODEL_REGISTRY_MOUNT=""; }
 assert_eq "APISIX mounts provider_sync_pricing.lua" "1" "$HAS_PROVIDER_SYNC_PRICING_MOUNT"
-HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.lua" || echo "")
+HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.lua" ) || { HAS_PROVIDER_SYNC_PRICING_MOUNT_RC=$?; HAS_PROVIDER_SYNC_PRICING_MOUNT=""; }
 assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
 assert_eq "APISIX has 26 volume mounts (4 config + 22 plugins)" "26" "$APISIX_VOLUME_COUNT"
 
+CLICKHOUSE_MOUNTS_RC=0
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
-HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" || echo "")
+HAS_INIT_SQL_RC=0
+HAS_INIT_SQL=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-init.sql" ) || { CLICKHOUSE_MOUNTS_RC=$?; CLICKHOUSE_MOUNTS=""; }
 assert_eq "ClickHouse mounts clickhouse-init.sql" "1" "$HAS_INIT_SQL"
-HAS_DISABLED_METRIC_LOGS=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-disable-metric-logs.xml" || echo "")
+HAS_DISABLED_METRIC_LOGS=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-disable-metric-logs.xml" ) || { HAS_INIT_SQL_RC=$?; HAS_INIT_SQL=""; }
 assert_eq "ClickHouse disables metric log writers" "1" "$HAS_DISABLED_METRIC_LOGS"
 CLICKHOUSE_NO_CHOWN=$(echo "$JSON_DATA" | jq -r '[.services.clickhouse.environment[] | select(. == "CLICKHOUSE_DO_NOT_CHOWN=1")] | length')
 assert_eq "ClickHouse skips recursive volume chown" "1" "$CLICKHOUSE_NO_CHOWN"
 
+VECTOR_MOUNTS_RC=0
 VECTOR_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.vector.volumes[]')
-HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" || echo "")
+HAS_VECTOR_TOML=$(echo "$VECTOR_MOUNTS" | grep -c "vector.toml" ) || { VECTOR_MOUNTS_RC=$?; VECTOR_MOUNTS=""; }
 assert_eq "Vector mounts vector.toml" "1" "$HAS_VECTOR_TOML"
 
 VECTOR_PORT_18080=$(echo "$JSON_DATA" | jq '[.services.vector.ports[] | select(endswith(":18080:8080") or . == "18080:8080")] | length')
@@ -255,15 +277,18 @@ assert_eq "Has grafana-data volume" "true" "$HAS_GRAFANA_VOLUME"
 HAS_ETCD_VOLUME=$(echo "$JSON_DATA" | jq '.volumes | has("etcd-data")')
 assert_eq "Has etcd-data volume" "true" "$HAS_ETCD_VOLUME"
 
+APISIX_ENV_FILE_RC=0
 APISIX_ENV_FILE=$(echo "$JSON_DATA" | jq -r '.services.apisix.env_file[]')
-HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" || echo "")
+HAS_ENV_FILE=$(echo "$APISIX_ENV_FILE" | grep -c "\.env" ) || { APISIX_ENV_FILE_RC=$?; APISIX_ENV_FILE=""; }
 assert_eq "APISIX has env_file pointing to .env" "1" "$HAS_ENV_FILE"
 
+APISIX_DEPS_RC=0
 APISIX_DEPS=$(echo "$JSON_DATA" | jq -r '.services.apisix.depends_on[]')
-HAS_OPENBAO_DEP=$(echo "$APISIX_DEPS" | grep -c "openbao" || echo "")
+HAS_OPENBAO_DEP_RC=0
+HAS_OPENBAO_DEP=$(echo "$APISIX_DEPS" | grep -c "openbao" ) || { APISIX_DEPS_RC=$?; APISIX_DEPS=""; }
 assert_eq "APISIX depends on openbao" "1" "$HAS_OPENBAO_DEP"
 
-HAS_ETCD_DEP=$(echo "$APISIX_DEPS" | grep -c "etcd" || echo "")
+HAS_ETCD_DEP=$(echo "$APISIX_DEPS" | grep -c "etcd" ) || { HAS_OPENBAO_DEP_RC=$?; HAS_OPENBAO_DEP=""; }
 assert_eq "APISIX depends on etcd" "1" "$HAS_ETCD_DEP"
 
 summary

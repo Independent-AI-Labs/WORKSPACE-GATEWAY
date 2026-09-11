@@ -27,7 +27,7 @@ assert_eq() {
   fi
 }
 
-assert_eq "gateway auth plugin exists" "yes" "$([ -f "$PLUGIN" ] && printf yes || printf no)"
+assert_eq "gateway auth plugin exists" "yes" "$(if [ -f "$PLUGIN" ]; then printf 'yes'; else printf 'no'; fi)"
 assert_eq "OpenAI example has one plugin entry" "1" "$(jq '.plugin | length' "$OPENAI_EXAMPLE")"
 assert_eq "Kimi example has one plugin entry" "1" "$(jq '.plugin | length' "$KIMI_EXAMPLE")"
 assert_eq "OpenAI example plugin provider" "workspace-gw-openai-device-oauth" \
@@ -47,10 +47,10 @@ else
 fi
 
 if grep -q 'python3\|oauth-flow\|browser_oauth' "$LOGIN_SCRIPT"; then
-  echo "[FAIL] legacy login script contains browser/interpreter implementation"
+  echo "[FAIL] earlier login script contains browser/interpreter implementation"
   fail=$((fail + 1))
 else
-  echo "[PASS] legacy login script has no browser/interpreter implementation"
+  echo "[PASS] earlier login script has no browser/interpreter implementation"
   pass=$((pass + 1))
 fi
 

@@ -18,7 +18,7 @@
 **Cross-references:**
 - [REQ-PROVIDER-XAI](../requirements/REQ-PROVIDER-XAI.md): requirements contract
 - SPEC-PROVIDER-KIMI / REQ-PROVIDER-KIMI: implemented analog ([`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua), [`plugins/custom/oauth_jwt.lua`](../../plugins/custom/oauth_jwt.lua), [`plugins/custom/oauth_store.lua`](../../plugins/custom/oauth_store.lua), [`plugins/custom/oauth_device.lua`](../../plugins/custom/oauth_device.lua))
-- Legacy PROVIDER-XAI-GROK design (v1.1, absorbed)
+- Earlier PROVIDER-XAI-GROK design (v1.1, absorbed)
 - [`docs/architecture/README.md`](../architecture/README.md): architecture hub
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): route definitions (no `/grok` routes yet)
 
@@ -282,7 +282,7 @@ Shared dict: `lua_shared_dict xai_cache 5m` in `conf/config.yaml`
 | `plugins/custom/xai_tokens.lua` (planned) | exchange/refresh/OpenBao CRUD | new file |
 | `conf/config.yaml` (planned edit) | register `xai-auth`, `xai_cache` dict | add entries |
 | `conf/apisix.yaml` (planned edit) | 4 new `/grok` routes | add routes |
-| `tests/lua/`, `tests/integration/` (planned) | unit + mock-endpoint integration | new tests |
+| `tests/lua/`, `tests/integration/` (planned) | unit + simulated-endpoint integration | new tests |
 
 ## 13. Implementation Status
 

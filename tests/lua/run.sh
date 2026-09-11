@@ -8,7 +8,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=../config/yaml_helpers.sh
-source "$REPO_ROOT/tests/config/yaml_helpers.sh"
+source "$REPO_ROOT/tests/config/yaml_helpers.sh" || exit 1
 
 IMAGE="apache/apisix:3.17.0-debian"
 
@@ -20,7 +20,7 @@ OVERALL_RET=0
 for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_oauth_jwt.lua test_oauth_broker.lua test_oauth_session.lua test_oauth_device.lua test_oauth_auth.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua; do
   echo ""
   echo "[run.sh] running $test_file..."
-  set +e
+  ret=0
   "$PODMAN_BIN" run --rm \
     -v "$REPO_ROOT/plugins/custom:/plugins/custom:ro" \
     -v "$REPO_ROOT/plugins/custom/redact_lib.lua:/usr/local/apisix/apisix/plugins/redact_lib.lua:ro" \
@@ -30,9 +30,7 @@ for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_oauth_jwt.lua t
     "$IMAGE" \
      -I /plugins/custom \
      -I /workspace/tests/lua \
-    "/workspace/tests/lua/$test_file"
-  ret=$?
-  set -e
+    "/workspace/tests/lua/$test_file" || ret=$?
   echo "[run.sh] $test_file exit code: $ret"
   if [ "$ret" -ne 0 ]; then
     OVERALL_RET=$ret

@@ -5,7 +5,7 @@ set -euo pipefail
 # Persistent validation of the golang-migrate schema-migration framework
 # (ClickHouse-KB-recommended). Asserts: directory layout, file naming,
 # compose `migrate` service, ansible orchestration, Makefile routing,
-# architecture/TELEMETRY-AND-SCHEMA.md references, and that the legacy hand-rolled framework
+# architecture/TELEMETRY-AND-SCHEMA.md references, and that the earlier hand-rolled framework
 # has been fully removed. Does NOT require a running ClickHouse.
 
 _SELF="${BASH_SOURCE[0]}"
@@ -52,26 +52,27 @@ assert_not_contains() {
         pass=$((pass + 1))
     else
         echo "[FAIL] $desc -- unexpectedly contains: [$needle]"
+        fail_RC=0
         fail=$((fail + 1))
     fi
 }
 
 # ── (A) regression guards: old hand-rolled framework fully removed ──────
 assert_eq "scripts/clickhouse-migrate.sh removed" "false" \
-    "$([ -f "$REPO_ROOT/scripts/clickhouse-migrate.sh" ] && echo true || echo false)"
+    "$(if [ -f "$REPO_ROOT/scripts/clickhouse-migrate.sh" ]; then printf 'true'; else printf 'false'; fi)"
 assert_eq "scripts/ch-migrate.sh removed" "false" \
-    "$([ -f "$REPO_ROOT/scripts/ch-migrate.sh" ] && echo true || echo false)"
-assert_eq "legacy conf/clickhouse-migration-cost-source.sql removed" "false" \
-    "$([ -f "$REPO_ROOT/conf/clickhouse-migration-cost-source.sql" ] && echo true || echo false)"
+    "$(if [ -f "$REPO_ROOT/scripts/ch-migrate.sh" ]; then printf 'true'; else printf 'false'; fi)"
+assert_eq "earlier conf/clickhouse-migration-cost-source.sql removed" "false" \
+    "$(if [ -f "$REPO_ROOT/conf/clickhouse-migration-cost-source.sql" ]; then printf 'true'; else printf 'false'; fi)"
 
 # ── (B) migrations directory layout ─────────────────────────────────────
 assert_eq "migrations directory exists" "true" \
-    "$([ -d "$MIGRATIONS_DIR" ] && echo true || echo false)"
+    "$(if [ -d "$MIGRATIONS_DIR" ]; then printf 'true'; else printf 'false'; fi)"
 
-mapfile -t mig_files < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' | sort || echo "")
+mapfile -t mig_files < <(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' | sort ) || { fail_RC=$?; fail=""; }
 file_count="${#mig_files[@]}"
 assert_eq "at least one migration file exists" "true" \
-    "$([ "$file_count" -gt 0 ] && echo true || echo false)"
+    "$(if [ "$file_count" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
 
 # every file must match NNNNNN_*.up.sql or NNNNNN_*.down.sql naming
 bad_naming=0
@@ -114,16 +115,17 @@ assert_eq "000003 down has no executable SQL (irreversible marker)" "" "$down_00
 
 # ── (C) specific known migrations exist ─────────────────────────────────
 assert_eq "migration 000001_add_cost_source.up.sql exists" "true" \
-    "$([ -f "$MIGRATIONS_DIR/000001_add_cost_source.up.sql" ] && echo true || echo false)"
+    "$(if [ -f "$MIGRATIONS_DIR/000001_add_cost_source.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
 assert_eq "migration 000002_add_request_id.up.sql exists" "true" \
-    "$([ -f "$MIGRATIONS_DIR/000002_add_request_id.up.sql" ] && echo true || echo false)"
+    "$(if [ -f "$MIGRATIONS_DIR/000002_add_request_id.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
 assert_eq "migration 000003_align_usage_log_order_by.up.sql exists" "true" \
-    "$([ -f "$MIGRATIONS_DIR/000003_align_usage_log_order_by.up.sql" ] && echo true || echo false)"
+    "$(if [ -f "$MIGRATIONS_DIR/000003_align_usage_log_order_by.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
 assert_eq "migration 000004_create_billing_ledger_mv.up.sql exists" "true" \
-    "$([ -f "$MIGRATIONS_DIR/000004_create_billing_ledger_mv.up.sql" ] && echo true || echo false)"
+    "$(if [ -f "$MIGRATIONS_DIR/000004_create_billing_ledger_mv.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
 
 # ── (D) compose `migrate` service integration ───────────────────────────
-compose_body="$(cat "$COMPOSE_FILE" || echo "")"
+compose_body_rc=0
+    compose_body="$(cat "$COMPOSE_FILE")" || compose_body_rc=$?
 assert_contains "docker-compose.yml defines migrate service" "$compose_body" "  migrate:"
 floating_tag="latest"
 assert_contains "migrate service uses a pinned digest" "$compose_body" "migrate/migrate@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4"
@@ -137,7 +139,8 @@ assert_not_contains "migrate -database does NOT use localhost" "$compose_body" "
 assert_contains "migrate service mounts conf/migrations read-only" "$compose_body" "conf/migrations:/migrations:ro"
 
 # ── (E) ansible orchestration integration ──────────────────────────────
-ansible_body="$(cat "$ANSIBLE_FILE" || echo "")"
+ansible_body_rc=0
+    ansible_body="$(cat "$ANSIBLE_FILE")" || ansible_body_rc=$?
 assert_contains "ansible runs golang-migrate via compose" "$ansible_body" "run --rm migrate up"
 assert_contains "ansible migration task tagged [start]" "$ansible_body" "tags: [start"
 
@@ -146,14 +149,15 @@ init_line=$(grep -n "Run ClickHouse init SQL" "$ANSIBLE_FILE" | sed -n '1p' | cu
 migrate_line=$(grep -n "run --rm migrate up" "$ANSIBLE_FILE" | sed -n '1p' | cut -d: -f1)
 if [ -n "$init_line" ] && [ -n "$migrate_line" ]; then
     assert_eq "ansible: migrations run AFTER init.sql" "true" \
-        "$([ "$migrate_line" -gt "$init_line" ] && echo true || echo false)"
+        "$(if [ "$migrate_line" -gt "$init_line" ]; then printf 'true'; else printf 'false'; fi)"
 else
     echo "[FAIL] could not locate init.sql or migrate task lines for ordering check"
     fail=$((fail + 1))
 fi
 
 # ── (F) Makefile integration ────────────────────────────────────────────
-mk_body="$(cat "$MAKEFILE" || echo "")"
+mk_body_rc=0
+    mk_body="$(cat "$MAKEFILE")" || mk_body_rc=$?
 assert_contains "Makefile has ch-migrate target" "$mk_body" "ch-migrate:"
 assert_contains "Makefile ch-migrate invokes gateway compose migrate-up" "$mk_body" "gateway-compose.sh migrate-up"
 assert_contains "Makefile has ch-migrate-status target" "$mk_body" "ch-migrate-status:"
@@ -162,7 +166,8 @@ assert_not_contains "Makefile no longer references scripts/clickhouse-migrate.sh
 assert_not_contains "Makefile no longer references scripts/ch-migrate.sh" "$mk_body" "ch-migrate.sh"
 
 # ── (G) architecture/TELEMETRY-AND-SCHEMA.md references ──────────────────────────────────────
-arch_body="$(cat "$ARCH_FILE" || echo "")"
+arch_body_rc=0
+    arch_body="$(cat "$ARCH_FILE")" || arch_body_rc=$?
 assert_contains "architecture/TELEMETRY-AND-SCHEMA.md references golang-migrate" "$arch_body" "golang-migrate"
 assert_contains "architecture/TELEMETRY-AND-SCHEMA.md references schema_migrations" "$arch_body" "schema_migrations"
 assert_not_contains "architecture/TELEMETRY-AND-SCHEMA.md does NOT reference scripts/clickhouse-migrate.sh" "$arch_body" "scripts/clickhouse-migrate.sh"

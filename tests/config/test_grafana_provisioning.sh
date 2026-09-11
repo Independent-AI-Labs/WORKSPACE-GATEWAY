@@ -7,7 +7,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$SCRIPT_DIR/yaml_helpers.sh"
+source "$SCRIPT_DIR/yaml_helpers.sh" || exit 1
 
 pass=0
 fail=0
@@ -358,7 +358,7 @@ P3_PALETTE=$(jq -r '
       .;
       if $prop.id == "displayName" then . + {__name: $prop.value}
       elif $prop.id == "color" and (.__name // null) != null then
-        . + {(.__name): ($prop.value.fixedColor | ascii_downcase)} | del(.__name)
+        (.__name) as $n | . + {($n): ($prop.value.fixedColor | ascii_downcase)} | del(.__name)
       else . end
     )
   ) | del(.__name) | . as $got |

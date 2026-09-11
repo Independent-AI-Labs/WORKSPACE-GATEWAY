@@ -34,6 +34,7 @@ assert_contains() {
         pass=$((pass + 1))
     else
         echo "[FAIL] $desc -- missing: $needle in: $haystack"
+        fail_RC=0
         fail=$((fail + 1))
     fi
 }
@@ -56,23 +57,25 @@ if [ ! -x "$CLIENT_SCRIPT" ]; then
 fi
 
 # --- Test: --help works ---
-HELP_OUTPUT=$(bash "$CLIENT_SCRIPT" --help 2>&1 || echo "")
+HELP_OUTPUT_RC=0
+HELP_OUTPUT=$(bash "$CLIENT_SCRIPT" --help 2>&1 ) || { fail_RC=$?; fail=""; }
 assert_contains "help shows usage" "Usage:" "$HELP_OUTPUT"
 assert_contains "help mentions provider-id" "--provider-id" "$HELP_OUTPUT"
 assert_contains "help mentions --all" "--all" "$HELP_OUTPUT"
 assert_contains "help mentions --require-auth" "--require-auth" "$HELP_OUTPUT"
 
 # --- Test: missing --provider-id fails ---
-MISSING_OUTPUT=$(bash "$CLIENT_SCRIPT" --gateway http://localhost:9080 2>&1 || echo "")
+MISSING_OUTPUT_RC=0
+MISSING_OUTPUT=$(bash "$CLIENT_SCRIPT" --gateway http://localhost:9080 2>&1 ) || { HELP_OUTPUT_RC=$?; HELP_OUTPUT=""; }
 assert_contains "missing provider-id errors" "ERROR: --provider-id is required" "$MISSING_OUTPUT"
 
 # --- Test: invalid gateway fails ---
-INVALID_GATEWAY=$(bash "$CLIENT_SCRIPT" --provider-id test --gateway ftp://bad 2>&1 || echo "")
+INVALID_GATEWAY=$(bash "$CLIENT_SCRIPT" --provider-id test --gateway ftp://bad 2>&1 ) || { MISSING_OUTPUT_RC=$?; MISSING_OUTPUT=""; }
 assert_contains "invalid gateway errors" "ERROR: --gateway must be an http(s) URL" "$INVALID_GATEWAY"
 
-# --- Test: full OAuth flow with mock server ---
-if ! command -v python3 1>&2; then
-    echo "[SKIP] python3 not available; skipping live client script flow test"
+# --- Test: full OAuth flow with the simulated server ---
+if ! command -v uv 1>&2; then
+    echo "[SKIP] uv not available; skipping live client script flow test"
     pass=$((pass + 1))
     summary
 fi
@@ -86,7 +89,7 @@ LOG_FILE="$TMPDIR/server.log"
 CONFIG_FILE="$TMPDIR/opencode.json"
 AUTH_FILE="$TMPDIR/auth.json"
 
-python3 "$SCRIPT_DIR/mock_provider_server.py" "$PORT_FILE" "$LOG_FILE" >>"$LOG_FILE" 2>&1 &
+uv run python "$SCRIPT_DIR/mock_provider_server.py" "$PORT_FILE" "$LOG_FILE" >>"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 # Wait for port file to appear.
@@ -98,7 +101,7 @@ for _ in $(seq 1 30); do
 done
 
 if [ ! -f "$PORT_FILE" ] || [ ! -s "$PORT_FILE" ]; then
-    echo "[FAIL] mock server did not start"
+    echo "[FAIL] simulated server did not start"
     if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
     fail=$((fail + 1))
     summary
@@ -108,7 +111,7 @@ PORT=$(cat "$PORT_FILE")
 GATEWAY="http://127.0.0.1:$PORT"
 
 # Run client script in OAuth mode with --no-browser.
-set +e
+CLIENT_RC=0
 CLIENT_OUTPUT=$(timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-oauth \
     --require-auth \
@@ -118,16 +121,14 @@ CLIENT_OUTPUT=$(timeout 30 bash "$CLIENT_SCRIPT" \
     --auth-file "$AUTH_FILE" \
     --no-browser \
     --no-clipboard \
-    --device-timeout 5 2>&1)
-CLIENT_RC=$?
-set -e
+    --device-timeout 5 2>&1) || CLIENT_RC=$?
 
 if [ "$CLIENT_RC" -ne 0 ]; then
     echo "[FAIL] client script exited with status=$CLIENT_RC"
     echo "CLIENT_OUTPUT:"
     echo "$CLIENT_OUTPUT"
     echo "SERVER_LOG:"
-    cat "$LOG_FILE" || echo "[INFO] no log file at $LOG_FILE"
+    if ! cat "$LOG_FILE"; then echo "[INFO] no log file at $LOG_FILE"; fi
     if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
     fail=$((fail + 1))
     summary
@@ -149,33 +150,41 @@ if [ -f "$EXPECTED_WRAPPER" ]; then
         "gateway: \"$GATEWAY\"" "$(cat "$EXPECTED_WRAPPER")"
 else
     echo "[FAIL] wrapper not created: $EXPECTED_WRAPPER"
+    fail_RC=0
     fail=$((fail + 1))
 fi
 if [ -f "$CONFIG_FILE" ]; then
+    PLUGIN_HITS_RC=0
     PLUGIN_HITS=$(jq --arg w "$EXPECTED_WRAPPER" \
-        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" || echo "0")
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" ) || { PLUGIN_HITS_RC=$?; PLUGIN_HITS="0"; }
     assert_eq "plugin entry for test-oauth registered once" "1" "$PLUGIN_HITS"
 fi
 
 # Verify config file has the provider block.
 if [ -f "$CONFIG_FILE" ]; then
-    CONFIG_NAME=$(jq -r '.provider."test-oauth".name' "$CONFIG_FILE" || echo "__missing__")
+    CONFIG_NAME_RC=0
+    CONFIG_NAME=$(jq -r '.provider."test-oauth".name' "$CONFIG_FILE" ) || { fail_RC=$?; fail="__missing__"; }
     assert_eq "config file provider name" "Test OAuth" "$CONFIG_NAME"
-    CONFIG_NPM=$(jq -r '.provider."test-oauth".npm' "$CONFIG_FILE" || echo "__missing__")
+    CONFIG_NPM=$(jq -r '.provider."test-oauth".npm' "$CONFIG_FILE" ) || { CONFIG_NAME_RC=$?; CONFIG_NAME="__missing__"; }
     assert_eq "config file provider npm" "test-oauth" "$CONFIG_NPM"
-    assert_eq "config file baseURL" "http://gateway/test" "$(jq -r '.provider."test-oauth".options.baseURL' "$CONFIG_FILE" || echo "__missing__")"
+    BASEURL_RC=0
+    BASEURL=$(jq -r '.provider."test-oauth".options.baseURL' "$CONFIG_FILE") || { BASEURL_RC=$?; BASEURL="__missing__"; }
+    assert_eq "config file baseURL" "http://gateway/test" "$BASEURL"
 else
     echo "[FAIL] config file not created: $CONFIG_FILE"
+    fail_RC=0
     fail=$((fail + 1))
 fi
 
 # Verify auth file has the token.
 if [ -f "$AUTH_FILE" ]; then
-    AUTH_KEY=$(jq -r '."test-oauth".key' "$AUTH_FILE" || echo "__missing__")
-    AUTH_TYPE=$(jq -r '."test-oauth".type' "$AUTH_FILE" || echo "__missing__")
+    AUTH_KEY_RC=0
+    AUTH_KEY=$(jq -r '."test-oauth".key' "$AUTH_FILE" ) || { fail_RC=$?; fail="__missing__"; }
+    AUTH_TYPE_RC=0
+    AUTH_TYPE=$(jq -r '."test-oauth".type' "$AUTH_FILE" ) || { AUTH_KEY_RC=$?; AUTH_KEY="__missing__"; }
     assert_eq "auth file type" "api" "$AUTH_TYPE"
     assert_eq "auth file key" "test-access-token" "$AUTH_KEY"
-    AUTH_PERMS=$(stat -c '%a' "$AUTH_FILE" || echo "__missing__")
+    AUTH_PERMS=$(stat -c '%a' "$AUTH_FILE" ) || { AUTH_TYPE_RC=$?; AUTH_TYPE="__missing__"; }
     assert_eq "auth file permissions" "600" "$AUTH_PERMS"
 else
     echo "[FAIL] auth file not created: $AUTH_FILE"
@@ -194,7 +203,7 @@ else
 fi
 
 # --- Test: api_key provider with piped input (requires auth explicitly) ---
-set +e
+API_KEY_RC=0
 API_KEY_OUTPUT=$(echo "test-api-key-value" | timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-api-key \
     --require-auth \
@@ -202,9 +211,7 @@ API_KEY_OUTPUT=$(echo "test-api-key-value" | timeout 30 bash "$CLIENT_SCRIPT" \
     --session test-session-api \
     --config-file "$CONFIG_FILE" \
     --auth-file "$AUTH_FILE" \
-    --no-browser 2>&1)
-API_KEY_RC=$?
-set -e
+    --no-browser 2>&1) || API_KEY_RC=$?
 
 if [ "$API_KEY_RC" -ne 0 ]; then
     echo "[FAIL] api_key client script exited with status=$API_KEY_RC"
@@ -215,8 +222,9 @@ if [ "$API_KEY_RC" -ne 0 ]; then
 fi
 
 if [ -f "$AUTH_FILE" ]; then
-    assert_eq "api_key auth key" "test-api-key-value" \
-        "$(jq -r '."test-api-key".key' "$AUTH_FILE" || echo "__missing__")"
+    APIKEY_RC=0
+    APIKEY=$(jq -r '."test-api-key".key' "$AUTH_FILE") || { APIKEY_RC=$?; APIKEY="__missing__"; }
+    assert_eq "api_key auth key" "test-api-key-value" "$APIKEY"
 else
     echo "[FAIL] auth file missing after api_key login"
     fail=$((fail + 1))
@@ -226,8 +234,9 @@ fi
 # test-oauth entry survives untouched (idempotent, per-provider registration).
 if [ -f "$CONFIG_FILE" ]; then
     APIKEY_WRAPPER="$(dirname "$CONFIG_FILE")/plugin/wg-auth-test-api-key.ts"
+    APIKEY_PLUGIN_HITS_RC=0
     APIKEY_PLUGIN_HITS=$(jq --arg w "$APIKEY_WRAPPER" \
-        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" || echo "0")
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" ) || { APIKEY_PLUGIN_HITS_RC=$?; APIKEY_PLUGIN_HITS="0"; }
     assert_eq "no plugin entry for api_key provider" "0" "$APIKEY_PLUGIN_HITS"
     if [ -f "$APIKEY_WRAPPER" ]; then
         echo "[FAIL] wrapper created for api_key provider: $APIKEY_WRAPPER"
@@ -237,13 +246,14 @@ if [ -f "$CONFIG_FILE" ]; then
         pass=$((pass + 1))
     fi
     OAUTH_WRAPPER="$(dirname "$CONFIG_FILE")/plugin/wg-auth-test-oauth.ts"
+    OAUTH_PLUGIN_STILL_RC=0
     OAUTH_PLUGIN_STILL=$(jq --arg w "$OAUTH_WRAPPER" \
-        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" || echo "0")
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$CONFIG_FILE" ) || { OAUTH_PLUGIN_STILL_RC=$?; OAUTH_PLUGIN_STILL="0"; }
     assert_eq "test-oauth plugin entry preserved" "1" "$OAUTH_PLUGIN_STILL"
 fi
 
 # --- Test: browser-only OAuth provider is rejected with a pointer to the plugin ---
-set +e
+BROWSER_ONLY_RC=0
 BROWSER_ONLY_OUTPUT=$(echo "" | timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-browser-only \
     --require-auth \
@@ -252,9 +262,7 @@ BROWSER_ONLY_OUTPUT=$(echo "" | timeout 30 bash "$CLIENT_SCRIPT" \
     --config-file "$CONFIG_FILE" \
     --auth-file "$AUTH_FILE" \
     --no-browser \
-    --no-clipboard 2>&1)
-BROWSER_ONLY_RC=$?
-set -e
+    --no-clipboard 2>&1) || BROWSER_ONLY_RC=$?
 
 if [ "$BROWSER_ONLY_RC" -eq 0 ]; then
     echo "[FAIL] browser-only provider should not complete a device login"
@@ -268,15 +276,13 @@ fi
 # --- Test: api_key provider skips auth by default (config-only install) ---
 SKIP_CONFIG="$TMPDIR/opencode-skip.json"
 SKIP_AUTH="$TMPDIR/auth-skip.json"
-set +e
+SKIP_RC=0
 SKIP_OUTPUT=$(timeout 30 bash "$CLIENT_SCRIPT" \
     --provider-id test-api-key \
     --gateway "$GATEWAY" \
     --config-file "$SKIP_CONFIG" \
     --auth-file "$SKIP_AUTH" \
-    --no-browser < /dev/null 2>&1)
-SKIP_RC=$?
-set -e
+    --no-browser < /dev/null 2>&1) || SKIP_RC=$?
 
 assert_eq "default api_key install exits 0" "0" "$SKIP_RC"
 assert_contains "default api_key install reports skip" "Skipping API key" "$SKIP_OUTPUT"
@@ -296,16 +302,14 @@ assert_eq "default api_key install writes NO auth entry" "__missing__" "$SKIP_KE
 # --- Test: --all installs every provider (config-only by default) ---
 ALL_CONFIG="$TMPDIR/opencode-all.json"
 ALL_AUTH="$TMPDIR/auth-all.json"
-set +e
+ALL_RC=0
 ALL_OUTPUT=$(timeout 60 bash "$CLIENT_SCRIPT" \
     --all \
     --gateway "$GATEWAY" \
     --config-file "$ALL_CONFIG" \
     --auth-file "$ALL_AUTH" \
     --no-browser \
-    --no-clipboard < /dev/null 2>&1)
-ALL_RC=$?
-set -e
+    --no-clipboard < /dev/null 2>&1) || ALL_RC=$?
 
 assert_eq "--all exits 0" "0" "$ALL_RC"
 assert_contains "--all installs oauth provider" "test-oauth" "$ALL_OUTPUT"
@@ -323,11 +327,12 @@ assert_eq "--all writes api-key provider config" "Test API Key" "$ALL_APIKEY_NAM
 if [ -f "$ALL_CONFIG" ]; then
     ALL_WRAPPER="$(dirname "$ALL_CONFIG")/plugin/wg-auth-test-oauth.ts"
     ALL_PLUGIN_HITS=$(jq --arg w "$ALL_WRAPPER" \
-        '[.plugin // [] | .[] | select(. == $w)] | length' "$ALL_CONFIG" || echo "0")
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$ALL_CONFIG")
     assert_eq "--all registers oauth plugin entry" "1" "$ALL_PLUGIN_HITS"
     ALL_APIKEY_WRAPPER="$(dirname "$ALL_CONFIG")/plugin/wg-auth-test-api-key.ts"
+    ALL_APIKEY_PLUGIN_HITS_RC=0
     ALL_APIKEY_PLUGIN_HITS=$(jq --arg w "$ALL_APIKEY_WRAPPER" \
-        '[.plugin // [] | .[] | select(. == $w)] | length' "$ALL_CONFIG" || echo "0")
+        '[.plugin // [] | .[] | select(. == $w)] | length' "$ALL_CONFIG" ) || { ALL_APIKEY_PLUGIN_HITS_RC=$?; ALL_APIKEY_PLUGIN_HITS="0"; }
     assert_eq "--all registers no api_key plugin entry" "0" "$ALL_APIKEY_PLUGIN_HITS"
 fi
 if [ -f "$ALL_AUTH" ]; then

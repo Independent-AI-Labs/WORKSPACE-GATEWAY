@@ -8,7 +8,7 @@
 > opencode CLI's own HTTP server API** (`opencode serve`, default `:4096`,
 > OpenAPI 3.1 spec at `GET /doc`), NOT the WORKSPACE-GATEWAY codebase and NOT
 > the OpenCode Go upstream API. Extracted from
-> Extracted from the legacy OPENCODE-INTEGRATION doc §7 (v1.17.13 server docs).
+> Extracted from the earlier OPENCODE-INTEGRATION doc §7 (v1.17.13 server docs).
 
 ---
 

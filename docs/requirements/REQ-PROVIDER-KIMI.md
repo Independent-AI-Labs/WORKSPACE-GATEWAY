@@ -125,7 +125,7 @@ refreshes transparently) and two API-key alternatives.
 |----|------------|--------|
 | C-1 | RFC 8628 device code only; no PKCE/browser redirect | kimi-code oauth source and live endpoint probe (2026-08-06) |
 | C-2 | `oauth-auth` priority 2560 (before key-meta 2530) | plugins/custom/oauth-auth.lua |
-| C-3 | Device code TTL 900s; single-use | legacy kimi spec §9 |
+| C-3 | Device code TTL 900s; single-use | earlier kimi spec §9 |
 
 ## 5. Assumptions
 

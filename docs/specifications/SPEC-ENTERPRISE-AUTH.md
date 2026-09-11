@@ -6,7 +6,7 @@
 **Requirements:** [REQ-ENTERPRISE-AUTH](../requirements/REQ-ENTERPRISE-AUTH.md)
 
 > Intended APISIX plugin configurations for optional enterprise hardening:
-> `openid-connect` (bearer-only OIDC), `ldap-auth` (legacy AD, Kerberos in v2
+> `openid-connect` (bearer-only OIDC), `ldap-auth` (earlier AD, Kerberos in v2
 > via `forward-auth`), and `ai-proxy` (single-provider canonical
 > translation). These are configuration-only designs using built-in plugins;
 > they are not part of the deployed gateway (`conf/apisix.yaml`) and are
@@ -22,8 +22,8 @@
 
 **Cross-references:**
 - [REQ-ENTERPRISE-AUTH](../requirements/REQ-ENTERPRISE-AUTH.md): requirements contract
-- Legacy BUILTIN-PLUGINS §1-4 (absorbed)
-- Legacy DEPLOYMENT §4.1 enterprise example (absorbed)
+- Earlier BUILTIN-PLUGINS §1-4 (absorbed)
+- Earlier DEPLOYMENT §4.1 enterprise example (absorbed)
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): deployed routes (no enterprise plugins)
 - [`conf/config.yaml`](../../conf/config.yaml): registered plugin list
 
@@ -169,7 +169,7 @@ built-in injection if the plugin supports it; otherwise a ~20-line
 ## 7. Multi-Provider Failover (REMOVED FROM SCOPE)
 
 No `ai-proxy-multi` configuration is provided. The gateway does not perform
-silent cross-provider failover: each request binds to one explicit upstream
+unreported cross-provider failover: each request binds to one explicit upstream
 (§6) and an upstream failure returns an explicit error to the client.
 Upstream API-key quota/rate-limit exhaustion is handled by upstream key
 pools with sticky selection and explicit rotation on 429/402/403
@@ -216,7 +216,7 @@ routes:
 
 ## 9. Edge Cases & Decisions
 
-- **Cold-start JWKS failure:** 401 (fail closed), not a silent passthrough.
+- **Cold-start JWKS failure:** 401 (fail closed), not an unchecked passthrough.
 - **AD attribute mapping:** delegated to `forward-auth` or a Lua filter; never
   inline in `ldap-auth`.
 - **Committed SSE streams:** each request binds to one upstream; a mid-stream

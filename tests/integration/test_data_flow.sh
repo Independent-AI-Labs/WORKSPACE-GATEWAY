@@ -8,7 +8,7 @@ set -euo pipefail
 # both request_log (Vector) and usage_log (Lua sse-usage) carry the row for
 # THAT request's request_id with the expected fields populated.
 #
-# Uses the llamafile route exclusively. There is NO fallback path. If the
+# Uses the llamafile route exclusively. There is NO secondary path. If the
 # llamafile server or the gateway stack is not reachable, the test SKIPS
 # (clean exit 0) rather than substituting historical / opencode-route data.
 
@@ -25,11 +25,12 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
-source "$SCRIPT_DIR/lib_event_align.sh"
+source "$SCRIPT_DIR/lib_event_align.sh" || exit 1
 
 pass=0
 fail=0
 
+BOUNDARY_RC=0
 BOUNDARY=$(date +%s)
 echo "[INFO] boundary=$BOUNDARY"
 
@@ -48,12 +49,13 @@ if ! llamafile_reachable; then
 fi
 
 # Resolve the model id from /llamafile/v1/models.
-MODELS_JSON=$(curl -sf --max-time 10 "$GATEWAY_URL/llamafile/v1/models" || echo "")
+MODELS_JSON_RC=0
+MODELS_JSON=$(curl -fsS --max-time 10 "$GATEWAY_URL/llamafile/v1/models" ) || { BOUNDARY_RC=$?; BOUNDARY=""; }
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
-    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' || echo "")
+    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' ) || { MODELS_JSON_RC=$?; MODELS_JSON=""; }
 fi
-assert_eq "llamafile /v1/models returned a model id" "yes" "$([ -n "$MODEL_ID" ] && echo yes || echo no)"
+assert_eq "llamafile /v1/models returned a model id" "yes" "$(if [ -n "$MODEL_ID" ]; then printf 'yes'; else printf 'no'; fi)"
 if [ -z "$MODEL_ID" ]; then
     echo ""
     echo "data flow tests: $pass passed, $fail failed"
@@ -63,18 +65,20 @@ echo "[INFO] using model id: $MODEL_ID"
 
 # Send one non-streaming chat request; capture X-Request-Id.
 RESP_HEADERS=$(mktemp)
+RESP_BODY_RC=0
 RESP_BODY=$(mktemp)
-HTTP_CODE=$(curl -s -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
+HTTP_CODE_RC=0
+HTTP_CODE=$(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
     -X POST "$GATEWAY_URL/llamafile/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one word\"}],\"stream\":false}" \
-    || echo "000")
-LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' || echo "")
+    ) || { HTTP_CODE_RC=$?; HTTP_CODE="000"; }
+LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { RESP_BODY_RC=$?; RESP_BODY=""; }
 rm -f "$RESP_HEADERS"
 
 echo "[INFO] chat HTTP $HTTP_CODE X-Request-Id=$LIVE_RID"
 assert_eq "chat request through gateway returned 200" "200" "$HTTP_CODE"
-assert_eq "response carries X-Request-Id header" "yes" "$([ -n "$LIVE_RID" ] && echo yes || echo no)"
+assert_eq "response carries X-Request-Id header" "yes" "$(if [ -n "$LIVE_RID" ]; then printf 'yes'; else printf 'no'; fi)"
 
 if [ "$HTTP_CODE" != "200" ] || [ -z "$LIVE_RID" ]; then
     rm -f "$RESP_BODY"
@@ -101,11 +105,11 @@ if [ -n "$RLOG" ]; then
     R_UPSTREAM_S=$(printf '%s' "$RLOG" | cut -f7)
     echo "[INFO] request_log row: model=$R_MODEL status=$R_STATUS client_ip=$R_CLIENT_IP req_size=$R_REQ_SIZE upstream=${R_UPSTREAM_S}s"
     assert_eq "request_log row appears for this run's request_id" "$LIVE_RID" "$R_RID"
-    assert_eq "request_log.model is populated" "yes" "$([ -n "$R_MODEL" ] && echo yes || echo no)"
+    assert_eq "request_log.model is populated" "yes" "$(if [ -n "$R_MODEL" ]; then printf 'yes'; else printf 'no'; fi)"
     assert_eq "request_log.status == 200" "200" "$R_STATUS"
-    assert_eq "request_log.client_ip populated (default log restored)" "true" "$([ "$R_CLIENT_IP" != "0.0.0.0" ] && [ -n "$R_CLIENT_IP" ] && echo true || echo false)"
-    assert_eq "request_log.request_size > 0" "true" "$([ "${R_REQ_SIZE:-0}" -gt 0 ] && echo true || echo false)"
-    assert_eq "request_log.req_body populated" "yes" "$([ -n "$R_REQ_BODY" ] && [ "$R_REQ_BODY" != "" ] && echo yes || echo no)"
+    assert_eq "request_log.client_ip populated (default log restored)" "true" "$(if [ "$R_CLIENT_IP" != "0.0.0.0" ] && [ -n "$R_CLIENT_IP" ]; then printf 'true'; else printf 'false'; fi)"
+    assert_eq "request_log.request_size > 0" "true" "$(if [ "${R_REQ_SIZE:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
+    assert_eq "request_log.req_body populated" "yes" "$(if [ -n "$R_REQ_BODY" ] && [ "$R_REQ_BODY" != "" ]; then printf 'yes'; else printf 'no'; fi)"
 else
     assert_eq "request_log row appears for this run's request_id" "$LIVE_RID" "(none)"
 fi
@@ -126,9 +130,9 @@ if [ -n "$ULOG" ]; then
     echo "[INFO] usage_log row: model=$U_MODEL prompt=$U_PROMPT completion=$U_COMPLETION total=$U_TOTAL"
     assert_eq "usage_log row appears for this run's request_id" "$LIVE_RID" "$U_RID"
     assert_eq "usage_log.model normalized == normalize_key(model id)" "$(printf '%s' "$MODEL_ID" | sed 's|.*/||' | tr 'A-Z' 'a-z')" "$U_MODEL"
-    assert_eq "usage_log.prompt_tokens > 0" "true" "$([ "${U_PROMPT:-0}" -gt 0 ] && echo true || echo false)"
-    assert_eq "usage_log.completion_tokens > 0" "true" "$([ "${U_COMPLETION:-0}" -gt 0 ] && echo true || echo false)"
-    assert_eq "usage_log.total_tokens > 0" "true" "$([ "${U_TOTAL:-0}" -gt 0 ] && echo true || echo false)"
+    assert_eq "usage_log.prompt_tokens > 0" "true" "$(if [ "${U_PROMPT:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
+    assert_eq "usage_log.completion_tokens > 0" "true" "$(if [ "${U_COMPLETION:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
+    assert_eq "usage_log.total_tokens > 0" "true" "$(if [ "${U_TOTAL:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
 else
     assert_eq "usage_log row appears for this run's request_id" "$LIVE_RID" "(none)"
 fi

@@ -10,7 +10,7 @@ set -euo pipefail
 # canonical model value. Also asserts billing_ledger_mv carries the matching
 # row (the MV fires automatically on usage_log INSERT).
 #
-# Uses the llamafile route exclusively. There is NO fallback path. If the
+# Uses the llamafile route exclusively. There is NO secondary path. If the
 # llamafile server or the gateway stack is not reachable, the test SKIPS.
 
 _SELF="${BASH_SOURCE[0]}"
@@ -26,11 +26,12 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
-source "$SCRIPT_DIR/lib_event_align.sh"
+source "$SCRIPT_DIR/lib_event_align.sh" || exit 1
 
 pass=0
 fail=0
 
+BOUNDARY_RC=0
 BOUNDARY=$(date +%s)
 echo "[INFO] boundary=$BOUNDARY"
 
@@ -49,12 +50,13 @@ if ! llamafile_reachable; then
 fi
 
 # Resolve the model id from /llamafile/v1/models.
-MODELS_JSON=$(curl -sf --max-time 10 "$GATEWAY_URL/llamafile/v1/models" || echo "")
+MODELS_JSON_RC=0
+MODELS_JSON=$(curl -fsS --max-time 10 "$GATEWAY_URL/llamafile/v1/models" ) || { BOUNDARY_RC=$?; BOUNDARY=""; }
 MODEL_ID=""
 if [ -n "$MODELS_JSON" ]; then
-    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' || echo "")
+    MODEL_ID=$(printf '%s' "$MODELS_JSON" | jq -r '.data[0].id // empty' ) || { MODELS_JSON_RC=$?; MODELS_JSON=""; }
 fi
-assert_eq "llamafile /v1/models returned a model id" "yes" "$([ -n "$MODEL_ID" ] && echo yes || echo no)"
+assert_eq "llamafile /v1/models returned a model id" "yes" "$(if [ -n "$MODEL_ID" ]; then printf 'yes'; else printf 'no'; fi)"
 if [ -z "$MODEL_ID" ]; then
     echo ""
     echo "cost E2E tests: $pass passed, $fail failed"
@@ -64,18 +66,20 @@ echo "[INFO] using model id: $MODEL_ID"
 
 # Send one non-streaming chat request; capture X-Request-Id.
 RESP_HEADERS=$(mktemp)
+RESP_BODY_RC=0
 RESP_BODY=$(mktemp)
-HTTP_CODE=$(curl -s -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
+HTTP_CODE_RC=0
+HTTP_CODE=$(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
     -X POST "$GATEWAY_URL/llamafile/v1/chat/completions" \
     -H "Content-Type: application/json" \
     -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}],\"stream\":false}" \
-    || echo "000")
-LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' || echo "")
+    ) || { HTTP_CODE_RC=$?; HTTP_CODE="000"; }
+LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { RESP_BODY_RC=$?; RESP_BODY=""; }
 rm -f "$RESP_HEADERS" "$RESP_BODY"
 
 echo "[INFO] chat HTTP $HTTP_CODE X-Request-Id=$LIVE_RID"
 assert_eq "chat request through gateway returned 200" "200" "$HTTP_CODE"
-assert_eq "response carries X-Request-Id header" "yes" "$([ -n "$LIVE_RID" ] && echo yes || echo no)"
+assert_eq "response carries X-Request-Id header" "yes" "$(if [ -n "$LIVE_RID" ]; then printf 'yes'; else printf 'no'; fi)"
 
 if [ "$HTTP_CODE" != "200" ] || [ -z "$LIVE_RID" ]; then
     echo ""
@@ -96,7 +100,7 @@ if [ -n "$ULOG" ]; then
     U_EID=$(printf '%s' "$ULOG" | cut -f1)
     ULOG=$(printf '%s' "$ULOG" | cut -f2-)
 fi
-assert_eq "usage_log row appears for this run's request_id" "yes" "$([ -n "$ULOG" ] && echo yes || echo no)"
+assert_eq "usage_log row appears for this run's request_id" "yes" "$(if [ -n "$ULOG" ]; then printf 'yes'; else printf 'no'; fi)"
 if [ -z "$ULOG" ]; then
     echo ""
     echo "cost E2E tests: $pass passed, $fail failed"
@@ -124,7 +128,7 @@ esac
 if [ "$U_COST_SOURCE" = "unknown" ] || [ "$U_COST_SOURCE" = "computed" ]; then
     assert_eq "usage_log cost == 0 for zero-priced local model (no hallucinated cost)" "0" "$U_COST"
 else
-    assert_eq "usage_log cost > 0 for upstream-cost model" "true" "$([ "$U_COST" != "0" ] && echo true || echo false)"
+    assert_eq "usage_log cost > 0 for upstream-cost model" "true" "$(if [ "$U_COST" != "0" ]; then printf 'true'; else printf 'false'; fi)"
 fi
 
 # Model must be canonicalized by model_registry.canonical(): lowercase + last
@@ -132,8 +136,8 @@ fi
 # canonical id.
 EXPECTED_NORM=$(printf '%s' "$MODEL_ID" | sed 's|.*/||' | tr 'A-Z' 'a-z')
 assert_eq "usage_log.model matches canonical(model id)" "$EXPECTED_NORM" "$U_MODEL"
-assert_eq "usage_log.prompt_tokens > 0" "true" "$([ "${U_PROMPT:-0}" -gt 0 ] && echo true || echo false)"
-assert_eq "usage_log.total_tokens > 0" "true" "$([ "${U_TOTAL:-0}" -gt 0 ] && echo true || echo false)"
+assert_eq "usage_log.prompt_tokens > 0" "true" "$(if [ "${U_PROMPT:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
+assert_eq "usage_log.total_tokens > 0" "true" "$(if [ "${U_TOTAL:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
 
 # billing_ledger_mv must carry the matching row (auto-populated on INSERT).
 # billing_ledger is keyed by event_id (the MV maps usage_log.event_id -> ledger)
@@ -147,7 +151,7 @@ else
         [ -n "$LEDGER" ] && break
         sleep 1
     done
-    assert_eq "billing_ledger row appears for this run's event_id" "yes" "$([ -n "$LEDGER" ] && echo yes || echo no)"
+    assert_eq "billing_ledger row appears for this run's event_id" "yes" "$(if [ -n "$LEDGER" ]; then printf 'yes'; else printf 'no'; fi)"
     if [ -n "$LEDGER" ]; then
         L_EID=$(printf '%s' "$LEDGER" | cut -f1)
         L_MODEL_NAME=$(printf '%s' "$LEDGER" | cut -f2)

@@ -13,7 +13,7 @@
 - [SPEC-COST-CALC](../specifications/SPEC-COST-CALC.md): companion specification
 - [`plugins/custom/cost_calc.lua`](../../plugins/custom/cost_calc.lua): owns the module
 - [`plugins/custom/provider_sync_pricing.lua`](../../plugins/custom/provider_sync_pricing.lua): sole `pricing:*` writer
-- Legacy COST-CALC-LUA spec (head note v1.3 current; writer path sections removed, absorbed)
+- Earlier COST-CALC-LUA spec (head note v1.3 current; writer path sections removed, absorbed)
 - [`tests/config/test_model_registry.sh`](../../tests/config/test_model_registry.sh): enforces the single-writer rule
 
 ---
@@ -33,7 +33,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 **This document DOES NOT:**
 - Define provider-sync catalog fetching (owned by provider-sync specs)
 - Define token extraction (REQ-BILLING-TELEMETRY)
-- Describe the removed writer path from the legacy COST-CALC-LUA spec
+- Describe the removed writer path from the earlier COST-CALC-LUA spec
 
 ### 1.3 Terminology
 | Term | Definition |
@@ -97,7 +97,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 ## 6. Open Questions
 | Q | A |
 |---|---|
-| Legacy writer path (`warmup`/`fetch_and_cache`/`normalize_key`)? | Removed; provider-sync is sole writer (v1.3 head note). |
+| Earlier writer path (`warmup`/`fetch_and_cache`/`normalize_key`)? | Removed; provider-sync is sole writer (v1.3 head note). |
 | CJK token heuristic undercount? | Known issue; token extraction is out of scope here (see docs/architecture/OPEN-ISSUES.md). |
 
 ## 7. Verification Matrix
@@ -114,4 +114,4 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 | FR-2.1-2.3 canonical keys | Implemented | cost_calc.lua:35-37, 60-107 |
 | FR-3.1-3.4 cost math | Implemented | cost_calc.lua:109-134 |
 | FR-4.1-4.5 failure behavior | Implemented | cost_calc.lua:136-147, 94-96 |
-| Legacy writer path | Removed | absent from cost_calc.lua; removed per legacy v1.3 note |
+| Earlier writer path | Removed | absent from cost_calc.lua; removed per earlier v1.3 note |
