@@ -170,18 +170,18 @@ gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 	echo "=== Waiting for Grafana health ==="
 	for i in 1 2 3 4 5 6 7 8 9 10 15 20; do \
 		if curl -sS -f --max-time 2 http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health; then \
-			curl -sS http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health | uv run python -c "import json,sys; print('Grafana version:', json.load(sys.stdin)['version'])"; break; \
+			curl -sS http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health | uv run python scripts/grafana-health-version.py; break; \
 		fi; \
 		echo "  waiting... (attempt $$i/20)"; sleep 2; \
 	done
 	echo "=== Reloading provisioning (drops orphan dashboards) ==="
 	curl -sS -f -X POST http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/admin/provisioning/dashboards/reload
-	echo "=== Syncing dashboard defaults from JSON (7d / 5s) ==="
+	echo "=== Syncing dashboard defaults from JSON (90d / 5s) ==="
 	bash res/scripts/sync-grafana-dashboards.sh
 	echo "=== Canonical dashboard URLs (use these; stale bookmarks may keep now-24h) ==="
-	echo "  http://localhost:3030/d/gateway-cost-usage?from=now-7d&to=now&refresh=5s"
-	echo "  http://localhost:3030/d/gateway-ops-health?from=now-7d&to=now&refresh=5s"
-	echo "  http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s"
+	echo "  http://localhost:3030/d/gateway-cost-usage?from=now-90d&to=now&refresh=5s"
+	echo "  http://localhost:3030/d/gateway-ops-health?from=now-90d&to=now&refresh=5s"
+	echo "  http://localhost:3030/d/gateway-cost-leaderboard?from=now-90d&to=now&refresh=5s"
 	echo "=== Grafana upgrade complete ==="
 
 gw-verify: ## Health report: container/endpoint status + one request through the gateway

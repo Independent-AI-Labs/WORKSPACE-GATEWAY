@@ -16,8 +16,8 @@ for uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; do
     refresh=$(curl -sSf -u "$GRAFANA_AUTH" "$GRAFANA_URL/api/dashboards/uid/$uid" \
         | jq -r '.dashboard.refresh')
     echo "$uid: time.from=$from refresh=$refresh"
-    if [ "$from" != "now-7d" ] || [ "$refresh" != "5s" ]; then
-        echo "ERROR: $uid defaults wrong (expected now-7d / 5s)" >&2
+    if [ "$from" != "now-90d" ] || [ "$refresh" != "5s" ]; then
+        echo "ERROR: $uid defaults wrong (expected now-90d / 5s)" >&2
         exit 1
     fi
 done

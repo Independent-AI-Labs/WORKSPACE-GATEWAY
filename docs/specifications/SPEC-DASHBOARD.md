@@ -29,7 +29,7 @@
 | Gateway Operations & Health | `gateway-ops-health` | 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12 | 6 CH + 5 Prom |
 | Gateway Cost Leaderboard | `gateway-cost-leaderboard` | 20, 21 (stat, 10 ranked tiles each) | 2 CH |
 
-All dashboards: time `now-7d`→`now`, refresh `5s`.
+All dashboards: time `now-90d`→`now`, refresh `5s`.
 
 ## 2. Architectural Principles
 

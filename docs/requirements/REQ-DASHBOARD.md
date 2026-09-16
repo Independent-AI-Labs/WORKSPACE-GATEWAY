@@ -59,7 +59,7 @@ performance acceptable, (5) is the gateway itself healthy.
 | ID | Requirement |
 |----|-------------|
 | FR-1.1 | The system SHALL provide exactly 3 dashboards: `gateway-cost-usage` (3 CH panels: ids 3, 15, 8), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), and `gateway-cost-leaderboard` (2 CH stat panels: ids 20, 21). |
-| FR-1.2 | All 3 dashboards MUST open with time range `now-7d` to `now` and a 5-second refresh. |
+| FR-1.2 | All 3 dashboards MUST open with time range `now-90d` to `now` and a 5-second refresh. |
 | FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 20=stat, 21=stat. |
 
 ### FR-2: Datasources
@@ -160,7 +160,7 @@ restart-persistent metrics, Prometheus for instantaneous rates/percentiles.)
 | Item | Status | Evidence |
 |------|--------|----------|
 | FR-1.1 3 dashboards / 16 panels | Implemented | conf/grafana/dashboards/*.json (3+11+2 panels) |
-| FR-1.2 time range & refresh | Implemented | each dashboard: `now-7d`→`now`, `5s` |
+| FR-1.2 time range & refresh | Implemented | each dashboard: `now-90d`→`now`, `5s` |
 | FR-2.x datasource split | Implemented | 11 CH + 5 Prom targets across dashboards |
 | FR-3.x template variables | Implemented | `api_key` + `model` in all 3 dashboards |
 | FR-4.x panel behaviors | Implemented | per-panel queries in dashboard JSONs |

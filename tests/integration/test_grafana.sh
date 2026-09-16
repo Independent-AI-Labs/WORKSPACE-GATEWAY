@@ -116,7 +116,7 @@ for dash_info in "Gateway Cost & Usage|gateway-cost-usage" \
     fi
 done
 
-# ── 5b. Dashboard defaults (7d lookback, 5s refresh) ───────────────────
+# ── 5b. Dashboard defaults (90d lookback, 5s refresh) ──────────────────
 
 for dash_uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; do
     dash_json_RC=0
@@ -125,10 +125,10 @@ for dash_uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; 
     dash_from=$(echo "$dash_json" | jq -r '.dashboard.time.from // "missing"' ) || { dash_from_RC=$?; dash_from="parse_error"; }
     dash_refresh_RC=0
     dash_refresh=$(echo "$dash_json" | jq -r '.dashboard.refresh // "missing"' ) || { dash_refresh_RC=$?; dash_refresh="parse_error"; }
-    if [ "$dash_from" = "now-7d" ] && [ "$dash_refresh" = "5s" ]; then
-        record_pass "$dash_uid defaults: now-7d / 5s"
+    if [ "$dash_from" = "now-90d" ] && [ "$dash_refresh" = "5s" ]; then
+        record_pass "$dash_uid defaults: now-90d / 5s"
     else
-        record_fail "$dash_uid defaults: expected now-7d / 5s, got $dash_from / $dash_refresh"
+        record_fail "$dash_uid defaults: expected now-90d / 5s, got $dash_from / $dash_refresh"
     fi
 done
 

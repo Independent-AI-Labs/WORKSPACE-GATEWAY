@@ -54,19 +54,19 @@ case "${1:-}" in
             *) echo "ERROR: invalid service: $service" >&2; usage; exit 2 ;;
         esac
         if [ "$service" = "apisix" ]; then
-            bash "$SCRIPT_DIR/drain-apisix.sh"
+            PODMAN_PATH="$PODMAN_PATH" bash "$SCRIPT_DIR/drain-apisix.sh"
         fi
         # -a: drain-apisix.sh just stopped the container; podman ps without
         # -a lists only running containers, so the lookup would come up empty
         # and the service would never be started again.
-        container_id="$(podman ps -aq \
+        container_id="$("$PODMAN_PATH" ps -aq \
             --filter label=io.podman.compose.project=docker \
             --filter label=io.podman.compose.service="$service")"
         if [ -z "$container_id" ]; then
             echo "ERROR: running gateway container not found for service: $service" >&2
             exit 1
         fi
-        timeout 60 podman restart --time 30 "$container_id"
+        timeout 60 "$PODMAN_PATH" restart --time 30 "$container_id"
         ;;
     logs)
         if [ -n "${2:-}" ]; then

@@ -405,13 +405,13 @@ scrapes every 15s (`conf/prometheus.yml`). Grafana uses **Prometheus** for
 ops panels (latency, error rate) and **ClickHouse** for cost and usage.
 Grafana only queries data; it does not write.
 
-Three provisioned dashboards (default: `now-7d` lookback, `5s` refresh):
+Three provisioned dashboards (default: `now-90d` lookback, `5s` refresh):
 
 | Dashboard | URL |
 |-----------|-----|
-| Gateway Cost & Usage | `http://localhost:3030/d/gateway-cost-usage?from=now-7d&to=now&refresh=5s` |
-| Gateway Operations & Health | `http://localhost:3030/d/gateway-ops-health?from=now-7d&to=now&refresh=5s` |
-| Gateway Cost Leaderboard | `http://localhost:3030/d/gateway-cost-leaderboard?from=now-7d&to=now&refresh=5s` |
+| Gateway Cost & Usage | `http://localhost:3030/d/gateway-cost-usage?from=now-90d&to=now&refresh=5s` |
+| Gateway Operations & Health | `http://localhost:3030/d/gateway-ops-health?from=now-90d&to=now&refresh=5s` |
+| Gateway Cost Leaderboard | `http://localhost:3030/d/gateway-cost-leaderboard?from=now-90d&to=now&refresh=5s` |
 
 The leaderboard shows top clients (p20) and top models (p21) by cost and
 tokens. After editing dashboard JSON, run `make gw-restart-grafana` to

@@ -107,7 +107,7 @@ check_dashboard_basics() {
     assert_eq "$label S7: all hex colors are brand palette" "OK" "$brand_hex"
 
     # S8: time range and refresh
-    assert_eq "$label S8: time.from is now-7d" "now-7d" "$(jq -r '.time.from' "$f")"
+    assert_eq "$label S8: time.from is now-90d" "now-90d" "$(jq -r '.time.from' "$f")"
     assert_eq "$label S8: time.to is now" "now" "$(jq -r '.time.to' "$f")"
     assert_eq "$label S8: refresh is 5s" "5s" "$(jq -r '.refresh' "$f")"
     assert_eq "$label S8: timepicker lists 5s refresh" "5s" "$(jq -r '.timepicker.refresh_intervals[0]' "$f")"

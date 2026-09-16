@@ -57,10 +57,10 @@ else
 fi
 echo ""
 
-# Dashboard time range (matches ops-health default: now-7d).
-if ! FROM_TS=$(date -d '7 days ago' '+%Y-%m-%d %H:%M:%S'); then
-    if ! FROM_TS=$(date -u -d "@$(($(date +%s)-604800))" '+%Y-%m-%d %H:%M:%S'); then
-        FROM_TS=$(date -u -r "$(( $(date +%s) - 604800 ))" '+%Y-%m-%d %H:%M:%S')
+# Dashboard time range (matches ops-health default: now-90d).
+if ! FROM_TS=$(date -d '90 days ago' '+%Y-%m-%d %H:%M:%S'); then
+    if ! FROM_TS=$(date -u -d "@$(($(date +%s)-7776000))" '+%Y-%m-%d %H:%M:%S'); then
+        FROM_TS=$(date -u -r "$(( $(date +%s) - 7776000 ))" '+%Y-%m-%d %H:%M:%S')
     fi
 fi
 TO_TS=$(date '+%Y-%m-%d %H:%M:%S')
@@ -112,7 +112,7 @@ get_panel_format() {
 ds_query() {
     local ds_uid="$1"; local sql="$2"; local fmt="$3"; local qt="$4"
 
-    # Step 1: $__timeFilter -- match dashboard default (now-7d) and r.timestamp alias.
+    # Step 1: $__timeFilter -- match dashboard default (now-90d) and r.timestamp alias.
     sql=$(printf '%s' "$sql" | sed \
         -e "s|\$__timeFilter(r\.timestamp)|r.timestamp >= toDateTime('$FROM_TS') AND r.timestamp <= toDateTime('$TO_TS')|g" \
         -e "s|\$__timeFilter(timestamp)|timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS')|g")
@@ -142,7 +142,7 @@ ds_query() {
                 rawSql: $sql,
                 refId: "A"
             }],
-            range: {from: "now-7d", to: "now"}
+            range: {from: "now-90d", to: "now"}
         }')
     curl -fsS --max-time 30 -X POST "$GRAFANA_URL/api/ds/query" \
         -u "$GRAFANA_AUTH" \
