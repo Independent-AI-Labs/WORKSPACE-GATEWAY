@@ -96,7 +96,7 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens as compact uppercase `B`/`M`/`K` strings plus a Total Cost column as an exact `"$x.yy"` currency string (never SI-abbreviated), single query/frame, with 6 unique column aliases and 6 unique byName overrides. |
 | FR-4.2 | p15 (Cost Over Time by Model) MUST be a stacked-area timeseries of per-model cost per minute with a sum legend table. |
 | FR-4.3 | p1 (Total Requests) MUST count `request_log` rows within the time filter, with thresholds teal/gold at 1000/bronze at 10000. |
-| FR-4.4 | p4 (Error Rate %) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |
+| FR-4.4 | p4 (Error Rate) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |
 | FR-4.5 | p2 (Active Connections) MUST use `apisix_nginx_http_current_connections{state="active"}` with an exact (non-regex) label match. |
 | FR-4.6 | p5 (Request Rate) MUST use `sum(rate(apisix_http_status{key_hash=~"$api_key"}[5m]))` with fixed legend `requests/s`. |
 | FR-4.7 | p7 (Status Code Breakdown) MUST be a donut piechart with `reduceOptions.values: true`, `palette-classic` color mode, and byName overrides for 200/401/429/499/504. |

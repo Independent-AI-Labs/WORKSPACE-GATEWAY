@@ -135,7 +135,7 @@ is authoritative. Horizontal gradient bars, `palette-classic`, `showUnfilled`.
 `SELECT count() as total_requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND <key filter>`.
 Thresholds: teal / gold at 1000 / bronze at 10000.
 
-### Panel 4: Error Rate % (stat, CH, grid x:8 y:8 w:8 h:4)
+### Panel 4: Error Rate (stat, CH, grid x:8 y:8 w:8 h:4)
 
 `SELECT round(countIf(status >= 400) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND <key filter>`.
 All 4xx + 5xx count as errors. Thresholds: teal / 1 gold / 5 coral.

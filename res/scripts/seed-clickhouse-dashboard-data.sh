@@ -4,8 +4,10 @@ set -euo pipefail
 # seed-clickhouse-dashboard-data.sh
 # Inserts deterministic request_log + usage_log rows for Grafana datasource
 # proxy integration tests (T1-T5). Idempotent: removes prior seed rows first.
+# --cleanup removes seed rows (request_log, usage_log, and cruncher-derived
+# request_signals) so test data never leaks into live dashboards.
 #
-# Usage: seed-clickhouse-dashboard-data.sh [--clickhouse-url <url>]
+# Usage: seed-clickhouse-dashboard-data.sh [--clickhouse-url <url>] [--cleanup]
 
 CH_URL="${CLICKHOUSE_URL:-http://localhost:8123}"
 SEED_MODEL="gw-integration-seed-model"
@@ -13,10 +15,12 @@ SEED_KEY="integration-seed-key"
 SEED_RID_PREFIX="integration-seed-ds-proxy-"
 SEED_EID_PREFIX="integration-seed-event-"
 SEED_ROW_COUNT=150
+CLEANUP_ONLY=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --clickhouse-url) CH_URL="$2"; shift 2 ;;
+        --cleanup) CLEANUP_ONLY=1; shift ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -37,8 +41,21 @@ ch_exec() {
 echo "[INFO] Seeding ClickHouse dashboard integration data ($SEED_ROW_COUNT rows)..."
 
 # Remove prior seed rows so counts stay deterministic across repeated runs.
-ch_exec "ALTER TABLE llm_gateway.request_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
-ch_exec "ALTER TABLE llm_gateway.usage_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
+# request_signals rows are derived by the usefulness cruncher from seeded
+# request_log rows and must be removed too, or the seed model shows up on
+# the model experience scorecard (it passes the >=100 requests gate).
+cleanup_seed() {
+    ch_exec "ALTER TABLE llm_gateway.request_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
+    ch_exec "ALTER TABLE llm_gateway.usage_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
+    ch_exec "ALTER TABLE llm_gateway.request_signals DELETE WHERE model = '${SEED_MODEL}'" 1>&2
+}
+
+cleanup_seed
+
+if [ "$CLEANUP_ONLY" -eq 1 ]; then
+    echo "[INFO] Seed cleanup complete"
+    exit 0
+fi
 
 # request_log: >100 rows, mixed status codes (200/401/404/500), populated model/key.
 ch_exec "INSERT INTO llm_gateway.request_log (

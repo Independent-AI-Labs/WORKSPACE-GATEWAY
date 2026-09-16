@@ -225,7 +225,7 @@
             "properties": [
               {
                 "id": "displayName",
-                "value": "Client Cancel Rate (%)"
+                "value": "Client Cancel Rate"
               }
             ]
           },
@@ -237,7 +237,7 @@
             "properties": [
               {
                 "id": "displayName",
-                "value": "Provider Abort Rate (%)"
+                "value": "Provider Abort Rate"
               }
             ]
           }

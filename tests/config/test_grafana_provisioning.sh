@@ -342,7 +342,7 @@ assert_eq "Prometheus panels with key_hash filter" "3" "$PROM_KEYHASH_PANELS"
 # ── p13 Stream Abort Rate: 2 targets (client + provider) ─────────────
 
 P13_TITLE=$(jq -r '[.panels[] | select(.id == 13)][0].title' "$OPS_HEALTH_FILE")
-assert_eq "p13 title is Stream Abort Rate" "Stream Abort Rate by Direction (%)" "$P13_TITLE"
+assert_eq "p13 title is Stream Abort Rate" "Stream Abort Rate by Direction" "$P13_TITLE"
 
 P13_TARGET_COUNT=$(jq '[.panels[] | select(.id == 13)][0].targets | length' "$OPS_HEALTH_FILE")
 assert_eq "p13 Abort Rate has 2 targets" "2" "$P13_TARGET_COUNT"

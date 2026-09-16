@@ -135,7 +135,7 @@
     },
     {
       "id": 4,
-      "title": "Error Rate %",
+      "title": "Error Rate",
       "type": "stat",
       "datasource": {
         "uid": "clickhouse",
@@ -444,7 +444,7 @@
     },
     {
       "id": 13,
-      "title": "Stream Abort Rate by Direction (%)",
+      "title": "Stream Abort Rate by Direction",
       "type": "timeseries",
       "datasource": {
         "uid": "clickhouse",

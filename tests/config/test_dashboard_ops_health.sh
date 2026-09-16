@@ -86,7 +86,7 @@ assert_eq "$LABEL S18: p4 target queryType is table" "table" "$P4_QT"
 
 # p13: Stream Abort Rate, 2 targets, is_stream=1, aborted
 P13_TITLE=$(jq -r '[.panels[]|select(.id==13)][0].title' "$F")
-assert_eq "$LABEL: p13 title is Stream Abort Rate by Direction (%)" "Stream Abort Rate by Direction (%)" "$P13_TITLE"
+assert_eq "$LABEL: p13 title is Stream Abort Rate by Direction" "Stream Abort Rate by Direction" "$P13_TITLE"
 P13_TGT=$(jq '[.panels[]|select(.id==13)][0].targets|length' "$F")
 assert_eq "$LABEL: p13 has 2 targets" "2" "$P13_TGT"
 P13_STREAM=$(jq '[[.panels[]|select(.id==13)][0].targets[].rawSql|select(.!=null)|select(test("is_stream = 1"))]|length>0' "$F")

@@ -74,7 +74,7 @@ printf '%s' "$P36_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p36 ren
 
 # Readable display names (FR-10.5): no raw refId/column identifiers on stats
 P31_NAMES=$(jq -c '[.panels[]|select(.id==31)][0].fieldConfig.overrides[].properties[]|select(.id=="displayName")|.value' "$F")
-printf '%s' "$P31_NAMES" | grep -qF 'Client Cancel Rate (%)' && printf '%s' "$P31_NAMES" | grep -qF 'Provider Abort Rate (%)' && { echo "[PASS] $LABEL: p31 series carry human-readable display names"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p31 missing readable display names"; fail=$((fail+1)); }
+printf '%s' "$P31_NAMES" | grep -qF 'Client Cancel Rate' && printf '%s' "$P31_NAMES" | grep -qF 'Provider Abort Rate' && { echo "[PASS] $LABEL: p31 series carry human-readable display names"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p31 missing readable display names"; fail=$((fail+1)); }
 
 # Grouping (FR-10.6): speeds first, then reliability/waste/proxy
 assert_eq "$LABEL: panels grouped top-to-bottom" "30 44 31 36 39" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"

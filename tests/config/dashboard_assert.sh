@@ -101,6 +101,23 @@ check_dashboard_basics() {
     multi_target_tiles=$(jq -r '[.panels[] | select(.type=="stat" or .type=="bargauge") | select((.targets|length) > 1) | .id] | join(",")' "$f")
     assert_eq "$label S6e: stat/bargauge panels are single-target" "" "$multi_target_tiles"
 
+    # S6f: variables used in single-quoted SQL context ('${var}') must define a
+    # custom allValue. Kiosk/embed URLs force var-<name>=$__all; without an
+    # allValue Grafana expands All to a multi-value list that breaks the
+    # single-value comparison (ClickHouse syntax error, HTTP 400).
+    local no_allval
+    no_allval=$(jq -r '
+      [.] | .[0] as $root
+      | [ $root.templating.list[] | .name as $n
+        | ([ $root.panels[].targets[]?.rawSql // ""
+            | select((contains("\u0027${" + $n + "}")) or (contains("\u0027${" + $n + ":"))) ] | length) as $quoted
+        | select($quoted > 0)
+        | select((.allValue // "") == "")
+        | $n
+      ] | join(",")
+    ' "$f")
+    assert_eq "$label S6f: single-quoted variables have custom allValue" "" "$no_allval"
+
     # S7: all hex colors are brand palette
     local brand_hex
     brand_hex=$(jq -r '

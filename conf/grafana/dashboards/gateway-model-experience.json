@@ -94,7 +94,9 @@
             "text": "instances (weighted, no cap)",
             "value": "instances"
           }
-        ]
+        ],
+        "includeAll": true,
+        "allValue": "binary"
       }
     ]
   },

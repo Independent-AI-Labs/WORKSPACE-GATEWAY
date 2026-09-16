@@ -47,6 +47,9 @@ ch_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=S
 if [ "$ch_code" = "200" ]; then
     if bash "$REPO_ROOT/res/scripts/seed-clickhouse-dashboard-data.sh" --clickhouse-url "$CH_URL"; then
         echo "[INFO] ClickHouse dashboard seed data ready"
+        # Tear down on exit so seed rows never linger on live dashboards
+        # (the seed model passes the scorecard's >=100 requests gate).
+        trap 'bash "$REPO_ROOT/res/scripts/seed-clickhouse-dashboard-data.sh" --clickhouse-url "$CH_URL" --cleanup' EXIT
     else
         echo "[FAIL] ClickHouse dashboard seed failed"
         exit 1
