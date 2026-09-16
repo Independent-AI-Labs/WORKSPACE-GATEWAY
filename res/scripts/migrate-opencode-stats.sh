@@ -95,6 +95,8 @@ echo "[INFO] pricing entries: $(wc -l < "$TMPD/pricing.tsv")" >&2
 : > "$TMPD/msg.tsv"
 : > "$TMPD/hash.tsv"
 : > "$TMPD/partstream.tsv"
+: > "$TMPD/roles.tsv"
+: > "$TMPD/usermark.tsv"
 
 IFS=':' read -ra DBS_ARR <<< "$OPENCODE_DBS"
 for SRC in "${DBS_ARR[@]}"; do
@@ -146,6 +148,30 @@ FROM message m JOIN session s ON s.id = m.session_id
 WHERE json_extract(m.data,'\$.role')='assistant'
 ORDER BY m.id;
 " >> "$TMPD/msg.tsv"
+
+    # Role timeline per session (req_body synthesis: prior assistant turns
+    # detect followup requests the way resent conversation history would).
+    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
+SELECT m.id, m.session_id, m.time_created, coalesce(json_extract(m.data,'\$.role'),'')
+FROM message m ORDER BY m.session_id, m.time_created;
+" >> "$TMPD/roles.tsv"
+
+    # User prompt texts plus tool/marker texts carrying guard-block and
+    # permission-rejection markers (same marker strings the usefulness
+    # cruncher counts). Text sanitized to single-line, capped at 64 KiB.
+    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
+SELECT p.message_id, p.session_id, p.time_created,
+       CASE WHEN json_extract(m.data,'\$.role')='user' THEN 'U' ELSE 'M' END,
+       replace(replace(replace(substr(coalesce(json_extract(p.data,'\$.text'),''),1,65536),
+         char(9),' '), char(10),' '), char(13),' ')
+FROM part p JOIN message m ON m.id = p.message_id
+WHERE (json_extract(m.data,'\$.role')='user' AND json_extract(p.data,'\$.type')='text')
+   OR json_extract(p.data,'\$.text') LIKE '%BLOCKED: bash %'
+   OR json_extract(p.data,'\$.text') LIKE '%BLOCKED: ts=%'
+   OR json_extract(p.data,'\$.text') LIKE '%The user rejected permission to use this specific tool call%'
+   OR json_extract(p.data,'\$.text') LIKE '%The user has specified a rule which prevents you from using this specific tool call%'
+ORDER BY p.session_id, p.time_created;
+" >> "$TMPD/usermark.tsv"
 done
 
 EXTRACTED=$(wc -l < "$TMPD/msg.tsv")
@@ -205,6 +231,59 @@ awk -F'\t' -v OFS='\t' '
         print $1, a, $18
     }
 ' "$TMPD/dedup.tsv" "$TMPD/joined.tsv" "$TMPD/ps.sorted" "$TMPD/ds.sorted" > "$TMPD/sizes.tsv"
+
+# ------------------------------------- req_body synthesis inputs
+# Per request: prior assistant-turn count (is_followup), last user prompt
+# text, and prior marker texts (guard blocks / permission rejections).
+# Same two-pointer shape as the sizes pass; replay-duplicate assistant
+# messages (dropped by the natural-key dedup) are excluded here too.
+LC_ALL=C sort -t $'\t' -k2,2 -k3,3n "$TMPD/roles.tsv" > "$TMPD/ro.sorted"
+LC_ALL=C sort -t $'\t' -k2,2 -k3,3n "$TMPD/usermark.tsv" > "$TMPD/um.sorted"
+
+awk -F'\t' -v OFS='\t' '
+    NR==FNR { keep[$1]=1; next }
+    FILENAME==ARGV[2] { if (!($1 in keep)) drop[$1]=1; next }
+    FILENAME==ARGV[3] {
+        if ($1 in drop) next
+        np++; ps[np]=$2; pt[np]=$3+0; pr[np]=$4
+        if (!($2 in start)) start[$2]=np
+        next
+    }
+    {
+        s=$2; mtc=$3+0
+        i = (s in cur) ? cur[s] : (s in start ? start[s] : np+1)
+        a = nasst[s]+0
+        while (i <= np && ps[i] == s && pt[i] < mtc) {
+            if (pr[i] == "assistant") a++
+            i++
+        }
+        cur[s]=i; nasst[s]=a
+        print $1, a
+    }
+' "$TMPD/dedup.tsv" "$TMPD/joined.tsv" "$TMPD/ro.sorted" "$TMPD/ds.sorted" > "$TMPD/rolecounts.tsv"
+
+awk -F'\t' -v OFS='\t' '
+    NR==FNR { keep[$1]=1; next }
+    FILENAME==ARGV[2] { if (!($1 in keep)) drop[$1]=1; next }
+    FILENAME==ARGV[3] {
+        if ($1 in drop) next
+        np++; ps[np]=$2; pt[np]=$3+0; pk[np]=$4; px[np]=$5
+        if (!($2 in start)) start[$2]=np
+        next
+    }
+    {
+        s=$2; mtc=$3+0
+        i = (s in cur) ? cur[s] : (s in start ? start[s] : np+1)
+        lu = lastu[s]; mk = mks[s]
+        while (i <= np && ps[i] == s && pt[i] < mtc) {
+            if (pk[i] == "U") lu = px[i]
+            else mk = (mk == "" ? "" : mk "\001") px[i]
+            i++
+        }
+        cur[s]=i; lastu[s]=lu; mks[s]=mk
+        print $1, lu, substr(mk, 1, 131072)
+    }
+' "$TMPD/dedup.tsv" "$TMPD/joined.tsv" "$TMPD/um.sorted" "$TMPD/ds.sorted" > "$TMPD/umcounts.tsv"
 
 KEPT=$(wc -l < "$TMPD/dedup.tsv")
 DUPES=$((EXTRACTED - KEPT))
@@ -328,13 +407,17 @@ jq -cRn '
 # request fields: event_id provider model model_raw session_id project_id
 #                 parent_session_id agent_name opencode_version user_agent
 #                 request_id ts request_size response_size
+#                 n_asst_turns last_user_text marker_texts
 awk -F'\t' -v OFS='\t' '
     NR==FNR { rq[$1]=$2; rp[$1]=$3; next }
+    FILENAME==ARGV[2] { na[$1]=$2; next }
+    FILENAME==ARGV[3] { lu[$1]=$2; mk[$1]=$3; next }
     {
         print "ocr_" $1, $4, $6, $5, $2, $13, $14, $12, $15, \
-              "opencode/" $15, $1, $16, rq[$1]+0, rp[$1]+0
+              "opencode/" $15, $1, $16, rq[$1]+0, rp[$1]+0, \
+              na[$1]+0, lu[$1] "", mk[$1] ""
     }
-' "$TMPD/sizes.tsv" "$TMPD/dedup.tsv" > "$TMPD/request.tsv"
+' "$TMPD/sizes.tsv" "$TMPD/rolecounts.tsv" "$TMPD/umcounts.tsv" "$TMPD/dedup.tsv" > "$TMPD/request.tsv"
 
 jq -cRn '
     inputs | split("\t") as $f |
@@ -345,7 +428,17 @@ jq -cRn '
       opencode_version: $f[8], user_agent: $f[9],
       request_id: $f[10], timestamp: $f[11],
       request_size: ($f[12]|tonumber), response_size: ($f[13]|tonumber),
-      client_type: "migrated" }
+      client_type: "migrated",
+      req_body: ({
+        model: $f[2],
+        messages:
+          ( [ range(0; ([($f[14]|tonumber), 200] | min))
+              | {"role":"assistant","content":""} ]
+            + [ ($f[15] | select(length > 0) | {"role":"user","content": .}) ]
+            + [ ($f[16] | select(length > 0) | split("\u0001")[]
+                  | {"role":"assistant","content": .}) ]
+          )
+      } | tojson) }
 ' "$TMPD/request.tsv" > "$TMPD/request.jsonl"
 
 # ------------------------------------------------- batched insert

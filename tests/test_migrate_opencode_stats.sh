@@ -160,6 +160,8 @@ INSERT INTO part VALUES ('prt_a03a','msg_a03','s1',1787917493011,'{"type":"reaso
 INSERT INTO part VALUES ('prt_a03b','msg_a03','s1',1787917493012,'{"type":"text","text":"answer"}');
 INSERT INTO message VALUES ('msg_u01','s1',1787917492000,'{"role":"user","time":{"created":1787917492000}}');
 INSERT INTO part VALUES ('prt_u01a','msg_u01','s1',1787917492001,'{"type":"text","text":"hello"}');
+INSERT INTO part VALUES ('prt_a01c','msg_a01','s1',1787917493003,'{"type":"tool","text":"The user rejected permission to use this specific tool call: bash"}');
+INSERT INTO part VALUES ('prt_a01d','msg_a01','s1',1787917493004,'{"type":"tool","text":"BLOCKED: bash rm -rf / by deny rule"}');
 INSERT INTO message VALUES ('msg_o01','ghost',1787917495000,'{"role":"assistant","agent":"build","modelID":"glm-5.3","providerID":"zai-coding-plan","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917495000}}');
 INSERT INTO message VALUES ('msg_b01','s1',1787917495000,'{"role":"assistant","agent":"build","modelID":"glm-5.3","providerID":"zai-coding-plan","cost":0,"tokens":{"input":1000000,"output":500000,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917495000}}');
 INSERT INTO message VALUES ('msg_b02','s1',1787917496000,'{"role":"assistant","agent":"build","modelID":"zai.glm-5","providerID":"amazon-bedrock","cost":0,"tokens":{"input":1000000,"output":1000000,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917496000}}');
@@ -278,6 +280,33 @@ R2=$(chq "SELECT request_size, response_size, client_type FROM llm_gateway.reque
 assert_eq "msg_a02 request_size=cumulative context" "16" "$(echo "$R2" | jq -r .request_size)"
 assert_eq "msg_a02 response_size=0 (no parts)" "0" "$(echo "$R2" | jq -r .response_size)"
 assert_eq "msg_a02 client_type=migrated" "migrated" "$(echo "$R2" | jq -r .client_type)"
+
+# ---------------------------------------------------------- req_body synthesis
+# msg_a01 is the first assistant turn: body = last user prompt only
+# (no prior assistant turns, no markers yet at its timestamp).
+RB1=$(chq "SELECT req_body FROM llm_gateway.request_log WHERE event_id='ocr_msg_a01' FORMAT TSVRaw")
+assert_eq "msg_a01 body is valid JSON with messages array" "array" \
+    "$(echo "$RB1" | jq -r '.messages | type')"
+assert_eq "msg_a01 body has no prior assistant turn" "0" \
+    "$(echo "$RB1" | jq -r '[.messages[] | select(.role == "assistant")] | length')"
+assert_eq "msg_a01 body carries last user prompt" "hello" \
+    "$(echo "$RB1" | jq -r '[.messages[] | select(.role == "user") | .content] | last')"
+
+# msg_a02 follows msg_a01: one prior assistant turn, same user prompt,
+# and both marker texts (rejection + guard block) land in the body.
+RB2=$(chq "SELECT req_body FROM llm_gateway.request_log WHERE event_id='ocr_msg_a02' FORMAT TSVRaw")
+assert_eq "msg_a02 body has 1 prior assistant turn" "1" \
+    "$(echo "$RB2" | jq -r '[.messages[] | select(.role == "assistant" and .content == "")] | length')"
+assert_eq "msg_a02 body carries last user prompt" "hello" \
+    "$(echo "$RB2" | jq -r '[.messages[] | select(.role == "user") | .content] | last')"
+assert_eq "msg_a02 body carries rejection marker" "1" \
+    "$(echo "$RB2" | jq -r '[.messages[].content | select(test("The user rejected permission to use this specific tool call"))] | length')"
+assert_eq "msg_a02 body carries guard-block marker" "1" \
+    "$(echo "$RB2" | jq -r '[.messages[].content | select(test("BLOCKED: bash "))] | length')"
+
+# Every migrated request row carries a parseable body with a messages array
+assert_eq "all migrated rows have parseable req_body" "5" \
+    "$(chq "SELECT countIf(req_body != '' AND isValidJSON(req_body) AND JSONType(req_body, 'messages') = 'Array') FROM llm_gateway.request_log WHERE event_id LIKE 'ocr_%'")"
 
 # Lua-convention invariants (panel math assumes prompt>=cached, completion>=reasoning)
 assert_eq "no row with cached>prompt" "0" \

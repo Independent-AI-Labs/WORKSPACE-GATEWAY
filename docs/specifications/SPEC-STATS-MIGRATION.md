@@ -128,6 +128,7 @@ driving this design:
 | `request_size` | session content bytes of `text`/`reasoning` parts (all roles) with `part.time_created < message.time_created`, excluding replay-duplicate messages that lost the §5.1 dedup | pseudo-size from real chunks: the context sent upstream |
 | `response_size` | byte length of the message's own `text`/`reasoning` part texts | pseudo-size from real chunks |
 | `client_type` | `'migrated'` | marker so ops dashboards can filter backfilled rows |
+| `req_body` | synthesized `{"model": <canonical>, "messages": [...]}`: one empty-content `assistant` message per prior assistant turn in the session (capped at 200; gives the cruncher followup detection), the last user `text` part before the request (single-line, capped 64 KiB; gives profanity/frustration classification), and one `assistant` message per prior part carrying a guard-block or permission-rejection marker string (total capped 128 KiB; gives the cruncher's marker counts) | the usefulness cruncher reads only roles, the last user content, and marker substrings, so this minimal body reproduces its full signal surface without storing whole conversations |
 | `upstream_response_time_s`, `client_ip` | `0` / `0.0.0.0` | synthetic defaults (no source) |
 | `api_key_id`, `tenant_id`, `user_id`, `key_id` | `''` | no source |
 | `req_body`, `resp_body` | `''` | content is NOT migrated |
