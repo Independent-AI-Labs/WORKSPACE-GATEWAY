@@ -89,7 +89,7 @@ LOG_FILE="$TMPDIR/server.log"
 CONFIG_FILE="$TMPDIR/opencode.json"
 AUTH_FILE="$TMPDIR/auth.json"
 
-uv run python "$SCRIPT_DIR/mock_provider_server.py" "$PORT_FILE" "$LOG_FILE" >>"$LOG_FILE" 2>&1 &
+uv run --no-sync python "$SCRIPT_DIR/mock_provider_server.py" "$PORT_FILE" "$LOG_FILE" >>"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 # Wait for port file to appear.
