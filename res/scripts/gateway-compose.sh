@@ -15,7 +15,7 @@ COMPOSE_BIN="${COMPOSE_BIN:-$REPO_ROOT/.venv/bin/podman-compose}"
 PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set to the absolute podman binary path (the Makefile exports it)}"
 
 usage() {
-    printf 'Usage: %s {build|down|restart-service SERVICE|logs [SERVICE]|migrate-up|migrate-status}\n' "$0" >&2
+    printf 'Usage: %s {build|down|restart-service SERVICE|logs [SERVICE]|migrate-up|migrate-status|migrate-force VERSION}\n' "$0" >&2
 }
 
 if [ ! -x "$COMPOSE_BIN" ]; then
@@ -80,6 +80,15 @@ case "${1:-}" in
         ;;
     migrate-status)
         compose --profile migration run --rm migrate version
+        ;;
+    migrate-force)
+        version="${2:-}"
+        if ! [[ "$version" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: migrate-force requires a numeric version (see migrate-status)" >&2
+            usage
+            exit 2
+        fi
+        compose --profile migration run --rm migrate force "$version"
         ;;
     *)
         usage

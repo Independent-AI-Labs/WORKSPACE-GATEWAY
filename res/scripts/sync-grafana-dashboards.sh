@@ -10,7 +10,7 @@ GRAFANA_AUTH="admin:${GRAFANA_ADMIN_PASSWORD:-admin}"
 curl -sSf -u "$GRAFANA_AUTH" -X POST \
     "$GRAFANA_URL/api/admin/provisioning/dashboards/reload" 1>&2
 
-for uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; do
+for uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard gateway-usefulness; do
     from=$(curl -sSf -u "$GRAFANA_AUTH" "$GRAFANA_URL/api/dashboards/uid/$uid" \
         | jq -r '.dashboard.time.from')
     refresh=$(curl -sSf -u "$GRAFANA_AUTH" "$GRAFANA_URL/api/dashboards/uid/$uid" \

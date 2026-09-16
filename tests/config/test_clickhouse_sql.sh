@@ -60,11 +60,11 @@ assert_eq "TTL 13 MONTH on tables" "true" "$(if [ "$HAS_TTL" -ge 2 ]; then print
 
 HAS_PART_LIMITS_RC=0
 HAS_PART_LIMITS=$(grep -c '^[[:space:]]*parts_to_throw_insert = 1000' "$SQL_FILE" ) || { HAS_PART_LIMITS_RC=$?; HAS_PART_LIMITS="0"; }
-assert_eq "Created and existing MergeTree tables reject runaway part creation" "8" "$HAS_PART_LIMITS"
+assert_eq "Created and existing MergeTree tables reject runaway part creation" "9" "$HAS_PART_LIMITS"
 
 HAS_INACTIVE_PART_LIMITS_RC=0
 HAS_INACTIVE_PART_LIMITS=$(grep -c 'inactive_parts_to_throw_insert = 1000' "$SQL_FILE" ) || { HAS_INACTIVE_PART_LIMITS_RC=$?; HAS_INACTIVE_PART_LIMITS="0"; }
-assert_eq "Created and existing MergeTree tables reject runaway inactive parts" "8" "$HAS_INACTIVE_PART_LIMITS"
+assert_eq "Created and existing MergeTree tables reject runaway inactive parts" "9" "$HAS_INACTIVE_PART_LIMITS"
 
 HAS_RUNTIME_PART_LIMITS_RC=0
 HAS_RUNTIME_PART_LIMITS=$(grep -c '^ALTER TABLE.*MODIFY SETTING' "$SQL_FILE" ) || { HAS_RUNTIME_PART_LIMITS_RC=$?; HAS_RUNTIME_PART_LIMITS="0"; }
@@ -72,7 +72,7 @@ assert_eq "Existing MergeTree tables receive runtime part limits" "4" "$HAS_RUNT
 
 HAS_TOTAL_PART_LIMITS_RC=0
 HAS_TOTAL_PART_LIMITS=$(grep -c 'max_parts_in_total = 5000' "$SQL_FILE" ) || { HAS_TOTAL_PART_LIMITS_RC=$?; HAS_TOTAL_PART_LIMITS="0"; }
-assert_eq "Created and existing MergeTree tables cap total parts" "8" "$HAS_TOTAL_PART_LIMITS"
+assert_eq "Created and existing MergeTree tables cap total parts" "9" "$HAS_TOTAL_PART_LIMITS"
 
 ORDER_BY_LEADING_RC=0
 ORDER_BY_LEADING=$(grep -o 'ORDER BY ([a-z_]*' "$SQL_FILE" ) || { ORDER_BY_LEADING_RC=$?; ORDER_BY_LEADING=""; }
@@ -187,6 +187,92 @@ assert_eq "MV has cache_status column" "true" "$(if [ "$HAS_MV_CACHE_STATUS" -ge
 HAS_MV_SUCCESS_RC=0
 HAS_MV_SUCCESS=$(grep -c "aborted = 0" "$SQL_FILE" ) || { HAS_MV_SUCCESS_RC=$?; HAS_MV_SUCCESS="0"; }
 assert_eq "MV derives success from aborted=0" "1" "$HAS_MV_SUCCESS"
+
+# ── usefulness telemetry: TTFT columns, MV wiring, request_signals ──────
+HAS_TTFT_FB_RC=0
+HAS_TTFT_FB=$(grep -c 'ttft_first_byte_ms.*UInt32' "$SQL_FILE" ) || { HAS_TTFT_FB_RC=$?; HAS_TTFT_FB="0"; }
+assert_eq "Has ttft_first_byte_ms UInt32 in usage_log" "true" "$(if [ "$HAS_TTFT_FB" -ge 2 ]; then printf 'true'; else printf 'false'; fi)"
+
+HAS_TTFT_C_RC=0
+HAS_TTFT_C=$(grep -c 'ttft_content_ms.*UInt32' "$SQL_FILE" ) || { HAS_TTFT_C_RC=$?; HAS_TTFT_C="0"; }
+assert_eq "Has ttft_content_ms UInt32 in usage_log" "true" "$(if [ "$HAS_TTFT_C" -ge 2 ]; then printf 'true'; else printf 'false'; fi)"
+
+HAS_DURATION_RC=0
+HAS_DURATION=$(grep -c 'duration_ms.*UInt32' "$SQL_FILE" ) || { HAS_DURATION_RC=$?; HAS_DURATION="0"; }
+assert_eq "Has duration_ms UInt32 in usage_log" "true" "$(if [ "$HAS_DURATION" -ge 2 ]; then printf 'true'; else printf 'false'; fi)"
+
+HAS_TTFT_ALTER_RC=0
+HAS_TTFT_ALTER=$(grep -c 'ADD COLUMN IF NOT EXISTS ttft_content_ms' "$SQL_FILE" ) || { HAS_TTFT_ALTER_RC=$?; HAS_TTFT_ALTER="0"; }
+assert_eq "Has idempotent ALTER for ttft_content_ms column" "1" "$HAS_TTFT_ALTER"
+
+MV_WIRES_TTFT_RC=0
+MV_WIRES_TTFT=$(grep -c 'ttft_content_ms.*AS ttft_ms' "$SQL_FILE" ) || { MV_WIRES_TTFT_RC=$?; MV_WIRES_TTFT="0"; }
+assert_eq "MV wires ttft_content_ms into billing_ledger.ttft_ms" "1" "$MV_WIRES_TTFT"
+
+MV_WIRES_DURATION_RC=0
+MV_WIRES_DURATION=$(grep -c 'duration_ms.*AS llm_latency_ms' "$SQL_FILE" ) || { MV_WIRES_DURATION_RC=$?; MV_WIRES_DURATION="0"; }
+assert_eq "MV wires duration_ms into billing_ledger.llm_latency_ms" "1" "$MV_WIRES_DURATION"
+
+NO_MV_ZERO_TTFT_RC=0
+NO_MV_ZERO_TTFT=$(awk '/CREATE MATERIALIZED VIEW.*billing_ledger_mv/,/FROM llm_gateway.usage_log/' "$SQL_FILE" | grep -cE '^\s*0\s+AS (ttft_ms|llm_latency_ms)' ) || { NO_MV_ZERO_TTFT_RC=$?; NO_MV_ZERO_TTFT="0"; }
+assert_eq "MV no longer hardcodes zero ttft_ms/llm_latency_ms" "0" "$NO_MV_ZERO_TTFT"
+
+HAS_REQUEST_SIGNALS_RC=0
+HAS_REQUEST_SIGNALS=$(grep -c 'CREATE TABLE IF NOT EXISTS llm_gateway.request_signals' "$SQL_FILE" ) || { HAS_REQUEST_SIGNALS_RC=$?; HAS_REQUEST_SIGNALS="0"; }
+assert_eq "Creates table request_signals" "1" "$HAS_REQUEST_SIGNALS"
+
+HAS_SIGNAL_WEIGHT_RC=0
+HAS_SIGNAL_WEIGHT=$(grep -c 'signal_weight.*Float32' "$SQL_FILE" ) || { HAS_SIGNAL_WEIGHT_RC=$?; HAS_SIGNAL_WEIGHT="0"; }
+assert_eq "request_signals carries valence-factored signal_weight" "1" "$HAS_SIGNAL_WEIGHT"
+
+MIG_UP="$REPO_ROOT/conf/migrations/000008_add_ttft_duration.up.sql"
+MIG_DOWN="$REPO_ROOT/conf/migrations/000008_add_ttft_duration.down.sql"
+MIG_UP_TTFT_RC=0
+MIG_UP_TTFT=$(grep -c 'ADD COLUMN IF NOT EXISTS ttft_first_byte_ms' "$MIG_UP" ) || { MIG_UP_TTFT_RC=$?; MIG_UP_TTFT="0"; }
+assert_eq "migration 000008 up adds ttft_first_byte_ms" "1" "$MIG_UP_TTFT"
+MIG_UP_MV_RC=0
+MIG_UP_MV=$(grep -c 'DROP TABLE IF EXISTS llm_gateway.billing_ledger_mv' "$MIG_UP" ) || { MIG_UP_MV_RC=$?; MIG_UP_MV="0"; }
+assert_eq "migration 000008 recreates the frozen MV SELECT" "1" "$MIG_UP_MV"
+MIG_DOWN_COLS_RC=0
+MIG_DOWN_COLS=$(grep -c 'DROP COLUMN IF EXISTS duration_ms' "$MIG_DOWN" ) || { MIG_DOWN_COLS_RC=$?; MIG_DOWN_COLS="0"; }
+assert_eq "migration 000008 down drops timing columns" "1" "$MIG_DOWN_COLS"
+
+# --rebuild DDL extraction (crunch-usefulness.sh --rebuild sources the
+# request_signals CREATE verbatim from clickhouse-init.sql; the awk range
+# must yield a complete statement).
+DDL_EXTRACT="$(awk '/^CREATE TABLE IF NOT EXISTS llm_gateway\.request_signals \(/,/;$/' "$SQL_FILE")"
+DDL_HAS_ENGINE_RC=0
+DDL_HAS_ENGINE=$(printf '%s' "$DDL_EXTRACT" | grep -c 'ENGINE = ReplacingMergeTree') || { DDL_HAS_ENGINE_RC=$?; DDL_HAS_ENGINE="0"; }
+assert_eq "rebuild DDL extraction finds the engine clause" "1" "$DDL_HAS_ENGINE"
+DDL_ENDS_RC=0
+DDL_ENDS=$(printf '%s\n' "$DDL_EXTRACT" | grep -c 'max_parts_in_total = 5000' ) || { DDL_ENDS_RC=$?; DDL_ENDS="0"; }
+assert_eq "rebuild DDL extraction includes the final SETTINGS line" "1" "$DDL_ENDS"
+
+# Friction telemetry (REQ FR-8): migration 000009 columns, canonical DDL,
+# marker extraction SQL wired into the crunch INSERT path.
+MIG9_UP="$REPO_ROOT/conf/migrations/000009_add_friction_columns.up.sql"
+MIG9_UP_RC=0
+MIG9_UP=$(grep -c 'ADD COLUMN IF NOT EXISTS guard_blocks UInt16 DEFAULT 0' "$MIG9_UP" ) || { MIG9_UP_RC=$?; MIG9_UP="0"; }
+assert_eq "migration 000009 adds guard_blocks" "1" "$MIG9_UP"
+FRICTION_COLS_RC=0
+FRICTION_COLS=$(grep -cE 'guard_blocks +UInt16|guard_rules +Array\(String\)|user_rejections +UInt16|rule_denials +UInt16' "$SQL_FILE" ) || { FRICTION_COLS_RC=$?; FRICTION_COLS="0"; }
+assert_eq "init.sql request_signals carries all 4 friction columns" "4" "$FRICTION_COLS"
+CRUNCH="$REPO_ROOT/res/scripts/crunch-usefulness.sh"
+MARKER_BASH_RC=0
+MARKER_BASH=$(grep -c "countMatches(req_body, 'BLOCKED: bash ')" "$CRUNCH" ) || { MARKER_BASH_RC=$?; MARKER_BASH="0"; }
+assert_eq "crunch counts shell-guard BLOCKED markers" "1" "$MARKER_BASH"
+MARKER_TS_RC=0
+MARKER_TS=$(grep -c "countMatches(req_body, 'BLOCKED: ts=')" "$CRUNCH" ) || { MARKER_TS_RC=$?; MARKER_TS="0"; }
+assert_eq "crunch counts git-guard BLOCKED markers" "1" "$MARKER_TS"
+MARKER_REJ_RC=0
+MARKER_REJ=$(grep -c "countMatches(req_body, 'The user rejected permission to use this specific tool call')" "$CRUNCH" ) || { MARKER_REJ_RC=$?; MARKER_REJ="0"; }
+assert_eq "crunch counts opencode user-rejection markers" "1" "$MARKER_REJ"
+MARKER_RULE_RC=0
+MARKER_RULE=$(grep -c "countMatches(req_body, 'The user has specified a rule which prevents you from using this specific tool call')" "$CRUNCH" ) || { MARKER_RULE_RC=$?; MARKER_RULE="0"; }
+assert_eq "crunch counts opencode rule-denial markers" "1" "$MARKER_RULE"
+RULE_RE_RC=0
+RULE_RE=$(grep -cF "extractAll(req_body, '[(]([a-z][a-z0-9-]+)[)] [(]2[0-9]{3}-[0-9]{2}-[0-9]{2}T')" "$CRUNCH" ) || { RULE_RE_RC=$?; RULE_RE="0"; }
+assert_eq "crunch extracts rule ids anchored before the ISO timestamp" "1" "$RULE_RE"
 
 # ── system log hygiene (text_log reached 143 GiB / 7.4B rows) ─────────
 CH_LOG_XML="$REPO_ROOT/conf/clickhouse-disable-metric-logs.xml"

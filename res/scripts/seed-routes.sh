@@ -33,7 +33,8 @@ fi
 
 PYTHON="uv run --with pyyaml python"
 
-exec "$PYTHON" -u -c "
+# shellcheck disable=SC2086  # PYTHON is a wrapper command line, intentionally word-split
+exec $PYTHON -u -c "
 import os, sys, json, urllib.request, urllib.error, yaml
 
 admin_key = os.environ.get('ADMIN_KEY', '').strip()

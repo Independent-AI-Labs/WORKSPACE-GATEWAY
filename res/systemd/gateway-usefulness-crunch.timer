@@ -1,0 +1,11 @@
+[Unit]
+Description=Run gateway-usefulness-crunch daily at 00:00 (REQ-USEFULNESS-TELEMETRY NFR-1.6)
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=gateway-usefulness-crunch.service
+
+[Install]
+WantedBy=timers.target

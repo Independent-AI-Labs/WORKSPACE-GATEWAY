@@ -230,7 +230,7 @@ HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.l
 assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
-assert_eq "APISIX has 26 volume mounts (4 config + 22 plugins)" "26" "$APISIX_VOLUME_COUNT"
+assert_eq "APISIX has 28 volume mounts (5 config + 22 plugins + usefulness)" "28" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL_RC=0

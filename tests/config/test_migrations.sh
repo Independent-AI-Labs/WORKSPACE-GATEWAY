@@ -122,6 +122,8 @@ assert_eq "migration 000003_align_usage_log_order_by.up.sql exists" "true" \
     "$(if [ -f "$MIGRATIONS_DIR/000003_align_usage_log_order_by.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
 assert_eq "migration 000004_create_billing_ledger_mv.up.sql exists" "true" \
     "$(if [ -f "$MIGRATIONS_DIR/000004_create_billing_ledger_mv.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
+assert_eq "migration 000009_add_friction_columns.up.sql exists" "true" \
+    "$(if [ -f "$MIGRATIONS_DIR/000009_add_friction_columns.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
 
 # ── (D) compose `migrate` service integration ───────────────────────────
 compose_body_rc=0

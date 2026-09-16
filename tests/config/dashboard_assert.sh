@@ -12,7 +12,9 @@ DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
 LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"
-ALL_DASHBOARDS=("$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE")
+EXPERIENCE_FILE="$DASH_DIR/gateway-model-experience.json"
+PERFORMANCE_FILE="$DASH_DIR/gateway-model-performance.json"
+ALL_DASHBOARDS=("$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE")
 
 pass=0
 fail=0
@@ -85,6 +87,20 @@ check_dashboard_basics() {
     prom_no_expr=$(jq -r '[.panels[]|select(.datasource.uid=="prometheus")|.targets[]|select((.expr//null)==null)]|length' "$f")
     assert_eq "$label S6c: all Prometheus targets have expr" "0" "$prom_no_expr"
 
+    # S6d: override matcher ids must exist in Grafana's registry (case-sensitive)
+    local bad_matchers
+    bad_matchers=$(jq -r '
+      def valid: ["anyMatch","allMatch","invertMatch","alwaysMatch","neverMatch","byType","byTypes","numeric","time","byName","byNames","byRegexp","byRegexpOrNames","byFrameRefID","first","firstTimeField","byValue"];
+      [.panels[] | .id as $pid | .fieldConfig.overrides[]? | .matcher.id | select(. != null) | select(. as $id | valid | index($id) | not)] | unique | join(",")
+    ' "$f")
+    assert_eq "$label S6d: override matcher ids are valid Grafana matcher ids" "" "$bad_matchers"
+
+    # S6e: stat/bargauge panels must be single-target (multi-target stat frames
+    # prefix field names with refIds and drop string fields)
+    local multi_target_tiles
+    multi_target_tiles=$(jq -r '[.panels[] | select(.type=="stat" or .type=="bargauge") | select((.targets|length) > 1) | .id] | join(",")' "$f")
+    assert_eq "$label S6e: stat/bargauge panels are single-target" "" "$multi_target_tiles"
+
     # S7: all hex colors are brand palette
     local brand_hex
     brand_hex=$(jq -r '
@@ -143,21 +159,26 @@ check_dashboard_basics() {
     assert_eq "$label S16: ClickHouse bargauge/stat panels use format table" "0" "$ch_table_bad"
 }
 
-# Cross-dashboard invariant: templating.list is byte-identical across all 3
-# dashboards (same filter header). Run from any one of the 3 test files.
+# Cross-dashboard invariant: the shared variables (api_key + model) are
+# byte-identical across all 4 dashboards (same filter header). Dashboard-local
+# variables (e.g. gateway-usefulness rejection_mode) are excluded. Run from
+# any one of the dashboard test files.
 check_templating_sync() {
-    local t_cu t_oh t_lb
-    t_cu=$(jq -c '.templating' "$COST_USAGE_FILE")
-    t_oh=$(jq -c '.templating' "$OPS_HEALTH_FILE")
-    t_lb=$(jq -c '.templating' "$LEADERBOARD_FILE")
-    if [ "$t_cu" = "$t_oh" ] && [ "$t_oh" = "$t_lb" ]; then
-        echo "[PASS] Templating (api_key + model) identical across all 3 dashboards"
+    local ok=1 t_ref t_f
+    t_ref=$(jq -c '[.templating.list[] | select(.name == "api_key" or .name == "model")]' "$COST_USAGE_FILE")
+    for f in "${ALL_DASHBOARDS[@]}"; do
+        t_f=$(jq -c '[.templating.list[] | select(.name == "api_key" or .name == "model")]' "$f")
+        if [ "$t_f" != "$t_ref" ]; then
+            echo "[FAIL] Templating differs: $f"
+            echo "       reference : $t_ref"
+            echo "       actual    : $t_f"
+            ok=0
+        fi
+    done
+    if [ "$ok" -eq 1 ]; then
+        echo "[PASS] Templating (api_key + model) identical across all ${#ALL_DASHBOARDS[@]} dashboards"
         pass=$((pass + 1))
     else
-        echo "[FAIL] Templating differs across dashboards"
-        echo "       cost-usage   : $t_cu"
-        echo "       ops-health   : $t_oh"
-        echo "       leaderboard  : $t_lb"
         fail=$((fail + 1))
     fi
 }

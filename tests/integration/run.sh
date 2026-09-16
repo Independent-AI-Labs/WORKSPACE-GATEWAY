@@ -104,7 +104,7 @@ if stack_is_up; then
     # in CI without a local LLM. No OPENCODE_API_KEY needed: the local LLM
     # serves real 200 responses with a usage object, which the zero-credit
     # opencode upstream cannot.
-    for test_script in test_llamafile_e2e.sh test_event_id_alignment.sh test_data_flow.sh test_cost_e2e.sh test_reconciler_exec.sh; do
+    for test_script in test_llamafile_e2e.sh test_event_id_alignment.sh test_data_flow.sh test_cost_e2e.sh test_reconciler_exec.sh test_crunch_idempotency.sh; do
         echo ""
         echo "--- $test_script ---"
         if bash "$SCRIPT_DIR/$test_script"; then

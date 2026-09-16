@@ -51,9 +51,26 @@ panel renders nothing.
 All key filters use `coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown')`
 to normalize across rows that use either column.
 
+### 2.4 Value formatting standards (all dashboards)
+
+- **Currency on stat tiles** = SQL-formatted exact strings `"$x.yy"`
+  (floor + left-padded cents; ClickHouse decimal `toString` strips trailing
+  zeros). Never SI-abbreviated on tiles (`$2.88K` is forbidden); the p15
+  timeseries axis may keep `currencyUSD` since axis abbreviation is standard.
+- **Token volumes on tiles** = SQL-formatted compact uppercase `B`/`M`/`K`
+  strings with 2 decimals (`5.76B`), no unit word: Grafana's `short` unit
+  renders "Bil"/"Mil" and is forbidden on tiles.
+- **Precision**: measured rates, costs, speeds and scores display 2 decimals
+  (display `decimals: 2` + SQL `round(x, 2)`); raw counts stay integers.
+- **Stat panels with string fields** must use `textMode: value_and_name`
+  (string fields do not render under `textMode: auto` reduce), and
+  `reduceOptions.fields` regexes must match post-override display names -
+  prefer `/./` when overrides rename fields.
+
 ## 3. Template Variables
 
-Identical across all 3 dashboards:
+Shared variables identical across all 5 dashboards (the experience dashboard
+adds only its local `rejection_mode`):
 
 | Variable | Query |
 |----------|-------|
@@ -69,13 +86,19 @@ No `allValue`; Grafana expands `${var:singlequote}` natively.
 Single query (refId A) with a `WITH totals AS (...)` CTE over
 `llm_gateway.usage_log` computing `total_tok`, `input_tok`
 (`prompt_tokens - cached_tokens`), `cached_tok`, `output_tok`
-(`completion_tokens - reasoning_tokens`), `reasoning_tok`, and `total_cost`,
-then emitting 5 aliased string columns (`Total`, `Input`, `Cached`, `Output`,
-`Reasoning`) formatted via `multiIf` as `"1.2 Mil ($0.35)"` (thresholds:
-`>= 1e9` renders `"N B"`, then `>= 1e6` `"N Mil"`, `>= 1e3` `"N K"`). Cost share per
-category: `round(total_cost * <cat>_tok / nullIf(total_tok, 0), 2)`.
-Colors (byName): Total teal, Input cerulean, Cached muted-teal, Output gold,
-Reasoning coral.
+(`completion_tokens - reasoning_tokens`), `reasoning_tok`, and
+`round(total_cost, 2)`, emitting 6 string columns: `"Total Tokens"`,
+`"Input Tokens"`, `"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"`
+(compact uppercase `B`/`M`/`K` `multiIf` strings, e.g. `9.18B`) and
+`"Total Cost"` as an exact currency string `concat('$', toString(floor(...)), '.',
+leftPad(toString(round((... - floor(...)) * 100)), 2, '0'))`: `$2882.40`,
+never SI-abbreviated (ClickHouse `toString(toDecimal64(x,2))` strips trailing
+zeros, so cents are split and left-padded manually). Colors (byName): Total
+teal, Input cerulean, Cached muted-teal, Output gold, Reasoning coral, Total
+Cost gold-accent `#b7990d`. Panel contract (FR-7.4): `reduceOptions.fields`
+must be `/./`: Grafana matches that regex against post-override display
+names, which no longer contain "Tokens"/"Cost"; string fields only render with
+`textMode: value_and_name`.
 
 ### Panel 15: Cost Over Time by Model (timeseries, CH, grid x:12 y:0 w:12 h:8)
 
@@ -191,9 +214,14 @@ are computed in SQL via `row_number() OVER ()`.
 ### Panel 20: Top Clients by Cost & Tokens (stat, CH, grid x:0 y:0 w:24 h:16)
 
 `WITH ranked AS (...)` groups `usage_log` by normalized client key, orders by
-`total_cost DESC LIMIT 100`, then emits `name_str` (`"N. client"`), `value_str`
-(`"1.2 Mil ($34.56)"`, same B/Mil/K `multiIf` thresholds as p3), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
-`#B07A3C` rank 3, `#FFFFFF` ranks 4-10), `LIMIT 10`.
+`total_cost DESC LIMIT 100`, then emits `name_str` (`"N. client - 5.76B"` -
+rank, entity, compact uppercase token volume via `multiIf` thresholds
+`>= 1e9 -> 'B'`, `>= 1e6 -> 'M'`, `>= 1e3 -> 'K'`, 2 decimals, no unit word),
+`value_str` (exact currency string `"$1893.31"`: same floor/cents formula as
+p3 Total Cost), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
+`#B07A3C` rank 3, `#FFFFFF` ranks 4-10), `LIMIT 10`. The `rowsToFields`
+transformation maps `name_str -> field.name`, `value_str -> field.value`,
+`Color -> color`.
 
 ### Panel 21: Top Models by Cost & Tokens (stat, CH, grid x:0 y:16 w:24 h:16)
 

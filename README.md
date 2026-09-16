@@ -169,7 +169,7 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 | Request/response logging | `http-logger` to Vector to ClickHouse | Built-in |
 | Prometheus metrics | `prometheus` at `:9100` | Built-in |
 | SSE streaming support | `proxy-buffering` disabled per-route | Config |
-| Grafana dashboards (3) | Cost & Usage, Ops & Health, Cost Leaderboard: 7d lookback, 5s refresh | Config |
+| Grafana dashboards (4) | Cost & Usage, Ops & Health, Cost Leaderboard, Usefulness: 90d lookback, 5s refresh | Config |
 | Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL |
 
 ---
@@ -334,7 +334,8 @@ Traditional/etcd mode: routes live in etcd, seeded from the rendered
 - `res/scripts/seed-routes.sh`: Seeds etcd from rendered `apisix.yaml` on stack start
 - `conf/openbao.hcl`: OpenBao production config (file-storage backend)
 - `conf/prometheus.yml`: Prometheus scrape config (APISIX `:9100`)
-- `conf/grafana/`: Grafana datasources + 3 provisioned dashboards
+- `conf/profanity/`: vendored rejection-language dictionaries (refresh: `make gw-update-dictionaries`)
+- `conf/grafana/`: Grafana datasources + 4 provisioned dashboards
 - `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
 - `conf/clickhouse-init.sql`: Base schema; incremental changes via `conf/migrations/`
 - `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink

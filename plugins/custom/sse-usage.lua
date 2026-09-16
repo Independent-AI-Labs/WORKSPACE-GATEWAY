@@ -91,6 +91,16 @@ function plugin.body_filter(conf, ctx)
     local chunk = ngx.arg[1]
     local eof = ngx.arg[2]
 
+    --TTFT (first byte): stamp once on the first non-empty response chunk.
+    --Zero-cost guard; the stamp is the only per-chunk bookkeeping added here.
+    if type(chunk) == "string" and chunk ~= "" and not ctx.sse_first_byte_ms then
+        local start_s = ngx.req.start_time()
+        if start_s then
+            local ms = math.floor((ngx.now() - start_s) * 1000 + 0.5)
+            if ms >= 0 then ctx.sse_first_byte_ms = ms end
+        end
+    end
+
     --OpenAI Responses can emit SSE frames while advertising a non-SSE response.
     --Keep telemetry enabled when response headers classify it as JSON.
     if not ctx.sse_usage_tracking then
@@ -121,11 +131,18 @@ function plugin.body_filter(conf, ctx)
                 ctx.sse_is_stream = true
             end
             if ctx.sse_is_stream then
-                local usage, model, done, cost = sse_lib.scan_sse_for_usage(complete)
+                local usage, model, done, cost, has_content = sse_lib.scan_sse_for_usage(complete)
                 if done then ctx.sse_completed = true end
                 if usage then ctx.sse_usage = usage end
                 if model and model ~= "" then ctx.sse_model = model end
                 if cost and cost > 0 then ctx.sse_cost = cost end
+                if has_content and not ctx.sse_content_ms then
+                    local start_s = ngx.req.start_time()
+                    if start_s then
+                        local ms = math.floor((ngx.now() - start_s) * 1000 + 0.5)
+                        if ms >= 0 then ctx.sse_content_ms = ms end
+                    end
+                end
             else
                 local usage, model, cost = sse_lib.parse_json_usage(complete)
                 if usage then
@@ -143,11 +160,18 @@ function plugin.body_filter(conf, ctx)
                 ctx.sse_is_stream = true
             end
             if ctx.sse_is_stream then
-                local usage, model, done, cost = sse_lib.scan_sse_for_usage(ctx.sse_buffer)
+                local usage, model, done, cost, has_content = sse_lib.scan_sse_for_usage(ctx.sse_buffer)
                 if done then ctx.sse_completed = true end
                 if usage then ctx.sse_usage = usage end
                 if model and model ~= "" then ctx.sse_model = model end
                 if cost and cost > 0 then ctx.sse_cost = cost end
+                if has_content and not ctx.sse_content_ms then
+                    local start_s = ngx.req.start_time()
+                    if start_s then
+                        local ms = math.floor((ngx.now() - start_s) * 1000 + 0.5)
+                        if ms >= 0 then ctx.sse_content_ms = ms end
+                    end
+                end
             else
                 local usage, model, cost = sse_lib.parse_json_usage(ctx.sse_buffer)
                 if usage then
@@ -191,6 +215,24 @@ function plugin.log(conf, ctx)
     end
 
     local is_stream = ctx.sse_is_stream and 1 or 0
+
+    --Stream timing (REQ-USEFULNESS-TELEMETRY FR-1): duration at log phase,
+    --TTFT stamps from body_filter. JSON responses deliver the whole body at
+    --once, so both TTFT columns equal duration. Aborted streams keep timing:
+    --aborted=1 with ttft_first_byte_ms=0 < duration_ms marks a cancel before
+    --first byte.
+    local duration_ms = 0
+    local start_s = ngx.req.start_time()
+    if start_s then
+        local ms = math.floor((ngx.now() - start_s) * 1000 + 0.5)
+        if ms > 0 then duration_ms = ms end
+    end
+    local ttft_first_byte = ctx.sse_first_byte_ms or 0
+    local ttft_content = ctx.sse_content_ms or 0
+    if is_stream == 0 then
+        ttft_first_byte = duration_ms
+        ttft_content = duration_ms
+    end
 
     local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(ctx.sse_usage)
     local model = ctx.sse_model or ""
@@ -292,6 +334,9 @@ function plugin.log(conf, ctx)
         api_key_id = consumer,
         aborted = aborted,
         is_stream = is_stream,
+        ttft_first_byte_ms = ttft_first_byte,
+        ttft_content_ms = ttft_content,
+        duration_ms = duration_ms,
         cost = final_cost,
         cost_source = cost_source,
         provider_id = provider_id or "",

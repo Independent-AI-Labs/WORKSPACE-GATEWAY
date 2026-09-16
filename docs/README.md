@@ -32,6 +32,7 @@ as not implemented.
 | [`requirements/REQ-REDACT.md`](requirements/REQ-REDACT.md) | PII redaction plugin (v1) |
 | [`requirements/REQ-REDACT-ENGINE.md`](requirements/REQ-REDACT-ENGINE.md) | NER redaction engine (Draft, v2) |
 | [`requirements/REQ-SEMANTIC-CACHE.md`](requirements/REQ-SEMANTIC-CACHE.md) | Semantic cache (Draft, v2) |
+| [`requirements/REQ-USEFULNESS-TELEMETRY.md`](requirements/REQ-USEFULNESS-TELEMETRY.md) | Practical-usefulness metrics: TTFT, cancel/rejection signals, cruncher, dashboard (Implemented) |
 | [`requirements/REQ-STATS-MIGRATION.md`](requirements/REQ-STATS-MIGRATION.md) | opencode SQLite → ClickHouse stats migrator (Implemented) |
 
 ### specifications/  -  implementation specs (SPEC-*)
@@ -52,6 +53,7 @@ as not implemented.
 | [`specifications/SPEC-REDACT.md`](specifications/SPEC-REDACT.md) | redact plugin implementation |
 | [`specifications/SPEC-REDACT-ENGINE.md`](specifications/SPEC-REDACT-ENGINE.md) | NER engine implementation (Draft) |
 | [`specifications/SPEC-SEMANTIC-CACHE.md`](specifications/SPEC-SEMANTIC-CACHE.md) | Semantic cache implementation (Draft) |
+| [`specifications/SPEC-USEFULNESS-TELEMETRY.md`](specifications/SPEC-USEFULNESS-TELEMETRY.md) | Usefulness telemetry implementation: TTFT capture, batch cruncher, dashboard (Implemented) |
 | [`specifications/SPEC-STATS-MIGRATION.md`](specifications/SPEC-STATS-MIGRATION.md) | opencode stats migrator implementation (Implemented) |
 
 ### architecture/  -  deep technical reference

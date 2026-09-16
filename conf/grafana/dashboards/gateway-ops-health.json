@@ -275,7 +275,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 20,
             "showPoints": "never"
-          }
+          },
+          "decimals": 2
         },
         "overrides": []
       },
@@ -484,7 +485,8 @@
             },
             "fillOpacity": 10,
             "showPoints": "never"
-          }
+          },
+          "decimals": 2
         },
         "overrides": [
           {
@@ -681,7 +683,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 10,
             "showPoints": "never"
-          }
+          },
+          "decimals": 2
         },
         "overrides": [
           {
@@ -821,7 +824,8 @@
             "lineInterpolation": "smooth",
             "fillOpacity": 20,
             "showPoints": "never"
-          }
+          },
+          "decimals": 2
         },
         "overrides": [
           {
@@ -903,7 +907,8 @@
             "lineInterpolation": "stepAfter",
             "fillOpacity": 30,
             "showPoints": "never"
-          }
+          },
+          "decimals": 2
         },
         "overrides": [
           {

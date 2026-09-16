@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS llm_gateway.usage_log (
     api_key_id                String DEFAULT '',
     aborted                   UInt8 DEFAULT 0,
     is_stream                 UInt8 DEFAULT 0,
+    ttft_first_byte_ms        UInt32 DEFAULT 0,
+    ttft_content_ms           UInt32 DEFAULT 0,
+    duration_ms               UInt32 DEFAULT 0,
     cost                      Float64 DEFAULT 0,
     cost_source               Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2) DEFAULT 2,
     provider_id               LowCardinality(String) DEFAULT '',
@@ -109,6 +112,37 @@ CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger (
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (tenant_id, user_id, timestamp)
+TTL toDateTime(timestamp) + INTERVAL 13 MONTH
+SETTINGS index_granularity = 8192,
+         parts_to_delay_insert = 500,
+         parts_to_throw_insert = 1000,
+         inactive_parts_to_delay_insert = 500,
+         inactive_parts_to_throw_insert = 1000,
+         max_parts_in_total = 5000;
+
+CREATE TABLE IF NOT EXISTS llm_gateway.request_signals (
+    request_id        String,
+    model             LowCardinality(String) DEFAULT '',
+    timestamp         DateTime64(3),
+    is_followup       UInt8 DEFAULT 0,
+    parsed            UInt8 DEFAULT 1,
+    profane           UInt8 DEFAULT 0,
+    profane_count     UInt16 DEFAULT 0,
+    profane_terms     Array(String) DEFAULT [],
+    frustrated        UInt8 DEFAULT 0,
+    frustration_count UInt16 DEFAULT 0,
+    frustration_terms Array(String) DEFAULT [],
+    signal_count      UInt16 DEFAULT 0,
+    signal_weight     Float32 DEFAULT 0,
+    guard_blocks      UInt16 DEFAULT 0,
+    guard_rules       Array(String) DEFAULT [],
+    user_rejections   UInt16 DEFAULT 0,
+    rule_denials      UInt16 DEFAULT 0,
+    dict_version      LowCardinality(String) DEFAULT ''
+)
+ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (model, timestamp, request_id)
 TTL toDateTime(timestamp) + INTERVAL 13 MONTH
 SETTINGS index_granularity = 8192,
          parts_to_delay_insert = 500,
@@ -189,6 +223,15 @@ ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS is_stream        UInt8 DEFAULT 0 AFTER aborted;
 
 ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS ttft_first_byte_ms UInt32 DEFAULT 0 AFTER is_stream;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS ttft_content_ms   UInt32 DEFAULT 0 AFTER ttft_first_byte_ms;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS duration_ms       UInt32 DEFAULT 0 AFTER ttft_content_ms;
+
+ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS cost             Float64 DEFAULT 0 AFTER is_stream;
 
 ALTER TABLE llm_gateway.usage_log
@@ -242,12 +285,13 @@ ALTER TABLE llm_gateway.billing_discrepancies MODIFY SETTING
 
 -- billing_ledger write pipeline: Materialized View populates billing_ledger
 -- automatically from every usage_log INSERT. Columns only available in
--- request_log (tenant_id, user_id, provider, route_name, llm_latency_ms,
--- ttft_ms, upstream_resp_id) are left as defaults here; a future enrich
+-- request_log (tenant_id, user_id, provider, route_name,
+-- upstream_resp_id) are left as defaults here; a future enrich
 -- job can backfill them via the request_id join key. rate_input/rate_output
 -- require the models.dev pricing cache (in nginx shared dict, not
 -- ClickHouse), so they are 0 until a reconciler copy of the
--- pricing snapshot lands in ClickHouse.
+-- pricing snapshot lands in ClickHouse. ttft_ms/llm_latency_ms receive the
+-- real stream timing captured by sse-usage (ttft_content_ms/duration_ms).
 CREATE MATERIALIZED VIEW IF NOT EXISTS llm_gateway.billing_ledger_mv
 TO llm_gateway.billing_ledger
 AS
@@ -273,8 +317,8 @@ SELECT
     CAST(round(cost, 6) AS Decimal64(6)) AS cost,
     (aborted = 0)           AS success,
     if(aborted > 0, 'aborted', '') AS error_type,
-    0                       AS llm_latency_ms,
-    0                       AS ttft_ms,
+    duration_ms             AS llm_latency_ms,
+    ttft_content_ms         AS ttft_ms,
     ''                      AS upstream_resp_id,
     false                   AS redact_active,
     0                       AS redact_token_count,

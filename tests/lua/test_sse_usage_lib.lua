@@ -249,11 +249,75 @@ local function extract_tokens_tests()
     end
 end
 
+local function content_detection_tests()
+    -- FR-1.2: has_content flags the first content-bearing event so
+    -- sse-usage can stamp ttft_content_ms.
+    do
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n')
+        assert_eq(has_content, true, "content[1] delta.content")
+    end
+
+    do
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"choices":[{"delta":{"reasoning_content":"thinking"}}]}\n\n')
+        assert_eq(has_content, true, "content[2] delta.reasoning_content")
+    end
+
+    do
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"type":"response.output_text.delta","delta":"hi"}\n\n')
+        assert_eq(has_content, true, "content[3] responses-api text delta")
+    end
+
+    do
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"type":"response.reasoning_text.delta","delta":"hm"}\n\n')
+        assert_eq(has_content, true, "content[4] responses-api reasoning delta")
+    end
+
+    do
+        --Lifecycle events carry no content: created/role frames, empty deltas.
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"type":"response.created","response":{}}\n\n' ..
+            'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}\n\n')
+        assert_eq(has_content, false, "content[5] created/empty frames")
+    end
+
+    do
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: [DONE]\n\n')
+        assert_eq(has_content, false, "content[6] done only")
+    end
+
+    do
+        --Content and usage can appear in the same scan batch; both surface.
+        local usage, _, done, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"choices":[{"delta":{"content":"x"}}]}\n' ..
+            'data: {"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}\n' ..
+            'data: [DONE]\n\n')
+        assert_eq(has_content, true, "content[7] mixed batch content")
+        assert_eq(done, true, "content[7] mixed batch done")
+        assert_eq(usage ~= nil, true, "content[7] mixed batch usage")
+    end
+
+    do
+        --Fifth return value is additive: old four-value contract unchanged.
+        local usage, model, done, cost = sse_lib.scan_sse_for_usage(
+            'data: {"model":"m","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2,"estimated_cost":0.01}}\n\n')
+        assert_eq(usage ~= nil, true, "content[8] usage still first")
+        assert_eq(model, "m", "content[8] model still second")
+        assert_eq(done, false, "content[8] done still third")
+        assert_eq(cost, 0.01, "content[8] cost still fourth")
+    end
+end
+
 local function main()
     buffer_chunk_tests()
     scan_sse_tests()
     parse_json_usage_tests()
     extract_tokens_tests()
+    content_detection_tests()
 
     io.write(string.format("\n==== SSE usage lib tests: %d passed, %d failed ====\n", pass, fail))
     if fail > 0 then

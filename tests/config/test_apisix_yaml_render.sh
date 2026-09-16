@@ -65,8 +65,10 @@ assert_absent() {
 assert_eq "apisix.yaml.j2 template exists" "yes" "$(if [ -f "$J2_FILE" ]; then printf 'yes'; else printf 'no'; fi)"
 assert_eq "committed apisix.yaml exists" "yes" "$(if [ -f "$COMMITTED" ]; then printf 'yes'; else printf 'no'; fi)"
 
-# Verify uv python + jinja2 are available.
-if ! uv run --with jinja2 python "$SCRIPT_DIR/check_jinja2.py" 1>&2; then
+# Verify uv python + jinja2 are available. --no-project: this repo has no
+# pyproject; without the flag uv resolves a parent workspace project whose
+# unrelated pins can break tooling here.
+if ! uv run --no-project --with jinja2 python "$SCRIPT_DIR/check_jinja2.py" 1>&2; then
     echo "[FAIL] uv python jinja2 module is importable"
     fail=$((fail + 1))
     summary
@@ -78,7 +80,7 @@ render_j2() {
     local host="$1" port="$2" outvar="$3"
     local rendered
     rendered=$(LLAMAFILE_UPSTREAM_HOST="$host" LLAMAFILE_UPSTREAM_PORT="$port" \
-        uv run --with jinja2 python "$SCRIPT_DIR/render_apisix_j2.py" "$J2_FILE"
+        uv run --no-project --with jinja2 python "$SCRIPT_DIR/render_apisix_j2.py" "$J2_FILE"
     )
     printf -v "$outvar" '%s' "$rendered"
 }

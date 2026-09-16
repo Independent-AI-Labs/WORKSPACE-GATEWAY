@@ -5,12 +5,17 @@
 **Type:** Requirements
 **Specification:** [SPEC-DASHBOARD](../specifications/SPEC-DASHBOARD.md)
 
-> Mandates 3 Grafana dashboards (16 panels total) giving the gateway operator a
-> real-time and historical view of LLM traffic, cost, latency, errors, and
-> internal health. Dashboard JSON files under `conf/grafana/dashboards/` are the
+> Mandates 4 Grafana dashboards (30 panels total) giving the gateway operator a
+> real-time and historical view of LLM traffic, cost, latency, errors,
+> internal health, and practical usefulness. Dashboard JSON files under
+> `conf/grafana/dashboards/` are the
 > single source of truth for structure; this document owns the correctness and
 > consistency requirements. Known cross-table data-quality issues are tracked in
 > [architecture/OPEN-ISSUES.md](../architecture/OPEN-ISSUES.md), not here.
+> The 4th and 5th dashboards (`gateway-model-experience`,
+> `gateway-model-performance`) are specified in
+> [REQ-USEFULNESS-TELEMETRY](REQ-USEFULNESS-TELEMETRY.md); this document owns
+> only their structural conformance (FR-3.x/FR-6.x here apply as-is).
 
 ---
 
@@ -20,6 +25,8 @@
 - [`conf/grafana/dashboards/gateway-cost-usage.json`](../../conf/grafana/dashboards/gateway-cost-usage.json): Cost & Usage dashboard
 - [`conf/grafana/dashboards/gateway-ops-health.json`](../../conf/grafana/dashboards/gateway-ops-health.json): Operations & Health dashboard
 - [`conf/grafana/dashboards/gateway-cost-leaderboard.json`](../../conf/grafana/dashboards/gateway-cost-leaderboard.json): Cost Leaderboard dashboard
+- [`conf/grafana/dashboards/gateway-model-experience.json`](../../conf/grafana/dashboards/gateway-model-experience.json): Model Experience dashboard (specified by REQ-USEFULNESS-TELEMETRY)
+- [`conf/grafana/dashboards/gateway-model-performance.json`](../../conf/grafana/dashboards/gateway-model-performance.json): Model Performance dashboard (specified by REQ-USEFULNESS-TELEMETRY)
 
 ---
 
@@ -34,7 +41,10 @@ performance acceptable, (5) is the gateway itself healthy.
 ### 1.2 Scope
 
 **This document OWNS the requirements for:**
-- The 3 dashboards, their 16 panels, and their datasources
+- The 3 dashboards defined here (16 panels) and their datasources; the 4th
+  dashboards (`gateway-model-experience`, 10 panels + `gateway-model-performance`, 5 panels) are owned by
+  [REQ-USEFULNESS-TELEMETRY](REQ-USEFULNESS-TELEMETRY.md) and inherits this
+  document's FR-3 (global filters) and FR-6 (structural rules) requirements
 - Global template variables (`api_key`, `model`) and time range defaults
 - Cross-query consistency invariants and structural rules for all panels
 
@@ -58,9 +68,9 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-1.1 | The system SHALL provide exactly 3 dashboards: `gateway-cost-usage` (3 CH panels: ids 3, 15, 8), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), and `gateway-cost-leaderboard` (2 CH stat panels: ids 20, 21). |
-| FR-1.2 | All 3 dashboards MUST open with time range `now-90d` to `now` and a 5-second refresh. |
-| FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 20=stat, 21=stat. |
+| FR-1.1 | The system SHALL provide exactly 5 dashboards: `gateway-cost-usage` (3 CH panels: ids 3, 15, 8), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), `gateway-cost-leaderboard` (2 CH stat panels: ids 20, 21), `gateway-model-experience` (10 CH panels: ids 32-35, 37, 38, 40-43; satisfaction signals, Usefulness Score + scorecard, friction: behavioral requirements owned by REQ-USEFULNESS-TELEMETRY), and `gateway-model-performance` (5 CH panels: ids 30, 31, 36, 39, 44; speed, cancel/abort, waste: owned by REQ-USEFULNESS-TELEMETRY). |
+| FR-1.2 | All 5 dashboards MUST open with time range `now-90d` to `now` and a 5-second refresh. |
+| FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 20=stat, 21=stat; usefulness panels per its own REQ. |
 
 ### FR-2: Datasources
 
@@ -83,7 +93,7 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens with per-category cost share, as formatted strings `"NN (B\|Mil\|K)? ($X.XX)"` (billion scale added 2026-08-28), with 5 unique column aliases and 5 unique byName color overrides. |
+| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens as compact uppercase `B`/`M`/`K` strings plus a Total Cost column as an exact `"$x.yy"` currency string (never SI-abbreviated), single query/frame, with 6 unique column aliases and 6 unique byName overrides. |
 | FR-4.2 | p15 (Cost Over Time by Model) MUST be a stacked-area timeseries of per-model cost per minute with a sum legend table. |
 | FR-4.3 | p1 (Total Requests) MUST count `request_log` rows within the time filter, with thresholds teal/gold at 1000/bronze at 10000. |
 | FR-4.4 | p4 (Error Rate %) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |
@@ -97,7 +107,7 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-4.12 | p11 (Bandwidth) MUST use `sum(rate(apisix_bandwidth{...,type="ingress|egress"}[5m]))` (not bare `rate()`), one series per direction. |
 | FR-4.13 | p8 (Model Distribution) MUST be a bargauge of request counts per model from `usage_log`, LIMIT 20. |
 | FR-4.14 | p12 (Shared Dict Memory) MUST plot `(1 - free/capacity) * 100` for the `key_cache` and `redact_state` dicts with exact `name="..."` matches, clamped to [0, 100], stepAfter interpolation. |
-| FR-4.15 | p20/p21 (Leaderboards) MUST each render 10 ranked tiles (top clients / top models by cost) with medal colors for ranks 1-3 and white for ranks 4-10. |
+| FR-4.15 | p20/p21 (Leaderboards) MUST each render 10 ranked tiles (top clients / top models by cost) with medal colors for ranks 1-3 and white for ranks 4-10; the tile value MUST be an exact `"$x.yy"` currency string and the tile name MUST carry rank, entity, and compact uppercase B/M/K token volume (`"1. kimi-k3 - 2.41B"`). |
 
 ### FR-5: Cross-Query Consistency
 
@@ -118,6 +128,15 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-6.3 | ClickHouse targets MUST NOT contain `meta`, `editorType`, or `pluginVersion` keys (they trigger builder mode with an empty query). |
 | FR-6.4 | Queries MUST NOT use `$__conditionalAll` macros. |
 | FR-6.5 | All hex colors MUST come from the brand palette; leaderboard medal accents (white `#ffffff`, matte gold `#c9a44c`, silver `#a8a9ad`, bronze `#b07a3c`) are the only permitted additions. |
+
+### FR-7: Value Formatting Standards (all dashboards)
+
+| ID | Requirement |
+|----|-------------|
+| FR-7.1 | Currency on stat tiles MUST be an SQL-formatted exact string `"$x.yy"` (floor + left-padded cents); SI-abbreviated money (`$2.88K`) is forbidden. Timeseries axes may use `currencyUSD`. |
+| FR-7.2 | Token volumes on tiles MUST be SQL-formatted compact uppercase `B`/`M`/`K` strings with 2 decimals and no unit word (Grafana `unit: short` renders "Bil"/"Mil" and is forbidden). |
+| FR-7.3 | Measured rates, costs, speeds, and scores MUST display 2 decimals (display config + SQL `round(x, 2)`); raw counts stay integers. |
+| FR-7.4 | Stat panels MUST render each tile-set from a single query/frame (multi-target stat frames drop string fields and prefix names with refIds); string-valued fields REQUIRE `textMode: value_and_name`; `reduceOptions.fields` regexes match post-override display names, so panels whose overrides rename fields MUST use `/./`. |
 
 ## 3. Non-Functional Requirements
 
@@ -159,10 +178,10 @@ restart-persistent metrics, Prometheus for instantaneous rates/percentiles.)
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| FR-1.1 3 dashboards / 16 panels | Implemented | conf/grafana/dashboards/*.json (3+11+2 panels) |
+| FR-1.1 5 dashboards / 31 panels | Implemented | conf/grafana/dashboards/*.json (3+11+2+10+5 panels; experience: score/scorecard/rejection/friction, performance: prefill/decode speeds split p30/p44 + reliability + waste) |
 | FR-1.2 time range & refresh | Implemented | each dashboard: `now-90d`→`now`, `5s` |
 | FR-2.x datasource split | Implemented | 11 CH + 5 Prom targets across dashboards |
-| FR-3.x template variables | Implemented | `api_key` + `model` in all 3 dashboards |
+| FR-3.x template variables | Implemented | `api_key` + `model` in all 5 dashboards |
 | FR-4.x panel behaviors | Implemented | per-panel queries in dashboard JSONs |
 | FR-5.x consistency invariants | Implemented (queries) | see OPEN-ISSUES.md for residual data-quality caveats |
 | FR-6.x structural rules | Implemented | tests/config/dashboard_assert.sh |

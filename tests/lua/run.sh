@@ -17,7 +17,7 @@ echo "[run.sh] running Lua unit tests via podman..."
 
 OVERALL_RET=0
 
-for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_oauth_jwt.lua test_oauth_broker.lua test_oauth_session.lua test_oauth_device.lua test_oauth_auth.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua; do
+for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_oauth_jwt.lua test_oauth_broker.lua test_oauth_session.lua test_oauth_device.lua test_oauth_auth.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua test_usefulness_cruncher.lua; do
   echo ""
   echo "[run.sh] running $test_file..."
   ret=0
@@ -30,6 +30,7 @@ for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_oauth_jwt.lua t
     "$IMAGE" \
      -I /plugins/custom \
      -I /workspace/tests/lua \
+     -I /workspace/res/scripts/usefulness \
     "/workspace/tests/lua/$test_file" || ret=$?
   echo "[run.sh] $test_file exit code: $ret"
   if [ "$ret" -ne 0 ]; then

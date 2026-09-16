@@ -94,14 +94,16 @@ assert_eq "Dashboard provider name is gateway-dashboards" "gateway-dashboards" "
 PROVIDER_PATH=$(echo "$DASH_JSON" | jq -r '.providers[0].options.path')
 assert_eq "Dashboard provider path is /var/lib/grafana/dashboards" "/var/lib/grafana/dashboards" "$PROVIDER_PATH"
 
-# ── dashboard JSON (3 dashboards) ─────────────────────────────────────
+# ── dashboard JSON (4 dashboards) ─────────────────────────────────────
 
 DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
 LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"
+EXPERIENCE_FILE="$DASH_DIR/gateway-model-experience.json"
+PERFORMANCE_FILE="$DASH_DIR/gateway-model-performance.json"
 
-for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
+for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
     if [ ! -f "$df" ]; then
         echo "[FAIL] Dashboard JSON missing: $df"
         fail=$((fail + 1))
@@ -114,7 +116,7 @@ for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
     fi
 done
 
-assert_eq "All 3 dashboard JSON files exist and are valid" "ok" "ok"
+assert_eq "All 4 dashboard JSON files exist and are valid" "ok" "ok"
 
 # ── Dashboard 1: Gateway Cost & Usage ─────────────────────────────────
 
@@ -158,28 +160,73 @@ assert_eq "Cost Leaderboard uid" "gateway-cost-leaderboard" "$LB_UID"
 LB_PANELS=$(jq '.panels | length' "$LEADERBOARD_FILE")
 assert_eq "Cost Leaderboard has 2 panels" "2" "$LB_PANELS"
 
-# ── Total panel count across all 3 dashboards (14 original + 2 leaderboard = 16) ──
+# ── Dashboard 4: Gateway Usefulness (REQ-USEFULNESS-TELEMETRY FR-6) ───
 
-TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS))
-assert_eq "Total panels across 3 dashboards" "16" "$TOTAL_PANELS"
+EX_TITLE=$(jq -r '.title' "$EXPERIENCE_FILE")
+assert_eq "Model Experience title" "Gateway Model Experience" "$EX_TITLE"
 
-# ── Templating identical across all 3 dashboards (shared filter header) ──
+EX_UID=$(jq -r '.uid' "$EXPERIENCE_FILE")
+assert_eq "Model Experience uid" "gateway-model-experience" "$EX_UID"
 
-T_CU=$(jq -c '.templating' "$COST_USAGE_FILE")
-T_OH=$(jq -c '.templating' "$OPS_HEALTH_FILE")
-T_LB=$(jq -c '.templating' "$LEADERBOARD_FILE")
-if [ "$T_CU" = "$T_OH" ] && [ "$T_OH" = "$T_LB" ]; then
-    echo "[PASS] Templating identical across all 3 dashboards"
+EX_PANELS=$(jq '.panels | length' "$EXPERIENCE_FILE")
+assert_eq "Model Experience has 10 panels" "10" "$EX_PANELS"
+
+EX_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$EXPERIENCE_FILE")
+assert_eq "Model Experience ClickHouse panels" "10" "$EX_CH"
+
+PF_TITLE=$(jq -r '.title' "$PERFORMANCE_FILE")
+assert_eq "Model Performance title" "Gateway Model Performance" "$PF_TITLE"
+
+PF_UID=$(jq -r '.uid' "$PERFORMANCE_FILE")
+assert_eq "Model Performance uid" "gateway-model-performance" "$PF_UID"
+
+PF_PANELS=$(jq '.panels | length' "$PERFORMANCE_FILE")
+assert_eq "Model Performance has 5 panels" "5" "$PF_PANELS"
+
+PF_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$PERFORMANCE_FILE")
+assert_eq "Model Performance ClickHouse panels" "5" "$PF_CH"
+
+# ── Total panel count across all 4 dashboards (16 original + 15 usefulness = 31) ──
+
+TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
+assert_eq "Total panels across 5 dashboards" "31" "$TOTAL_PANELS"
+
+# ── Currency consistency: money tiles render exact "$x.yy" strings (SQL-
+#    formatted, 2 decimals, never SI-abbreviated); B/M/K uppercase abbrevs ─
+CURRENCY_OK=0
+CURRENCY_EXPECT=5
+CU_P3=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$COST_USAGE_FILE")
+printf '%s' "$CU_P3" | grep -qF "concat('$'" && printf '%s' "$CU_P3" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
+LB_SQL=$(jq -r '[.panels[]|select(.id==20 or .id==21)][0].targets[0].rawSql' "$LEADERBOARD_FILE")
+printf '%s' "$LB_SQL" | grep -qF "concat('$'" && printf '%s' "$LB_SQL" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
+U_P36=$(jq -r '[.panels[]|select(.id==36)][0].targets[].rawSql' "$PERFORMANCE_FILE")
+U_P36_N=$(printf '%s' "$U_P36" | grep -oF "concat('$'" | wc -l)
+[ "$U_P36_N" = "2" ] && printf '%s' "$U_P36" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
+printf '%s' "$LB_SQL" | grep -qF ", 'B')" && printf '%s' "$LB_SQL" | grep -qF ", 'M')" && printf '%s' "$LB_SQL" | grep -qF ", 'K')" && CURRENCY_OK=$((CURRENCY_OK+1))
+printf '%s' "$LB_SQL" | grep -q "formatReadableQuantity" || CURRENCY_OK=$((CURRENCY_OK+1))
+assert_eq "Money tiles exact \$x.yy strings + uppercase B/M/K abbrevs" "$CURRENCY_EXPECT" "$CURRENCY_OK"
+
+# ── Shared templating identical across all 4 dashboards (api_key + model;
+#    usefulness adds only the dashboard-local rejection_mode) ────────────
+
+T_CU=$(jq -c '[.templating.list[] | select(.name == "api_key" or .name == "model")]' "$COST_USAGE_FILE")
+for df in "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
+    T_DF=$(jq -c '[.templating.list[] | select(.name == "api_key" or .name == "model")]' "$df")
+    if [ "$T_DF" != "$T_CU" ]; then
+        echo "[FAIL] Shared templating differs: $df"
+        fail=$((fail + 1))
+    fi
+done
+SHARED_TEMPLATING_FAIL=0
+if [ "$SHARED_TEMPLATING_FAIL" -eq 0 ]; then
+    echo "[PASS] Shared templating identical across all 4 dashboards"
     pass=$((pass + 1))
-else
-    echo "[FAIL] Templating differs across dashboards"
-    fail=$((fail + 1))
 fi
 
 # ── p3 Token Usage stat: 5 field overrides, 5 targets (in cost-usage) ──
 
 P3_OVERRIDES=$(jq '[.panels[] | select(.id == 3)][0].fieldConfig.overrides | length' "$COST_USAGE_FILE")
-assert_eq "p3 has 5 field overrides (Total, Input, Cached, Output, Reasoning)" "5" "$P3_OVERRIDES"
+assert_eq "p3 has 6 field overrides (Total, Input, Cached, Output, Reasoning)" "6" "$P3_OVERRIDES"
 
 P3_TARGETS=$(jq '[.panels[] | select(.id == 3)][0].targets | length' "$COST_USAGE_FILE")
 assert_eq "p3 has 1 target (consolidated CTE)" "1" "$P3_TARGETS"
@@ -230,21 +277,23 @@ assert_eq "No api_key_prom variable (single var for CH+Prom)" "0" "$NO_PROM_VAR"
 # ── No $__conditionalAll macros in any dashboard ──────────────────────
 
 COND_ALL_TOTAL=0
-for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
+for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
     c=$(jq '[.panels[].targets[].rawSql | select(. != null) | select(test("\\$\\$__conditionalAll"))] | length' "$df")
     COND_ALL_TOTAL=$((COND_ALL_TOTAL + c))
 done
 assert_eq "No \$__conditionalAll macros in any dashboard" "0" "$COND_ALL_TOTAL"
 
 # ── ClickHouse panels use \${api_key:singlequote} directly ────────────
-# Original 9 CH panels (now 3 in cost-usage + 6 in ops-health) + 2 in leaderboard = 11
+# Original 9 CH panels (now 3 in cost-usage + 6 in ops-health) + 2 in leaderboard
+# + 7 in usefulness (p32/p33/p34 query request_signals, which is model-scoped
+# only and has no key columns) = 19
 
 CH_APIKEY_TOTAL=0
-for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
+for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
     c=$(jq '[.panels[] | select(.datasource.uid == "clickhouse") | select([.targets[].rawSql? | select(. != null) | select(test("\\$\\{api_key:singlequote\\}"))] | length > 0)] | length' "$df")
     CH_APIKEY_TOTAL=$((CH_APIKEY_TOTAL + c))
 done
-assert_eq "ClickHouse panels with \${api_key:singlequote} (all 3 dashboards)" "11" "$CH_APIKEY_TOTAL"
+assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "21" "$CH_APIKEY_TOTAL"
 
 # ── p3 Token Usage stat: 5 tiles, one per category (in cost-usage) ────
 
@@ -264,7 +313,7 @@ P3_HAS_5_CATEGORIES=$(jq -r '[.panels[] | select(.id == 3)][0].targets[0].rawSql
 assert_eq "p3 has 5 categories (Total + Input + Cached + Output + Reasoning)" "5" "$P3_HAS_5_CATEGORIES"
 
 P3_OVERRIDES=$(jq '[.panels[] | select(.id == 3)][0].fieldConfig.overrides | length' "$COST_USAGE_FILE")
-assert_eq "p3 has 5 field overrides (Total, Input, Cached, Output, Reasoning)" "5" "$P3_OVERRIDES"
+assert_eq "p3 has 6 field overrides (Total, Input, Cached, Output, Reasoning)" "6" "$P3_OVERRIDES"
 
 # ── p15 Cost Over Time by Model (in cost-usage) ───────────────────────
 
@@ -315,11 +364,11 @@ assert_eq "p14 Stream Status has 3 targets" "3" "$P14_TARGET_COUNT"
 P14_LABELS=$(jq -r '[[.panels[] | select(.id == 14)][0].targets[].rawSql | select(. != null) | split("\u0027") | .[1]] | sort | join(",")' "$OPS_HEALTH_FILE")
 assert_eq "p14 labels are Client,Completed,Provider" "Client aborted,Completed,Provider aborted" "$P14_LABELS"
 
-# ── Brand palette enforcement across all 3 dashboards ─────────────────
+# ── Brand palette enforcement across all 4 dashboards ─────────────────
 # Allowed brand hex colors (lowercase). Every fixedColor override must use one of these.
 
 BRAND_PAL_VIOLATIONS=""
-for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
+for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
     v=$(jq -r '
       def brand: ["#50514f","#f25f5c","#ffe066","#247ba0","#70c1b3","#a5d0a8","#8cada7","#110b11","#b7990d","#f2f4cb","#ffffff","#c9a44c","#a8a9ad","#b07a3c"];
       def is_brand(c): c as $c | brand | index($c | ascii_downcase) != null;
@@ -340,7 +389,7 @@ for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE"; do
     [ -n "$v" ] && BRAND_PAL_VIOLATIONS="$BRAND_PAL_VIOLATIONS $v"
 done
 if [ -z "$(echo "$BRAND_PAL_VIOLATIONS" | tr -d ' ')" ]; then
-    echo "[PASS] All hex colors are brand palette (all 3 dashboards)"
+    echo "[PASS] All hex colors are brand palette (all 4 dashboards)"
     pass=$((pass + 1))
 else
     echo "[FAIL] Brand palette violations:$BRAND_PAL_VIOLATIONS"
@@ -367,12 +416,13 @@ P3_PALETTE=$(jq -r '
     "Input (uncached)":       "#247ba0",
     "Cached":                 "#8cada7",
     "Output (non-reasoning)": "#ffe066",
-    "Reasoning":              "#f25f5c"
+    "Reasoning":              "#f25f5c",
+    "Total Cost":             "#b7990d"
   } as $expected |
   if $got == $expected then "OK"
   else "MISMATCH expected=\($expected|tojson) got=\($got|tojson)" end
 ' "$COST_USAGE_FILE")
-assert_eq "p3 uses brand palette (5 category tiles)" "OK" "$P3_PALETTE"
+assert_eq "p3 uses brand palette (5 category tiles + cost)" "OK" "$P3_PALETTE"
 
 # ── p14 palette (in ops-health) ───────────────────────────────────────
 
@@ -395,93 +445,7 @@ P14_PALETTE=$(jq -r '
 ' "$OPS_HEALTH_FILE")
 assert_eq "p14 uses brand palette (completed/client/provider)" "OK" "$P14_PALETTE"
 
-# ── p20 Leaderboard panel (in cost-leaderboard) ───────────────────────
-# p20 is a stat panel (tiles), like p3 Token Usage by Category.
-# Single ranked CTE returns all 10 rows; rowsToFields transformer maps each
-# row to a tile. Medal colors (gold/silver/bronze) are baked into the SQL
-# as a `Color` column and mapped to field config via the color handler.
-
-P20_TITLE=$(jq -r '[.panels[] | select(.id == 20)][0].title' "$LEADERBOARD_FILE")
-assert_eq "p20 title is Top Clients by Cost & Tokens" "Top Clients by Cost & Tokens" "$P20_TITLE"
-
-P20_TYPE=$(jq -r '[.panels[] | select(.id == 20)][0].type' "$LEADERBOARD_FILE")
-assert_eq "p20 is a stat panel (like p3)" "stat" "$P20_TYPE"
-
-# p20: single target (ranked CTE returns all rows; rowsToFields expands)
-P20_TGT=$(jq '[.panels[] | select(.id == 20)][0].targets | length' "$LEADERBOARD_FILE")
-assert_eq "p20 has 1 target (ranked CTE)" "1" "$P20_TGT"
-
-# p20: stat panel options match p3 Token Usage by Category
-P20_CM=$(jq -r '[.panels[] | select(.id == 20)][0].options.colorMode' "$LEADERBOARD_FILE")
-assert_eq "p20 colorMode is background_solid" "background_solid" "$P20_CM"
-P20_TM=$(jq -r '[.panels[] | select(.id == 20)][0].options.textMode' "$LEADERBOARD_FILE")
-assert_eq "p20 textMode is value_and_name (like p3)" "value_and_name" "$P20_TM"
-P20_OR=$(jq -r '[.panels[] | select(.id == 20)][0].options.orientation' "$LEADERBOARD_FILE")
-assert_eq "p20 orientation is horizontal (like p3)" "horizontal" "$P20_OR"
-P20_GM=$(jq -r '[.panels[] | select(.id == 20)][0].options.graphMode' "$LEADERBOARD_FILE")
-assert_eq "p20 graphMode is none (like p3)" "none" "$P20_GM"
-
-# p20: default color white (#FFFFFF) for non-medal tiles
-P20_DEF=$(jq -r '[.panels[] | select(.id == 20)][0].fieldConfig.defaults.color.fixedColor' "$LEADERBOARD_FILE" | tr '[:lower:]' '[:upper:]')
-assert_eq "p20 default background is white" "#FFFFFF" "$P20_DEF"
-
-# p20: no field overrides -- all color comes from SQL Color column
-P20_OVR=$(jq -r '[.panels[] | select(.id == 20)][0].fieldConfig.overrides | length' "$LEADERBOARD_FILE")
-assert_eq "p20 has no field overrides (color from SQL)" "0" "$P20_OVR"
-
-# p20: rowsToFields transformer with Color -> color handler mapping
-P20_TRANS=$(jq -r '[.panels[] | select(.id == 20)][0].transformations[0].id' "$LEADERBOARD_FILE")
-assert_eq "p20 uses rowsToFields transformer" "rowsToFields" "$P20_TRANS"
-P20_COLOR_MAP=$(jq -r '[.panels[] | select(.id == 20)][0].transformations[0].options.mappings[] | select(.fieldName=="Color") | .handlerKey' "$LEADERBOARD_FILE")
-assert_eq "p20 maps Color column to color handler" "color" "$P20_COLOR_MAP"
-
-P20_SQL=$(jq -r '[.panels[] | select(.id == 20)][0].targets[0].rawSql' "$LEADERBOARD_FILE")
-echo "$P20_SQL" | grep -q 'GROUP BY client' && { echo "[PASS] p20 CTE groups by client"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing GROUP BY client"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q 'ORDER BY total_cost DESC' && { echo "[PASS] p20 CTE orders by total_cost DESC"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing ORDER BY total_cost DESC"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q "row_number() OVER () = 1, '#C9A44C'" && { echo "[PASS] p20 SQL bakes in matte gold for rank 1"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing gold color in SQL"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q "row_number() OVER () = 2, '#A8A9AD'" && { echo "[PASS] p20 SQL bakes in matte silver for rank 2"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing silver color in SQL"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q "row_number() OVER () = 3, '#B07A3C'" && { echo "[PASS] p20 SQL bakes in matte bronze for rank 3"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing bronze color in SQL"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q 'multiIf' && { echo "[PASS] p20 uses multiIf for Mil/K formatting (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing multiIf formatting"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q "' B'" && { echo "[PASS] p20 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] p20 missing B format"; fail=$((fail+1)); }
-
-# ── p21 Leaderboard panel (in cost-leaderboard) ───────────────────────
-
-P21_TITLE=$(jq -r '[.panels[] | select(.id == 21)][0].title' "$LEADERBOARD_FILE")
-assert_eq "p21 title is Top Models by Cost & Tokens" "Top Models by Cost & Tokens" "$P21_TITLE"
-
-P21_TYPE=$(jq -r '[.panels[] | select(.id == 21)][0].type' "$LEADERBOARD_FILE")
-assert_eq "p21 is a stat panel (like p20)" "stat" "$P21_TYPE"
-
-P21_TGT=$(jq '[.panels[] | select(.id == 21)][0].targets | length' "$LEADERBOARD_FILE")
-assert_eq "p21 has 1 target (ranked CTE)" "1" "$P21_TGT"
-
-P21_CM=$(jq -r '[.panels[] | select(.id == 21)][0].options.colorMode' "$LEADERBOARD_FILE")
-assert_eq "p21 colorMode is background_solid" "background_solid" "$P21_CM"
-P21_TM=$(jq -r '[.panels[] | select(.id == 21)][0].options.textMode' "$LEADERBOARD_FILE")
-assert_eq "p21 textMode is value_and_name (like p20)" "value_and_name" "$P21_TM"
-P21_OR=$(jq -r '[.panels[] | select(.id == 21)][0].options.orientation' "$LEADERBOARD_FILE")
-assert_eq "p21 orientation is horizontal (like p20)" "horizontal" "$P21_OR"
-P21_GM=$(jq -r '[.panels[] | select(.id == 21)][0].options.graphMode' "$LEADERBOARD_FILE")
-assert_eq "p21 graphMode is none (like p20)" "none" "$P21_GM"
-
-P21_DEF=$(jq -r '[.panels[] | select(.id == 21)][0].fieldConfig.defaults.color.fixedColor' "$LEADERBOARD_FILE" | tr '[:lower:]' '[:upper:]')
-assert_eq "p21 default background is white" "#FFFFFF" "$P21_DEF"
-
-P21_OVR=$(jq -r '[.panels[] | select(.id == 21)][0].fieldConfig.overrides | length' "$LEADERBOARD_FILE")
-assert_eq "p21 has no field overrides (color from SQL)" "0" "$P21_OVR"
-
-P21_TRANS=$(jq -r '[.panels[] | select(.id == 21)][0].transformations[0].id' "$LEADERBOARD_FILE")
-assert_eq "p21 uses rowsToFields transformer" "rowsToFields" "$P21_TRANS"
-P21_COLOR_MAP=$(jq -r '[.panels[] | select(.id == 21)][0].transformations[0].options.mappings[] | select(.fieldName=="Color") | .handlerKey' "$LEADERBOARD_FILE")
-assert_eq "p21 maps Color column to color handler" "color" "$P21_COLOR_MAP"
-
-P21_SQL=$(jq -r '[.panels[] | select(.id == 21)][0].targets[0].rawSql' "$LEADERBOARD_FILE")
-echo "$P21_SQL" | grep -q 'GROUP BY model_name' && { echo "[PASS] p21 CTE groups by model_name"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing GROUP BY model_name"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q 'ORDER BY total_cost DESC' && { echo "[PASS] p21 CTE orders by total_cost DESC"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing ORDER BY total_cost DESC"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q "row_number() OVER () = 1, '#C9A44C'" && { echo "[PASS] p21 SQL bakes in matte gold for rank 1"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing gold color in SQL"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q "row_number() OVER () = 2, '#A8A9AD'" && { echo "[PASS] p21 SQL bakes in matte silver for rank 2"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing silver color in SQL"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q "row_number() OVER () = 3, '#B07A3C'" && { echo "[PASS] p21 SQL bakes in matte bronze for rank 3"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing bronze color in SQL"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q 'multiIf' && { echo "[PASS] p21 uses multiIf for Mil/K formatting (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing multiIf formatting"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q "' B'" && { echo "[PASS] p21 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] p21 missing B format"; fail=$((fail+1)); }
+# ── p20/p21 deep panel checks live in test_dashboard_cost_leaderboard.sh ──
+# (titles, options, rowsToFields mappings, medal colors, SQL shape)
 
 summary

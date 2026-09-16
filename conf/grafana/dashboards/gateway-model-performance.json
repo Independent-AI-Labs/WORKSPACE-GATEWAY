@@ -1,0 +1,401 @@
+{
+  "title": "Gateway Model Performance",
+  "uid": "gateway-model-performance",
+  "tags": [
+    "gateway",
+    "llm",
+    "performance"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "hideControls": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "2d",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "api_key",
+        "label": "Client API Key",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "multi": true,
+        "includeAll": true,
+        "allValue": null,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 30,
+      "title": "Prefill Speed by Model (tok/s, content-TTFT)",
+      "description": "Prompt tokens / content-TTFT, mean and median (p50). Streaming rows with valid timing only; models gated to >=100 responses in range. Timing windows < 100 ms are excluded (single-chunk buffered responses produce degenerate rates).",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT * FROM (SELECT concat(model, ' (avg)') AS metric, round(avg(prompt_tokens / nullIf(ttft_content_ms, 0) * 1000), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND is_stream = 1 AND ttft_content_ms >= 100 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY model UNION ALL SELECT concat(model, ' (p50)') AS metric, round(medianExactIf(prompt_tokens / nullIf(ttft_content_ms, 0) * 1000, ttft_content_ms >= 100), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND is_stream = 1 AND ttft_content_ms >= 100 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY model) ORDER BY value DESC LIMIT 40"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tok/s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "namePlacement": "auto",
+        "reduceOptions": {
+          "values": true
+        }
+      }
+    },
+    {
+      "id": 44,
+      "title": "Decode Speed by Model (tok/s, content-TTFT)",
+      "description": "Completion tokens / (duration - content-TTFT), mean and median (p50). Streaming rows with valid timing only; models gated to >=100 responses in range. Timing windows < 100 ms are excluded (single-chunk buffered responses produce degenerate rates).",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT * FROM (SELECT concat(model, ' (avg)') AS metric, round(avg(completion_tokens / nullIf(duration_ms - ttft_content_ms, 0) * 1000), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND is_stream = 1 AND ttft_content_ms >= 100 AND duration_ms - ttft_content_ms >= 100 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY model UNION ALL SELECT concat(model, ' (p50)') AS metric, round(medianExactIf(completion_tokens / nullIf(duration_ms - ttft_content_ms, 0) * 1000, is_stream = 1 AND ttft_content_ms >= 100 AND duration_ms - ttft_content_ms >= 100), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND is_stream = 1 AND ttft_content_ms >= 100 AND duration_ms - ttft_content_ms >= 100 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY model) ORDER BY value DESC LIMIT 40"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tok/s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "namePlacement": "auto",
+        "reduceOptions": {
+          "values": true
+        }
+      }
+    },
+    {
+      "id": 31,
+      "title": "Cancel / Provider-Abort Rate (streams)",
+      "description": "aborted=1 client cancel, aborted=2 provider abort, over is_stream=1 rows in range.",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT round(countIf(aborted = 1) * 100.0 / nullIf(countIf(is_stream = 1), 0), 2) AS \"Cancels %\", round(countIf(aborted = 2) * 100.0 / nullIf(countIf(is_stream = 1), 0), 2) AS \"Provider Aborts %\" FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND is_stream = 1 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#70c1b3",
+                "value": null
+              },
+              {
+                "color": "#ffe066",
+                "value": 10
+              },
+              {
+                "color": "#f25f5c",
+                "value": 25
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Cancels %"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Client Cancel Rate (%)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Provider Aborts %"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Provider Abort Rate (%)"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 36,
+      "title": "Wasted Tokens & Cost",
+      "description": "Wasted = tokens generated on aborted streams, absolute and as % of all completion tokens; Cost of Wasted = spend on aborted streams. Effective Cost = total spend / completed (non-aborted) responses.",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100), agg AS (SELECT sum(if(aborted > 0, completion_tokens, 0)) AS wasted_tokens, sum(completion_tokens) AS total_tokens, round(sumIf(cost, aborted > 0), 2) AS wasted_cost, round(sum(cost) / nullIf(countIf(aborted = 0), 0), 2) AS cost_per_completed FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated)) SELECT toString(wasted_tokens) AS \"Wasted Tokens\", concat(toString(round(100 * wasted_tokens / nullIf(total_tokens, 0), 2)), '%') AS \"Wasted % of Total\", concat('$', toString(floor(wasted_cost)), '.', leftPad(toString(round((wasted_cost - floor(wasted_cost)) * 100)), 2, '0')) AS \"Cost of Wasted Tokens\", concat('$', toString(floor(cost_per_completed)), '.', leftPad(toString(round((cost_per_completed - floor(cost_per_completed)) * 100)), 2, '0')) AS \"Cost per Completed Response\" FROM agg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Wasted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f25f5c"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cost of Wasted Tokens"
+            },
+            "properties": []
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cost per Completed Response"
+            },
+            "properties": []
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 39,
+      "title": "Decode tok/s: historical proxy (ESTIMATE)",
+      "description": "ESTIMATE: completion_tokens / upstream_response_time_s via the request_id ASOF join; includes prefill time, so it is a lower bound. Use for pre-TTFT-capture history only; panels above are authoritative once ttft_content_ms accumulates.",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(r.timestamp) AS time, u.model AS label, round(avg(u.completion_tokens / nullIf(r.upstream_response_time_s, 0)), 2) AS value FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.request_id = u.request_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND r.upstream_response_time_s > 0 AND u.completion_tokens > 0 AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND u.model IN (${model:singlequote}) AND u.model IN (SELECT model FROM gated) GROUP BY time, u.model ORDER BY time, label"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [],
+  "liveNow": false,
+  "panelsOrder": []
+}

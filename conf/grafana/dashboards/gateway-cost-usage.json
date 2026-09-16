@@ -95,7 +95,7 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT\n    concat(multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000)), ' B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000)), ' Mil'), total_tok >= 1000, concat(toString(round(total_tok / 1000)), ' K'), toString(total_tok)), ' ($', toString(toDecimal64(total_cost, 2)), ')') as Total,\n    concat(multiIf(input_tok >= 1000000000, concat(toString(round(input_tok / 1000000000)), ' B'), input_tok >= 1000000, concat(toString(round(input_tok / 1000000)), ' Mil'), input_tok >= 1000, concat(toString(round(input_tok / 1000)), ' K'), toString(input_tok)), ' ($', toString(toDecimal64(if(total_tok > 0, total_cost * input_tok / total_tok, 0), 2)), ')') as Input,\n    concat(multiIf(cached_tok >= 1000000000, concat(toString(round(cached_tok / 1000000000)), ' B'), cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000)), ' Mil'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000)), ' K'), toString(cached_tok)), ' ($', toString(toDecimal64(if(total_tok > 0, total_cost * cached_tok / total_tok, 0), 2)), ')') as Cached,\n    concat(multiIf(output_tok >= 1000000000, concat(toString(round(output_tok / 1000000000)), ' B'), output_tok >= 1000000, concat(toString(round(output_tok / 1000000)), ' Mil'), output_tok >= 1000, concat(toString(round(output_tok / 1000)), ' K'), toString(output_tok)), ' ($', toString(toDecimal64(if(total_tok > 0, total_cost * output_tok / total_tok, 0), 2)), ')') as Output,\n    concat(multiIf(reasoning_tok >= 1000000000, concat(toString(round(reasoning_tok / 1000000000)), ' B'), reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000)), ' Mil'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000)), ' K'), toString(reasoning_tok)), ' ($', toString(toDecimal64(if(total_tok > 0, total_cost * reasoning_tok / total_tok, 0), 2)), ')') as Reasoning\nFROM totals"
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        round(sum(cost), 2) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n)\nSELECT\n    multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok)) as \"Total Tokens\",\n    multiIf(input_tok >= 1000000000, concat(toString(round(input_tok / 1000000000, 2)), 'B'), input_tok >= 1000000, concat(toString(round(input_tok / 1000000, 2)), 'M'), input_tok >= 1000, concat(toString(round(input_tok / 1000, 2)), 'K'), toString(input_tok)) as \"Input Tokens\",\n    multiIf(cached_tok >= 1000000000, concat(toString(round(cached_tok / 1000000000, 2)), 'B'), cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000, 2)), 'M'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000, 2)), 'K'), toString(cached_tok)) as \"Cached Tokens\",\n    multiIf(output_tok >= 1000000000, concat(toString(round(output_tok / 1000000000, 2)), 'B'), output_tok >= 1000000, concat(toString(round(output_tok / 1000000, 2)), 'M'), output_tok >= 1000, concat(toString(round(output_tok / 1000, 2)), 'K'), toString(output_tok)) as \"Output Tokens\",\n    multiIf(reasoning_tok >= 1000000000, concat(toString(round(reasoning_tok / 1000000000, 2)), 'B'), reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000, 2)), 'M'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000, 2)), 'K'), toString(reasoning_tok)) as \"Reasoning Tokens\",\n    concat('$', toString(floor(total_cost)), '.', leftPad(toString(round((total_cost - floor(total_cost)) * 100)), 2, '0')) as \"Total Cost\"\nFROM totals"
         }
       ],
       "fieldConfig": {
@@ -109,7 +109,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Total"
+              "options": "Total Tokens"
             },
             "properties": [
               {
@@ -128,7 +128,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Input"
+              "options": "Input Tokens"
             },
             "properties": [
               {
@@ -147,7 +147,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Cached"
+              "options": "Cached Tokens"
             },
             "properties": [
               {
@@ -166,7 +166,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Output"
+              "options": "Output Tokens"
             },
             "properties": [
               {
@@ -185,7 +185,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Reasoning"
+              "options": "Reasoning Tokens"
             },
             "properties": [
               {
@@ -196,6 +196,25 @@
                 "id": "color",
                 "value": {
                   "fixedColor": "#f25f5c",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Cost"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total Cost"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#b7990d",
                   "mode": "fixed"
                 }
               }
@@ -211,11 +230,12 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/Total|Input|Cached|Output|Reasoning/",
+          "fields": "/./",
           "values": false
         },
         "textMode": "value_and_name"
-      }
+      },
+      "description": "Token volume by category (input uncached / cache hits / output non-reasoning / reasoning) with total spend. Cost is a native currency value, not an embedded string."
     },
     {
       "id": 15,
@@ -256,7 +276,8 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "decimals": 2
         },
         "overrides": []
       },

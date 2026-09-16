@@ -132,7 +132,21 @@ _compose-down:
 	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
 .PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-shell gw-test \
-        gw-restart-service gw-restart-grafana
+        gw-restart-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer
+
+gw-update-dictionaries: ## Refresh vendored profanity/VADER dictionaries from upstream
+	$(SCRIPT_BASH) res/scripts/update-dictionaries.sh
+
+gw-crunch-usefulness: ## Run the rejection-language cruncher now (DAYS=N window, REBUILD=1 for clean recompute)
+	$(SCRIPT_BASH) res/scripts/crunch-usefulness.sh $(if $(DAYS),--days $(DAYS)) $(if $(REBUILD),--rebuild)
+
+gw-install-crunch-timer: ## Install + enable the daily 00:00 systemd timer for the cruncher
+	mkdir -p ~/.config/systemd/user
+	install -m 0644 res/systemd/gateway-usefulness-crunch.service ~/.config/systemd/user/
+	install -m 0644 res/systemd/gateway-usefulness-crunch.timer ~/.config/systemd/user/
+	systemctl --user daemon-reload
+	systemctl --user enable --now gateway-usefulness-crunch.timer
+	echo "=== Timer installed: gateway-usefulness-crunch.timer (OnCalendar=*-*-* 00:00:00) ==="
 
 gw-build: _compose-build ## Build container images
 
@@ -182,6 +196,7 @@ gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 	echo "  http://localhost:3030/d/gateway-cost-usage?from=now-90d&to=now&refresh=5s"
 	echo "  http://localhost:3030/d/gateway-ops-health?from=now-90d&to=now&refresh=5s"
 	echo "  http://localhost:3030/d/gateway-cost-leaderboard?from=now-90d&to=now&refresh=5s"
+	echo "  http://localhost:3030/d/gateway-usefulness?from=now-90d&to=now&refresh=5s"
 	echo "=== Grafana upgrade complete ==="
 
 gw-verify: ## Health report: container/endpoint status + one request through the gateway
@@ -205,12 +220,17 @@ gw-test: ## Run full test suite against running stack
 # ClickHouse Migrations
 # =============================================================================
 
-.PHONY: ch-migrate ch-migrate-status
+.PHONY: ch-migrate ch-migrate-status ch-migrate-force
 ch-migrate: ## Apply pending ClickHouse schema migrations (golang-migrate via compose)
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-up
 
 ch-migrate-status: ## Show ClickHouse schema migration status (golang-migrate version)
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-status
+
+ch-migrate-force: ## Clear a dirty migration state and re-run: make ch-migrate-force V=7
+	test -n "$(V)" || { echo "ERROR: V required. Usage: make ch-migrate-force V=7" >&2; exit 1; }
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-force "$(V)"
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-up
 
 # =============================================================================
 # Model Sync

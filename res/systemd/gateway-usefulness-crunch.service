@@ -1,0 +1,17 @@
+[Unit]
+Description=WORKSPACE-GATEWAY usefulness telemetry cruncher (request_signals)
+Documentation=file://%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY/docs/specifications/SPEC-USEFULNESS-TELEMETRY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY
+ExecStart=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY/res/scripts/crunch-usefulness.sh --days 1
+Environment=CLICKHOUSE_HOST=localhost
+Environment=CLICKHOUSE_PORT=8123
+# journald: rate-limit friendly tag
+SyslogIdentifier=gateway-usefulness-crunch
+# Hardening: the cruncher needs podman + curl + clickhouse HTTP only
+NoNewPrivileges=true
+PrivateTmp=true

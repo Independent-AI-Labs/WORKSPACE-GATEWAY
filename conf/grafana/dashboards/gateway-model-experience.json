@@ -1,0 +1,682 @@
+{
+  "title": "Gateway Model Experience",
+  "uid": "gateway-model-experience",
+  "tags": [
+    "gateway",
+    "llm",
+    "experience"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "hideControls": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "2d",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "api_key",
+        "label": "Client API Key",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "multi": true,
+        "includeAll": true,
+        "allValue": null,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "rejection_mode",
+        "label": "Rejection mode",
+        "type": "custom",
+        "query": "binary : binary (per message), instances : instances (weighted, no cap)",
+        "current": {
+          "text": "binary (per message)",
+          "value": "binary"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "binary (per message)",
+            "value": "binary"
+          },
+          {
+            "selected": false,
+            "text": "instances (weighted, no cap)",
+            "value": "instances"
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 40,
+      "title": "Overall Score (adherence x reliability, geometric)",
+      "description": "Score-family (REQ FR-9, revised 2026-09-16): Overall = sqrt(PAI x Reliability) - geometric aggregation (HDI 2010) so no factor can buy back another. PAI (Prompt Adherence Index) = geometric mean of three goalpost-standardized user-side indices (net rejection 0-30%, session abandonment 0-100%: share of sessions containing the model that end on a different model - noisy under multi-model workflows, treat as heuristic, client cancel 0-5%); Reliability = provider-abort index (0-5%). Fixed goalposts, not observed extrema; missing factors count neutral 0.5; models need >=30 requests. Behavioral heuristic, not a quality certification. Friction and speed are reported separately (friction panels, performance dashboard) and deliberately excluded (Tan et al. 2026: speed-quality non-monotone).",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100), sig AS (SELECT model, count() AS reqs, countIf(is_followup = 1) AS fu, countIf(is_followup = 1 AND signal_count > 0) AS rej_n, countIf(is_followup = 0 AND parsed = 1) AS base_n, countIf(is_followup = 0 AND parsed = 1 AND signal_count > 0) AS base_rej FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), spd AS (SELECT model, countIf(is_stream = 1) AS streams, countIf(aborted = 1) AS cancels, countIf(aborted = 2) AS aborts FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), sess AS (SELECT session_id, argMax(model, timestamp) AS last_model, groupUniqArray(model) AS models FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND session_id != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY session_id), swm AS (SELECT m AS model, countIf(last_model != m) AS switches, count() AS n FROM sess ARRAY JOIN models AS m WHERE m IN (SELECT model FROM gated) GROUP BY m), raw AS (SELECT s.model AS model, s.reqs, greatest(100 * s.rej_n / nullIf(s.fu, 0) - 100 * s.base_rej / nullIf(s.base_n, 0), 0) AS net_rej, 100 * w.switches / nullIf(w.n, 0) AS switch_rate, 100 * p.cancels / nullIf(p.streams, 0) AS cancel_rate, 100 * p.aborts / nullIf(p.streams, 0) AS abort_rate FROM sig s INNER JOIN spd p ON p.model = s.model LEFT JOIN swm w ON w.model = s.model) SELECT model AS metric, round(100 * sqrt(power(ifNull(least(greatest(1 - net_rej / 30, 0), 1), 0.5) * ifNull(least(greatest(1 - switch_rate / 100, 0), 1), 0.5) * ifNull(least(greatest(1 - cancel_rate / 5, 0), 1), 0.5), 1 / 3) * ifNull(least(greatest(1 - abort_rate / 5, 0), 1), 0.5)), 2) AS \"Overall Score\" FROM raw WHERE reqs >= 30 ORDER BY \"Overall Score\" DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#f25f5c",
+                "value": null
+              },
+              {
+                "color": "#ffe066",
+                "value": 40
+              },
+              {
+                "color": "#70c1b3",
+                "value": 70
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "namePlacement": "auto",
+        "reduceOptions": {
+          "values": true
+        }
+      }
+    },
+    {
+      "id": 41,
+      "title": "Scorecard (per-construct decomposition)",
+      "description": "Decomposition behind the Overall Score: raw user-side rates, their goalpost-standardized indices (0-1, fixed goalposts: net rejection 0-30%, switch-away 0-50%, cancels 0-5%, aborts 0-5%), PAI (Prompt Adherence) = geometric mean of the three adherence indices, Reliability, then Overall = sqrt(PAI x Reliability). Friction per 100 is shown for context but excluded from both (agent-environment construct, reported separately). Missing factors count neutral 0.5; >=30 requests required.",
+      "type": "table",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100), sig AS (SELECT model, count() AS reqs, countIf(is_followup = 1) AS fu, countIf(is_followup = 1 AND signal_count > 0) AS rej_n, countIf(is_followup = 0 AND parsed = 1) AS base_n, countIf(is_followup = 0 AND parsed = 1 AND signal_count > 0) AS base_rej, sum(guard_blocks + user_rejections + rule_denials) AS fric FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), spd AS (SELECT model, countIf(is_stream = 1) AS streams, countIf(aborted = 1) AS cancels, countIf(aborted = 2) AS aborts FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), sess AS (SELECT session_id, argMax(model, timestamp) AS last_model, groupUniqArray(model) AS models FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND session_id != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY session_id), swm AS (SELECT m AS model, countIf(last_model != m) AS switches, count() AS n FROM sess ARRAY JOIN models AS m WHERE m IN (SELECT model FROM gated) GROUP BY m), raw AS (SELECT s.model AS model, s.reqs, greatest(100 * s.rej_n / nullIf(s.fu, 0) - 100 * s.base_rej / nullIf(s.base_n, 0), 0) AS net_rej, 100 * w.switches / nullIf(w.n, 0) AS switch_rate, 100 * p.cancels / nullIf(p.streams, 0) AS cancel_rate, 100 * p.aborts / nullIf(p.streams, 0) AS abort_rate, 100 * s.fric / s.reqs AS fric_rate FROM sig s INNER JOIN spd p ON p.model = s.model LEFT JOIN swm w ON w.model = s.model) SELECT model, reqs AS \"Requests\", round(net_rej, 2) AS \"Net Rejection %\", round(switch_rate, 2) AS \"Switches %\", round(cancel_rate, 2) AS \"Cancels %\", round(abort_rate, 2) AS \"Aborts %\", round(ifNull(least(greatest(1 - net_rej / 30, 0), 1), 0.5), 2) AS \"n Rejection\", round(ifNull(least(greatest(1 - switch_rate / 100, 0), 1), 0.5), 2) AS \"n Switches\", round(ifNull(least(greatest(1 - cancel_rate / 5, 0), 1), 0.5), 2) AS \"n Cancels\", round(ifNull(least(greatest(1 - abort_rate / 5, 0), 1), 0.5), 2) AS \"n Reliability\", round(100 * power(ifNull(least(greatest(1 - net_rej / 30, 0), 1), 0.5) * ifNull(least(greatest(1 - switch_rate / 100, 0), 1), 0.5) * ifNull(least(greatest(1 - cancel_rate / 5, 0), 1), 0.5), 1 / 3), 2) AS \"Prompt Adherence (0-100)\", round(100 * sqrt(power(ifNull(least(greatest(1 - net_rej / 30, 0), 1), 0.5) * ifNull(least(greatest(1 - switch_rate / 100, 0), 1), 0.5) * ifNull(least(greatest(1 - cancel_rate / 5, 0), 1), 0.5), 1 / 3) * ifNull(least(greatest(1 - abort_rate / 5, 0), 1), 0.5)), 2) AS \"Overall Score\", round(fric_rate, 2) AS \"Friction per 100 (context)\" FROM raw WHERE reqs >= 30 ORDER BY \"Overall Score\" DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 32,
+      "title": "User Rejection Rate (% of follow-up messages)",
+      "description": "binary mode: % of follow-up user messages containing >=1 rejection signal (profanity, frustration phrase or strong negative sentiment) - the number shown is a percentage. instances mode: weighted signal instances per follow-up message (value is per-message, ignore %). Toggle via the rejection_mode variable.",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT if('${rejection_mode}' = 'instances', round(sum(signal_weight) / nullIf(countIf(is_followup = 1), 0), 2), round(100 * countIf(signal_count > 0 AND is_followup = 1) / nullIf(countIf(is_followup = 1), 0), 2)) AS rejection FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND is_followup = 1 AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#70c1b3",
+                "value": null
+              },
+              {
+                "color": "#ffe066",
+                "value": 5
+              },
+              {
+                "color": "#f25f5c",
+                "value": 15
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 33,
+      "title": "Baseline vs Reactive Rejection + Signed Net",
+      "description": "Reactive = signals in follow-up messages (model likely target). Baseline = first-turn signals (habitual style). Net = reactive - baseline, signed and unclamped: negative means the model draws less rejection language than the user's own baseline. Net is a heuristic, raw numbers stay authoritative.",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, 'reactive %' AS label, round(100 * countIf(signal_count > 0 AND is_followup = 1) / nullIf(countIf(is_followup = 1), 0), 2) AS value FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING countIf(is_followup = 1) >= 5 ORDER BY time, label"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, 'baseline %' AS label, round(100 * countIf(signal_count > 0 AND is_followup = 0) / nullIf(countIf(is_followup = 0 AND parsed = 1), 0), 2) AS value FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING countIf(is_followup = 0 AND parsed = 1) >= 5 ORDER BY time, label"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "C",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, 'net (reactive - baseline)' AS label, round(100 * countIf(signal_count > 0 AND is_followup = 1) / nullIf(countIf(is_followup = 1), 0) - 100 * countIf(signal_count > 0 AND is_followup = 0) / nullIf(countIf(is_followup = 0 AND parsed = 1), 0), 2) AS value FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING countIf(is_followup = 1) >= 5 AND countIf(is_followup = 0 AND parsed = 1) >= 5 ORDER BY time, label"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never",
+            "fillOpacity": 10
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#70c1b3",
+                "value": null
+              },
+              {
+                "color": "#50514f",
+                "value": 0
+              },
+              {
+                "color": "#f25f5c",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reactive %"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f25f5c"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "baseline %"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8cada7"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "net (reactive - baseline)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#247ba0"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 30
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 37,
+      "title": "Session Depth by Model (avg messages/session)",
+      "description": "Average turns per session from request_log; deeper continuation is an acceptance proxy. Timing windows < 100 ms are excluded (single-chunk buffered responses produce degenerate rates).",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100), sessions AS (SELECT model, session_id, count() AS msgs FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND session_id != '' AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY model, session_id) SELECT model, round(avg(msgs), 2) AS \"Avg Messages per Session\" FROM sessions WHERE model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY model ORDER BY \"Avg Messages per Session\" DESC LIMIT 20"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "namePlacement": "auto",
+        "reduceOptions": {
+          "values": true
+        }
+      }
+    },
+    {
+      "id": 35,
+      "title": "Signals over time (per model, normalised per bucket)",
+      "description": "Cancel % and provider-abort % per model per hourly bucket (% of that model's streams); rejection per rejection_mode (% or weighted instances per follow-up message). Buckets with <5 denominator messages are absent, not zero. Multiple models overlay on one chart.",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 16,
+        "h": 9
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, concat(model, ' cancels %') AS label, round(100 * countIf(aborted = 1) / nullIf(countIf(is_stream = 1), 0), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND is_stream = 1 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time, model HAVING countIf(is_stream = 1) >= 5 ORDER BY time, label"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, concat(model, ' provider aborts %') AS label, round(100 * countIf(aborted = 2) / nullIf(countIf(is_stream = 1), 0), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND is_stream = 1 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time, model HAVING countIf(is_stream = 1) >= 5 ORDER BY time, label"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "C",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, concat(model, ' rejection %') AS label, if('${rejection_mode}' = 'instances', round(sum(signal_weight) / nullIf(countIf(is_followup = 1), 0), 2), round(100 * countIf(signal_count > 0 AND is_followup = 1) / nullIf(countIf(is_followup = 1), 0), 2)) AS value FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND is_followup = 1 AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time, model HAVING countIf(is_followup = 1) >= 5 ORDER BY time, label"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 34,
+      "title": "Top User Rejection Strings (censored)",
+      "description": "Strings that triggered rejection-language detection across all messages in range; every occurrence counts. Profanity terms are censored (first/last character kept); frustration phrases shown verbatim.",
+      "type": "table",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 18,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT * FROM (SELECT concat(substring(term, 1, 1), '***', substring(term, length(term), 1)) AS \"Rejection String\", 'Profanity' AS \"Category\", count() AS \"Occurrences\" FROM (SELECT arrayJoin(profane_terms) AS term FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated)) GROUP BY term UNION ALL SELECT term AS \"Rejection String\", 'Frustration phrase' AS \"Category\", count() AS \"Occurrences\" FROM (SELECT arrayJoin(frustration_terms) AS term FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated)) GROUP BY term) ORDER BY \"Occurrences\" DESC LIMIT 15"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 42,
+      "title": "Friction Rate (per 100 requests, stacked)",
+      "description": "Tool-action friction visible in stored conversation bodies: guard blocks (WORKSPACE-GUARD BLOCKED markers), user rejections and rule denials (opencode permission markers). Denominator: all request_signals rows of the selected models per hourly bucket (buckets with <5 rows suppressed). Counts are a LOWER BOUND: a user rejection can end the agent turn with no follow-up request, and quoting guard output can overcount slightly. Per-model detail in the scorecard.",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, 'guard blocks' AS label, round(100 * sum(guard_blocks) / count(), 3) AS value FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, 'user rejections' AS label, round(100 * sum(user_rejections) / count(), 3) AS value FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "C",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, 'rule denials' AS label, round(100 * sum(rule_denials) / count(), 3) AS value FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never",
+            "stacking": "normal",
+            "fillOpacity": 30
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 43,
+      "title": "Top Guard Rules (ranked by blocked occurrences)",
+      "description": "WORKSPACE-GUARD shell-guard rule ids extracted from BLOCKED markers in stored conversation bodies (rule id = last parenthetical before the ISO timestamp). Every blocked occurrence counts; models gated to >=100 responses.",
+      "type": "table",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 27,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT rule AS \"Rule\", count() AS \"Occurrences\" FROM (SELECT arrayJoin(guard_rules) AS rule FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated)) GROUP BY rule ORDER BY \"Occurrences\" DESC LIMIT 15"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 38,
+      "title": "Model-Switch Rate (mid-session escalation)",
+      "description": "Share of a model's hourly requests that continue an existing session but arrive from a different model (user switched to it after the previous model's turn).",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 27,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100), switched AS (SELECT model, timestamp, if(session_id = lagInFrame(session_id) OVER w AND model != lagInFrame(model) OVER w, 1, 0) AS sw FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND session_id != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) WINDOW w AS (ORDER BY session_id, timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) SELECT toStartOfHour(timestamp) AS time, concat(model, ' switches %') AS label, round(100 * sum(sw) / count(), 2) AS value FROM switched WHERE model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time, model HAVING count() >= 5 ORDER BY time, label"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [],
+  "liveNow": false,
+  "panelsOrder": []
+}

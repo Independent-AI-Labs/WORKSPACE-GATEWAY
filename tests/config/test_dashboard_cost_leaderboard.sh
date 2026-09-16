@@ -106,11 +106,10 @@ echo "$P20_SQL" | grep -q '\${model:singlequote}' && { echo "[PASS] $LABEL: p20 
 # p20: identity key matches api_key template variable pattern
 echo "$P20_SQL" | grep -q "coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown')" && { echo "[PASS] $LABEL: p20 identity key matches api_key variable"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 identity key mismatch"; fail=$((fail+1)); }
 
-# p20: value format matches p3 (multiIf Mil/K + cost in parens)
-echo "$P20_SQL" | grep -q 'multiIf' && { echo "[PASS] $LABEL: p20 uses multiIf for Mil/K formatting (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing multiIf formatting"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q "' Mil'" && { echo "[PASS] $LABEL: p20 formats millions as Mil (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing Mil format"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q "' B'" && { echo "[PASS] $LABEL: p20 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing B format"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q "' K'" && { echo "[PASS] $LABEL: p20 formats thousands as K (like p3)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing K format"; fail=$((fail+1)); }
+# p20: value is native currency; token volume formatted readably in the name
+echo "$P20_SQL" | grep -qF ", 'B')" && echo "$P20_SQL" | grep -qF ", 'M')" && echo "$P20_SQL" | grep -qF ", 'K')" && { echo "[PASS] $LABEL: p20 formats token volume as compact B/M/K"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing B/M/K token formatting"; fail=$((fail+1)); }
+echo "$P20_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p20 cost renders exact dollars"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing dollar formatting"; fail=$((fail+1)); }
+echo "$P20_SQL" | grep -q 'LIMIT 10' && { echo "[PASS] $LABEL: p20 shows top 10"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing LIMIT 10"; fail=$((fail+1)); }
 
 # p20: value_str alias includes the cost in parens ($...)
 echo "$P20_SQL" | grep -q "AS name_str" && { echo "[PASS] $LABEL: p20 aliases name_str"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing name_str alias"; fail=$((fail+1)); }
@@ -180,10 +179,9 @@ echo "$P21_SQL" | grep -q "model != ''" && { echo "[PASS] $LABEL: p21 excludes e
 echo "$P21_SQL" | grep -q '\${api_key:singlequote}' && { echo "[PASS] $LABEL: p21 filters by \${api_key:singlequote}"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing api_key filter"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -q '\${model:singlequote}' && { echo "[PASS] $LABEL: p21 filters by \${model:singlequote}"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing model filter"; fail=$((fail+1)); }
 
-echo "$P21_SQL" | grep -q 'multiIf' && { echo "[PASS] $LABEL: p21 uses multiIf for Mil/K formatting (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing multiIf formatting"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q "' Mil'" && { echo "[PASS] $LABEL: p21 formats millions as Mil (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing Mil format"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q "' B'" && { echo "[PASS] $LABEL: p21 formats billions as B"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing B format"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q "' K'" && { echo "[PASS] $LABEL: p21 formats thousands as K (like p20)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing K format"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -qF ", 'B')" && echo "$P21_SQL" | grep -qF ", 'M')" && echo "$P21_SQL" | grep -qF ", 'K')" && { echo "[PASS] $LABEL: p21 formats token volume as compact B/M/K"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing B/M/K token formatting"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p21 cost renders exact dollars"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing dollar formatting"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q 'LIMIT 10' && { echo "[PASS] $LABEL: p21 shows top 10"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing LIMIT 10"; fail=$((fail+1)); }
 
 echo "$P21_SQL" | grep -q "AS name_str" && { echo "[PASS] $LABEL: p21 aliases name_str"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing name_str alias"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -q "AS value_str" && { echo "[PASS] $LABEL: p21 aliases value_str"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing value_str alias"; fail=$((fail+1)); }

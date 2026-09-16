@@ -17,6 +17,8 @@ services:
       - ../../conf/config.yaml:/usr/local/apisix/conf/config.yaml:ro
       - ../../conf/providers:/usr/local/apisix/conf/providers:ro
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
+      - ../../conf/profanity:/etc/apisix/profanity:ro
+      - ../../res/scripts/usefulness:/usr/local/apisix/usefulness:ro
       - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
       - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
       - ../../plugins/custom/oauth-auth.lua:/usr/local/apisix/apisix/plugins/oauth-auth.lua:ro

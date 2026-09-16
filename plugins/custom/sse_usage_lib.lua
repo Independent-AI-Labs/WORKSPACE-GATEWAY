@@ -46,11 +46,31 @@ function M.buffer_chunk(existing, new_chunk)
     return complete, remainder
 end
 
+--True when the event carries visible/reasoning text (chat-completions
+--delta.content / delta.reasoning_content, or Responses-API *.delta frames
+--with non-empty delta). Used by sse-usage to stamp ttft_content_ms.
+local function event_has_content(obj)
+    local choices = type(obj.choices) == "table" and obj.choices[1]
+    if type(choices) == "table" and type(choices.delta) == "table" then
+        local c = choices.delta.content
+        if type(c) == "string" and c ~= "" then return true end
+        local rc = choices.delta.reasoning_content
+        if type(rc) == "string" and rc ~= "" then return true end
+    end
+    local et = type(obj.type) == "string" and obj.type or ""
+    if et:sub(-6) == ".delta" then
+        local d = obj.delta
+        if type(d) == "string" and d ~= "" then return true end
+    end
+    return false
+end
+
 function M.scan_sse_for_usage(text)
     local cjson = require("cjson.safe")
     local done = false
     local usage, model
     local cost = 0
+    local has_content = false
     for line in text:gmatch("[^\r\n]+") do
         local payload = line:match("^data:%s*(.+)$")
         if payload then
@@ -59,6 +79,9 @@ function M.scan_sse_for_usage(text)
             else
                 local obj = cjson.decode(payload)
                 if obj and type(obj) == "table" then
+                    if not has_content and event_has_content(obj) then
+                        has_content = true
+                    end
                     local response = type(obj.response) == "table" and obj.response or obj
                     if response.usage and type(response.usage) == "table" then
                         usage = normalize_usage(response.usage)
@@ -76,7 +99,7 @@ function M.scan_sse_for_usage(text)
             end
         end
     end
-    return usage, model, done, cost
+    return usage, model, done, cost, has_content
 end
 
 function M.parse_json_usage(body)

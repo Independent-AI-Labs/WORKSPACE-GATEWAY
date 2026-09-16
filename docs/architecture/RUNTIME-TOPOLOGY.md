@@ -38,7 +38,7 @@ Source of truth: [`res/docker/docker-compose.yml`](../../res/docker/docker-compo
 | Vector | `timberio/vector:0.40.0-debian` | 8080 | 8080 | http-logger ingest |
 | OpenBao | custom `Dockerfile.openbao` | 8200 | 8201 | Virtual key KV |
 | Prometheus | `prom/prometheus:v3.13.1` | 9090 | 9092 | Scrapes `apisix:9100` |
-| Grafana | `grafana/grafana-oss:13.0.2` | 3000 | 3030 | 3 dashboards, 16 panels |
+| Grafana | `grafana/grafana-oss:13.0.2` | 3000 | 3030 | 5 dashboards, 31 panels |
 
 ## Networks
 

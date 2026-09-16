@@ -185,7 +185,10 @@
           changed_when: false
 
         - name: List gateway containers
-          ansible.builtin.shell: '{{ podman_path }} ps --filter label=io.podman.compose.project=docker --format "table {{{{ .Names }}}}\t{{{{ .Status }}}}\t{{{{ .Ports }}}}" >> {{ probe_log }} 2>&1'
+          ansible.builtin.shell: >-
+            {{ podman_path }} ps --filter label=io.podman.compose.project=docker
+            --format {% raw %}"table {{.Names}}\t{{.Status}}\t{{.Ports}}"{% endraw %}
+            >> {{ probe_log }} 2>&1
           register: gateway_containers
           changed_when: false
           failed_when: gateway_containers.rc != 0

@@ -85,6 +85,7 @@ tests/
                test_oauth_jwt.lua, test_provider_sync.lua,
                test_provider_pricing.lua, test_oauth_broker.lua,
                test_oauth_session.lua, test_upstream_pool_lib.lua,
+               test_usefulness_cruncher.lua,
                provider_sync_test_fixtures.lua, check_syntax.sh, run.sh
   scripts/     test_opencode_provider_login.sh, mock_provider_server.py, run.sh
   config/      test_apisix_yaml.sh, test_apisix_yaml_render.sh,
@@ -94,6 +95,7 @@ tests/
                test_model_registry.sh, test_cost_calc.sh,
                test_grafana_provisioning.sh, test_dashboard_cost_usage.sh,
                test_dashboard_ops_health.sh, test_dashboard_cost_leaderboard.sh,
+               test_dashboard_usefulness.sh,
                test_opencode_gateway_auth.sh, test_provider_sync_route.sh,
                dashboard_assert.sh, yaml_helpers.sh, run.sh
   reconciler/  test_reconciler.sh
@@ -103,6 +105,7 @@ tests/
                grafana_panel_check.js, test_llamafile_e2e.sh,
                test_event_id_alignment.sh, test_data_flow.sh,
                test_cost_e2e.sh, test_reconciler_exec.sh,
+               test_crunch_idempotency.sh,
                test_provider_sync_client.sh, lib_event_align.sh, run.sh
   ci/          test_hooks.sh
   e2e/         test_zen_chat.sh, test_zen_stream.sh, test_redact_e2e.sh,

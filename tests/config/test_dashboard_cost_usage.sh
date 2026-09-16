@@ -34,23 +34,31 @@ assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.u
 # Generic structural checks (basics, brand palette, time/refresh, macros, formats)
 check_dashboard_basics "$F" "$LABEL"
 
-# p3: 5 unique override matcher names
+# p3: 6 unique override matcher names (5 token categories + cost)
 P3_MATCHERS=$(jq -r '[.panels[]|select(.id==3)][0].fieldConfig.overrides | map(.matcher.options) | sort | join(",")' "$F")
-assert_eq "$LABEL S5b: p3 has 5 matcher names (Cached,Input,Output,Reasoning,Total)" \
-  "Cached,Input,Output,Reasoning,Total" "$P3_MATCHERS"
+assert_eq "$LABEL S5b: p3 has 6 matcher names (5 token categories + cost)" \
+  "Cached Tokens,Input Tokens,Output Tokens,Reasoning Tokens,Total Cost,Total Tokens" "$P3_MATCHERS"
 
-# p3: consolidated single target (was 5 duplicated CTEs), 5 overrides
+# p3: consolidated single target (was 5 duplicated CTEs), 6 overrides (5 token categories + cost)
 P3_TARGETS=$(jq '[.panels[]|select(.id==3)][0].targets|length' "$F")
 assert_eq "$LABEL: p3 has 1 target" "1" "$P3_TARGETS"
 P3_OVERRIDES=$(jq '[.panels[]|select(.id==3)][0].fieldConfig.overrides|length' "$F")
-assert_eq "$LABEL: p3 has 5 field overrides" "5" "$P3_OVERRIDES"
-P3_COLS=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql | [test("( as )Total";"i"),test("( as )Input";"i"),test("( as )Cached";"i"),test("( as )Output";"i"),test("( as )Reasoning";"i")] | map(select(.))|length' "$F")
-assert_eq "$LABEL: p3 query returns 5 categories" "5" "$P3_COLS"
+assert_eq "$LABEL: p3 has 6 field overrides" "6" "$P3_OVERRIDES"
+P3_SQL=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F")
+P3_COLS=0
+for col in "Total Tokens" "Input Tokens" "Cached Tokens" "Output Tokens" "Reasoning Tokens" "Total Cost"; do
+    printf '%s' "$P3_SQL" | grep -qF "as \"$col\"" && P3_COLS=$((P3_COLS+1))
+done
+assert_eq "$LABEL: p3 query returns 5 token categories + cost" "6" "$P3_COLS"
 
-# p3: billion-scale formatting (B branch before Mil in every multiIf;
-# each branch writes the 1e9 literal twice: threshold and divisor)
-P3_B=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql | [scan("1000000000")] | length' "$F")
-assert_eq "$LABEL: p3 formats billions as B (5 branches)" "10" "$P3_B"
+# p3: numeric columns, no string-formatted values; cost is native currency
+# token categories formatted as compact uppercase B/M/K strings; cost as exact "$x.yy"
+P3_STR=0
+printf '%s' "$P3_SQL" | grep -qE "multiIf" || P3_STR=1
+printf '%s' "$P3_SQL" | grep -qF ", 'B')" && printf '%s' "$P3_SQL" | grep -qF ", 'M')" && printf '%s' "$P3_SQL" | grep -qF ", 'K')" || P3_STR=1
+assert_eq "$LABEL: p3 token columns use compact B/M/K formatting" "0" "$P3_STR"
+P3_COST_UNIT=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F")
+printf '%s' "$P3_COST_UNIT" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p3 cost renders exact dollars (\$x.yy)"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 missing dollar formatting"; fail=$((fail+1)); }
 
 # p3: stat panel positioned top-left
 P3_GRID=$(jq -r '[.panels[]|select(.id==3)][0].gridPos | "y=\(.y),x=\(.x)"' "$F")
