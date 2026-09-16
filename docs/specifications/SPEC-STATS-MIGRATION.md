@@ -99,7 +99,7 @@ driving this design:
 | `cached_tokens` | `tokens.cache.read` | |
 | `total_tokens` | `prompt_tokens + completion_tokens` | live default convention |
 | `key_id`, `api_key_id` | `''` | no SQLite source |
-| `aborted` | `0` | client DB records no abort state |
+| `aborted` | mapped from `message.data.error.name`: `MessageAbortedError` → `1` (client cancel), `APIError`/`UnknownError` → `2` (provider abort), absent → `0` (completed). Source: `session/message-v2.ts` `fromError()` persists terminal outcomes on the assistant message | terminal outcome per generation; note the gateway logs per-attempt stream deaths, so gateway-era abort rates count attempts while migrated rows count outcomes |
 | `is_stream` | `1` | opencode always streams |
 | `cost` | `json_extract(data,'$.cost')` when > 0, else models.dev-priced per §4.1 | USD |
 | `cost_source` | `'upstream'` if source cost > 0, `'computed'` if priced via §4.1, else `'unknown'` | mirrors `resolve_cost` semantics |

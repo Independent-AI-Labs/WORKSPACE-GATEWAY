@@ -154,7 +154,7 @@ INSERT INTO session VALUES ('s1','p1',NULL,'1.17.11','build');
 INSERT INTO message VALUES ('msg_a01','s1',1787917493000,'{"role":"assistant","agent":"build","modelID":"k3","providerID":"workspace-gw-kimi","cost":0.5,"tokens":{"input":100,"output":50,"reasoning":10,"cache":{"read":7,"write":3}},"time":{"created":1787917493000}}');
 INSERT INTO part VALUES ('prt_a01a','msg_a01','s1',1787917493001,'{"type":"reasoning","text":"think"}');
 INSERT INTO part VALUES ('prt_a01b','msg_a01','s1',1787917493002,'{"type":"text","text":"answer"}');
-INSERT INTO message VALUES ('msg_a02','s1',1787917494000,'{"role":"assistant","agent":"plan","modelID":"/zip/MiniCPM5-1B-Q8_0.gguf","providerID":"workspace-gw-llamafile","cost":0,"tokens":{"input":1,"output":2,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917494000}}');
+INSERT INTO message VALUES ('msg_a02','s1',1787917494000,'{"role":"assistant","agent":"plan","modelID":"/zip/MiniCPM5-1B-Q8_0.gguf","providerID":"workspace-gw-llamafile","cost":0,"tokens":{"input":1,"output":2,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917494000},"error":{"name":"MessageAbortedError","message":"Aborted"}}');
 INSERT INTO message VALUES ('msg_a03','s1',1787917493000,'{"role":"assistant","agent":"build","modelID":"k3","providerID":"workspace-gw-kimi","cost":0.5,"tokens":{"input":100,"output":50,"reasoning":10,"cache":{"read":7,"write":3}},"time":{"created":1787917493000}}');
 INSERT INTO part VALUES ('prt_a03a','msg_a03','s1',1787917493011,'{"type":"reasoning","text":"think"}');
 INSERT INTO part VALUES ('prt_a03b','msg_a03','s1',1787917493012,'{"type":"text","text":"answer"}');
@@ -165,7 +165,7 @@ INSERT INTO part VALUES ('prt_a01d','msg_a01','s1',1787917493004,'{"type":"tool"
 INSERT INTO message VALUES ('msg_o01','ghost',1787917495000,'{"role":"assistant","agent":"build","modelID":"glm-5.3","providerID":"zai-coding-plan","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917495000}}');
 INSERT INTO message VALUES ('msg_b01','s1',1787917495000,'{"role":"assistant","agent":"build","modelID":"glm-5.3","providerID":"zai-coding-plan","cost":0,"tokens":{"input":1000000,"output":500000,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917495000}}');
 INSERT INTO message VALUES ('msg_b02','s1',1787917496000,'{"role":"assistant","agent":"build","modelID":"zai.glm-5","providerID":"amazon-bedrock","cost":0,"tokens":{"input":1000000,"output":1000000,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917496000}}');
-INSERT INTO message VALUES ('msg_b03','s1',1787917497000,'{"role":"assistant","agent":"build","modelID":"no-such-model","providerID":"no-such-provider","cost":0,"tokens":{"input":10,"output":20,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917497000}}');
+INSERT INTO message VALUES ('msg_b03','s1',1787917497000,'{"role":"assistant","agent":"build","modelID":"no-such-model","providerID":"no-such-provider","cost":0,"tokens":{"input":10,"output":20,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917497000},"error":{"name":"APIError","message":"Connection reset by server"}}');
 SQL
 
 # models.dev-format pricing fixture: zai-coding-plan publishes all-zero
@@ -257,9 +257,19 @@ assert_eq "b02 model_raw verbatim" "zai.glm-5" "$(echo "$B2" | jq -r .model_raw)
 assert_eq "b02 priced via provider:raw key (1e6*2 + 1e6*8)/1e6" "10" "$(echo "$B2" | jq -r .cost)"
 assert_eq "b02 cost_source computed" "computed" "$(echo "$B2" | jq -r .cost_source)"
 
-B3=$(chq "SELECT cost, cost_source FROM llm_gateway.usage_log WHERE event_id='ocm_msg_b03' FORMAT JSONEachRow")
+B3=$(chq "SELECT cost, cost_source, aborted FROM llm_gateway.usage_log WHERE event_id='ocm_msg_b03' FORMAT JSONEachRow")
 assert_eq "b03 unpriced model stays 0" "0" "$(echo "$B3" | jq -r .cost)"
 assert_eq "b03 cost_source unknown" "unknown" "$(echo "$B3" | jq -r .cost_source)"
+
+# ------------------------------------------------- aborted mapping (opencode error.name)
+A2=$(chq "SELECT aborted FROM llm_gateway.usage_log WHERE event_id='ocm_msg_a02'")
+assert_eq "user abort maps to aborted=1 (client cancel)" "1" "$A2"
+B3AB=$(chq "SELECT aborted FROM llm_gateway.usage_log WHERE event_id='ocm_msg_b03'")
+assert_eq "provider APIError maps to aborted=2" "2" "$B3AB"
+assert_eq "no error maps to aborted=0 (completed)" "0" \
+    "$(chq "SELECT aborted FROM llm_gateway.usage_log WHERE event_id='ocm_msg_a01'")"
+assert_eq "migrated abort values are only 0/1/2" "0" \
+    "$(chq "SELECT countIf(aborted NOT IN (0,1,2)) FROM llm_gateway.usage_log WHERE event_id LIKE 'ocm_%'")"
 
 R1=$(chq "SELECT session_id, project_id, parent_session_id, agent_name, opencode_version, user_agent, method, uri, status, stream, request_size, response_size, client_type FROM llm_gateway.request_log WHERE event_id='ocr_msg_a01' FORMAT JSONEachRow")
 assert_eq "request session_id" "s1" "$(echo "$R1" | jq -r .session_id)"

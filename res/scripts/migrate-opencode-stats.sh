@@ -143,7 +143,8 @@ SELECT m.id, m.session_id, m.time_created,
        coalesce(json_extract(m.data,'\$.tokens.cache.read'),0),
        coalesce(json_extract(m.data,'\$.agent'), coalesce(s.agent,''), ''),
        coalesce(s.project_id,''), coalesce(s.parent_id,''), s.version,
-        strftime('%Y-%m-%d %H:%M:%f', m.time_created/1000.0, 'unixepoch')
+        strftime('%Y-%m-%d %H:%M:%f', m.time_created/1000.0, 'unixepoch'),
+       coalesce(json_extract(m.data,'\$.error.name'),'')
 FROM message m JOIN session s ON s.id = m.session_id
 WHERE json_extract(m.data,'\$.role')='assistant'
 ORDER BY m.id;
@@ -185,7 +186,7 @@ fi
 # out fields:
 #  1 msg_id 2 session_id 3 tc_ms 4 provider 5 model_raw 6 model_canon
 #  7 cost 8 pt 9 ct 10 rt 11 cached 12 agent 13 project_id 14 parent_id
-#  15 version 16 ts 17 content_hash 18 resp_bytes
+#  15 version 16 ts 17 content_hash 18 resp_bytes 19 error_name
 awk -F'\t' -v OFS='\t' '
     NR==FNR { alias[$2]=$1; next }
     FILENAME==ARGV[2] { hash[$1]=$2; bytes[$1]=$3; next }
@@ -193,7 +194,7 @@ awk -F'\t' -v OFS='\t' '
         m = tolower($5)
         if (m in alias) c = alias[m]
         else { seg=m; sub(/.*\//,"",seg); c = (seg in alias) ? alias[seg] : seg }
-        print $1,$2,$3,$4,$5,c,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,hash[$1],bytes[$1]+0
+        print $1,$2,$3,$4,$5,c,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,hash[$1],bytes[$1]+0,$16
     }
 ' "$TMPD/aliases.tsv" "$TMPD/hash.tsv" "$TMPD/msg.tsv" > "$TMPD/joined.tsv"
 
@@ -389,8 +390,14 @@ awk -F'\t' -v OFS='\t' -v shadow="$SHADOW_MAP" '
         }
         pt = $8 + $11
         ct = $9 + $10
+        # Terminal stream outcome from opencode message.error (message-v2.ts
+        # fromError): user abort -> 1 (client cancel), provider failure ->
+        # 2 (provider abort). Absence of error = completed stream.
+        ab = 0
+        if ($19 == "MessageAbortedError") ab = 1
+        else if ($19 == "APIError" || $19 == "UnknownError") ab = 2
         print "ocm_" $1, $1, $6, $5, pt, ct, pt+ct, $10+0, $11+0, \
-              0, 1, cost, cs, $4, $16
+              ab, 1, cost, cs, $4, $16
     }
 ' "$TMPD/pricing.tsv" "$TMPD/dedup.tsv" > "$TMPD/usage.tsv"
 
