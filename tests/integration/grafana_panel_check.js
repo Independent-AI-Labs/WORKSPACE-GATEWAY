@@ -55,7 +55,7 @@ const dashboards = [
     panels: [
       { id: 1,  title: 'Total Requests',                    type: 'stat',         checks: [] },
       { id: 2,  title: 'Active Connections',                type: 'stat',         checks: [] },
-      { id: 4,  title: 'Error Rate %',                      type: 'stat',         checks: [
+      { id: 4,  title: 'Error Rate',                      type: 'stat',         checks: [
         { kind: 'text', value: '%' },
       ]},
       { id: 5,  title: 'Request Rate (req/s)',              type: 'timeseries',  checks: [] },
@@ -68,7 +68,7 @@ const dashboards = [
       ]},
       { id: 11, title: 'Bandwidth In / Out (bytes/s)',      type: 'timeseries',  checks: [] },
       { id: 12, title: 'Shared Dict Memory Usage',          type: 'timeseries',  checks: [] },
-      { id: 13, title: 'Stream Abort Rate by Direction (%)', type: 'timeseries',  checks: [] },
+      { id: 13, title: 'Stream Abort Rate by Direction', type: 'timeseries',  checks: [] },
       { id: 14, title: 'Stream Status (completed / client-aborted / provider-aborted)', type: 'timeseries', checks: [] },
     ],
   },

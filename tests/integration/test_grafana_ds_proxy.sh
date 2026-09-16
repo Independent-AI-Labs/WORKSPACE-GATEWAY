@@ -188,8 +188,8 @@ echo ""
 # T2: Error Rate (p4) - must count 4xx+5xx, not just 5xx
 # =====================================================================
 echo "--- T2: Error Rate (4xx+5xx, not just 5xx) ---"
-T2_QUERY=$(get_panel_query "Error Rate %")
-T2_DS=$(get_panel_ds "Error Rate %")
+T2_QUERY=$(get_panel_query "Error Rate")
+T2_DS=$(get_panel_ds "Error Rate")
 
 [ "$T2_DS" = "$CH_UID" ] && rp "T2: datasource=clickhouse" || rf "T2: datasource=$T2_DS (expected clickhouse)"
 
