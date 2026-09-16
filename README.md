@@ -61,7 +61,7 @@ Ports: 9080 (gateway), 9180 (APISIX Admin API + `/ui/`), 8123 (ClickHouse), 9100
 ### Prerequisites
 
 - [Podman](https://podman.io/) 5.x
-- [Ansible](https://docs.ansible.com/) 2.21+
+- [Ansible](https://github.com/ansible/ansible) 2.21+
 - `curl`, `jq`, `openssl`, `xxd` (used by tests and key scripts)
 - `uv` (for `.venv` setup)
 - A `.env` file with `ADMIN_KEY`, `OPENCODE_API_KEY`, `GATEWAY_API_KEY`,

@@ -376,16 +376,28 @@ score), Nielsen 0.1/1/10s limits (performance dashboard bands).
 
 | Construct | Raw rate | Index | Goalpost (rate → index 0) |
 |-----------|----------|-------|---------------------------|
-| Net rejection | binary reactive − binary baseline, clamped ≥ 0 | `clamp(1 − rate/30, 0, 1)` | 30% |
+| Followup rejection | absolute share of followup requests whose last user message carries a profanity or frustration signal (`100 × rej_n / fu`) | `clamp(1 − rate/50, 0, 1)` | 50% |
 | Session abandonment | share of sessions containing the model that end on a different model (`argMax(model, timestamp)` per session, `groupUniqArray`, ARRAY JOIN: window-free by necessity: ClickHouse window functions inside CTEs return 0 without an error under joins) | `clamp(1 − rate/100, 0, 1)` | 100% |
 | Client cancel | `countIf(aborted=1)/countIf(is_stream=1)` | `clamp(1 − rate/5, 0, 1)` | 5% |
 | Provider abort (Reliability) | `countIf(aborted=2)/countIf(is_stream=1)` | `clamp(1 − rate/5, 0, 1)` | 5% |
 
-A factor with no measurable data counts neutral 0.5 (`ifNull`); models
-require ≥ 30 requests (kills the tiny-sample ties the old ≥2-model gate
-produced). Session abandonment is contaminated by multi-model interleaving
-(sessions that alternate models penalize every participant): documented on
-the panels as a heuristic.
+The rejection rate is absolute, not baseline-differenced. The earlier
+`followup − base-prompt` subtraction was removed 2026-09-16: base samples run
+31-267 rows per model, and a single operator's base style varies by era, so
+differencing clamped genuinely bad models to 0 net rejection (terra: 52.3%
+followup signals vs 54.7% on a 203-row base → net 0 while being the worst
+model in the fleet). The absolute followup rate matches p32's displayed rate
+and needs no baseline at all.
+
+A factor with no measurable data counts neutral 0.5 (`ifNull`); a MEASURED
+factor that reaches its goalpost is floored at 0.05 instead of 0 ,  the
+geometric mean annihilates the whole composite on any zero component (the
+UNDP 2010 zero-collapse critique, Anand et al.), which turned a 52.3%-vs-50%
+goalpost crossing into a full-zero Overall for terra and made the composite
+hyper-sensitive to one constant. Models require ≥ 30 requests (kills the
+tiny-sample ties the old ≥2-model gate produced). Session abandonment is
+contaminated by multi-model interleaving (sessions that alternate models
+penalize every participant): documented on the panels as a heuristic.
 
 ### 6.2 Composition
 
@@ -403,7 +415,7 @@ model cannot buy back rejection language or aborts with fast tokens.
 
 ### 6.3 Scorecard (p41)
 
-One row per model: Requests, raw rates (Net Rejection %, Switches %, Cancels
+One row per model: Requests, raw rates (Followup Rejection %, Switches %, Cancels
 %, Aborts %), standardized indices (n Rejection, n Switches, n Cancels,
 n Reliability), PAI (0-100), Overall Score, and Friction per 100 as a context
 column (explicitly not part of either composite). Bands: ≥ 70 good (green),

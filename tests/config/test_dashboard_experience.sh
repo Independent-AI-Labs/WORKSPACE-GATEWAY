@@ -97,12 +97,12 @@ assert_eq "$LABEL: p34 title is censored rejection strings" "Top User Rejection 
 # Readable display names (FR-10.5): p32 title states metric and unit
 assert_eq "$LABEL: p32 title states metric and unit" "User Rejection Rate (% of follow-up messages)" "$(jq -r '[.panels[]|select(.id==32)][0].title' "$F")"
 P41_READABLE=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_READABLE" | grep -qF '"Net Rejection %"' && printf '%s' "$P41_READABLE" | grep -qF '"Switches %"' && { echo "[PASS] $LABEL: p41 columns use human-readable aliases"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 columns keep raw identifiers"; fail=$((fail+1)); }
+printf '%s' "$P41_READABLE" | grep -qF '"Followup Rejection %"' && printf '%s' "$P41_READABLE" | grep -qF '"Switches %"' && { echo "[PASS] $LABEL: p41 columns use human-readable aliases"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 columns keep raw identifiers"; fail=$((fail+1)); }
 
 # Overall Score (FR-9, revised 2026-09-16): score family with fixed goalposts,
 # geometric aggregation, construct separation, >=30-request gate
 P40_SQL=$(jq -r '[.panels[]|select(.id==40)][0].targets[0].rawSql' "$F")
-printf '%s' "$P40_SQL" | grep -qF 'net_rej / 30' && printf '%s' "$P40_SQL" | grep -qF 'switch_rate / 100' && printf '%s' "$P40_SQL" | grep -qF 'cancel_rate / 5' && printf '%s' "$P40_SQL" | grep -qF 'abort_rate / 5' && { echo "[PASS] $LABEL: p40 uses fixed goalposts (30/100/5/5), not observed extrema"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing fixed goalposts"; fail=$((fail+1)); }
+printf '%s' "$P40_SQL" | grep -qF 'net_rej / 50' && printf '%s' "$P40_SQL" | grep -qF 'switch_rate / 100' && printf '%s' "$P40_SQL" | grep -qF 'cancel_rate / 5' && printf '%s' "$P40_SQL" | grep -qF 'abort_rate / 5' && { echo "[PASS] $LABEL: p40 uses fixed goalposts (50/100/5/5), not observed extrema"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing fixed goalposts"; fail=$((fail+1)); }
 printf '%s' "$P40_SQL" | grep -qF 'power(' && printf '%s' "$P40_SQL" | grep -qF 'sqrt(' && { echo "[PASS] $LABEL: p40 aggregates geometrically (no factor can buy back another)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing geometric aggregation"; fail=$((fail+1)); }
 printf '%s' "$P40_SQL" | grep -q 'reqs >= 30' && { echo "[PASS] $LABEL: p40 requires >=30 requests (no tiny-sample ties)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing >=30 gate"; fail=$((fail+1)); }
 printf '%s' "$P40_SQL" | grep -qF 'ifNull' && { echo "[PASS] $LABEL: p40 missing factors count neutral 0.5"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing ifNull neutral"; fail=$((fail+1)); }
@@ -116,7 +116,7 @@ printf '%s' "$P40_DESC" | grep -qi 'heuristic' && { echo "[PASS] $LABEL: p40 car
 
 # Scorecard (FR-9.5): per-construct decomposition with readable headers
 P41_SQL=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_SQL" | grep -qF '"Prompt Adherence (0-100)"' && printf '%s' "$P41_SQL" | grep -qF '"n Rejection"' && printf '%s' "$P41_SQL" | grep -qF '"Net Rejection %"' && printf '%s' "$P41_SQL" | grep -qF '"Overall Score"' && { echo "[PASS] $LABEL: p41 scorecard decomposes PAI + Overall with readable headers"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 scorecard columns missing"; fail=$((fail+1)); }
+printf '%s' "$P41_SQL" | grep -qF '"Prompt Adherence (0-100)"' && printf '%s' "$P41_SQL" | grep -qF '"n Rejection"' && printf '%s' "$P41_SQL" | grep -qF '"Followup Rejection %"' && printf '%s' "$P41_SQL" | grep -qF '"Overall Score"' && { echo "[PASS] $LABEL: p41 scorecard decomposes PAI + Overall with readable headers"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 scorecard columns missing"; fail=$((fail+1)); }
 printf '%s' "$P41_SQL" | grep -qF '"Friction per 100 (context)"' && { echo "[PASS] $LABEL: p41 shows friction as context, not merged"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing friction context column"; fail=$((fail+1)); }
 
 # Friction panels (FR-8.5): three marker classes, sparse suppression, stacking
