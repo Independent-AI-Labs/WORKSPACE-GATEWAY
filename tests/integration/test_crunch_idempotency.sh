@@ -101,6 +101,10 @@ echo "---------------------------"
 N_ROWS=$(printf '%s\n' "$SIG1" | grep -c . ) || N_ROWS=0
 [ "$N_ROWS" = "5" ] && ok "all 5 rows recorded (unparseable row kept, FR-2.7)" || ko "expected 5 signal rows, got $N_ROWS"
 
+# curl used to join multiple --data-binary parts with '&', corrupting the
+# first TSV row of every block insert to "&<request_id>"
+N_AMP=$(ch "SELECT countIf(request_id LIKE '&%') FROM llm_gateway.request_signals") || N_AMP="?"; [ "$N_AMP" = "0" ] && ok "no ampersand-corrupted request_ids (curl multi-part join guard)" || ko "found $N_AMP request_ids starting with '&'"
+
 ROW_A=$(printf '%s\n' "$SIG1" | grep -a $'^crunch-test-a\t')
 echo "$ROW_A" | grep -q $'crunch-test-a\t1\t1\t1\t1\tshit' && ok "row A: followup profanity detected + canonicalized" || ko "row A wrong: $ROW_A"
 echo "$ROW_A" | grep -q $'2\t' && ok "row A: profanity + VADER counted (signal_count 2)" || ko "row A signal_count wrong: $ROW_A"

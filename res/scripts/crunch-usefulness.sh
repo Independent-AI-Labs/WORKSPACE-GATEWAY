@@ -205,10 +205,13 @@ flush_block() {
         DELETE WHERE timestamp >= '${BLOCK_START}' AND timestamp < '${BLOCK_END}'
         SETTINGS mutations_sync = 2" \
       || { echo "[crunch] ERROR: block delete failed for ${BLOCK_START}" >&2; exit 1; }
+    # curl concatenates multiple --data-binary parts with '&' (form-field
+    # semantics), which corrupts the first TSV row of every block insert
+    # ("&<request_id>"). Build ONE payload file and send it whole.
+    { printf '%s' "$INSERT_SQL"; cat "$BATCH_FILE"; } > "$TMP_DIR/insert.payload"
     INSERT_CODE=$(curl -sS --max-time 300 \
         -w '%{http_code}' -o "$TMP_DIR/insert.err" "$CH_URL/" \
-        --data-binary "$INSERT_SQL" \
-        --data-binary @"$BATCH_FILE") || INSERT_CODE="000"
+        --data-binary @"$TMP_DIR/insert.payload") || INSERT_CODE="000"
     if [ "$INSERT_CODE" != "200" ]; then
       echo "[crunch] ERROR: block insert failed for ${BLOCK_START} (HTTP ${INSERT_CODE}):" >&2
       cat "$TMP_DIR/insert.err" >&2
