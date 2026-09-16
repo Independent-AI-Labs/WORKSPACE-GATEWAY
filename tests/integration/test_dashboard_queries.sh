@@ -206,24 +206,28 @@ awk "BEGIN{exit !($TC >= 0)}" && rp "Q3: cost=$TC (>=0)" || rf "Q3: cost=$TC (ne
 echo ""
 
 # =====================================================================
-# Q4: p3 format: "NN Mil ($X.XX)" or "NN K ($X.XX)" or "NN ($X.XX)"
+# Q4: p3 format: token columns as compact "NN.NN B|M|K" strings (or plain
+# integers), cost column as exact "$X.YY" (never SI-abbreviated)
 # =====================================================================
 echo "--- Q4: p3 Output Format ---"
 P3_FMT_ROW=$(exec_ch 3 A | sed -n '1p')
-P3_LABELS=(Total Input Cached Output Reasoning)
+P3_LABELS=("Total Tokens" "Input Tokens" "Cached Tokens" "Output Tokens" "Reasoning Tokens" "Total Cost")
 P3_IDX=0
 IFS=$'\t' read -r -a P3_COLS <<< "$P3_FMT_ROW"
 for val in "${P3_COLS[@]}"; do
     label="${P3_LABELS[$P3_IDX]}"
-    if echo "$val" | grep -qE '^[0-9]+ (Mil|K|B) \(\$[0-9]+(\.[0-9]+)?\)$' \
-        || { echo "$val" | grep -qE '^[0-9]+ \(\$[0-9]+(\.[0-9]+)?\)$'; }; then
-        rp "Q4: p3-${label} format valid"
+    if [ "$P3_IDX" -lt 5 ]; then
+        echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)?$' \
+            && rp "Q4: p3-${label} format valid" \
+            || rf "Q4: p3-${label} format invalid: $val"
     else
-        rf "Q4: p3-${label} format invalid: $val"
+        echo "$val" | grep -qE '^\$[0-9]+\.[0-9]{2}$' \
+            && rp "Q4: p3-${label} format valid" \
+            || rf "Q4: p3-${label} format invalid: $val"
     fi
     P3_IDX=$((P3_IDX + 1))
 done
-[ "${#P3_COLS[@]}" -eq 5 ] && rp "Q4: p3 returns 5 formatted columns" || rf "Q4: p3 returns ${#P3_COLS[@]} columns (expected 5)"
+[ "${#P3_COLS[@]}" -eq 6 ] && rp "Q4: p3 returns 6 formatted columns" || rf "Q4: p3 returns ${#P3_COLS[@]} columns (expected 6)"
 echo ""
 
 # =====================================================================

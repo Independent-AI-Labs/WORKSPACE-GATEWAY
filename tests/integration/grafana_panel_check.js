@@ -40,7 +40,7 @@ const dashboards = [
     panels: [
       { id: 3,  title: 'Token Usage by Category',           type: 'stat',         checks: [
         { kind: 'text', value: 'Total' },
-        { kind: 'text', value: 'Mil' },
+        { kind: 'text', value: 'B' },
         { kind: 'text', value: '$' },
       ]},
       { id: 8,  title: 'Model Distribution',               type: 'bargauge',     checks: [
