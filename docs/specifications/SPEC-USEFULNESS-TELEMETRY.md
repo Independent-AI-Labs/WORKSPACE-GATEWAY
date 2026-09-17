@@ -436,7 +436,9 @@ time per completed response). Renamed uid `gateway-model-experience` /
 Conventions: identical to SPEC-DASHBOARD §3 variables plus:
 
 - `rejection_mode`: custom variable, options `binary` / `instances`
-  (default `binary`).
+  (default `binary`, no All option: it is a calculation-mode toggle, not
+  a filter; `allValue: "binary"` kept only to satisfy the S6f quoted-
+  context guard).
 - `include_local`: custom variable, options `include : yes` /
   `exclude : no` (default `exclude`, `allValue: yes` per REQ-DASHBOARD
   FR-3.3). Both verdict panels (p40/p41) append
@@ -464,12 +466,12 @@ WITH gated AS (
 | 30 | Prefill Speed by Model (bargauge, p50) | `medianExactIf(prompt_tokens / nullIf(ttft_content_ms,0) * 1000, ttft_content_ms >= 100)` over `is_stream=1`, model IN gated; avg branch removed 2026-09-17 (p50 only), full fleet coverage via migrated timing |
 | 31 | Cancel / Provider-abort rate (stat ×2) | `100 * countIf(aborted=1) / count()` over streams; same for `aborted=2` |
 | 32 | Rejection rate stat (mode-aware) | both branches return strings (ClickHouse `if()` requires a common type): binary: `concat(toString(round(100 * countIf(signal_count > 0 AND is_followup=1) / nullIf(countIf(is_followup=1),0), 2)), '%')` (trailing `%` since 2026-09-17); instances: `toString(round(sum(signal_weight) / nullIf(countIf(is_followup=1),0), 2))`; selected via `if('${rejection_mode}' = 'instances', …, …)`; **no per-message cap** (REQ FR-5.3) |
-| 33 | Baseline vs reactive + signed net (timeseries) | reactive rate and first-turn baseline rate as two lines on shared axes (the visual gap is the effect); `net = reactive − baseline` as a third series plotted around an explicit zero reference line (threshold-style zero line), unclamped: negative values mean the model draws less negativity than the user's habitual style; panel description labels net as heuristic |
+| 33 | (removed 2026-09-17) | Baseline-vs-reactive + signed-net chart deleted: the baseline-differencing interpretation it visualized was retired with the absolute-rate rejection metric (§6.1); the scorecard's `Rej % / n` column is the decomposition now |
 | 34 | Top rejection terms (table) | merged profane + frustration table, `arrayJoin(profane_terms) AS term, count()` … `ORDER BY count DESC LIMIT 15`, censored |
 | 35 | (removed 2026-09-17) | Signals-over-time panel deleted: heavy per-bucket query, dubious reader value; p33 + p42 cover the time dimension |
 | 36 | Wasted tokens & cost (stat) | `sum(if(aborted>0, completion_tokens, 0))` **plus rejected tool calls**: `lagInFrame` of the generation preceding a marker-bearing request (`user_rejections + rule_denials + guard_blocks > 0`, same session) with `prev_ab = 0` so aborted generations are never double-counted; the same attribution adds `prev_cost`, so waste $ covers both sources; B/M/K compact token strings; `$` exact waste cost |
 | 37 | Session depth by model (bargauge) | messages per `session_id` from request_log, avg per model, gated |
-| 38 | Model-switch rate (timeseries) | consecutive same-session model change arrival rate per model |
+| 38 | (removed 2026-09-17) | Model-switch timeseries deleted: it cannot discern a mid-session switch caused by a usage limit from one caused by user decision, so the per-bucket trend carried no decision value; the switch factor itself stays in the score (§6.2) and its per-model value is visible in the scorecard `Sw % / n` column |
 | 39 | (removed 2026-09-17) | Historical decode proxy deleted: migrated `duration_ms`/`ttft_content_ms` make native per-message timing dominate |
 | 40 | **Overall Score leaderboard** (bargauge) | §6.2 composition; one row per qualifying model, verdict-colored bands ≥70/40, "behavioral heuristic" annotation; honours `include_local` |
 | 41 | **Scorecard** (table) | §6.3 un-rolled CTE; since 2026-09-17 each rate column merges its normalized index into one cell (`"26.68% / 0.47"`) under short headers (`Rej % / n`, `Sw % / n`, `Canc % / n`, `Abr % / n`, `PAI`, `Overall`, `Fric /100`) with `wrapText` so nothing clips; honours `include_local` |
@@ -539,7 +541,7 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | Tests | Implemented | tests/lua/test_usefulness_cruncher.lua; tests/integration/test_crunch_idempotency.sh; extended test_clickhouse_sql.sh, test_grafana_provisioning.sh, dashboard_assert.sh |
 | Friction telemetry (§5) | Implemented | migration 000009 + crunch INSERT expressions + panels 42-43; live backfill 2026-09-16 |
 | Usefulness Score (§6) | Implemented | panels 40-41 + weights CTE; 12 models scored live |
-| Readability refinements (REQ FR-10.2/3/4/5) + 2026-09-17 operator pass | Implemented | threshold bands (p31/p40); p50-only speed panels (p30/p44) with full fleet coverage via migrated timing; rejected-tool-call waste in p36 (lagInFrame prev-generation attribution, no double count); p45 standalone completed-response averages; scorecard %/index merged cells; p32 trailing %; p35 signals-over-time and p39 decode proxy removed; include_local toggle (p40/p41) backed by `model_registry` (`make gw-sync-model-registry`); tiered layouts: experience: 40/41 → 32/33/37 → 34/42/43 → 38; performance: 30/44 → 31/36/45 |
+| Readability refinements (REQ FR-10.2/3/4/5) + 2026-09-17 operator pass | Implemented | threshold bands (p31/p40); p50-only speed panels (p30/p44) with full fleet coverage via migrated timing; rejected-tool-call waste in p36 (lagInFrame prev-generation attribution, no double count); p45 standalone completed-response averages; scorecard %/index merged cells under short wrap-enabled headers; p32 trailing %; p35 signals-over-time, p33 baseline-vs-reactive and p38 model-switch timeseries removed (baseline differencing retired; switch cause is indiscernible); include_local toggle (p40/p41) backed by `model_registry` (`make gw-sync-model-registry`); tiered layouts: experience: 40/41 → 32/37 → 34/42/43; performance: 30/44 → 31/36/45 |
 
 ## 11. References (research grounding, 2026-09-16)
 

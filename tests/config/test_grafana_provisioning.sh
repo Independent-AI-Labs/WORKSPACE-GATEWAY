@@ -169,10 +169,10 @@ EX_UID=$(jq -r '.uid' "$EXPERIENCE_FILE")
 assert_eq "Model Experience uid" "gateway-model-experience" "$EX_UID"
 
 EX_PANELS=$(jq '.panels | length' "$EXPERIENCE_FILE")
-assert_eq "Model Experience has 9 panels" "9" "$EX_PANELS"
+assert_eq "Model Experience has 7 panels" "7" "$EX_PANELS"
 
 EX_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$EXPERIENCE_FILE")
-assert_eq "Model Experience ClickHouse panels" "9" "$EX_CH"
+assert_eq "Model Experience ClickHouse panels" "7" "$EX_CH"
 
 PF_TITLE=$(jq -r '.title' "$PERFORMANCE_FILE")
 assert_eq "Model Performance title" "Gateway Model Performance" "$PF_TITLE"
@@ -186,10 +186,10 @@ assert_eq "Model Performance has 5 panels" "5" "$PF_PANELS"
 PF_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$PERFORMANCE_FILE")
 assert_eq "Model Performance ClickHouse panels" "5" "$PF_CH"
 
-# ── Total panel count across all 5 dashboards (17 original + 16 usefulness = 33) ──
+# ── Total panel count across all 5 dashboards (17 original + 14 usefulness = 31) ──
 
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
-assert_eq "Total panels across 5 dashboards" "33" "$TOTAL_PANELS"
+assert_eq "Total panels across 5 dashboards" "31" "$TOTAL_PANELS"
 
 # ── Currency consistency: money tiles render exact "$x.yy" strings (SQL-
 #    formatted, 2 decimals, never SI-abbreviated); B/M/K uppercase abbrevs ─
@@ -294,7 +294,7 @@ for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE
     c=$(jq '[.panels[] | select(.datasource.uid == "clickhouse") | select([.targets[].rawSql? | select(. != null) | select(test("\\$\\{api_key:singlequote\\}"))] | length > 0)] | length' "$df")
     CH_APIKEY_TOTAL=$((CH_APIKEY_TOTAL + c))
 done
-assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "23" "$CH_APIKEY_TOTAL"
+assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "22" "$CH_APIKEY_TOTAL"
 
 # ── p3 Token Usage stat: 5 tiles, one per category (in cost-usage) ────
 

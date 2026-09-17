@@ -29,11 +29,11 @@ assert_json_valid "$LABEL: dashboard JSON is valid" "$F"
 assert_eq "$LABEL: title is Gateway Model Experience" "Gateway Model Experience" "$(jq -r '.title' "$F")"
 assert_eq "$LABEL: uid is gateway-model-experience" "gateway-model-experience" "$(jq -r '.uid' "$F")"
 
-# Panel inventory: 9 CH panels (p35 signals-over-time removed 2026-09-17:
+# Panel inventory: 7 CH panels (p35/p33/p38 removed 2026-09-17:
 # heavy per-bucket query, dubious reader value)
-assert_eq "$LABEL: panel count is 9" "9" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: panel ids" "32 33 34 37 38 40 41 42 43" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
-assert_eq "$LABEL: ClickHouse panels" "9" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
+assert_eq "$LABEL: panel count is 7" "7" "$(jq '.panels|length' "$F")"
+assert_eq "$LABEL: panel ids" "32 34 37 40 41 42 43" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
+assert_eq "$LABEL: ClickHouse panels" "7" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
 # Generic structural checks (title/type/datasource/gridPos/target, refId,
@@ -63,7 +63,7 @@ assert_eq "$LABEL: include_local has allValue (S6f quoted context)" "yes" "$IL_A
 # Every per-model rawSql gates on >= 100 responses and never scans req_body
 ALL_SQL=$(jq -r '[.panels[].targets[].rawSql] | join("\n")' "$F")
 GATED_PANELS=$(jq '[.panels[] | select((([.targets[].rawSql | test("count\\(\\) >= 100")]) | all) and ((.targets | length) > 0))] | length' "$F")
-assert_eq "$LABEL: every panel query carries the >=100 relevance gate" "9" "$GATED_PANELS"
+assert_eq "$LABEL: every panel query carries the >=100 relevance gate" "7" "$GATED_PANELS"
 if printf '%s' "$ALL_SQL" | grep -q 'req_body'; then
     echo "[FAIL] $LABEL: rawSql references req_body (forbidden at refresh time)"; fail=$((fail+1))
 else
@@ -81,19 +81,9 @@ else
 fi
 # Binary branch renders a trailing % (value is a rate)
 printf '%s' "$P32_SQL" | grep -qF ", '%')) AS rejection" && { echo "[PASS] $LABEL: p32 binary mode appends % suffix"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p32 binary mode missing % suffix"; fail=$((fail+1)); }
-
-# Signed net (unclamped): p33 target C must subtract baseline without max(0,...)
-P33_C_SQL=$(jq -r '[.panels[]|select(.id==33)][0].targets[] | select(.refId=="C") | .rawSql' "$F")
-printf '%s' "$P33_C_SQL" | grep -q 'reactive - baseline' && { echo "[PASS] $LABEL: p33 net series is reactive - baseline"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p33 missing net series"; fail=$((fail+1)); }
-if printf '%s' "$P33_C_SQL" | grep -q 'max(0'; then
-    echo "[FAIL] $LABEL: p33 net is clamped (must be signed)"; fail=$((fail+1))
-else
-    echo "[PASS] $LABEL: p33 net is signed, unclamped"; pass=$((pass+1))
-fi
-
-# Baseline denominators exclude unparseable rows
-P33_B_SQL=$(jq -r '[.panels[]|select(.id==33)][0].targets[] | select(.refId=="B") | .rawSql' "$F")
-printf '%s' "$P33_B_SQL" | grep -q 'countIf(is_followup = 0 AND parsed = 1)' && { echo "[PASS] $LABEL: p33 baseline denominator gated on parsed=1"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p33 baseline denominator missing parsed gate"; fail=$((fail+1)); }
+# Mode toggle offers exactly two choices (no meaningless All)
+RM_INC_ALL=$(jq -r '.templating.list[]|select(.name=="rejection_mode")|.includeAll' "$F")
+assert_eq "$LABEL: rejection_mode has no All option" "false" "$RM_INC_ALL"
 
 # Top rejection strings (FR-10.3): one merged table, censored, readable headers
 P34_SQL=$(jq -r '[.panels[]|select(.id==34)][0].targets[0].rawSql' "$F")
@@ -151,7 +141,7 @@ P43_SQL=$(jq -r '[.panels[]|select(.id==43)][0].targets[0].rawSql' "$F")
 printf '%s' "$P43_SQL" | grep -q 'arrayJoin(guard_rules)' && { echo "[PASS] $LABEL: p43 ranks guard_rules via arrayJoin"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p43 missing arrayJoin(guard_rules)"; fail=$((fail+1)); }
 
 # Grouping (FR-10.6): verdict -> headline stats -> detail/friction
-assert_eq "$LABEL: panels grouped top-to-bottom" "40 41 32 33 37 34 42 43 38" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+assert_eq "$LABEL: panels grouped top-to-bottom" "40 41 32 37 34 42 43" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
 
 # Local-model toggle reaches both verdict panels (p40 + p41)
 printf '%s' "$P40_SQL" | grep -qF 'model_registry' && printf '%s' "$P40_SQL" | grep -qF "'\${include_local}'" && { echo "[PASS] $LABEL: p40 honours include_local via model_registry"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing include_local predicate"; fail=$((fail+1)); }

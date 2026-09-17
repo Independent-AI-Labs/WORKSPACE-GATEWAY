@@ -68,7 +68,7 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-1.1 | The system SHALL provide exactly 5 dashboards: `gateway-cost-usage` (4 CH panels: ids 3, 15, 8, 46), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), `gateway-cost-leaderboard` (4 CH stat panels: ids 20, 21 podium + 22, 23 runner-ups), `gateway-model-experience` (9 CH panels: ids 32-34, 37, 38, 40-43; satisfaction signals, Usefulness Score + scorecard, friction: behavioral requirements owned by REQ-USEFULNESS-TELEMETRY), and `gateway-model-performance` (5 CH panels: ids 30, 31, 36, 44, 45; speed, cancel/abort, waste: owned by REQ-USEFULNESS-TELEMETRY). |
+| FR-1.1 | The system SHALL provide exactly 5 dashboards: `gateway-cost-usage` (4 CH panels: ids 3, 15, 8, 46), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), `gateway-cost-leaderboard` (4 CH stat panels: ids 20, 21 podium + 22, 23 runner-ups), `gateway-model-experience` (7 CH panels: ids 32, 34, 37, 40-43; satisfaction signals, Usefulness Score + scorecard, friction: behavioral requirements owned by REQ-USEFULNESS-TELEMETRY), and `gateway-model-performance` (5 CH panels: ids 30, 31, 36, 44, 45; speed, cancel/abort, waste: owned by REQ-USEFULNESS-TELEMETRY). |
 | FR-1.2 | All 5 dashboards MUST open with time range `now-90d` to `now` and a 5-second refresh. |
 | FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 46=piechart, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 20=stat, 21=stat, 22=stat, 23=stat; usefulness panels per its own REQ. |
 
@@ -179,7 +179,7 @@ restart-persistent metrics, Prometheus for instantaneous rates/percentiles.)
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| FR-1.1 5 dashboards / 32 panels | Implemented | conf/grafana/dashboards/*.json (4+11+4+9+5 panels; experience: score/scorecard/rejection/friction, performance: prefill/decode speeds split p30/p44 + reliability + waste + completed-response averages) |
+| FR-1.1 5 dashboards / 31 panels | Implemented | conf/grafana/dashboards/*.json (4+11+4+7+5 panels; experience: score/scorecard/rejection/friction, performance: prefill/decode speeds split p30/p44 + reliability + waste + completed-response averages) |
 | FR-1.2 time range & refresh | Implemented | each dashboard: `now-90d`→`now`, `5s` |
 | FR-2.x datasource split | Implemented | 11 CH + 5 Prom targets across dashboards |
 | FR-3.x template variables | Implemented | `api_key` + `model` in all 5 dashboards |
