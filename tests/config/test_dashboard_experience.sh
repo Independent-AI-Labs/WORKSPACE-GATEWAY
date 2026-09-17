@@ -84,6 +84,15 @@ printf '%s' "$P32_SQL" | grep -qF ", '%')) AS rejection" && { echo "[PASS] $LABE
 # Mode toggle offers exactly two choices (no meaningless All)
 RM_INC_ALL=$(jq -r '.templating.list[]|select(.name=="rejection_mode")|.includeAll' "$F")
 assert_eq "$LABEL: rejection_mode has no All option" "false" "$RM_INC_ALL"
+# Custom-variable option lists split on commas: a comma inside an option
+# label parses as a phantom third option (the "no cap)" artifact)
+RM_QUERY=$(jq -r '.templating.list[]|select(.name=="rejection_mode")|.query' "$F")
+RM_COMMA_N=$(printf '%s' "$RM_QUERY" | tr -cd ',' | wc -c)
+assert_eq "$LABEL: rejection_mode query has exactly one separator comma (2 options)" "1" "$RM_COMMA_N"
+# p32 returns a string field; stat panels render string fields only under
+# value_and_name (REQ-DASHBOARD FR-7.4), auto shows No data
+P32_TEXTMODE=$(jq -r '[.panels[]|select(.id==32)][0].options.textMode // "missing"' "$F")
+assert_eq "$LABEL: p32 textMode renders string values" "value_and_name" "$P32_TEXTMODE"
 
 # Top rejection strings (FR-10.3): one merged table, censored, readable headers
 P34_SQL=$(jq -r '[.panels[]|select(.id==34)][0].targets[0].rawSql' "$F")

@@ -262,7 +262,7 @@
         "textMode": "value_and_name",
         "maxPerRow": 4
       },
-      "description": "Token categories over the selected window. Total Tokens and Total Cost wrap onto the bottom row, enlarged."
+      "description": "Token volume over the selected range, split into input (uncached), cache hits, output (non-reasoning) and reasoning. Total Tokens and Total Cost wrap onto the bottom row, enlarged. Prompt caching shows up as Cached: cached input is billed at a steep discount, so a high Cached share is good."
     },
     {
       "id": 15,
@@ -320,7 +320,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Spend per model, stacked per minute over the selected range. The legend totals each model's cost; the stack height is total burn rate. Includes migrated history."
     },
     {
       "id": 8,
@@ -364,7 +365,8 @@
           "fields": "",
           "values": true
         }
-      }
+      },
+      "description": "Share of requests per model over the selected range (usage_log counts, top 20). Includes migrated history."
     },
     {
       "id": 46,

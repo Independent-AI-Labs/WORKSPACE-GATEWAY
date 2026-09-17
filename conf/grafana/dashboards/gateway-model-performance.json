@@ -80,7 +80,7 @@
     {
       "id": 30,
       "title": "Prefill Speed by Model (p50 tok/s, content-TTFT)",
-      "description": "Prompt tokens / content-TTFT, mean and median (p50). Streaming rows with valid timing only; models gated to >=100 responses in range. Timing windows < 100 ms are excluded (single-chunk buffered responses produce degenerate rates).",
+      "description": "How fast a model digests your prompt: prompt tokens divided by time-to-first-visible-output, median (p50) over streams with valid timing. Includes migrated history (timing reconstructed from opencode message and part timestamps). Windows under 100 ms are discarded as degenerate.",
       "type": "bargauge",
       "datasource": {
         "uid": "clickhouse",
@@ -127,7 +127,7 @@
     {
       "id": 44,
       "title": "Decode Speed by Model (p50 tok/s, content-TTFT)",
-      "description": "Completion tokens / (duration - content-TTFT), mean and median (p50). Streaming rows with valid timing only; models gated to >=100 responses in range. Timing windows < 100 ms are excluded (single-chunk buffered responses produce degenerate rates).",
+      "description": "How fast a model writes once it has started: completion tokens divided by generation time after the first visible output, median (p50). Includes migrated history. Windows under 100 ms are discarded as degenerate.",
       "type": "bargauge",
       "datasource": {
         "uid": "clickhouse",
@@ -174,7 +174,7 @@
     {
       "id": 31,
       "title": "Cancel / Provider-Abort Rate (streams)",
-      "description": "aborted=1 client cancel, aborted=2 provider abort, over is_stream=1 rows in range.",
+      "description": "Stream outcomes over the selected range: cancels are streams you stopped (client abort), provider aborts are streams the vendor dropped. Gateway-era rows count each attempt; migrated rows count the final outcome of a generation.",
       "type": "stat",
       "datasource": {
         "uid": "clickhouse",
@@ -259,7 +259,7 @@
     {
       "id": 36,
       "title": "Wasted Tokens & Cost",
-      "description": "Wasted = tokens generated on aborted streams, absolute and as % of all completion tokens; Cost of Wasted = spend on aborted streams. Effective Cost = total spend / completed (non-aborted) responses.",
+      "description": "Tokens that bought nothing: generated on streams that got aborted, plus the full output of any generation whose tool call was rejected (guard block, your manual rejection, or a rule denial) - attributed to the generation that made the rejected call, never counted twice. Shown absolute (B/M/K), as a share of all completion tokens, and the dollars spent on them.",
       "type": "stat",
       "datasource": {
         "uid": "clickhouse",
@@ -328,13 +328,14 @@
         },
         "colorMode": "value",
         "graphMode": "none",
-        "textMode": "value_and_name"
+        "textMode": "value_and_name",
+        "orientation": "horizontal"
       }
     },
     {
       "id": 45,
       "title": "Cost & Time per Completed Response (avg)",
-      "description": "Averages over completed (non-aborted) streams, NOT p50: budget math needs mean cost and mean wall time; long tails are real spend.",
+      "description": "Averages over completed (non-aborted) responses, NOT p50: budget math needs the mean, and long tails are real spend. Mean cost per completed response, mean wall time per generation, and how many completed responses the numbers rest on.",
       "type": "stat",
       "datasource": {
         "uid": "clickhouse",
@@ -351,7 +352,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100)\nSELECT\n    concat('$', toString(floor(cpc)), '.', leftPad(toString(round((cpc - floor(cpc)) * 100)), 2, '0')) AS \"Cost per Completed Response (avg)\",\n    concat(toString(round(tpc, 1)), 's') AS \"Avg Time per Completed\",\n    multiIf(n >= 1000000000, concat(toString(round(n / 1000000000, 2)), 'B'), n >= 1000000, concat(toString(round(n / 1000000, 2)), 'M'), n >= 1000, concat(toString(round(n / 1000, 2)), 'K'), toString(n)) AS \"Completed Responses\"\nFROM (\n    SELECT\n        sumIf(cost, aborted = 0) / nullIf(countIf(aborted = 0), 0) AS cpc,\n        avgIf(duration_ms, aborted = 0 AND duration_ms > 0) / 1000 AS tpc,\n        countIf(aborted = 0) AS n\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n      AND model IN (SELECT model FROM gated)\n)\n"
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100)\nSELECT\n    concat('$', toString(floor(cpc)), '.', leftPad(toString(round((cpc - floor(cpc)) * 100)), 2, '0')) AS \"Cost per Completed Response (avg)\",\n    concat(toString(round(tpc, 1)), 's') AS \"Avg Time per Completed\",\n    multiIf(n >= 1000000000, concat(toString(floor(n / 1000000000)), '.', leftPad(toString(floor((n % 1000000000) / 10000000)), 2, '0'), 'B'), n >= 1000000, concat(toString(floor(n / 1000000)), '.', leftPad(toString(floor((n % 1000000) / 10000)), 2, '0'), 'M'), n >= 1000, concat(toString(floor(n / 1000)), '.', leftPad(toString(floor((n % 1000) / 10)), 2, '0'), 'K'), toString(n)) AS \"Completed Responses\"\nFROM (\n    SELECT\n        sumIf(cost, aborted = 0) / nullIf(countIf(aborted = 0), 0) AS cpc,\n        avgIf(duration_ms, aborted = 0 AND duration_ms > 0) / 1000 AS tpc,\n        countIf(aborted = 0) AS n\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n      AND model IN (SELECT model FROM gated)\n)\n"
         }
       ],
       "fieldConfig": {

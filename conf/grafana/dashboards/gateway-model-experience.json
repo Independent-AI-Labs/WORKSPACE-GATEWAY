@@ -78,20 +78,21 @@
         "name": "rejection_mode",
         "label": "Rejection mode",
         "type": "custom",
-        "query": "binary : binary (per message), instances : instances (weighted, no cap)",
+        "query": "per-message binary : binary, weighted instances : instances",
         "current": {
-          "text": "binary (per message)",
+          "selected": true,
+          "text": "per-message binary",
           "value": "binary"
         },
         "options": [
           {
             "selected": true,
-            "text": "binary (per message)",
+            "text": "per-message binary",
             "value": "binary"
           },
           {
             "selected": false,
-            "text": "instances (weighted, no cap)",
+            "text": "weighted instances",
             "value": "instances"
           }
         ],
@@ -132,7 +133,7 @@
     {
       "id": 40,
       "title": "Overall Score (adherence x reliability, geometric)",
-      "description": "Score-family (REQ FR-9, revised 2026-09-16): Overall = sqrt(PAI x Reliability) - geometric aggregation (HDI 2010) so no factor can buy back another. PAI (Prompt Adherence Index) = geometric mean of three goalpost-standardized user-side indices (net rejection 0-30%, session abandonment 0-100%: share of sessions containing the model that end on a different model - noisy under multi-model workflows, treat as heuristic, client cancel 0-5%); Reliability = provider-abort index (0-5%). Fixed goalposts, not observed extrema; missing factors count neutral 0.5; models need >=30 requests. Behavioral heuristic, not a quality certification. Friction and speed are reported separately (friction panels, performance dashboard) and deliberately excluded (Tan et al. 2026: speed-quality non-monotone).",
+      "description": "Overall = sqrt(Adherence x Reliability), multiplied geometrically so one good factor cannot buy back a bad one. Adherence combines three rates measured on your own follow-up messages: follow-up rejection (goalpost 50%), switching away mid-session (100%) and client cancels (5%); Reliability covers provider aborts (5%). A measured factor that hits its goalpost floors at 0.05 instead of zeroing the whole score; a factor with no data counts neutral (0.5). Local models (llamafile etc.) can be hidden with the Local models toggle. Based on >= 30 requests per model. This is a behavioral heuristic built from your reactions, not a benchmark.",
       "type": "bargauge",
       "datasource": {
         "uid": "clickhouse",
@@ -194,7 +195,7 @@
     {
       "id": 41,
       "title": "Scorecard (per-construct decomposition)",
-      "description": "Decomposition behind the Overall Score: raw user-side rates, their goalpost-standardized indices (0-1, fixed goalposts: net rejection 0-30%, switch-away 0-50%, cancels 0-5%, aborts 0-5%), PAI (Prompt Adherence) = geometric mean of the three adherence indices, Reliability, then Overall = sqrt(PAI x Reliability). Friction per 100 is shown for context but excluded from both (agent-environment construct, reported separately). Missing factors count neutral 0.5; >=30 requests required.",
+      "description": "The scorecard behind the Overall Score, one row per model. Each rate column shows the measured rate and its 0-1 index in one cell (e.g. 26.68% / 0.47): rejection 50% goalpost, switch-away 100%, cancels 5%, aborts 5%. PAI = adherence indices combined geometrically; Overall = sqrt(PAI x Reliability). Friction per 100 is context only and never enters the score. Models with fewer than 30 requests are hidden; use the Local models toggle to hide local (non-vendor) models.",
       "type": "table",
       "datasource": {
         "uid": "clickhouse",
@@ -246,7 +247,7 @@
     {
       "id": 32,
       "title": "User Rejection Rate (% of follow-up messages)",
-      "description": "binary mode: % of follow-up user messages containing >=1 rejection signal (profanity, frustration phrase or strong negative sentiment) - the number shown is a percentage. instances mode: weighted signal instances per follow-up message (value is per-message, ignore %). Toggle via the rejection_mode variable.",
+      "description": "Share of your follow-up messages that contained at least one rejection signal: profanity, a known frustration phrase, or strongly negative wording. Binary mode counts any such message once; weighted mode counts valence-weighted signal instances per follow-up (that number has no % sign). Current reading is fleet-wide over the selected time range and models.",
       "type": "stat",
       "datasource": {
         "uid": "clickhouse",
@@ -299,13 +300,13 @@
         },
         "colorMode": "value",
         "graphMode": "area",
-        "textMode": "auto"
+        "textMode": "value_and_name"
       }
     },
     {
       "id": 37,
       "title": "Session Depth by Model (avg messages/session)",
-      "description": "Average turns per session from request_log; deeper continuation is an acceptance proxy. Timing windows < 100 ms are excluded (single-chunk buffered responses produce degenerate rates).",
+      "description": "Average conversation turns per session, per model. Deeper sessions usually mean you kept working with the model instead of giving up on it, so this is a soft acceptance proxy. Migrated history is included (one row per assistant generation).",
       "type": "bargauge",
       "datasource": {
         "uid": "clickhouse",
@@ -351,7 +352,7 @@
     {
       "id": 34,
       "title": "Top User Rejection Strings (censored)",
-      "description": "Strings that triggered rejection-language detection across all messages in range; every occurrence counts. Profanity terms are censored (first/last character kept); frustration phrases shown verbatim.",
+      "description": "The exact words that fired rejection detection, ranked by how often they occurred. Profanity is censored to first/last letter; frustration phrases are shown as written. Every occurrence counts, so one ranting session can dominate a term.",
       "type": "table",
       "datasource": {
         "uid": "clickhouse",
@@ -382,7 +383,7 @@
     {
       "id": 42,
       "title": "Friction Rate (per 100 requests, stacked)",
-      "description": "Tool-action friction visible in stored conversation bodies: guard blocks (WORKSPACE-GUARD BLOCKED markers), user rejections and rule denials (opencode permission markers). Denominator: all request_signals rows of the selected models per hourly bucket (buckets with <5 rows suppressed). Counts are a LOWER BOUND: a user rejection can end the agent turn with no follow-up request, and quoting guard output can overcount slightly. Per-model detail in the scorecard.",
+      "description": "How often tool actions hit friction, per 100 requests: guard-blocked commands, tool calls you rejected by hand, and calls denied by your own rules. Stacked by class so you can see which kind dominates. Buckets with under 5 requests are hidden. These counts are a lower bound: a rejection can end a turn without producing another logged request.",
       "type": "timeseries",
       "datasource": {
         "uid": "clickhouse",
@@ -445,7 +446,7 @@
     {
       "id": 43,
       "title": "Top Guard Rules (ranked by blocked occurrences)",
-      "description": "WORKSPACE-GUARD shell-guard rule ids extracted from BLOCKED markers in stored conversation bodies (rule id = last parenthetical before the ISO timestamp). Every blocked occurrence counts; models gated to >=100 responses.",
+      "description": "Which shell-guard rules fire most often, extracted from BLOCKED markers in stored conversations. If a rule you actually need keeps appearing here, consider narrowing it. Models with under 100 responses are excluded.",
       "type": "table",
       "datasource": {
         "uid": "clickhouse",

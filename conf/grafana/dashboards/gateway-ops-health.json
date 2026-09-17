@@ -131,7 +131,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "description": "Every logged request in the selected range, gateway traffic plus migrated history."
     },
     {
       "id": 4,
@@ -189,7 +190,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "description": "Share of requests that returned 4xx or 5xx. 401/429 auth and rate-limit rejections are included; pick a single api key to see its own rate."
     },
     {
       "id": 2,
@@ -244,7 +246,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "description": "Live nginx connection count right now (Prometheus)."
     },
     {
       "id": 5,
@@ -289,7 +292,8 @@
           "mode": "single",
           "sort": "none"
         }
-      }
+      },
+      "description": "Requests per second through the gateway, 5-minute rolling rate."
     },
     {
       "id": 7,
@@ -440,7 +444,8 @@
             "percent"
           ]
         }
-      }
+      },
+      "description": "Response status codes over the range. A healthy gateway is dominated by 200s; 499s mean the client hung up mid-stream."
     },
     {
       "id": 13,
@@ -531,7 +536,8 @@
           "mode": "multi",
           "sort": "none"
         }
-      }
+      },
+      "description": "Stream aborts split by who cut the connection: client-side cancels (you stopped it) vs provider-side aborts (vendor dropped it). Gateway rows count each attempt."
     },
     {
       "id": 14,
@@ -642,7 +648,8 @@
           "mode": "multi",
           "sort": "none"
         }
-      }
+      },
+      "description": "Absolute stream outcomes over the range: completed, cancelled by the client, aborted by the provider. The three stack to total streams."
     },
     {
       "id": 9,
@@ -743,7 +750,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Gateway latency percentiles (p50/p95/p99) from Prometheus histograms, in milliseconds."
     },
     {
       "id": 10,
@@ -788,7 +796,8 @@
           "fields": "",
           "values": true
         }
-      }
+      },
+      "description": "Average wall time per response, per model. Includes migrated history, where a response's time is the full agent generation (first byte to completion), so gateway-era and migrated rows agree in meaning."
     },
     {
       "id": 11,
@@ -869,7 +878,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Bytes in and out through the gateway per second, 5-minute rolling rate."
     },
     {
       "id": 12,
@@ -952,7 +962,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Lua shared-dict memory pressure (key cache, redact state). Sustained near-100% means the dict is too small for the working set."
     }
   ],
   "annotations": {

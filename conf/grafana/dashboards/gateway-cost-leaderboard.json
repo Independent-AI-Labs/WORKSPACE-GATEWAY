@@ -308,7 +308,7 @@
         },
         "maxPerRow": 4
       },
-      "description": "Top tiles by spend in range. Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
+      "description": "Ranks 4-10 by spend in range (the podium above shows the top 3). Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
     },
     {
       "id": 23,
@@ -386,7 +386,7 @@
         },
         "maxPerRow": 4
       },
-      "description": "Top tiles by spend in range. Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
+      "description": "Ranks 4-10 by spend in range (the podium above shows the top 3). Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
     }
   ],
   "annotations": {
