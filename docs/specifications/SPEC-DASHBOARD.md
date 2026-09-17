@@ -86,7 +86,9 @@ One logic per quantity type, identical in every panel (operator ruling
 - **Precision**: measured rates, costs, speeds and scores display 2 decimals
   (display `decimals: 2` + SQL `round(x, 2)`); raw counts stay integers.
 - **Stat panels with string fields** must use `textMode: value_and_name`
-  (string fields do not render under `textMode: auto` reduce), and
+  (string fields do not render under `textMode: auto` reduce) and
+  `reduceOptions.fields: "/./"` (an empty field filter restricts the
+  reducer to numeric fields and renders "No data" for string values);
   `reduceOptions.fields` regexes must match post-override display names -
   prefer `/./` when overrides rename fields.
 

@@ -93,6 +93,10 @@ assert_eq "$LABEL: rejection_mode query has exactly one separator comma (2 optio
 # value_and_name (REQ-DASHBOARD FR-7.4), auto shows No data
 P32_TEXTMODE=$(jq -r '[.panels[]|select(.id==32)][0].options.textMode // "missing"' "$F")
 assert_eq "$LABEL: p32 textMode renders string values" "value_and_name" "$P32_TEXTMODE"
+# empty fields filter drops string fields from the reducer (No data);
+# /./ matches the string field and renders it
+P32_FIELDS=$(jq -r '[.panels[]|select(.id==32)][0].options.reduceOptions.fields // "missing"' "$F")
+assert_eq "$LABEL: p32 reduce fields regex includes string field" "/./" "$P32_FIELDS"
 
 # Top rejection strings (FR-10.3): one merged table, censored, readable headers
 P34_SQL=$(jq -r '[.panels[]|select(.id==34)][0].targets[0].rawSql' "$F")
