@@ -174,6 +174,21 @@ check_dashboard_basics() {
     local ch_table_bad
     ch_table_bad=$(jq -r '[.panels[]|select(.datasource.uid=="clickhouse" and (.type=="bargauge" or .type=="stat"))|.targets[]|select(.format!="table")]|length' "$f")
     assert_eq "$label S16: ClickHouse bargauge/stat panels use format table" "0" "$ch_table_bad"
+
+    # S18: value formatting conventions on tile SQL (all dashboards):
+    #  (a) currency must use the rollover-safe integer-cents pattern
+    #      (round(x*100), floor(c/100), c%100); the fractional form
+    #      round((x - floor(x)) * 100) yields 100 cents on x like 1893.995
+    #      and renders "$1893.100".
+    #  (b) compact B/M/K must round, never floor-truncate: floor((v % d)/...)
+    #      drops up to a display unit (106059 -> 106.05K).
+    local money_sql bad_cents_rc bad_cents bad_trunc
+    money_sql=$(jq -r --arg n "concat('\$'" '[.panels[].targets[].rawSql // empty | select(contains($n))] | join("\n")' "$f")
+    bad_cents=$(printf '%s\n' "$money_sql" | grep -c ' - floor(' ) || bad_cents_rc=$?
+    bad_cents=${bad_cents:-0}
+    assert_eq "$label S18: currency uses rollover-safe integer cents (no x - floor(x) fraction)" "0" "$bad_cents"
+    bad_trunc=$(jq -r '[.panels[].targets[].rawSql // empty | select(test("floor\\(\\(?[a-zA-Z_]+ % |floor\\([a-zA-Z_ ]+\\) / 1[0-9]+\\)"))] | length' "$f")
+    assert_eq "$label S18: compact B/M/K rounds (no floor-truncated decimals)" "0" "$bad_trunc"
 }
 
 # Cross-dashboard invariant: the shared variables (api_key + model) are

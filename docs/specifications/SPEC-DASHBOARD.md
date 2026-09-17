@@ -53,13 +53,36 @@ to normalize across rows that use either column.
 
 ### 2.4 Value formatting standards (all dashboards)
 
-- **Currency on stat tiles** = SQL-formatted exact strings `"$x.yy"`
-  (floor + left-padded cents; ClickHouse decimal `toString` strips trailing
-  zeros). Never SI-abbreviated on tiles (`$2.88K` is forbidden); the p15
-  timeseries axis may keep `currencyUSD` since axis abbreviation is standard.
-- **Token volumes on tiles** = SQL-formatted compact uppercase `B`/`M`/`K`
-  strings with 2 decimals (`5.76B`), no unit word: Grafana's `short` unit
-  renders "Bil"/"Mil" and is forbidden on tiles.
+One logic per quantity type, identical in every panel (operator ruling
+2026-09-17; enforced by dashboard_assert S18):
+
+- **Currency on stat tiles** = SQL-formatted exact `"$x.yy"` strings via
+  rollover-safe integer cents, never a fractional-cents extraction:
+
+  ```sql
+  concat('$', toString(floor(round(x * 100) / 100)), '.',
+         leftPad(toString(round(x * 100) % 100), 2, '0'))
+  ```
+
+  `round((x - floor(x)) * 100)` is FORBIDDEN: on x like 1893.995 the
+  fraction rounds to 100 cents and renders `$1893.100`. Never
+  SI-abbreviated on tiles (`$2.88K` is forbidden); the p15 timeseries
+  axis may keep `currencyUSD` since axis abbreviation is standard.
+- **Token volumes / large counts on tiles** = SQL-formatted compact
+  uppercase `B`/`M`/`K`, rounded (never floored):
+
+  ```sql
+  multiIf(v >= 1000000000, concat(toString(round(v / 1000000000, 2)), 'B'),
+          v >= 1000000,    concat(toString(round(v / 1000000, 2)), 'M'),
+          v >= 1000,       concat(toString(round(v / 1000, 2)), 'K'),
+          toString(v))
+  ```
+
+  Trailing zeros may drop (`106000` renders `106K`, `105920` renders
+  `105.92K`; ClickHouse `toString` behavior, accepted 2026-09-17).
+  Floor-truncated decimals are FORBIDDEN (`floor((v % 1000) / 10)` turns
+  `106059` into `106.05K`; rounding gives `106.06K`). No unit word:
+  Grafana's `short` unit renders "Bil"/"Mil" and is forbidden on tiles.
 - **Precision**: measured rates, costs, speeds and scores display 2 decimals
   (display `decimals: 2` + SQL `round(x, 2)`); raw counts stay integers.
 - **Stat panels with string fields** must use `textMode: value_and_name`

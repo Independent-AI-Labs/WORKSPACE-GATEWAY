@@ -196,13 +196,13 @@ assert_eq "Total panels across 5 dashboards" "31" "$TOTAL_PANELS"
 CURRENCY_OK=0
 CURRENCY_EXPECT=5
 CU_P3=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$COST_USAGE_FILE")
-printf '%s' "$CU_P3" | grep -qF "concat('$'" && printf '%s' "$CU_P3" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
+printf '%s' "$CU_P3" | grep -qF "concat('$'" && printf '%s' "$CU_P3" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
 LB_SQL=$(jq -r '[.panels[]|select(.id==20 or .id==21)][0].targets[0].rawSql' "$LEADERBOARD_FILE")
-printf '%s' "$LB_SQL" | grep -qF "concat('$'" && printf '%s' "$LB_SQL" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
+printf '%s' "$LB_SQL" | grep -qF "concat('$'" && printf '%s' "$LB_SQL" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
 U_P36=$(jq -r '[.panels[]|select(.id==36)][0].targets[].rawSql' "$PERFORMANCE_FILE")
 U_P36_N=$(printf '%s' "$U_P36" | grep -oF "concat('$'" | wc -l)
 U_P45=$(jq -r '[.panels[]|select(.id==45)][0].targets[0].rawSql // ""' "$PERFORMANCE_FILE")
-[ "$U_P36_N" = "1" ] && printf '%s' "$U_P45" | grep -qF "concat('$'" && printf '%s' "$U_P36" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
+[ "$U_P36_N" = "1" ] && printf '%s' "$U_P45" | grep -qF "concat('$'" && printf '%s' "$U_P36" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
 printf '%s' "$LB_SQL" | grep -qF ", 'B')" && printf '%s' "$LB_SQL" | grep -qF ", 'M')" && printf '%s' "$LB_SQL" | grep -qF ", 'K')" && CURRENCY_OK=$((CURRENCY_OK+1))
 printf '%s' "$LB_SQL" | grep -q "formatReadableQuantity" || CURRENCY_OK=$((CURRENCY_OK+1))
 assert_eq "Money tiles exact \$x.yy strings + uppercase B/M/K abbrevs" "$CURRENCY_EXPECT" "$CURRENCY_OK"
