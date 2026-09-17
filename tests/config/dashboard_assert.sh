@@ -193,7 +193,7 @@ check_dashboard_basics() {
 
 # Cross-dashboard invariant: the shared variables (api_key + model) are
 # byte-identical across all 4 dashboards (same filter header). Dashboard-local
-# variables (e.g. gateway-usefulness rejection_mode) are excluded. Run from
+# variables (e.g. gateway-usefulness include_local) are excluded. Run from
 # any one of the dashboard test files.
 check_templating_sync() {
     local ok=1 t_ref t_f

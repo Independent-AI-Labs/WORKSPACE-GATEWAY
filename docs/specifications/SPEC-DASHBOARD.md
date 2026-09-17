@@ -95,7 +95,7 @@ One logic per quantity type, identical in every panel (operator ruling
 ## 3. Template Variables
 
 Shared variables identical across all 5 dashboards (the experience dashboard
-adds its local `rejection_mode` and `include_local` toggles):
+adds its local `include_local` toggle):
 
 | Variable | Query |
 |----------|-------|

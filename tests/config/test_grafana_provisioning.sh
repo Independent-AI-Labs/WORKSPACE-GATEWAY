@@ -169,10 +169,10 @@ EX_UID=$(jq -r '.uid' "$EXPERIENCE_FILE")
 assert_eq "Model Experience uid" "gateway-model-experience" "$EX_UID"
 
 EX_PANELS=$(jq '.panels | length' "$EXPERIENCE_FILE")
-assert_eq "Model Experience has 7 panels" "7" "$EX_PANELS"
+assert_eq "Model Experience has 6 panels" "6" "$EX_PANELS"
 
 EX_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$EXPERIENCE_FILE")
-assert_eq "Model Experience ClickHouse panels" "7" "$EX_CH"
+assert_eq "Model Experience ClickHouse panels" "6" "$EX_CH"
 
 PF_TITLE=$(jq -r '.title' "$PERFORMANCE_FILE")
 assert_eq "Model Performance title" "Gateway Model Performance" "$PF_TITLE"
@@ -189,7 +189,7 @@ assert_eq "Model Performance ClickHouse panels" "5" "$PF_CH"
 # ── Total panel count across all 5 dashboards (17 original + 14 usefulness = 31) ──
 
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
-assert_eq "Total panels across 5 dashboards" "31" "$TOTAL_PANELS"
+assert_eq "Total panels across 5 dashboards" "30" "$TOTAL_PANELS"
 
 # ── Currency consistency: money tiles render exact "$x.yy" strings (SQL-
 #    formatted, 2 decimals, never SI-abbreviated); B/M/K uppercase abbrevs ─
@@ -208,7 +208,7 @@ printf '%s' "$LB_SQL" | grep -q "formatReadableQuantity" || CURRENCY_OK=$((CURRE
 assert_eq "Money tiles exact \$x.yy strings + uppercase B/M/K abbrevs" "$CURRENCY_EXPECT" "$CURRENCY_OK"
 
 # ── Shared templating identical across all 4 dashboards (api_key + model;
-#    usefulness adds the dashboard-local rejection_mode + include_local) ──
+#    usefulness adds the dashboard-local include_local) ──
 
 T_CU=$(jq -c '[.templating.list[] | select(.name == "api_key" or .name == "model")]' "$COST_USAGE_FILE")
 for df in "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
@@ -285,9 +285,9 @@ done
 assert_eq "No \$__conditionalAll macros in any dashboard" "0" "$COND_ALL_TOTAL"
 
 # ── ClickHouse panels use \${api_key:singlequote} directly ────────────
-# Original 9 CH panels (now 3 in cost-usage + 6 in ops-health) + 2 in leaderboard
-# + 7 in usefulness (p32/p33/p34 query request_signals, which is model-scoped
-# only and has no key columns) = 19
+# 4 in cost-usage + 6 in ops-health + 4 in leaderboard + 3 in experience
+# + 5 in performance = 22 (request_signals panels are model-scoped only
+# and carry no key filter)
 
 CH_APIKEY_TOTAL=0
 for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do

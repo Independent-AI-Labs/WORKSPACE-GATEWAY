@@ -37,9 +37,7 @@ assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.u
 # Generic structural checks
 check_dashboard_basics "$F" "$LABEL"
 
-# Template variables: shared model + api_key only (no rejection_mode here)
-RM_PRESENT=$(jq '[.templating.list[]|select(.name=="rejection_mode")]|length' "$F")
-assert_eq "$LABEL: no rejection_mode variable on performance" "0" "$RM_PRESENT"
+# Template variables: shared model + api_key only
 
 # Every per-model rawSql gates on >= 100 responses and never scans req_body
 GATED_PANELS=$(jq '[.panels[] | select((([.targets[].rawSql | test("count\\(\\) >= 100")]) | all) and ((.targets | length) > 0))] | length' "$F")

@@ -75,31 +75,6 @@
         }
       },
       {
-        "name": "rejection_mode",
-        "label": "Rejection mode",
-        "type": "custom",
-        "query": "per-message binary : binary, weighted instances : instances",
-        "current": {
-          "selected": true,
-          "text": "per-message binary",
-          "value": "binary"
-        },
-        "options": [
-          {
-            "selected": true,
-            "text": "per-message binary",
-            "value": "binary"
-          },
-          {
-            "selected": false,
-            "text": "weighted instances",
-            "value": "instances"
-          }
-        ],
-        "includeAll": false,
-        "allValue": "binary"
-      },
-      {
         "name": "include_local",
         "type": "custom",
         "label": "Local models",
@@ -245,65 +220,6 @@
       }
     },
     {
-      "id": 32,
-      "title": "User Rejection Rate (% of follow-up messages)",
-      "description": "Share of your follow-up messages that contained at least one rejection signal: profanity, a known frustration phrase, or strongly negative wording. Binary mode counts any such message once; weighted mode counts valence-weighted signal instances per follow-up (that number has no % sign). Current reading is fleet-wide over the selected time range and models.",
-      "type": "stat",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 10,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "queryType": "table",
-          "refId": "A",
-          "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT if('${rejection_mode}' = 'instances', toString(round(sum(signal_weight) / nullIf(countIf(is_followup = 1), 0), 2)), concat(toString(round(100 * countIf(signal_count > 0 AND is_followup = 1) / nullIf(countIf(is_followup = 1), 0), 2)), '%')) AS rejection FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND is_followup = 1 AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated)"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#70c1b3",
-                "value": null
-              },
-              {
-                "color": "#ffe066",
-                "value": 5
-              },
-              {
-                "color": "#f25f5c",
-                "value": 15
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/./",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "area",
-        "textMode": "value_and_name"
-      }
-    },
-    {
       "id": 37,
       "title": "Session Depth by Model (avg messages/session)",
       "description": "Average conversation turns per session, per model. Deeper sessions usually mean you kept working with the model instead of giving up on it, so this is a soft acceptance proxy. Migrated history is included (one row per assistant generation).",
@@ -313,9 +229,9 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 10,
-        "w": 12,
+        "w": 24,
         "h": 8
       },
       "targets": [

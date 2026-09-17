@@ -386,8 +386,11 @@ The rejection rate is absolute, not baseline-differenced. The earlier
 31-267 rows per model, and a single operator's base style varies by era, so
 differencing clamped genuinely bad models to 0 net rejection (terra: 52.3%
 followup signals vs 54.7% on a 203-row base → net 0 while being the worst
-model in the fleet). The absolute followup rate matches p32's displayed rate
-and needs no baseline at all.
+model in the fleet). The absolute followup rate needs no baseline at all.
+(p32, the tile that displayed the followup signal rate as "User Rejection
+Rate", was removed 2026-09-17 with the rejection_mode toggle: the metric
+is lexicon coverage, not rejections; the scorecard Rejection construct
+uses explicit `user_rejections` events.)
 
 A factor with no measurable data counts neutral 0.5 (`ifNull`); a MEASURED
 factor that reaches its goalpost is floored at 0.05 instead of 0 ,  the
@@ -425,20 +428,15 @@ annotation.
 ## 7. Dashboards `conf/grafana/dashboards/gateway-model-experience.json` + `gateway-model-performance.json`
 
 Split 2026-09-16 from the former monolithic `gateway-usefulness` dashboard:
-**Model Experience** (9 panels, ids 32-34/37/38/40-43: Overall Score +
-scorecard, rejection rate/baseline/net, top rejection strings, session depth,
-model switch, friction rate, top guard rules; carries `rejection_mode` and
-`include_local`) and **Model Performance** (5 panels, ids 30/31/36/44/45 -
-prefill/decode speed p50, cancel/abort rates, wasted tokens & cost, cost +
-time per completed response). Renamed uid `gateway-model-experience` /
-`gateway-model-performance`.
+**Model Experience** (6 panels, ids 34/37/40-43: Overall Score +
+scorecard, top rejection strings, session depth, friction rate, top guard
+rules; carries `include_local`) and **Model Performance** (5 panels, ids
+30/31/36/44/45 - prefill/decode speed p50, cancel/abort rates, wasted
+tokens & cost, cost + time per completed response). Renamed uid
+`gateway-model-experience` / `gateway-model-performance`.
 
 Conventions: identical to SPEC-DASHBOARD §3 variables plus:
 
-- `rejection_mode`: custom variable, options `binary` / `instances`
-  (default `binary`, no All option: it is a calculation-mode toggle, not
-  a filter; `allValue: "binary"` kept only to satisfy the S6f quoted-
-  context guard).
 - `include_local`: custom variable, options `include : yes` /
   `exclude : no` (default `exclude`, `allValue: yes` per REQ-DASHBOARD
   FR-3.3). Both verdict panels (p40/p41) append
@@ -465,7 +463,7 @@ WITH gated AS (
 |----|-------|-----------|
 | 30 | Prefill Speed by Model (bargauge, p50) | `medianExactIf(prompt_tokens / nullIf(ttft_content_ms,0) * 1000, ttft_content_ms >= 100)` over `is_stream=1`, model IN gated; avg branch removed 2026-09-17 (p50 only), full fleet coverage via migrated timing |
 | 31 | Cancel / Provider-abort rate (stat ×2) | `100 * countIf(aborted=1) / count()` over streams; same for `aborted=2` |
-| 32 | Rejection rate stat (mode-aware) | both branches return strings (ClickHouse `if()` requires a common type): binary: `concat(toString(round(100 * countIf(signal_count > 0 AND is_followup=1) / nullIf(countIf(is_followup=1),0), 2)), '%')` (trailing `%` since 2026-09-17); instances: `toString(round(sum(signal_weight) / nullIf(countIf(is_followup=1),0), 2))`; selected via `if('${rejection_mode}' = 'instances', …, …)`; **no per-message cap** (REQ FR-5.3) |
+| 32 | (removed 2026-09-17) | Rejection-rate stat + `rejection_mode` toggle deleted by operator order: the metric was `signal_count`/`signal_weight` lexicon coverage (vader-negative + frustration + profanity hits on follow-up messages, 37.39% window rate) presented as "User Rejection Rate" while explicit `user_rejections` events measure 1.21% on the same window; explicit rejections remain in p41 (`Rej % / n`) and p42 |
 | 33 | (removed 2026-09-17) | Baseline-vs-reactive + signed-net chart deleted: the baseline-differencing interpretation it visualized was retired with the absolute-rate rejection metric (§6.1); the scorecard's `Rej % / n` column is the decomposition now |
 | 34 | Top rejection terms (table) | merged profane + frustration table, `arrayJoin(profane_terms) AS term, count()` … `ORDER BY count DESC LIMIT 15`, censored |
 | 35 | (removed 2026-09-17) | Signals-over-time panel deleted: heavy per-bucket query, dubious reader value; p33 + p42 cover the time dimension |
@@ -507,7 +505,7 @@ same MR as the dashboard JSON.
 | `tests/lua/test_sse_usage_lib.lua` | `has_content` on first content delta only; reasoning_content counts; JSON-mode ttft=duration; cancel-before-first-byte row shape |
 | `tests/config/test_clickhouse_sql.sh` | 000008 up/down idempotent; MV recreated with real ttft wiring; request_signals DDL present; 000009 friction columns; §5.2 marker expressions present in the crunch INSERT; `--rebuild` DDL extraction includes friction columns |
 | `tests/integration/test_crunch_idempotency.sh` | seed window via `seed-clickhouse-dashboard-data.sh` pattern; run cruncher twice; `SELECT * ORDER BY request_id` byte-identical; concurrent `flock` run safe |
-| `tests/config/test_dashboard_usefulness.sh` | structure via `dashboard_assert.sh`; `rejection_mode` variable exists; gate CTE `>= 100` present in every per-model rawSql; no `req_body` reference in any rawSql; score panel carries the weights CTE + verdict thresholds + <2-model NULL guard; friction panels reference the three marker columns; panels 40-43 present |
+| `tests/config/test_dashboard_experience.sh` | structure via `dashboard_assert.sh`; `rejection_mode` + p32 absent (removed 2026-09-17); gate CTE `>= 100` present in every per-model rawSql; no `req_body` reference in any rawSql; score panel carries the weights CTE + verdict thresholds + <2-model NULL guard; friction panels reference the three marker columns; panels 40-43 present |
 | `tests/integration/test_usefulness_queries.sh` | synthetic rows: denominator discipline (per-model), sparse-bucket NULL, no-cap raw sums, binary/instances equivalence on known data, signed-net math, marker-count correctness on seeded bodies containing all four marker classes |
 
 All wired into `tests/run_all.sh` stages and gated by `make check`.
@@ -541,7 +539,8 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | Tests | Implemented | tests/lua/test_usefulness_cruncher.lua; tests/integration/test_crunch_idempotency.sh; extended test_clickhouse_sql.sh, test_grafana_provisioning.sh, dashboard_assert.sh |
 | Friction telemetry (§5) | Implemented | migration 000009 + crunch INSERT expressions + panels 42-43; live backfill 2026-09-16 |
 | Usefulness Score (§6) | Implemented | panels 40-41 + weights CTE; 12 models scored live |
-| Readability refinements (REQ FR-10.2/3/4/5) + 2026-09-17 operator pass | Implemented | threshold bands (p31/p40); p50-only speed panels (p30/p44) with full fleet coverage via migrated timing; rejected-tool-call waste in p36 (lagInFrame prev-generation attribution, no double count); p45 standalone completed-response averages; scorecard %/index merged cells under short wrap-enabled headers; p32 trailing %; p35 signals-over-time, p33 baseline-vs-reactive and p38 model-switch timeseries removed (baseline differencing retired; switch cause is indiscernible); include_local toggle (p40/p41) backed by `model_registry` (`make gw-sync-model-registry`); tiered layouts: experience: 40/41 → 32/37 → 34/42/43; performance: 30/44 → 31/36/45 |
+| Readability refinements (REQ FR-10.2/3/4/5) + 2026-09-17 operator pass | Implemented | threshold bands (p31/p40); p50-only speed panels (p30/p44) with full fleet coverage via migrated timing; rejected-tool-call waste in p36 (lagInFrame prev-generation attribution, no double count); p45 standalone completed-response averages; scorecard %/index merged cells under short wrap-enabled headers; p35 signals-over-time, p33 baseline-vs-reactive and p38 model-switch timeseries removed (baseline differencing retired; switch cause is indiscernible); include_local toggle (p40/p41) backed by `model_registry` (`make gw-sync-model-registry`); tiered layouts: experience: 40/41 → 32/37 → 34/42/43; performance: 30/44 → 31/36/45 |
+| rejection_mode + p32 removal (operator order 2026-09-17) | Implemented | the mode toggle and its only consumer panel deleted from `gateway-model-experience.json` (layout: 40/41 → 37 full-width → 34/42/43): the metric was lexicon coverage (37.39% window rate) presented as "User Rejection Rate" while explicit `user_rejections` events measure 1.21% on the same window; REQ FR-5.1 struck, tests updated |
 
 ## 11. References (research grounding, 2026-09-16)
 
