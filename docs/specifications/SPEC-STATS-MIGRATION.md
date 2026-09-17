@@ -104,6 +104,8 @@ driving this design:
 | `cost` | `json_extract(data,'$.cost')` when > 0, else models.dev-priced per §4.1 | USD |
 | `cost_source` | `'upstream'` if source cost > 0, `'computed'` if priced via §4.1, else `'unknown'` | mirrors `resolve_cost` semantics |
 | `provider_id` | `json_extract(data,'$.providerID')` | |
+| `duration_ms` | `time.completed − time_created` when within `[0, 1h)`, else `0` | per-generation wall time; mirrors gateway sse-usage `duration_ms` |
+| `ttft_content_ms` | `min(part.time_created WHERE part.type != 'reasoning') − time_created`, clamped `[0, 1h)`, else `0` | first visible (text/tool) output; mirrors gateway `ttft_content_ms` |
 | `pricing_source`, `pricing_snapshot` | `''` | no pricing catalog at migration time |
 | `timestamp` | `datetime(time_created/1000, 'unixepoch')` → ms precision | `time_created` is ms epoch |
 
@@ -127,6 +129,7 @@ driving this design:
 | `request_id` | `message.id` | join key |
 | `request_size` | session content bytes of `text`/`reasoning` parts (all roles) with `part.time_created < message.time_created`, excluding replay-duplicate messages that lost the §5.1 dedup | pseudo-size from real chunks: the context sent upstream |
 | `response_size` | byte length of the message's own `text`/`reasoning` part texts | pseudo-size from real chunks |
+| `upstream_response_time_s` | `duration_ms / 1000` (3 decimals) | lights SPEC-DASHBOARD p10 (avg response time) for migrated models |
 | `client_type` | `'migrated'` | marker so ops dashboards can filter backfilled rows |
 | `req_body` | synthesized `{"model": <canonical>, "messages": [...]}`: one empty-content `assistant` message per prior assistant turn in the session (capped at 200; gives the cruncher followup detection), the last user `text` part before the request (single-line, capped 64 KiB; gives profanity/frustration classification), and one `assistant` message per prior part carrying a guard-block or permission-rejection marker string (total capped 128 KiB; gives the cruncher's marker counts) | the usefulness cruncher reads only roles, the last user content, and marker substrings, so this minimal body reproduces its full signal surface without storing whole conversations |
 | `upstream_response_time_s`, `client_ip` | `0` / `0.0.0.0` | synthetic defaults (no source) |

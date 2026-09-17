@@ -68,9 +68,9 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-1.1 | The system SHALL provide exactly 5 dashboards: `gateway-cost-usage` (3 CH panels: ids 3, 15, 8), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), `gateway-cost-leaderboard` (2 CH stat panels: ids 20, 21), `gateway-model-experience` (10 CH panels: ids 32-35, 37, 38, 40-43; satisfaction signals, Usefulness Score + scorecard, friction: behavioral requirements owned by REQ-USEFULNESS-TELEMETRY), and `gateway-model-performance` (5 CH panels: ids 30, 31, 36, 39, 44; speed, cancel/abort, waste: owned by REQ-USEFULNESS-TELEMETRY). |
+| FR-1.1 | The system SHALL provide exactly 5 dashboards: `gateway-cost-usage` (4 CH panels: ids 3, 15, 8, 46), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), `gateway-cost-leaderboard` (4 CH stat panels: ids 20, 21 podium + 22, 23 runner-ups), `gateway-model-experience` (9 CH panels: ids 32-34, 37, 38, 40-43; satisfaction signals, Usefulness Score + scorecard, friction: behavioral requirements owned by REQ-USEFULNESS-TELEMETRY), and `gateway-model-performance` (5 CH panels: ids 30, 31, 36, 44, 45; speed, cancel/abort, waste: owned by REQ-USEFULNESS-TELEMETRY). |
 | FR-1.2 | All 5 dashboards MUST open with time range `now-90d` to `now` and a 5-second refresh. |
-| FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 20=stat, 21=stat; usefulness panels per its own REQ. |
+| FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 46=piechart, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 20=stat, 21=stat, 22=stat, 23=stat; usefulness panels per its own REQ. |
 
 ### FR-2: Datasources
 
@@ -86,14 +86,14 @@ performance acceptable, (5) is the gateway itself healthy.
 |----|-------------|
 | FR-3.1 | Every dashboard MUST define an `api_key` template variable from ClickHouse using `coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown')` over `llm_gateway.request_log`. |
 | FR-3.2 | Every dashboard MUST define a `model` template variable unioning `model` from both `request_log` and `usage_log`. |
-| FR-3.3 | No template variable SHALL set `allValue`; Grafana's native multi-value expansion is used. |
+| FR-3.3 | ClickHouse query variables (`api_key`, `model`) SHALL NOT set `allValue`; Grafana's native multi-value expansion is used. Constant two-state toggles consumed inside single-quoted SQL predicates (e.g. `include_local`) MUST set an explicit `allValue` so `$__all` never produces invalid SQL (dashboard_assert S6f). |
 | FR-3.4 | Every filtered ClickHouse query MUST filter on `${api_key:singlequote}` and (where model-scoped) `${model:singlequote}`. |
 
 ### FR-4: Panel Behavioral Requirements
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens as compact uppercase `B`/`M`/`K` strings plus a Total Cost column as an exact `"$x.yy"` currency string (never SI-abbreviated), single query/frame, with 6 unique column aliases and 6 unique byName overrides. |
+| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens as compact uppercase `B`/`M`/`K` strings plus a Total Cost column as an exact `"$x.yy"` currency string (never SI-abbreviated), single query/frame, with 6 unique column aliases and 6 unique byName overrides. The panel stacks vertically with Total Tokens and Total Cost ordered last (pinned to the bottom) and enlarged via per-field `textSize` overrides. |
 | FR-4.2 | p15 (Cost Over Time by Model) MUST be a stacked-area timeseries of per-model cost per minute with a sum legend table. |
 | FR-4.3 | p1 (Total Requests) MUST count `request_log` rows within the time filter, with thresholds teal/gold at 1000/bronze at 10000. |
 | FR-4.4 | p4 (Error Rate) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |
@@ -107,7 +107,8 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-4.12 | p11 (Bandwidth) MUST use `sum(rate(apisix_bandwidth{...,type="ingress|egress"}[5m]))` (not bare `rate()`), one series per direction. |
 | FR-4.13 | p8 (Model Distribution) MUST be a bargauge of request counts per model from `usage_log`, LIMIT 20. |
 | FR-4.14 | p12 (Shared Dict Memory) MUST plot `(1 - free/capacity) * 100` for the `key_cache` and `redact_state` dicts with exact `name="..."` matches, clamped to [0, 100], stepAfter interpolation. |
-| FR-4.15 | p20/p21 (Leaderboards) MUST each render 10 ranked tiles (top clients / top models by cost) with medal colors for ranks 1-3 and white for ranks 4-10; the tile value MUST be an exact `"$x.yy"` currency string and the tile name MUST carry rank, entity, and compact uppercase B/M/K token volume (`"1. kimi-k3 - 2.41B"`). |
+| FR-4.15 | p20/p21 (Leaderboards) MUST render the top 3 as a podium panel (enlarged fixed `textSize`, medal colors gold/silver/bronze) and ranks 4-10 as a separate runner-up panel (smaller fixed `textSize`, white tiles) - p22/p23 use `LIMIT 7 OFFSET 3` over the same ranked CTE. The tile value MUST be an exact `"$x.yy"` currency string and the tile name MUST carry rank, entity, and compact uppercase B/M/K token volume (`"1. kimi-k3 - 2.41B"`). |
+| FR-4.16 | p46 (Cost by Provider) MUST be a piechart of `sum(cost)` grouped by `usage_log.provider_id` over the time range with api_key + model filters, showing vendor/credential concentration of spend. |
 
 ### FR-5: Cross-Query Consistency
 
@@ -178,7 +179,7 @@ restart-persistent metrics, Prometheus for instantaneous rates/percentiles.)
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| FR-1.1 5 dashboards / 31 panels | Implemented | conf/grafana/dashboards/*.json (3+11+2+10+5 panels; experience: score/scorecard/rejection/friction, performance: prefill/decode speeds split p30/p44 + reliability + waste) |
+| FR-1.1 5 dashboards / 32 panels | Implemented | conf/grafana/dashboards/*.json (4+11+4+9+5 panels; experience: score/scorecard/rejection/friction, performance: prefill/decode speeds split p30/p44 + reliability + waste + completed-response averages) |
 | FR-1.2 time range & refresh | Implemented | each dashboard: `now-90d`→`now`, `5s` |
 | FR-2.x datasource split | Implemented | 11 CH + 5 Prom targets across dashboards |
 | FR-3.x template variables | Implemented | `api_key` + `model` in all 5 dashboards |

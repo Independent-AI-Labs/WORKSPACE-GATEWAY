@@ -28,8 +28,8 @@ assert_eq "$LABEL: title is Gateway Cost Leaderboard" "Gateway Cost Leaderboard"
 assert_eq "$LABEL: uid is gateway-cost-leaderboard" "gateway-cost-leaderboard" "$(jq -r '.uid' "$F")"
 
 # Panel count and datasource split (2 panels, ClickHouse)
-assert_eq "$LABEL: panel count is 2" "2" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: ClickHouse panels" "2" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
+assert_eq "$LABEL: panel count is 4" "4" "$(jq '.panels|length' "$F")"
+assert_eq "$LABEL: ClickHouse panels" "4" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
 # Generic structural checks
@@ -37,7 +37,7 @@ check_dashboard_basics "$F" "$LABEL"
 
 # p20: stat panel (like p3 Token Usage by Category), title, full-width grid
 P20_TITLE=$(jq -r '[.panels[]|select(.id==20)][0].title' "$F")
-assert_eq "$LABEL: p20 title is Top Clients by Cost & Tokens" "Top Clients by Cost & Tokens" "$P20_TITLE"
+assert_eq "$LABEL: p20 title is Top Clients by Cost & Tokens (Top 3)" "Top Clients by Cost & Tokens (Top 3)" "$P20_TITLE"
 P20_TYPE=$(jq -r '[.panels[]|select(.id==20)][0].type' "$F")
 assert_eq "$LABEL: p20 is stat panel (like p3)" "stat" "$P20_TYPE"
 P20_GRID_W=$(jq -r '[.panels[]|select(.id==20)][0].gridPos.w' "$F")
@@ -109,7 +109,7 @@ echo "$P20_SQL" | grep -q "coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'u
 # p20: value is native currency; token volume formatted readably in the name
 echo "$P20_SQL" | grep -qF ", 'B')" && echo "$P20_SQL" | grep -qF ", 'M')" && echo "$P20_SQL" | grep -qF ", 'K')" && { echo "[PASS] $LABEL: p20 formats token volume as compact B/M/K"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing B/M/K token formatting"; fail=$((fail+1)); }
 echo "$P20_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p20 cost renders exact dollars"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing dollar formatting"; fail=$((fail+1)); }
-echo "$P20_SQL" | grep -q 'LIMIT 10' && { echo "[PASS] $LABEL: p20 shows top 10"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing LIMIT 10"; fail=$((fail+1)); }
+echo "$P20_SQL" | grep -q "LIMIT 3$" && { echo "[PASS] $LABEL: p20 shows top 3"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing LIMIT 3"; fail=$((fail+1)); }
 
 # p20: value_str alias includes the cost in parens ($...)
 echo "$P20_SQL" | grep -q "AS name_str" && { echo "[PASS] $LABEL: p20 aliases name_str"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p20 missing name_str alias"; fail=$((fail+1)); }
@@ -122,7 +122,7 @@ assert_eq "$LABEL: p20 reduceOptions.fields matches all rows" "/./" "$P20_REDUCE
 
 # p21: stat panel (like p20), title, full-width grid below p20
 P21_TITLE=$(jq -r '[.panels[]|select(.id==21)][0].title' "$F")
-assert_eq "$LABEL: p21 title is Top Models by Cost & Tokens" "Top Models by Cost & Tokens" "$P21_TITLE"
+assert_eq "$LABEL: p21 title is Top Models by Cost & Tokens (Top 3)" "Top Models by Cost & Tokens (Top 3)" "$P21_TITLE"
 P21_TYPE=$(jq -r '[.panels[]|select(.id==21)][0].type' "$F")
 assert_eq "$LABEL: p21 is stat panel (like p20)" "stat" "$P21_TYPE"
 P21_GRID_W=$(jq -r '[.panels[]|select(.id==21)][0].gridPos.w' "$F")
@@ -181,7 +181,7 @@ echo "$P21_SQL" | grep -q '\${model:singlequote}' && { echo "[PASS] $LABEL: p21 
 
 echo "$P21_SQL" | grep -qF ", 'B')" && echo "$P21_SQL" | grep -qF ", 'M')" && echo "$P21_SQL" | grep -qF ", 'K')" && { echo "[PASS] $LABEL: p21 formats token volume as compact B/M/K"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing B/M/K token formatting"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p21 cost renders exact dollars"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing dollar formatting"; fail=$((fail+1)); }
-echo "$P21_SQL" | grep -q 'LIMIT 10' && { echo "[PASS] $LABEL: p21 shows top 10"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing LIMIT 10"; fail=$((fail+1)); }
+echo "$P21_SQL" | grep -q "LIMIT 3$" && { echo "[PASS] $LABEL: p21 shows top 3"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing LIMIT 3"; fail=$((fail+1)); }
 
 echo "$P21_SQL" | grep -q "AS name_str" && { echo "[PASS] $LABEL: p21 aliases name_str"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing name_str alias"; fail=$((fail+1)); }
 echo "$P21_SQL" | grep -q "AS value_str" && { echo "[PASS] $LABEL: p21 aliases value_str"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p21 missing value_str alias"; fail=$((fail+1)); }
@@ -189,6 +189,26 @@ echo "$P21_SQL" | grep -q "AS Color" && { echo "[PASS] $LABEL: p21 aliases Color
 
 P21_REDUCE_FIELDS=$(jq -r '[.panels[]|select(.id==21)][0].options.reduceOptions.fields' "$F")
 assert_eq "$LABEL: p21 reduceOptions.fields matches all rows" "/./" "$P21_REDUCE_FIELDS"
+
+# p22/p23: runner-up panels (ranks 4-10), smaller text than the podium
+P22_TYPE=$(jq -r '[.panels[]|select(.id==22)][0].type // "missing"' "$F")
+assert_eq "$LABEL: p22 is stat panel" "stat" "$P22_TYPE"
+P22_TITLE=$(jq -r '[.panels[]|select(.id==22)][0].title // "missing"' "$F")
+assert_eq "$LABEL: p22 title marks runner-ups" "Top Clients by Cost & Tokens (4-10)" "$P22_TITLE"
+P22_SQL=$(jq -r '[.panels[]|select(.id==22)][0].targets[0].rawSql // ""' "$F")
+echo "$P22_SQL" | grep -q 'LIMIT 7 OFFSET 3' && { echo "[PASS] $LABEL: p22 shows ranks 4-10"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p22 missing LIMIT 7 OFFSET 3"; fail=$((fail+1)); }
+P23_TYPE=$(jq -r '[.panels[]|select(.id==23)][0].type // "missing"' "$F")
+assert_eq "$LABEL: p23 is stat panel" "stat" "$P23_TYPE"
+P23_TITLE=$(jq -r '[.panels[]|select(.id==23)][0].title // "missing"' "$F")
+assert_eq "$LABEL: p23 title marks runner-ups" "Top Models by Cost & Tokens (4-10)" "$P23_TITLE"
+P23_SQL=$(jq -r '[.panels[]|select(.id==23)][0].targets[0].rawSql // ""' "$F")
+echo "$P23_SQL" | grep -q 'LIMIT 7 OFFSET 3' && { echo "[PASS] $LABEL: p23 shows ranks 4-10"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p23 missing LIMIT 7 OFFSET 3"; fail=$((fail+1)); }
+
+# Podium text is larger than runner-up text
+P20_VALUE=$(jq -r '[.panels[]|select(.id==20)][0].options.textSize.value.fixed // 0' "$F")
+P22_VALUE=$(jq -r '[.panels[]|select(.id==22)][0].options.textSize.value.fixed // 0' "$F")
+BIG_TEST=$(if [ "$P20_VALUE" -gt "$P22_VALUE" ]; then printf 'bigger'; else printf 'not bigger'; fi)
+assert_eq "$LABEL: podium value text larger than runner-ups" "bigger" "$BIG_TEST"
 
 # Cross-dashboard invariant: templating identical across all 3
 check_templating_sync

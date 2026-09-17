@@ -15,9 +15,9 @@
 **Cross-references:**
 - [REQ-DASHBOARD](../requirements/REQ-DASHBOARD.md): requirements
 - [architecture/OPEN-ISSUES.md](../architecture/OPEN-ISSUES.md): known issues audit
-- [`conf/grafana/dashboards/gateway-cost-usage.json`](../../conf/grafana/dashboards/gateway-cost-usage.json): uid `gateway-cost-usage` (panels 3, 15, 8)
+- [`conf/grafana/dashboards/gateway-cost-usage.json`](../../conf/grafana/dashboards/gateway-cost-usage.json): uid `gateway-cost-usage` (panels 3, 15, 8, 46)
 - [`conf/grafana/dashboards/gateway-ops-health.json`](../../conf/grafana/dashboards/gateway-ops-health.json): uid `gateway-ops-health` (panels 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12)
-- [`conf/grafana/dashboards/gateway-cost-leaderboard.json`](../../conf/grafana/dashboards/gateway-cost-leaderboard.json): uid `gateway-cost-leaderboard` (panels 20, 21)
+- [`conf/grafana/dashboards/gateway-cost-leaderboard.json`](../../conf/grafana/dashboards/gateway-cost-leaderboard.json): uid `gateway-cost-leaderboard` (panels 20-23)
 
 ---
 
@@ -25,9 +25,9 @@
 
 | Dashboard | UID | Panels | Datasources |
 |-----------|-----|--------|-------------|
-| Gateway Cost & Usage | `gateway-cost-usage` | 3 (stat), 15 (timeseries), 8 (bargauge) | 3 CH |
+| Gateway Cost & Usage | `gateway-cost-usage` | 3 (stat), 15 (timeseries), 8 (bargauge), 46 (piechart) | 4 CH |
 | Gateway Operations & Health | `gateway-ops-health` | 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12 | 6 CH + 5 Prom |
-| Gateway Cost Leaderboard | `gateway-cost-leaderboard` | 20, 21 (stat, 10 ranked tiles each) | 2 CH |
+| Gateway Cost Leaderboard | `gateway-cost-leaderboard` | 20, 21 (podium stat, top 3, enlarged) + 22, 23 (runner-up stat, 4-10) | 4 CH |
 
 All dashboards: time `now-90d`→`now`, refresh `5s`.
 
@@ -70,7 +70,7 @@ to normalize across rows that use either column.
 ## 3. Template Variables
 
 Shared variables identical across all 5 dashboards (the experience dashboard
-adds only its local `rejection_mode`):
+adds its local `rejection_mode` and `include_local` toggles):
 
 | Variable | Query |
 |----------|-------|
@@ -127,6 +127,26 @@ GROUP BY model ORDER BY requests DESC LIMIT 20
 
 Note: this panel queries `usage_log` directly (no ASOF join); `usage_log.model`
 is authoritative. Horizontal gradient bars, `palette-classic`, `showUnfilled`.
+
+Layout (2026-09-17): p3 is a vertical stat stack (w:12 h:12) with Total
+Tokens and Total Cost ordered last so they sit pinned at the bottom, each
+carrying a per-field `textSize` override (title 14 / value 30) to emphasize
+the two headline numbers; p15 moved to x:12 w:12 h:12, p8 to y:12 w:24 h:8.
+
+### Panel 46: Cost by Provider (piechart, CH, grid x:0 y:20 w:24 h:8)
+
+```sql
+SELECT coalesce(nullIf(provider_id,''),'unknown') AS "provider",
+       round(sum(cost), 2) AS "usd"
+FROM llm_gateway.usage_log
+WHERE $__timeFilter(timestamp)
+  AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})
+  AND model IN (${model:singlequote})
+GROUP BY "provider" ORDER BY "usd" DESC
+```
+
+Spend split by provider/credential: vendor concentration at a glance.
+Table legend (value + percent) on the right, labels name/percent/value.
 
 ## 5. Gateway Operations & Health
 
@@ -208,10 +228,12 @@ and identically for `name="redact_state"`. Exact label matches, min 0 / max
 
 ## 6. Gateway Cost Leaderboard
 
-Both panels are stat panels rendering 10 ranked tiles; rank and medal color
-are computed in SQL via `row_number() OVER ()`.
+Four stat panels in two tiers (2026-09-17): podium (top 3, enlarged fixed
+`textSize`: title 22 / value 44, `maxPerRow: 3`) and runner-ups (ranks 4-10,
+title 16 / value 22). Rank and medal color are computed in SQL via
+`row_number() OVER ()`.
 
-### Panel 20: Top Clients by Cost & Tokens (stat, CH, grid x:0 y:0 w:24 h:16)
+### Panel 20: Top Clients by Cost & Tokens (Top 3) (stat, CH, grid x:0 y:0 w:24 h:8)
 
 `WITH ranked AS (...)` groups `usage_log` by normalized client key, orders by
 `total_cost DESC LIMIT 100`, then emits `name_str` (`"N. client - 5.76B"` -
@@ -219,14 +241,23 @@ rank, entity, compact uppercase token volume via `multiIf` thresholds
 `>= 1e9 -> 'B'`, `>= 1e6 -> 'M'`, `>= 1e3 -> 'K'`, 2 decimals, no unit word),
 `value_str` (exact currency string `"$1893.31"`: same floor/cents formula as
 p3 Total Cost), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
-`#B07A3C` rank 3, `#FFFFFF` ranks 4-10), `LIMIT 10`. The `rowsToFields`
+`#B07A3C` rank 3, `#FFFFFF` ranks 4-10), `LIMIT 3`. The `rowsToFields`
 transformation maps `name_str -> field.name`, `value_str -> field.value`,
 `Color -> color`.
 
-### Panel 21: Top Models by Cost & Tokens (stat, CH, grid x:0 y:16 w:24 h:16)
+### Panel 22: Top Clients by Cost & Tokens (4-10) (stat, CH, grid x:0 y:8 w:24 h:8)
+
+Identical CTE and shape, `LIMIT 7 OFFSET 3`: rows 4-10 render in the same
+rank/color scheme (all fall through to `#FFFFFF`).
+
+### Panel 21: Top Models by Cost & Tokens (Top 3) (stat, CH, grid x:0 y:16 w:24 h:8)
 
 Same shape as panel 20, grouped by `model` (excluding empty model), ranked by
-cost, same medal color scheme.
+cost, same medal color scheme, `LIMIT 3`.
+
+### Panel 23: Top Models by Cost & Tokens (4-10) (stat, CH, grid x:0 y:24 w:24 h:8)
+
+Same shape as panel 22 over the models CTE: `LIMIT 7 OFFSET 3`.
 
 ## 7. Edge Cases & Decisions
 
@@ -236,16 +267,17 @@ cost, same medal color scheme.
   gateway-level line; bare `rate()` would draw one line per key.
 - **p7 `reduceOptions.values: true`:** required so each status-code row becomes
   its own pie slice.
-- **Leaderboard LIMIT 100 / LIMIT 10:** inner query caps candidates, outer
-  limits rendered tiles.
+- **Leaderboard LIMIT 100 / LIMIT 3+7:** inner query caps candidates, the
+  podium/runner-up split (`LIMIT 3` and `LIMIT 7 OFFSET 3`) lets Grafana
+  render top-3 tiles enlarged without shrinking ranks 4-10.
 
 ## 8. File Map
 
 | File | Purpose | Key Changes |
 |------|---------|-------------|
-| `conf/grafana/dashboards/gateway-cost-usage.json` | Cost & Usage dashboard | panels 3, 15, 8 |
+| `conf/grafana/dashboards/gateway-cost-usage.json` | Cost & Usage dashboard | panels 3, 15, 8, 46 |
 | `conf/grafana/dashboards/gateway-ops-health.json` | Ops & Health dashboard | 11 panels, 6 CH + 5 Prom |
-| `conf/grafana/dashboards/gateway-cost-leaderboard.json` | Leaderboard | panels 20, 21, SQL-computed ranks |
+| `conf/grafana/dashboards/gateway-cost-leaderboard.json` | Leaderboard | panels 20-23, SQL-computed ranks |
 | `tests/config/test_dashboard_*.sh` | Structural dashboard tests | one per dashboard |
 | `tests/config/dashboard_assert.sh` | Shared assertion helpers | rawSql-only, refId, colors |
 | `tests/integration/test_dashboard_queries.sh` | Live query tests | consistency invariants |

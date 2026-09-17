@@ -559,6 +559,11 @@ routes:
 
   - id: relay-llamafile
     uri: /llamafile/*
+    # local infra upstream (LAN llamafile host): kept in sync with the
+    # `local: true` flag in conf/providers/workspace-gw-llamafile-no-auth.yaml
+    # (source of truth for the Grafana include_local toggle).
+    labels:
+      local: "true"
     upstream:
       type: roundrobin
       scheme: http

@@ -29,17 +29,19 @@ assert_json_valid "$LABEL: dashboard JSON is valid" "$F"
 assert_eq "$LABEL: title is Gateway Model Experience" "Gateway Model Experience" "$(jq -r '.title' "$F")"
 assert_eq "$LABEL: uid is gateway-model-experience" "gateway-model-experience" "$(jq -r '.uid' "$F")"
 
-# Panel inventory: 10 CH panels
-assert_eq "$LABEL: panel count is 10" "10" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: panel ids" "32 33 34 35 37 38 40 41 42 43" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
-assert_eq "$LABEL: ClickHouse panels" "10" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
+# Panel inventory: 9 CH panels (p35 signals-over-time removed 2026-09-17:
+# heavy per-bucket query, dubious reader value)
+assert_eq "$LABEL: panel count is 9" "9" "$(jq '.panels|length' "$F")"
+assert_eq "$LABEL: panel ids" "32 33 34 37 38 40 41 42 43" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
+assert_eq "$LABEL: ClickHouse panels" "9" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
 # Generic structural checks (title/type/datasource/gridPos/target, refId,
 # rawSql, brand palette, 90d/5s, no meta keys, formats, single-target tiles)
 check_dashboard_basics "$F" "$LABEL"
 
-# Template variables: model + api_key shared, plus dashboard-local rejection_mode
+# Template variables: model + api_key shared, plus dashboard-local
+# rejection_mode + include_local
 RM_TYPE=$(jq -r '[.templating.list[]|select(.name=="rejection_mode")]|if length==0 then "missing" else (.[0].type) end' "$F")
 assert_eq "$LABEL: rejection_mode variable exists" "custom" "$RM_TYPE"
 RM_CURRENT=$(jq -r '.templating.list[]|select(.name=="rejection_mode")|.current.value' "$F")
@@ -47,31 +49,38 @@ assert_eq "$LABEL: rejection_mode default is binary" "binary" "$RM_CURRENT"
 RM_VALUES=$(jq -r '[.templating.list[]|select(.name=="rejection_mode")|.options[].value] | sort | join(",")' "$F")
 assert_eq "$LABEL: rejection_mode offers binary + instances" "binary,instances" "$RM_VALUES"
 
+# Local-model toggle (2026-09-17): include_local custom variable, default
+# exclude, backed by llm_gateway.model_registry (synced from provider yamls)
+IL_TYPE=$(jq -r '[.templating.list[]|select(.name=="include_local")]|if length==0 then "missing" else (.[0].type) end' "$F")
+assert_eq "$LABEL: include_local variable exists" "custom" "$IL_TYPE"
+IL_CURRENT=$(jq -r '.templating.list[]|select(.name=="include_local")|.current.value' "$F")
+assert_eq "$LABEL: include_local default is exclude" "no" "$IL_CURRENT"
+IL_VALUES=$(jq -r '[.templating.list[]|select(.name=="include_local")|.options[].value] | sort | join(",")' "$F")
+assert_eq "$LABEL: include_local offers yes/no" "no,yes" "$IL_VALUES"
+IL_ALL=$(jq -r '.templating.list[]|select(.name=="include_local")|.allValue // "missing"' "$F")
+assert_eq "$LABEL: include_local has allValue (S6f quoted context)" "yes" "$IL_ALL"
+
 # Every per-model rawSql gates on >= 100 responses and never scans req_body
 ALL_SQL=$(jq -r '[.panels[].targets[].rawSql] | join("\n")' "$F")
 GATED_PANELS=$(jq '[.panels[] | select((([.targets[].rawSql | test("count\\(\\) >= 100")]) | all) and ((.targets | length) > 0))] | length' "$F")
-assert_eq "$LABEL: every panel query carries the >=100 relevance gate" "10" "$GATED_PANELS"
+assert_eq "$LABEL: every panel query carries the >=100 relevance gate" "9" "$GATED_PANELS"
 if printf '%s' "$ALL_SQL" | grep -q 'req_body'; then
     echo "[FAIL] $LABEL: rawSql references req_body (forbidden at refresh time)"; fail=$((fail+1))
 else
     echo "[PASS] $LABEL: no rawSql references req_body"; pass=$((pass+1))
 fi
 
-# Mode toggle reaches the aggregating queries (p32 stat + p35 series)
+# Mode toggle reaches the aggregating query (p32 stat)
 P32_SQL=$(jq -r '[.panels[]|select(.id==32)][0].targets[0].rawSql' "$F")
-P35_C_SQL=$(jq -r '[.panels[]|select(.id==35)][0].targets[] | select(.refId=="C") | .rawSql' "$F")
 printf '%s' "$P32_SQL" | grep -q "rejection_mode" && { echo "[PASS] $LABEL: p32 honours rejection_mode"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p32 missing rejection_mode branch"; fail=$((fail+1)); }
-printf '%s' "$P35_C_SQL" | grep -q "rejection_mode" && { echo "[PASS] $LABEL: p35 rejection series honours rejection_mode"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p35 missing rejection_mode branch"; fail=$((fail+1)); }
 printf '%s' "$P32_SQL" | grep -q "sum(signal_weight)" && { echo "[PASS] $LABEL: instances mode sums valence-factored weights"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: instances mode missing sum(signal_weight)"; fail=$((fail+1)); }
 if printf '%s' "$P32_SQL" | grep -q 'least(signal_count'; then
     echo "[FAIL] $LABEL: instances mode is capped (caps forbidden)"; fail=$((fail+1))
 else
     echo "[PASS] $LABEL: instances mode has no cap"; pass=$((pass+1))
 fi
-
-# Normalization discipline: per-bucket denominators + sparse-bucket suppression
-P35_A_SQL=$(jq -r '[.panels[]|select(.id==35)][0].targets[] | select(.refId=="A") | .rawSql' "$F")
-printf '%s' "$P35_A_SQL" | grep -q 'HAVING countIf(is_stream = 1) >= 5' && { echo "[PASS] $LABEL: p35 suppresses sparse buckets (<5)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p35 missing sparse-bucket HAVING"; fail=$((fail+1)); }
+# Binary branch renders a trailing % (value is a rate)
+printf '%s' "$P32_SQL" | grep -qF ", '%')) AS rejection" && { echo "[PASS] $LABEL: p32 binary mode appends % suffix"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p32 binary mode missing % suffix"; fail=$((fail+1)); }
 
 # Signed net (unclamped): p33 target C must subtract baseline without max(0,...)
 P33_C_SQL=$(jq -r '[.panels[]|select(.id==33)][0].targets[] | select(.refId=="C") | .rawSql' "$F")
@@ -97,7 +106,7 @@ assert_eq "$LABEL: p34 title is censored rejection strings" "Top User Rejection 
 # Readable display names (FR-10.5): p32 title states metric and unit
 assert_eq "$LABEL: p32 title states metric and unit" "User Rejection Rate (% of follow-up messages)" "$(jq -r '[.panels[]|select(.id==32)][0].title' "$F")"
 P41_READABLE=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_READABLE" | grep -qF '"Followup Rejection %"' && printf '%s' "$P41_READABLE" | grep -qF '"Switches %"' && { echo "[PASS] $LABEL: p41 columns use human-readable aliases"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 columns keep raw identifiers"; fail=$((fail+1)); }
+printf '%s' "$P41_READABLE" | grep -qF '"Rejection % / n"' && printf '%s' "$P41_READABLE" | grep -qF '"Switches % / n"' && { echo "[PASS] $LABEL: p41 columns use human-readable merged aliases"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 columns keep raw identifiers"; fail=$((fail+1)); }
 
 # Overall Score (FR-9, revised 2026-09-16): score family with fixed goalposts,
 # geometric aggregation, construct separation, >=30-request gate
@@ -114,9 +123,16 @@ printf '%s' "$P40_STEPS" | grep -q '"value":40' && printf '%s' "$P40_STEPS" | gr
 P40_DESC=$(jq -r '[.panels[]|select(.id==40)][0].description' "$F")
 printf '%s' "$P40_DESC" | grep -qi 'heuristic' && { echo "[PASS] $LABEL: p40 carries behavioral-heuristic annotation"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing heuristic annotation"; fail=$((fail+1)); }
 
-# Scorecard (FR-9.5): per-construct decomposition with readable headers
+# Scorecard (FR-9.5): per-construct decomposition; each % column merged with
+# its n-index into one cell ("<rate>% / <index>") to keep the table narrow
 P41_SQL=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_SQL" | grep -qF '"Prompt Adherence (0-100)"' && printf '%s' "$P41_SQL" | grep -qF '"n Rejection"' && printf '%s' "$P41_SQL" | grep -qF '"Followup Rejection %"' && printf '%s' "$P41_SQL" | grep -qF '"Overall Score"' && { echo "[PASS] $LABEL: p41 scorecard decomposes PAI + Overall with readable headers"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 scorecard columns missing"; fail=$((fail+1)); }
+printf '%s' "$P41_SQL" | grep -qF '"Prompt Adherence (0-100)"' && printf '%s' "$P41_SQL" | grep -qF '"Rejection % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Aborts % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Overall Score"' && { echo "[PASS] $LABEL: p41 scorecard decomposes PAI + Overall with readable headers"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 scorecard columns missing"; fail=$((fail+1)); }
+printf '%s' "$P41_SQL" | grep -qF "'% / '" && { echo "[PASS] $LABEL: p41 merged cells render rate / index in one column"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing merged cell separator"; fail=$((fail+1)); }
+if printf '%s' "$P41_SQL" | grep -qF '"n Rejection"'; then
+    echo "[FAIL] $LABEL: p41 still carries split n-columns"; fail=$((fail+1))
+else
+    echo "[PASS] $LABEL: p41 split n-columns removed"; pass=$((pass+1))
+fi
 printf '%s' "$P41_SQL" | grep -qF '"Friction per 100 (context)"' && { echo "[PASS] $LABEL: p41 shows friction as context, not merged"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing friction context column"; fail=$((fail+1)); }
 
 # Friction panels (FR-8.5): three marker classes, sparse suppression, stacking
@@ -132,8 +148,12 @@ printf '%s' "$P42_DESC" | grep -qi 'lower bound' && { echo "[PASS] $LABEL: p42 d
 P43_SQL=$(jq -r '[.panels[]|select(.id==43)][0].targets[0].rawSql' "$F")
 printf '%s' "$P43_SQL" | grep -q 'arrayJoin(guard_rules)' && { echo "[PASS] $LABEL: p43 ranks guard_rules via arrayJoin"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p43 missing arrayJoin(guard_rules)"; fail=$((fail+1)); }
 
-# Grouping (FR-10.6): verdict -> headline stats -> over time -> detail/friction
-assert_eq "$LABEL: panels grouped top-to-bottom" "40 41 32 33 37 35 34 42 43 38" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+# Grouping (FR-10.6): verdict -> headline stats -> detail/friction
+assert_eq "$LABEL: panels grouped top-to-bottom" "40 41 32 33 37 34 42 43 38" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+
+# Local-model toggle reaches both verdict panels (p40 + p41)
+printf '%s' "$P40_SQL" | grep -qF 'model_registry' && printf '%s' "$P40_SQL" | grep -qF "'\${include_local}'" && { echo "[PASS] $LABEL: p40 honours include_local via model_registry"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing include_local predicate"; fail=$((fail+1)); }
+printf '%s' "$P41_SQL" | grep -qF 'model_registry' && printf '%s' "$P41_SQL" | grep -qF "'\${include_local}'" && { echo "[PASS] $LABEL: p41 honours include_local via model_registry"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing include_local predicate"; fail=$((fail+1)); }
 
 # Row-keyed bargauges show one gauge per row; bars compare from zero
 assert_eq "$LABEL: bargauge panels use all-values reduce" "2/2" "$(jq -r '[.panels[]|select(.type=="bargauge")]|"\([.[]|select(.options.reduceOptions.values==true)]|length)/\(length)"' "$F")"

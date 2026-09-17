@@ -26,9 +26,9 @@ assert_json_valid "$LABEL: dashboard JSON is valid" "$F"
 assert_eq "$LABEL: title is Gateway Cost & Usage" "Gateway Cost & Usage" "$(jq -r '.title' "$F")"
 assert_eq "$LABEL: uid is gateway-cost-usage" "gateway-cost-usage" "$(jq -r '.uid' "$F")"
 
-# Panel count and datasource split (3 panels, all ClickHouse)
-assert_eq "$LABEL: panel count is 3" "3" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: ClickHouse panels" "3" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
+# Panel count and datasource split (4 panels, all ClickHouse)
+assert_eq "$LABEL: panel count is 4" "4" "$(jq '.panels|length' "$F")"
+assert_eq "$LABEL: ClickHouse panels" "4" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
 # Generic structural checks (basics, brand palette, time/refresh, macros, formats)
@@ -60,6 +60,15 @@ assert_eq "$LABEL: p3 token columns use compact B/M/K formatting" "0" "$P3_STR"
 P3_COST_UNIT=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F")
 printf '%s' "$P3_COST_UNIT" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p3 cost renders exact dollars (\$x.yy)"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 missing dollar formatting"; fail=$((fail+1)); }
 
+# p3: vertical stack with totals pinned last, enlarged
+P3_ORIENT=$(jq -r '[.panels[]|select(.id==3)][0].options.orientation // "missing"' "$F")
+assert_eq "$LABEL: p3 stacks vertically (totals land at the bottom)" "vertical" "$P3_ORIENT"
+P3_LAST_COLS=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F" | grep -o 'as "[^"]*"' | sed 's/as "//; s/"//' | paste -sd, -)
+assert_eq "$LABEL: p3 column order puts totals last" \
+  "Input Tokens,Cached Tokens,Output Tokens,Reasoning Tokens,Total Tokens,Total Cost" "$P3_LAST_COLS"
+P3_BIG=$(jq '[ [.panels[]|select(.id==3)][0].fieldConfig.overrides[] | select(.matcher.options == "Total Tokens" or .matcher.options == "Total Cost") | .properties[] | select(.id == "textSize") ] | length' "$F")
+assert_eq "$LABEL: p3 totals carry textSize overrides (enlarged)" "2" "$P3_BIG"
+
 # p3: stat panel positioned top-left
 P3_GRID=$(jq -r '[.panels[]|select(.id==3)][0].gridPos | "y=\(.y),x=\(.x)"' "$F")
 assert_eq "$LABEL: p3 positioned top-left (y=0,x=0)" "y=0,x=0" "$P3_GRID"
@@ -87,6 +96,15 @@ P8_USAGE=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|s
 assert_eq "$LABEL: p8 queries usage_log directly" "true" "$P8_USAGE"
 P8_MODEL=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("SELECT model";"i"))]|length>0' "$F")
 assert_eq "$LABEL: p8 selects model" "true" "$P8_MODEL"
+
+# p46: Cost by Provider pie (the "where does the money go" split)
+P46_TYPE=$(jq -r '[.panels[]|select(.id==46)][0].type // "missing"' "$F")
+assert_eq "$LABEL: p46 is piechart" "piechart" "$P46_TYPE"
+P46_TITLE=$(jq -r '[.panels[]|select(.id==46)][0].title // "missing"' "$F")
+assert_eq "$LABEL: p46 title is Cost by Provider" "Cost by Provider (\$)" "$P46_TITLE"
+P46_SQL=$(jq -r '[.panels[]|select(.id==46)][0].targets[0].rawSql // ""' "$F")
+printf '%s' "$P46_SQL" | grep -q 'provider_id' && printf '%s' "$P46_SQL" | grep -q 'sum(cost)' && printf '%s' "$P46_SQL" | grep -q 'GROUP BY' && { echo "[PASS] $LABEL: p46 groups cost by provider_id"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p46 missing provider cost aggregation"; fail=$((fail+1)); }
+printf '%s' "$P46_SQL" | grep -q '\${api_key:singlequote}' && printf '%s' "$P46_SQL" | grep -q '\${model:singlequote}' && { echo "[PASS] $LABEL: p46 filters by api_key + model"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p46 missing variable filters"; fail=$((fail+1)); }
 
 # Cross-dashboard invariant: templating identical across all 3
 check_templating_sync

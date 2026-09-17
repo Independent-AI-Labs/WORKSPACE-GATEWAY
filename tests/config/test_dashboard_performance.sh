@@ -30,7 +30,7 @@ assert_eq "$LABEL: uid is gateway-model-performance" "gateway-model-performance"
 
 # Panel inventory: 5 CH panels
 assert_eq "$LABEL: panel count is 5" "5" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: panel ids" "30 31 36 39 44" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
+assert_eq "$LABEL: panel ids" "30 31 36 44 45" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
 assert_eq "$LABEL: ClickHouse panels" "5" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
@@ -60,16 +60,37 @@ printf '%s' "$P44_ALL_SQL" | grep -q 'duration_ms - ttft_content_ms >= 100' && {
 printf '%s' "$P30_ALL_SQL" | grep -q 'ttft_content_ms >= 100' && { echo "[PASS] $LABEL: p30 prefill floors degenerate TTFT (>=100ms)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p30 missing prefill floor"; fail=$((fail+1)); }
 printf '%s' "$P30_ALL_SQL" | grep -qF 'completion_tokens' && { echo "[FAIL] $LABEL: p30 must not mix decode series into the prefill panel"; fail=$((fail+1)); } || { echo "[PASS] $LABEL: p30 is prefill-only"; pass=$((pass+1)); }
 printf '%s' "$P44_ALL_SQL" | grep -qF 'prompt_tokens /' && { echo "[FAIL] $LABEL: p44 must not mix prefill series into the decode panel"; fail=$((fail+1)); } || { echo "[PASS] $LABEL: p44 is decode-only"; pass=$((pass+1)); }
-printf '%s' "$P30_ALL_SQL" | grep -q 'medianExactIf' && printf '%s' "$P44_ALL_SQL" | grep -q 'medianExactIf' && { echo "[PASS] $LABEL: p30/p44 carry p50 companions (medianExactIf)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p30/p44 missing p50 targets"; fail=$((fail+1)); }
+printf '%s' "$P30_ALL_SQL" | grep -q 'medianExactIf' && printf '%s' "$P44_ALL_SQL" | grep -q 'medianExactIf' && { echo "[PASS] $LABEL: p30/p44 are p50 (medianExactIf)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p30/p44 missing p50"; fail=$((fail+1)); }
+if printf '%s' "$P30_ALL_SQL$P44_ALL_SQL" | grep -qF "' (avg)'"; then
+    echo "[FAIL] $LABEL: p30/p44 still carry the (avg) branch"; fail=$((fail+1))
+else
+    echo "[PASS] $LABEL: p30/p44 avg branch removed (p50 only)"; pass=$((pass+1))
+fi
 
-# Historical proxy is labeled as an estimate
-P39_DESC=$(jq -r '[.panels[]|select(.id==39)][0].description' "$F")
-printf '%s' "$P39_DESC" | grep -qi 'estimate' && { echo "[PASS] $LABEL: p39 proxy labeled ESTIMATE"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p39 missing ESTIMATE label"; fail=$((fail+1)); }
+# p45: Cost & Time per Completed Response (standalone, explicitly averages)
+P45_TYPE=$(jq -r '[.panels[]|select(.id==45)][0].type // "missing"' "$F")
+assert_eq "$LABEL: p45 is stat panel" "stat" "$P45_TYPE"
+P45_TITLE=$(jq -r '[.panels[]|select(.id==45)][0].title // "missing"' "$F")
+assert_eq "$LABEL: p45 title marks averages" "Cost & Time per Completed Response (avg)" "$P45_TITLE"
+P45_DESC=$(jq -r '[.panels[]|select(.id==45)][0].description // ""' "$F")
+printf '%s' "$P45_DESC" | grep -qi 'NOT p50\|average' && { echo "[PASS] $LABEL: p45 declares averages (not p50)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p45 missing avg annotation"; fail=$((fail+1)); }
+P45_SQL=$(jq -r '[.panels[]|select(.id==45)][0].targets[0].rawSql // ""' "$F")
+printf '%s' "$P45_SQL" | grep -q 'countIf(aborted = 0)' && printf '%s' "$P45_SQL" | grep -q 'avgIf(duration_ms' && { echo "[PASS] $LABEL: p45 averages cost + duration over completed streams"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p45 missing completed-stream averages"; fail=$((fail+1)); }
 
-# Wasted tokens & cost (FR-10.4): % of total + $ value, exact strings
+# Wasted tokens & cost (FR-10.4, revised 2026-09-17): % of total + $ value,
+# compact B/M/K, and rejected tool calls counted as waste (tokens of the
+# generation preceding a marker-bearing request in the same session)
 P36_SQL=$(jq -r '[.panels[]|select(.id==36)][0].targets[].rawSql' "$F")
-printf '%s' "$P36_SQL" | grep -qF '100 * wasted_tokens / nullIf(total_tokens, 0)' && { echo "[PASS] $LABEL: p36 shows wasted tokens as % of total"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing % of total"; fail=$((fail+1)); }
+printf '%s' "$P36_SQL" | grep -qF 'nullIf(total_tokens, 0)' && printf '%s' "$P36_SQL" | grep -qF "wasted_tokens + rej_wasted" && { echo "[PASS] $LABEL: p36 shows wasted tokens as % of total"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing % of total"; fail=$((fail+1)); }
 printf '%s' "$P36_SQL" | grep -qF 'sumIf(cost, aborted > 0)' && { echo "[PASS] $LABEL: p36 puts a $ value on wasted tokens"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing wasted cost"; fail=$((fail+1)); }
+printf '%s' "$P36_SQL" | grep -qF ", 'B')" && printf '%s' "$P36_SQL" | grep -qF ", 'M')" && printf '%s' "$P36_SQL" | grep -qF ", 'K')" && { echo "[PASS] $LABEL: p36 wasted tokens use compact B/M/K"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing B/M/K formatting"; fail=$((fail+1)); }
+printf '%s' "$P36_SQL" | grep -qF 'lagInFrame' && printf '%s' "$P36_SQL" | grep -qF 's.user_rejections + s.rule_denials + s.guard_blocks' && { echo "[PASS] $LABEL: p36 counts rejected tool-call tokens (prev generation via lagInFrame)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing rejected-tool waste"; fail=$((fail+1)); }
+printf '%s' "$P36_SQL" | grep -qF 'rej > 0 AND prev_ab = 0' && { echo "[PASS] $LABEL: p36 never double-counts an aborted generation"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 may double-count aborted + rejected"; fail=$((fail+1)); }
+if printf '%s' "$P36_SQL" | grep -qF 'Cost per Completed Response'; then
+    echo "[FAIL] $LABEL: p36 still carries the completed-response cost (moved to p45)"; fail=$((fail+1))
+else
+    echo "[PASS] $LABEL: p45 owns the completed-response cost"; pass=$((pass+1))
+fi
 printf '%s' "$P36_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p36 renders exact dollar values ($, forced 2 decimals)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing dollar formatting"; fail=$((fail+1)); }
 
 # Readable display names (FR-10.5): no raw refId/column identifiers on stats
@@ -77,7 +98,7 @@ P31_NAMES=$(jq -c '[.panels[]|select(.id==31)][0].fieldConfig.overrides[].proper
 printf '%s' "$P31_NAMES" | grep -qF 'Client Cancel Rate' && printf '%s' "$P31_NAMES" | grep -qF 'Provider Abort Rate' && { echo "[PASS] $LABEL: p31 series carry human-readable display names"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p31 missing readable display names"; fail=$((fail+1)); }
 
 # Grouping (FR-10.6): speeds first, then reliability/waste/proxy
-assert_eq "$LABEL: panels grouped top-to-bottom" "30 44 31 36 39" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+assert_eq "$LABEL: panels grouped top-to-bottom" "30 44 31 36 45" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
 
 # Row-keyed bargauges show one gauge per row; bars compare from zero
 assert_eq "$LABEL: bargauge panels use all-values reduce" "2/2" "$(jq -r '[.panels[]|select(.type=="bargauge")]|"\([.[]|select(.options.reduceOptions.values==true)]|length)/\(length)"' "$F")"

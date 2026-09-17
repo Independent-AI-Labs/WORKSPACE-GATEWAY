@@ -152,4 +152,15 @@ OLD_VRL_RC=0
 OLD_VRL=$(grep -c 'parse_regex(model_norm' "$VECTOR_TOML" ) || { OLD_VRL_RC=$?; OLD_VRL="0"; }
 assert_eq "vector.toml has no hand-written model_norm remap" "0" "$OLD_VRL"
 
+# ---------- 5. local-model registry sync (include_local toggle source) ----------
+SYNC_DRY=$(bash "$REPO_ROOT/res/scripts/sync-model-registry.sh" --dry-run)
+SYNC_ROWS=$(printf '%s\n' "$SYNC_DRY" | grep -c $'\t')
+SYNC_LOCAL=$(printf '%s\n' "$SYNC_DRY" | grep -c "minicpm5-1b-q8_0.gguf	1	llamafile")
+assert_eq "sync dry-run emits one row per registry model" \
+    "$(grep -c '^  [a-z0-9._-]*:' "$REPO_ROOT/conf/model-registry.yaml" )" "$SYNC_ROWS"
+assert_eq "sync marks the llamafile model local" "1" "$SYNC_LOCAL"
+SYNC_NOT_LOCAL_RC=0
+SYNC_NOT_LOCAL=$(printf '%s\n' "$SYNC_DRY" | grep -c "glm-5.3	1	" ) || { SYNC_NOT_LOCAL_RC=$?; SYNC_NOT_LOCAL="0"; }
+assert_eq "vendor models are not local" "0" "$SYNC_NOT_LOCAL"
+
 summary

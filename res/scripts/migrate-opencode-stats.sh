@@ -89,14 +89,14 @@ echo "[INFO] pricing entries: $(wc -l < "$TMPD/pricing.tsv")" >&2
 # ---------------------------------------------------------------- extract
 # parts stream: message_id \t session_id \t part_tc_ms \t hex("type:text")
 #               \t text_bytes   (all roles, ordered by message_id, part.id)
-# messages (15 ts string, UTC):
-#   id, session_id, tc_ms, providerID, modelID, cost, input, output,
-#   reasoning, cache_read, agent, project_id, parent_id, version, ts
+# messages: id, session_id, tc_ms, providerID, modelID, cost, input,
+#   output, reasoning, cache_read, agent, project_id, parent_id, version, ts
 : > "$TMPD/msg.tsv"
 : > "$TMPD/hash.tsv"
 : > "$TMPD/partstream.tsv"
 : > "$TMPD/roles.tsv"
 : > "$TMPD/usermark.tsv"
+: > "$TMPD/firstpart.tsv"
 
 IFS=':' read -ra DBS_ARR <<< "$OPENCODE_DBS"
 for SRC in "${DBS_ARR[@]}"; do
@@ -144,11 +144,19 @@ SELECT m.id, m.session_id, m.time_created,
        coalesce(json_extract(m.data,'\$.agent'), coalesce(s.agent,''), ''),
        coalesce(s.project_id,''), coalesce(s.parent_id,''), s.version,
         strftime('%Y-%m-%d %H:%M:%f', m.time_created/1000.0, 'unixepoch'),
-       coalesce(json_extract(m.data,'\$.error.name'),'')
+       coalesce(json_extract(m.data,'\$.error.name'),''),
+       coalesce(json_extract(m.data,'\$.time.completed'),0)
 FROM message m JOIN session s ON s.id = m.session_id
 WHERE json_extract(m.data,'\$.role')='assistant'
 ORDER BY m.id;
 " >> "$TMPD/msg.tsv"
+
+    # First visible (non-reasoning) part per message: content TTFT input.
+    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
+SELECT message_id, min(time_created) FROM part
+WHERE json_extract(data,'\$.type') != 'reasoning'
+GROUP BY message_id ORDER BY message_id;
+" >> "$TMPD/firstpart.tsv"
 
     # Role timeline per session (req_body synthesis: prior assistant turns
     # detect followup requests the way resent conversation history would).
@@ -183,10 +191,10 @@ if [ "$EXTRACTED" -eq 0 ]; then
 fi
 
 # ------------------------------------------------------------ join + map
-# out fields:
-#  1 msg_id 2 session_id 3 tc_ms 4 provider 5 model_raw 6 model_canon
-#  7 cost 8 pt 9 ct 10 rt 11 cached 12 agent 13 project_id 14 parent_id
-#  15 version 16 ts 17 content_hash 18 resp_bytes 19 error_name
+# out fields: 1 msg_id 2 session_id 3 tc_ms 4 provider 5 model_raw
+# 6 model_canon 7 cost 8 pt 9 ct 10 rt 11 cached 12 agent 13 project_id
+# 14 parent_id 15 version 16 ts 17 content_hash 18 resp_bytes 19 error_name
+# 20 completed_ms (timing; see row materialization below)
 awk -F'\t' -v OFS='\t' '
     NR==FNR { alias[$2]=$1; next }
     FILENAME==ARGV[2] { hash[$1]=$2; bytes[$1]=$3; next }
@@ -194,7 +202,7 @@ awk -F'\t' -v OFS='\t' '
         m = tolower($5)
         if (m in alias) c = alias[m]
         else { seg=m; sub(/.*\//,"",seg); c = (seg in alias) ? alias[seg] : seg }
-        print $1,$2,$3,$4,$5,c,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,hash[$1],bytes[$1]+0,$16
+        print $1,$2,$3,$4,$5,c,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,hash[$1],bytes[$1]+0,$16,$17
     }
 ' "$TMPD/aliases.tsv" "$TMPD/hash.tsv" "$TMPD/msg.tsv" > "$TMPD/joined.tsv"
 
@@ -359,15 +367,18 @@ fi
 # ------------------------------------------------- row materialization
 # usage fields: event_id request_id model model_raw pt ct tt rt cached
 #               aborted is_stream cost cost_source provider_id ts
-# Token mapping replicates sse_usage_lib.lua extract_tokens upstream
-# semantics: prompt INCLUDES cached, completion INCLUDES reasoning
-# (opencode stores input/output/cache.read/reasoning disjoint).
+#               duration_ms ttft_content_ms. Prompt INCLUDES cached,
+#               completion INCLUDES reasoning (opencode stores disjoint).
+# Timing (mirrors gateway sse-usage): duration_ms = time.completed -
+# time_created; ttft_content_ms = first non-reasoning part - created;
+# deltas outside [0, 1h) mean missing/corrupt timestamps -> 0.
 awk -F'\t' -v OFS='\t' -v shadow="$SHADOW_MAP" '
     BEGIN {
         n=split(shadow, pairs, ",")
         for (i=1;i<=n;i++) { split(pairs[i], kv, ":"); sh[kv[1]]=kv[2] }
     }
     NR==FNR { price[$1 ":" $2] = $3 " " $4 " " $5; next }
+    FILENAME==ARGV[2] { fp[$1]=$2; next }
     {
         cost = $7+0
         cs = (cost > 0) ? "upstream" : "unknown"
@@ -390,16 +401,17 @@ awk -F'\t' -v OFS='\t' -v shadow="$SHADOW_MAP" '
         }
         pt = $8 + $11
         ct = $9 + $10
-        # Terminal stream outcome from opencode message.error (message-v2.ts
-        # fromError): user abort -> 1 (client cancel), provider failure ->
-        # 2 (provider abort). Absence of error = completed stream.
         ab = 0
         if ($19 == "MessageAbortedError") ab = 1
         else if ($19 == "APIError" || $19 == "UnknownError") ab = 2
+        dur = ($20+0) - ($3+0)
+        if (dur < 0 || dur >= 3600000) dur = 0
+        ttft = (fp[$1]+0) - ($3+0)
+        if (ttft < 0 || ttft >= 3600000) ttft = 0
         print "ocm_" $1, $1, $6, $5, pt, ct, pt+ct, $10+0, $11+0, \
-              ab, 1, cost, cs, $4, $16
+              ab, 1, cost, cs, $4, $16, int(dur), int(ttft)
     }
-' "$TMPD/pricing.tsv" "$TMPD/dedup.tsv" > "$TMPD/usage.tsv"
+' "$TMPD/pricing.tsv" "$TMPD/firstpart.tsv" "$TMPD/dedup.tsv" > "$TMPD/usage.tsv"
 
 jq -cRn '
     inputs | split("\t") as $f |
@@ -408,21 +420,24 @@ jq -cRn '
       total_tokens: ($f[6]|tonumber), cached_tokens: ($f[8]|tonumber),
       reasoning_tokens: ($f[7]|tonumber), aborted: ($f[9]|tonumber),
       is_stream: ($f[10]|tonumber), cost: ($f[11]|tonumber),
-      cost_source: $f[12], provider_id: $f[13], timestamp: $f[14] }
+      cost_source: $f[12], provider_id: $f[13], timestamp: $f[14],
+      duration_ms: ($f[15]|tonumber), ttft_content_ms: ($f[16]|tonumber) }
 ' "$TMPD/usage.tsv" > "$TMPD/usage.jsonl"
 
 # request fields: event_id provider model model_raw session_id project_id
 #                 parent_session_id agent_name opencode_version user_agent
-#                 request_id ts request_size response_size
-#                 n_asst_turns last_user_text marker_texts
+#                 request_id ts request_size response_size n_asst_turns
+#                 last_user_text marker_texts upstream_response_time_s
 awk -F'\t' -v OFS='\t' '
     NR==FNR { rq[$1]=$2; rp[$1]=$3; next }
     FILENAME==ARGV[2] { na[$1]=$2; next }
     FILENAME==ARGV[3] { lu[$1]=$2; mk[$1]=$3; next }
     {
+        dur = ($20+0) - ($3+0)
+        if (dur < 0 || dur >= 3600000) dur = 0
         print "ocr_" $1, $4, $6, $5, $2, $13, $14, $12, $15, \
               "opencode/" $15, $1, $16, rq[$1]+0, rp[$1]+0, \
-              na[$1]+0, lu[$1] "", mk[$1] ""
+              na[$1]+0, lu[$1] "", mk[$1] "", sprintf("%.3f", dur / 1000)
     }
 ' "$TMPD/sizes.tsv" "$TMPD/rolecounts.tsv" "$TMPD/umcounts.tsv" "$TMPD/dedup.tsv" > "$TMPD/request.tsv"
 
@@ -436,6 +451,7 @@ jq -cRn '
       request_id: $f[10], timestamp: $f[11],
       request_size: ($f[12]|tonumber), response_size: ($f[13]|tonumber),
       client_type: "migrated",
+      upstream_response_time_s: ($f[17]|tonumber),
       req_body: ({
         model: $f[2],
         messages:

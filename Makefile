@@ -132,10 +132,14 @@ _compose-down:
 	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
 .PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-shell gw-test \
-        gw-restart-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer
+        gw-restart-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
+        gw-sync-model-registry
 
 gw-update-dictionaries: ## Refresh vendored profanity/VADER dictionaries from upstream
 	$(SCRIPT_BASH) res/scripts/update-dictionaries.sh
+
+gw-sync-model-registry: ## Sync model-registry.yaml + provider local flags into ClickHouse model_registry
+	$(SCRIPT_BASH) res/scripts/sync-model-registry.sh
 
 gw-crunch-usefulness: ## Run the rejection-language cruncher now (DAYS=N window, REBUILD=1 for clean recompute)
 	$(SCRIPT_BASH) res/scripts/crunch-usefulness.sh $(if $(DAYS),--days $(DAYS)) $(if $(REBUILD),--rebuild)

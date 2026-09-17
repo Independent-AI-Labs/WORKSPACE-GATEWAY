@@ -1,6 +1,10 @@
 ---
 id: workspace-gw-llamafile-no-auth
 name: "Workspace GW (llamafile No Auth)"
+# local: models served from non-vendor infra (local network, e.g. llamafile
+# on a LAN host). Synced into llm_gateway.model_registry by
+# res/scripts/sync-model-registry.sh; Grafana's include_local toggle reads it.
+local: true
 provider:
   id: llamafile
   label: llamafile

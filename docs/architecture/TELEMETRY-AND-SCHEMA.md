@@ -85,7 +85,7 @@ Upstream API comparison deferred. See [`OPEN-ISSUES.md`](OPEN-ISSUES.md).
 
 ## Grafana
 
-31 panels across 5 dashboards (incl. `gateway-model-experience` with the Usefulness Score + friction telemetry and `gateway-model-performance` with speed/reliability/waste, REQ-USEFULNESS-TELEMETRY). Authoritative spec:
+32 panels across 5 dashboards (incl. `gateway-model-experience` with the Usefulness Score + friction telemetry and `gateway-model-performance` with speed/reliability/waste, REQ-USEFULNESS-TELEMETRY). Authoritative spec:
 [`SPEC-DASHBOARD.md`](../specifications/SPEC-DASHBOARD.md). Joins use
 `request_id` (not ASOF on key_id + timestamp).
 

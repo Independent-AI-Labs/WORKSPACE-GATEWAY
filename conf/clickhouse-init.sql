@@ -151,6 +151,19 @@ SETTINGS index_granularity = 8192,
          inactive_parts_to_throw_insert = 1000,
          max_parts_in_total = 5000;
 
+-- Model metadata used by dashboards (include/exclude-local toggle).
+-- Materialized from conf/model-registry.yaml + conf/providers/*.yaml
+-- local flags by res/scripts/sync-model-registry.sh; config files are
+-- the source of truth, this table is a queryable copy.
+CREATE TABLE IF NOT EXISTS llm_gateway.model_registry (
+    model      String,
+    is_local   UInt8 DEFAULT 0,
+    provider   LowCardinality(String) DEFAULT '',
+    updated_at DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY model;
+
 CREATE TABLE IF NOT EXISTS llm_gateway.billing_discrepancies (
     date             Date,
     tenant_id        LowCardinality(String),
