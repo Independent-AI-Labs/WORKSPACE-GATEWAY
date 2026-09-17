@@ -106,7 +106,7 @@ assert_eq "$LABEL: p34 title is censored rejection strings" "Top User Rejection 
 # Readable display names (FR-10.5): p32 title states metric and unit
 assert_eq "$LABEL: p32 title states metric and unit" "User Rejection Rate (% of follow-up messages)" "$(jq -r '[.panels[]|select(.id==32)][0].title' "$F")"
 P41_READABLE=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_READABLE" | grep -qF '"Rejection % / n"' && printf '%s' "$P41_READABLE" | grep -qF '"Switches % / n"' && { echo "[PASS] $LABEL: p41 columns use human-readable merged aliases"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 columns keep raw identifiers"; fail=$((fail+1)); }
+printf '%s' "$P41_READABLE" | grep -qF '"Rej % / n"' && printf '%s' "$P41_READABLE" | grep -qF '"Sw % / n"' && { echo "[PASS] $LABEL: p41 columns use human-readable merged aliases"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 columns keep raw identifiers"; fail=$((fail+1)); }
 
 # Overall Score (FR-9, revised 2026-09-16): score family with fixed goalposts,
 # geometric aggregation, construct separation, >=30-request gate
@@ -126,14 +126,16 @@ printf '%s' "$P40_DESC" | grep -qi 'heuristic' && { echo "[PASS] $LABEL: p40 car
 # Scorecard (FR-9.5): per-construct decomposition; each % column merged with
 # its n-index into one cell ("<rate>% / <index>") to keep the table narrow
 P41_SQL=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_SQL" | grep -qF '"Prompt Adherence (0-100)"' && printf '%s' "$P41_SQL" | grep -qF '"Rejection % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Aborts % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Overall Score"' && { echo "[PASS] $LABEL: p41 scorecard decomposes PAI + Overall with readable headers"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 scorecard columns missing"; fail=$((fail+1)); }
+printf '%s' "$P41_SQL" | grep -qF '"PAI"' && printf '%s' "$P41_SQL" | grep -qF '"Rej % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Abr % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Overall"' && { echo "[PASS] $LABEL: p41 scorecard decomposes PAI + Overall with readable headers"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 scorecard columns missing"; fail=$((fail+1)); }
+P41_WRAP=$(jq -r '[.panels[]|select(.id==41)][0].fieldConfig.defaults.custom.wrapText // "missing"' "$F")
+assert_eq "$LABEL: p41 table wraps text instead of clipping" "true" "$P41_WRAP"
 printf '%s' "$P41_SQL" | grep -qF "'% / '" && { echo "[PASS] $LABEL: p41 merged cells render rate / index in one column"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing merged cell separator"; fail=$((fail+1)); }
 if printf '%s' "$P41_SQL" | grep -qF '"n Rejection"'; then
     echo "[FAIL] $LABEL: p41 still carries split n-columns"; fail=$((fail+1))
 else
     echo "[PASS] $LABEL: p41 split n-columns removed"; pass=$((pass+1))
 fi
-printf '%s' "$P41_SQL" | grep -qF '"Friction per 100 (context)"' && { echo "[PASS] $LABEL: p41 shows friction as context, not merged"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing friction context column"; fail=$((fail+1)); }
+printf '%s' "$P41_SQL" | grep -qF '"Fric /100"' && { echo "[PASS] $LABEL: p41 shows friction as context, not merged"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing friction context column"; fail=$((fail+1)); }
 
 # Friction panels (FR-8.5): three marker classes, sparse suppression, stacking
 P42_SQL=$(jq -r '[.panels[]|select(.id==42)][0].targets[].rawSql' "$F")

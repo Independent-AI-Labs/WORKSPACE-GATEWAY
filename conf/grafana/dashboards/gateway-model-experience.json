@@ -211,11 +211,32 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100), sig AS (SELECT model, count() AS reqs, countIf(is_followup = 1) AS fu, countIf(is_followup = 1 AND signal_count > 0) AS rej_n, countIf(is_followup = 0 AND parsed = 1) AS base_n, countIf(is_followup = 0 AND parsed = 1 AND signal_count > 0) AS base_rej, sum(guard_blocks + user_rejections + rule_denials) AS fric FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), spd AS (SELECT model, countIf(is_stream = 1) AS streams, countIf(aborted = 1) AS cancels, countIf(aborted = 2) AS aborts FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), sess AS (SELECT session_id, argMax(model, timestamp) AS last_model, groupUniqArray(model) AS models FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND session_id != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY session_id), swm AS (SELECT m AS model, countIf(last_model != m) AS switches, count() AS n FROM sess ARRAY JOIN models AS m WHERE m IN (SELECT model FROM gated) GROUP BY m), raw AS (SELECT s.model AS model, s.reqs, 100 * s.rej_n / nullIf(s.fu, 0) AS net_rej, 100 * w.switches / nullIf(w.n, 0) AS switch_rate, 100 * p.cancels / nullIf(p.streams, 0) AS cancel_rate, 100 * p.aborts / nullIf(p.streams, 0) AS abort_rate, 100 * s.fric / s.reqs AS fric_rate FROM sig s INNER JOIN spd p ON p.model = s.model LEFT JOIN swm w ON w.model = s.model) SELECT model, reqs AS \"Requests\", concat(toString(round(net_rej, 2)), '% / ', toString(round(ifNull(least(greatest(1 - net_rej / 50, 0.05), 1), 0.5), 2))) AS \"Rejection % / n\", concat(toString(round(switch_rate, 2)), '% / ', toString(round(ifNull(least(greatest(1 - switch_rate / 100, 0.05), 1), 0.5), 2))) AS \"Switches % / n\", concat(toString(round(cancel_rate, 2)), '% / ', toString(round(ifNull(least(greatest(1 - cancel_rate / 5, 0.05), 1), 0.5), 2))) AS \"Cancels % / n\", concat(toString(round(abort_rate, 2)), '% / ', toString(round(ifNull(least(greatest(1 - abort_rate / 5, 0.05), 1), 0.5), 2))) AS \"Aborts % / n\", round(100 * power(ifNull(least(greatest(1 - net_rej / 50, 0.05), 1), 0.5) * ifNull(least(greatest(1 - switch_rate / 100, 0.05), 1), 0.5) * ifNull(least(greatest(1 - cancel_rate / 5, 0.05), 1), 0.5), 1 / 3), 2) AS \"Prompt Adherence (0-100)\", round(100 * sqrt(power(ifNull(least(greatest(1 - net_rej / 50, 0.05), 1), 0.5) * ifNull(least(greatest(1 - switch_rate / 100, 0.05), 1), 0.5) * ifNull(least(greatest(1 - cancel_rate / 5, 0.05), 1), 0.5), 1 / 3) * ifNull(least(greatest(1 - abort_rate / 5, 0.05), 1), 0.5)), 2) AS \"Overall Score\", round(fric_rate, 2) AS \"Friction per 100 (context)\" FROM raw WHERE reqs >= 30 AND ('${include_local}' = 'yes' OR model NOT IN (SELECT model FROM llm_gateway.model_registry WHERE is_local = 1)) ORDER BY \"Overall Score\" DESC"
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100), sig AS (SELECT model, count() AS reqs, countIf(is_followup = 1) AS fu, countIf(is_followup = 1 AND signal_count > 0) AS rej_n, countIf(is_followup = 0 AND parsed = 1) AS base_n, countIf(is_followup = 0 AND parsed = 1 AND signal_count > 0) AS base_rej, sum(guard_blocks + user_rejections + rule_denials) AS fric FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), spd AS (SELECT model, countIf(is_stream = 1) AS streams, countIf(aborted = 1) AS cancels, countIf(aborted = 2) AS aborts FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model IN (SELECT model FROM gated) GROUP BY model), sess AS (SELECT session_id, argMax(model, timestamp) AS last_model, groupUniqArray(model) AS models FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND session_id != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) GROUP BY session_id), swm AS (SELECT m AS model, countIf(last_model != m) AS switches, count() AS n FROM sess ARRAY JOIN models AS m WHERE m IN (SELECT model FROM gated) GROUP BY m), raw AS (SELECT s.model AS model, s.reqs, 100 * s.rej_n / nullIf(s.fu, 0) AS net_rej, 100 * w.switches / nullIf(w.n, 0) AS switch_rate, 100 * p.cancels / nullIf(p.streams, 0) AS cancel_rate, 100 * p.aborts / nullIf(p.streams, 0) AS abort_rate, 100 * s.fric / s.reqs AS fric_rate FROM sig s INNER JOIN spd p ON p.model = s.model LEFT JOIN swm w ON w.model = s.model) SELECT model, reqs AS \"Reqs\", concat(toString(round(net_rej, 2)), '% / ', toString(round(ifNull(least(greatest(1 - net_rej / 50, 0.05), 1), 0.5), 2))) AS \"Rej % / n\", concat(toString(round(switch_rate, 2)), '% / ', toString(round(ifNull(least(greatest(1 - switch_rate / 100, 0.05), 1), 0.5), 2))) AS \"Sw % / n\", concat(toString(round(cancel_rate, 2)), '% / ', toString(round(ifNull(least(greatest(1 - cancel_rate / 5, 0.05), 1), 0.5), 2))) AS \"Canc % / n\", concat(toString(round(abort_rate, 2)), '% / ', toString(round(ifNull(least(greatest(1 - abort_rate / 5, 0.05), 1), 0.5), 2))) AS \"Abr % / n\", round(100 * power(ifNull(least(greatest(1 - net_rej / 50, 0.05), 1), 0.5) * ifNull(least(greatest(1 - switch_rate / 100, 0.05), 1), 0.5) * ifNull(least(greatest(1 - cancel_rate / 5, 0.05), 1), 0.5), 1 / 3), 2) AS \"PAI\", round(100 * sqrt(power(ifNull(least(greatest(1 - net_rej / 50, 0.05), 1), 0.5) * ifNull(least(greatest(1 - switch_rate / 100, 0.05), 1), 0.5) * ifNull(least(greatest(1 - cancel_rate / 5, 0.05), 1), 0.5), 1 / 3) * ifNull(least(greatest(1 - abort_rate / 5, 0.05), 1), 0.5)), 2) AS \"Overall\", round(fric_rate, 2) AS \"Fric /100\" FROM raw WHERE reqs >= 30 AND ('${include_local}' = 'yes' OR model NOT IN (SELECT model FROM llm_gateway.model_registry WHERE is_local = 1)) ORDER BY \"Overall\" DESC"
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellHeight": "sm",
+            "filterable": false,
+            "inspect": false,
+            "resizable": true,
+            "wrapText": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
       "options": {
@@ -242,7 +263,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT if('${rejection_mode}' = 'instances', round(sum(signal_weight) / nullIf(countIf(is_followup = 1), 0), 2), concat(toString(round(100 * countIf(signal_count > 0 AND is_followup = 1) / nullIf(countIf(is_followup = 1), 0), 2)), '%')) AS rejection FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND is_followup = 1 AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated)"
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT if('${rejection_mode}' = 'instances', toString(round(sum(signal_weight) / nullIf(countIf(is_followup = 1), 0), 2)), concat(toString(round(100 * countIf(signal_count > 0 AND is_followup = 1) / nullIf(countIf(is_followup = 1), 0), 2)), '%')) AS rejection FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND is_followup = 1 AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated)"
         }
       ],
       "fieldConfig": {

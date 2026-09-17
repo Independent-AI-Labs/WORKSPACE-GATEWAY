@@ -88,7 +88,7 @@
         "x": 0,
         "y": 0,
         "w": 12,
-        "h": 12
+        "h": 8
       },
       "targets": [
         {
@@ -251,7 +251,7 @@
       "options": {
         "colorMode": "background",
         "graphMode": "none",
-        "orientation": "vertical",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -259,9 +259,10 @@
           "fields": "/./",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value_and_name",
+        "maxPerRow": 4
       },
-      "description": "Token categories over the selected window. Total Tokens and Total Cost are pinned at the bottom, enlarged."
+      "description": "Token categories over the selected window. Total Tokens and Total Cost wrap onto the bottom row, enlarged."
     },
     {
       "id": 15,
@@ -419,7 +420,7 @@
             "lastNotNull"
           ],
           "fields": "",
-          "values": false
+          "values": true
         }
       }
     }

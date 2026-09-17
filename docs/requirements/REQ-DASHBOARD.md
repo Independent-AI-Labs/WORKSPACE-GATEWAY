@@ -93,7 +93,7 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens as compact uppercase `B`/`M`/`K` strings plus a Total Cost column as an exact `"$x.yy"` currency string (never SI-abbreviated), single query/frame, with 6 unique column aliases and 6 unique byName overrides. The panel stacks vertically with Total Tokens and Total Cost ordered last (pinned to the bottom) and enlarged via per-field `textSize` overrides. |
+| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens as compact uppercase `B`/`M`/`K` strings plus a Total Cost column as an exact `"$x.yy"` currency string (never SI-abbreviated), single query/frame, with 6 unique column aliases and 6 unique byName overrides. Tiles stay horizontal with `maxPerRow: 4` so Total Tokens and Total Cost wrap onto the bottom row together, enlarged via per-field `textSize` overrides. |
 | FR-4.2 | p15 (Cost Over Time by Model) MUST be a stacked-area timeseries of per-model cost per minute with a sum legend table. |
 | FR-4.3 | p1 (Total Requests) MUST count `request_log` rows within the time filter, with thresholds teal/gold at 1000/bronze at 10000. |
 | FR-4.4 | p4 (Error Rate) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |

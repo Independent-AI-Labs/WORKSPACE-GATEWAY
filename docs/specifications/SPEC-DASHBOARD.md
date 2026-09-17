@@ -128,10 +128,11 @@ GROUP BY model ORDER BY requests DESC LIMIT 20
 Note: this panel queries `usage_log` directly (no ASOF join); `usage_log.model`
 is authoritative. Horizontal gradient bars, `palette-classic`, `showUnfilled`.
 
-Layout (2026-09-17): p3 is a vertical stat stack (w:12 h:12) with Total
-Tokens and Total Cost ordered last so they sit pinned at the bottom, each
-carrying a per-field `textSize` override (title 14 / value 30) to emphasize
-the two headline numbers; p15 moved to x:12 w:12 h:12, p8 to y:12 w:24 h:8.
+Layout (2026-09-17): p3 keeps horizontal tiles (`maxPerRow: 4`, w:12 h:8)
+so the four category tiles fill the top row and Total Tokens + Total Cost
+wrap onto the bottom row together, each carrying a per-field `textSize`
+override (title 14 / value 30); p15 sits at x:12 w:12 h:12, p8 at y:12
+w:24 h:8.
 
 ### Panel 46: Cost by Provider (piechart, CH, grid x:0 y:20 w:24 h:8)
 
@@ -228,12 +229,14 @@ and identically for `name="redact_state"`. Exact label matches, min 0 / max
 
 ## 6. Gateway Cost Leaderboard
 
-Four stat panels in two tiers (2026-09-17): podium (top 3, enlarged fixed
-`textSize`: title 22 / value 44, `maxPerRow: 3`) and runner-ups (ranks 4-10,
-title 16 / value 22). Rank and medal color are computed in SQL via
-`row_number() OVER ()`.
+Four stat panels in a 2x2 grid (2026-09-17): top row clients-left /
+models-right (p20 x:0 y:0 w:12, p21 x:12 y:0 w:12), bottom row the 4-10
+runner-ups in the same arrangement (p22 x:0 y:8 w:12, p23 x:12 y:8 w:12).
+Podium panels use enlarged fixed `textSize` (title 22 / value 44,
+`maxPerRow: 3`); runner-ups title 16 / value 22, `maxPerRow: 4`. Rank and
+medal color are computed in SQL via `row_number() OVER ()`.
 
-### Panel 20: Top Clients by Cost & Tokens (Top 3) (stat, CH, grid x:0 y:0 w:24 h:8)
+### Panel 20: Top Clients by Cost & Tokens (Top 3) (stat, CH, grid x:0 y:0 w:12 h:8)
 
 `WITH ranked AS (...)` groups `usage_log` by normalized client key, orders by
 `total_cost DESC LIMIT 100`, then emits `name_str` (`"N. client - 5.76B"` -
@@ -245,17 +248,17 @@ p3 Total Cost), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
 transformation maps `name_str -> field.name`, `value_str -> field.value`,
 `Color -> color`.
 
-### Panel 22: Top Clients by Cost & Tokens (4-10) (stat, CH, grid x:0 y:8 w:24 h:8)
+### Panel 22: Top Clients by Cost & Tokens (4-10) (stat, CH, grid x:0 y:8 w:12 h:8)
 
 Identical CTE and shape, `LIMIT 7 OFFSET 3`: rows 4-10 render in the same
 rank/color scheme (all fall through to `#FFFFFF`).
 
-### Panel 21: Top Models by Cost & Tokens (Top 3) (stat, CH, grid x:0 y:16 w:24 h:8)
+### Panel 21: Top Models by Cost & Tokens (Top 3) (stat, CH, grid x:12 y:0 w:12 h:8)
 
 Same shape as panel 20, grouped by `model` (excluding empty model), ranked by
 cost, same medal color scheme, `LIMIT 3`.
 
-### Panel 23: Top Models by Cost & Tokens (4-10) (stat, CH, grid x:0 y:24 w:24 h:8)
+### Panel 23: Top Models by Cost & Tokens (4-10) (stat, CH, grid x:12 y:8 w:12 h:8)
 
 Same shape as panel 22 over the models CTE: `LIMIT 7 OFFSET 3`.
 

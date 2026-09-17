@@ -87,7 +87,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 24,
+        "w": 12,
         "h": 8
       },
       "targets": [
@@ -163,9 +163,9 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 0,
-        "y": 16,
-        "w": 24,
+        "x": 12,
+        "y": 0,
+        "w": 12,
         "h": 8
       },
       "targets": [
@@ -243,7 +243,7 @@
       "gridPos": {
         "x": 0,
         "y": 8,
-        "w": 24,
+        "w": 12,
         "h": 8
       },
       "targets": [
@@ -306,7 +306,7 @@
             "fixed": 22
           }
         },
-        "maxPerRow": 5
+        "maxPerRow": 4
       },
       "description": "Top tiles by spend in range. Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
     },
@@ -319,9 +319,9 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 0,
-        "y": 24,
-        "w": 24,
+        "x": 12,
+        "y": 8,
+        "w": 12,
         "h": 8
       },
       "targets": [
@@ -384,7 +384,7 @@
             "fixed": 22
           }
         },
-        "maxPerRow": 5
+        "maxPerRow": 4
       },
       "description": "Top tiles by spend in range. Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
     }

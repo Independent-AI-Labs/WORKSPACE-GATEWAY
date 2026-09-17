@@ -86,12 +86,14 @@ printf '%s' "$P36_SQL" | grep -qF 'sumIf(cost, aborted > 0)' && { echo "[PASS] $
 printf '%s' "$P36_SQL" | grep -qF ", 'B')" && printf '%s' "$P36_SQL" | grep -qF ", 'M')" && printf '%s' "$P36_SQL" | grep -qF ", 'K')" && { echo "[PASS] $LABEL: p36 wasted tokens use compact B/M/K"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing B/M/K formatting"; fail=$((fail+1)); }
 printf '%s' "$P36_SQL" | grep -qF 'lagInFrame' && printf '%s' "$P36_SQL" | grep -qF 's.user_rejections + s.rule_denials + s.guard_blocks' && { echo "[PASS] $LABEL: p36 counts rejected tool-call tokens (prev generation via lagInFrame)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing rejected-tool waste"; fail=$((fail+1)); }
 printf '%s' "$P36_SQL" | grep -qF 'rej > 0 AND prev_ab = 0' && { echo "[PASS] $LABEL: p36 never double-counts an aborted generation"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 may double-count aborted + rejected"; fail=$((fail+1)); }
+printf '%s' "$P36_SQL" | grep -qF 'sumIf(prev_cost, rej > 0 AND prev_ab = 0)' && printf '%s' "$P36_SQL" | grep -qF 'wasted_cost + rej_cost' && { echo "[PASS] $LABEL: p36 waste cost covers rejected tool calls (consistent with token count)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 waste cost inconsistent with waste tokens"; fail=$((fail+1)); }
 if printf '%s' "$P36_SQL" | grep -qF 'Cost per Completed Response'; then
     echo "[FAIL] $LABEL: p36 still carries the completed-response cost (moved to p45)"; fail=$((fail+1))
 else
     echo "[PASS] $LABEL: p45 owns the completed-response cost"; pass=$((pass+1))
 fi
 printf '%s' "$P36_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p36 renders exact dollar values ($, forced 2 decimals)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing dollar formatting"; fail=$((fail+1)); }
+printf '%s' "$P45_SQL" | grep -qF 'multiIf(n >= 1000' && { echo "[PASS] $LABEL: p45 abbreviates completed-response count (B/M/K)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p45 missing count abbreviation"; fail=$((fail+1)); }
 
 # Readable display names (FR-10.5): no raw refId/column identifiers on stats
 P31_NAMES=$(jq -c '[.panels[]|select(.id==31)][0].fieldConfig.overrides[].properties[]|select(.id=="displayName")|.value' "$F")

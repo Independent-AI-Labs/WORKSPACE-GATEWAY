@@ -60,9 +60,11 @@ assert_eq "$LABEL: p3 token columns use compact B/M/K formatting" "0" "$P3_STR"
 P3_COST_UNIT=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F")
 printf '%s' "$P3_COST_UNIT" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p3 cost renders exact dollars (\$x.yy)"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 missing dollar formatting"; fail=$((fail+1)); }
 
-# p3: vertical stack with totals pinned last, enlarged
+# p3: horizontal tiles, totals wrap onto a second row (maxPerRow 4), enlarged
 P3_ORIENT=$(jq -r '[.panels[]|select(.id==3)][0].options.orientation // "missing"' "$F")
-assert_eq "$LABEL: p3 stacks vertically (totals land at the bottom)" "vertical" "$P3_ORIENT"
+assert_eq "$LABEL: p3 keeps horizontal tiles" "horizontal" "$P3_ORIENT"
+P3_MAXROW=$(jq -r '[.panels[]|select(.id==3)][0].options.maxPerRow // "missing"' "$F")
+assert_eq "$LABEL: p3 wraps after 4 tiles (totals land on the bottom row)" "4" "$P3_MAXROW"
 P3_LAST_COLS=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F" | grep -o 'as "[^"]*"' | sed 's/as "//; s/"//' | paste -sd, -)
 assert_eq "$LABEL: p3 column order puts totals last" \
   "Input Tokens,Cached Tokens,Output Tokens,Reasoning Tokens,Total Tokens,Total Cost" "$P3_LAST_COLS"

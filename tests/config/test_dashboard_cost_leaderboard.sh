@@ -41,7 +41,7 @@ assert_eq "$LABEL: p20 title is Top Clients by Cost & Tokens (Top 3)" "Top Clien
 P20_TYPE=$(jq -r '[.panels[]|select(.id==20)][0].type' "$F")
 assert_eq "$LABEL: p20 is stat panel (like p3)" "stat" "$P20_TYPE"
 P20_GRID_W=$(jq -r '[.panels[]|select(.id==20)][0].gridPos.w' "$F")
-assert_eq "$LABEL: p20 is full-width (w=24)" "24" "$P20_GRID_W"
+assert_eq "$LABEL: p20 is half-width (2x2 grid, left column)" "12" "$P20_GRID_W"
 
 # p20: single target (ranked CTE returns all rows; rowsToFields expands to tiles)
 P20_TARGET_COUNT=$(jq '[.panels[]|select(.id==20)][0].targets | length' "$F")
@@ -126,9 +126,9 @@ assert_eq "$LABEL: p21 title is Top Models by Cost & Tokens (Top 3)" "Top Models
 P21_TYPE=$(jq -r '[.panels[]|select(.id==21)][0].type' "$F")
 assert_eq "$LABEL: p21 is stat panel (like p20)" "stat" "$P21_TYPE"
 P21_GRID_W=$(jq -r '[.panels[]|select(.id==21)][0].gridPos.w' "$F")
-assert_eq "$LABEL: p21 is full-width (w=24)" "24" "$P21_GRID_W"
-P21_GRID_Y=$(jq -r '[.panels[]|select(.id==21)][0].gridPos.y' "$F")
-assert_eq "$LABEL: p21 is stacked below p20 (y=16)" "16" "$P21_GRID_Y"
+assert_eq "$LABEL: p21 is half-width (2x2 grid, right column)" "12" "$P21_GRID_W"
+P21_GRID_X=$(jq -r '[.panels[]|select(.id==21)][0].gridPos.x' "$F")
+assert_eq "$LABEL: p21 sits right of p20 (x=12)" "12" "$P21_GRID_X"
 
 P21_TARGET_COUNT=$(jq '[.panels[]|select(.id==21)][0].targets | length' "$F")
 assert_eq "$LABEL: p21 has 1 target (ranked CTE)" "1" "$P21_TARGET_COUNT"
