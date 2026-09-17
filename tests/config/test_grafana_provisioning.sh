@@ -127,10 +127,10 @@ CU_UID=$(jq -r '.uid' "$COST_USAGE_FILE")
 assert_eq "Cost & Usage uid" "gateway-cost-usage" "$CU_UID"
 
 CU_PANELS=$(jq '.panels | length' "$COST_USAGE_FILE")
-assert_eq "Cost & Usage has 3 panels" "3" "$CU_PANELS"
+assert_eq "Cost & Usage has 4 panels" "4" "$CU_PANELS"
 
 CU_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$COST_USAGE_FILE")
-assert_eq "Cost & Usage ClickHouse panels" "3" "$CU_CH"
+assert_eq "Cost & Usage ClickHouse panels" "4" "$CU_CH"
 
 # ── Dashboard 2: Gateway Operations & Health ──────────────────────────
 
@@ -158,7 +158,7 @@ LB_UID=$(jq -r '.uid' "$LEADERBOARD_FILE")
 assert_eq "Cost Leaderboard uid" "gateway-cost-leaderboard" "$LB_UID"
 
 LB_PANELS=$(jq '.panels | length' "$LEADERBOARD_FILE")
-assert_eq "Cost Leaderboard has 2 panels" "2" "$LB_PANELS"
+assert_eq "Cost Leaderboard has 4 panels" "4" "$LB_PANELS"
 
 # ── Dashboard 4: Gateway Usefulness (REQ-USEFULNESS-TELEMETRY FR-6) ───
 
@@ -169,10 +169,10 @@ EX_UID=$(jq -r '.uid' "$EXPERIENCE_FILE")
 assert_eq "Model Experience uid" "gateway-model-experience" "$EX_UID"
 
 EX_PANELS=$(jq '.panels | length' "$EXPERIENCE_FILE")
-assert_eq "Model Experience has 10 panels" "10" "$EX_PANELS"
+assert_eq "Model Experience has 9 panels" "9" "$EX_PANELS"
 
 EX_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$EXPERIENCE_FILE")
-assert_eq "Model Experience ClickHouse panels" "10" "$EX_CH"
+assert_eq "Model Experience ClickHouse panels" "9" "$EX_CH"
 
 PF_TITLE=$(jq -r '.title' "$PERFORMANCE_FILE")
 assert_eq "Model Performance title" "Gateway Model Performance" "$PF_TITLE"
@@ -186,10 +186,10 @@ assert_eq "Model Performance has 5 panels" "5" "$PF_PANELS"
 PF_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$PERFORMANCE_FILE")
 assert_eq "Model Performance ClickHouse panels" "5" "$PF_CH"
 
-# ── Total panel count across all 4 dashboards (16 original + 15 usefulness = 31) ──
+# ── Total panel count across all 5 dashboards (17 original + 16 usefulness = 33) ──
 
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
-assert_eq "Total panels across 5 dashboards" "31" "$TOTAL_PANELS"
+assert_eq "Total panels across 5 dashboards" "33" "$TOTAL_PANELS"
 
 # ── Currency consistency: money tiles render exact "$x.yy" strings (SQL-
 #    formatted, 2 decimals, never SI-abbreviated); B/M/K uppercase abbrevs ─
@@ -201,13 +201,14 @@ LB_SQL=$(jq -r '[.panels[]|select(.id==20 or .id==21)][0].targets[0].rawSql' "$L
 printf '%s' "$LB_SQL" | grep -qF "concat('$'" && printf '%s' "$LB_SQL" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
 U_P36=$(jq -r '[.panels[]|select(.id==36)][0].targets[].rawSql' "$PERFORMANCE_FILE")
 U_P36_N=$(printf '%s' "$U_P36" | grep -oF "concat('$'" | wc -l)
-[ "$U_P36_N" = "2" ] && printf '%s' "$U_P36" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
+U_P45=$(jq -r '[.panels[]|select(.id==45)][0].targets[0].rawSql // ""' "$PERFORMANCE_FILE")
+[ "$U_P36_N" = "1" ] && printf '%s' "$U_P45" | grep -qF "concat('$'" && printf '%s' "$U_P36" | grep -qF "leftPad(toString(round((" && CURRENCY_OK=$((CURRENCY_OK+1))
 printf '%s' "$LB_SQL" | grep -qF ", 'B')" && printf '%s' "$LB_SQL" | grep -qF ", 'M')" && printf '%s' "$LB_SQL" | grep -qF ", 'K')" && CURRENCY_OK=$((CURRENCY_OK+1))
 printf '%s' "$LB_SQL" | grep -q "formatReadableQuantity" || CURRENCY_OK=$((CURRENCY_OK+1))
 assert_eq "Money tiles exact \$x.yy strings + uppercase B/M/K abbrevs" "$CURRENCY_EXPECT" "$CURRENCY_OK"
 
 # ── Shared templating identical across all 4 dashboards (api_key + model;
-#    usefulness adds only the dashboard-local rejection_mode) ────────────
+#    usefulness adds the dashboard-local rejection_mode + include_local) ──
 
 T_CU=$(jq -c '[.templating.list[] | select(.name == "api_key" or .name == "model")]' "$COST_USAGE_FILE")
 for df in "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
@@ -293,7 +294,7 @@ for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE
     c=$(jq '[.panels[] | select(.datasource.uid == "clickhouse") | select([.targets[].rawSql? | select(. != null) | select(test("\\$\\{api_key:singlequote\\}"))] | length > 0)] | length' "$df")
     CH_APIKEY_TOTAL=$((CH_APIKEY_TOTAL + c))
 done
-assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "21" "$CH_APIKEY_TOTAL"
+assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "23" "$CH_APIKEY_TOTAL"
 
 # ── p3 Token Usage stat: 5 tiles, one per category (in cost-usage) ────
 
