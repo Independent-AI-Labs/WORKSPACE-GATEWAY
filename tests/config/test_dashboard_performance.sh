@@ -93,7 +93,7 @@ else
     echo "[PASS] $LABEL: p45 owns the completed-response cost"; pass=$((pass+1))
 fi
 printf '%s' "$P36_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p36 renders exact dollar values ($, forced 2 decimals)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing dollar formatting"; fail=$((fail+1)); }
-printf '%s' "$P45_SQL" | grep -qF 'multiIf(n >= 1000' && { echo "[PASS] $LABEL: p45 abbreviates completed-response count (B/M/K)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p45 missing count abbreviation"; fail=$((fail+1)); }
+printf '%s' "$P45_SQL" | grep -qF 'toString(n) AS "Completed Responses"' && { echo "[PASS] $LABEL: p45 completed-response count stays an exact integer (ticks per completion)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p45 count not an exact integer"; fail=$((fail+1)); }
 
 # Readable display names (FR-10.5): no raw refId/column identifiers on stats
 P31_NAMES=$(jq -c '[.panels[]|select(.id==31)][0].fieldConfig.overrides[].properties[]|select(.id=="displayName")|.value' "$F")
