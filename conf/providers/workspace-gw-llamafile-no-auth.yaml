@@ -16,6 +16,7 @@ options:
   headers:
     X-Tenant-ID: default
     X-User-ID: agent
+context_limit_ceiling: 200000
 model_source:
   type: llamafile
   endpoint: "/llamafile/v1/models"
