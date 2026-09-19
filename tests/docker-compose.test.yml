@@ -22,6 +22,7 @@ services:
       - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
       - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
       - ../../plugins/custom/oauth-auth.lua:/usr/local/apisix/apisix/plugins/oauth-auth.lua:ro
+      - ../../plugins/custom/oauth_verify.lua:/usr/local/apisix/apisix/plugins/oauth_verify.lua:ro
       - ../../plugins/custom/oauth_broker.lua:/usr/local/apisix/apisix/plugins/oauth_broker.lua:ro
       - ../../plugins/custom/oauth_session.lua:/usr/local/apisix/apisix/plugins/oauth_session.lua:ro
       - ../../plugins/custom/oauth_jwt.lua:/usr/local/apisix/apisix/plugins/oauth_jwt.lua:ro

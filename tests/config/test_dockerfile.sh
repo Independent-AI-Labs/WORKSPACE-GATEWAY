@@ -40,7 +40,7 @@ assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS_RC=0
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" ) || { HAS_CUSTOM_PLUGINS_RC=$?; HAS_CUSTOM_PLUGINS="0"; }
-assert_eq "Copies plugins/custom/ (generic OAuth plugin set)" "22" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (generic OAuth plugin set)" "23" "$HAS_CUSTOM_PLUGINS"
 
 HAS_MODEL_REGISTRY_RC=0
 HAS_MODEL_REGISTRY=$(grep -c 'model_registry.lua' "$DOCKERFILE" ) || { HAS_MODEL_REGISTRY_RC=$?; HAS_MODEL_REGISTRY="0"; }
