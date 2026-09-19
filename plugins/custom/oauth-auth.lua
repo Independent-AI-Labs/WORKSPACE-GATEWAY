@@ -21,6 +21,8 @@ local ok, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
 if not ok then oauth_broker = require("oauth_broker") end
 local ok_session, session = pcall(require, "apisix.plugins.oauth_session")
 if not ok_session then session = require("oauth_session") end
+local ok_verify, verify = pcall(require, "apisix.plugins.oauth_verify")
+if not ok_verify then verify = require("oauth_verify") end
 
 local plugin_name = "oauth-auth"
 
@@ -30,11 +32,11 @@ local plugin = {
     name = plugin_name,
 }
 
-plugin.schema = {
-    type = "object",
-    properties = {
-        auth_base = { type = "string" },
-        protocol = { type = "string", enum = { "rfc8628", "chatgpt_device" }, default = "rfc8628" },
+    plugin.schema = {
+        type = "object",
+        properties = {
+            auth_base = { type = "string" },
+            protocol = { type = "string", enum = { "rfc8628", "chatgpt_device", "anthropic" }, default = "rfc8628" },
         oauth_host = { type = "string" },
         client_id = { type = "string" },
         user_agent = { type = "string", default = "workspace-gateway/0.1" },
@@ -48,6 +50,17 @@ plugin.schema = {
         browser_redirect_uri = { type = "string", default = "http://localhost:1455/auth/callback" },
         authorize_path = { type = "string" },
         authorize_params = { type = "object" },
+        -- anthropic engine: token endpoint origin when it differs from
+        -- oauth_host; space-separated scopes on the authorize URL; the
+        -- gateway-hosted verification page for the device facade; the
+        -- public origin baked into verification_uri; the path suffix that
+        -- must carry ?beta=true upstream (OAuth tokens are beta-path only).
+        token_host = { type = "string" },
+        scopes = { type = "string" },
+        verify_page = { type = "boolean", default = false },
+        verification_origin = { type = "string" },
+        beta_query_path = { type = "string" },
+        user_code_ttl = { type = "integer", minimum = 60, default = 900 },
         openbao_addr = { type = "string", default = "http://openbao:8200" },
         openbao_token_env = { type = "string", default = "OPENBAO_TOKEN" },
         token_prefix = { type = "string" },
@@ -74,8 +87,10 @@ plugin.schema = {
         },
         account_header = { type = "string" },
     },
-    required = { "auth_base", "oauth_host", "client_id", "device_authorize_path",
+    required = { "auth_base", "oauth_host", "client_id",
         "token_path", "token_prefix", "device_prefix" },
+    -- device_authorize_path stays optional: gateway-minted protocols
+    -- (anthropic) have no upstream device endpoint to call.
 }
 
 function plugin.check_schema(conf)
@@ -150,6 +165,19 @@ local function start_device_flow(conf)
         return 503, { error = plugin_name .. ": cannot reach token store" }
     end
 
+    --Gateway-minted facades (anthropic) also index the record by
+    --user_code so the verification page can find it.
+    if auth.user_code_index then
+        local _, idx_err = tokens.store_device(conf, auth.user_code_index, {
+            device_code = client_device_code,
+            created_at = ngx.http_time(ngx.time()),
+        })
+        if idx_err then
+            core.log.error(plugin_name, ": failed to store user_code index: ", idx_err)
+            return 503, { error = plugin_name .. ": cannot reach token store" }
+        end
+    end
+
     return 200, {
         verification_uri = auth.verification_uri,
         verification_uri_complete = auth.verification_uri_complete,
@@ -175,7 +203,22 @@ local function poll_device_flow(conf)
 
     if tonumber(pending.expires_at) and ngx.time() > tonumber(pending.expires_at) then
         tokens.delete_device(conf, device_code)
+        if pending.user_code then tokens.delete_device(conf, "uc-" .. pending.user_code) end
         return 400, { error = plugin_name .. ": device session expired" }
+    end
+
+    --Gateway-minted facades short-circuit on approval written by the
+    --verify page: that flow already persisted the session record (with
+    --refresh token and expiry), so polling only hands out the bearer.
+    if pending.approved and pending.session_bearer then
+        tokens.delete_device(conf, device_code)
+        if pending.user_code then tokens.delete_device(conf, "uc-" .. pending.user_code) end
+        return 200, {
+            access_token = pending.session_bearer,
+            expires_in = tonumber(pending.session_expires_in) or 3600,
+            token_type = "Bearer",
+            session_id = pending.session_id,
+        }
     end
 
     local engine = device.engine(conf)
@@ -192,6 +235,7 @@ local function poll_device_flow(conf)
 
     if result.expired then
         tokens.delete_device(conf, device_code)
+        if pending.user_code then tokens.delete_device(conf, "uc-" .. pending.user_code) end
         return 400, { error = plugin_name .. ": device code expired" }
     end
 
@@ -204,6 +248,7 @@ local function poll_device_flow(conf)
         return 503, { error = plugin_name .. ": cannot reach token store" }
     end
     tokens.delete_device(conf, device_code)
+    if pending.user_code then tokens.delete_device(conf, "uc-" .. pending.user_code) end
 
     return 200, {
         access_token = result.access_token,
@@ -342,6 +387,20 @@ function plugin.access(conf, ctx)
             return browser_callback(conf)
         end
     end
+    if conf.verify_page then
+        if uri == conf.auth_base .. "/verify" then
+            return verify.serve(conf)
+        end
+        if uri == conf.auth_base .. "/verify/start" then
+            return verify.start(conf, tokens, device, session.json_body)
+        end
+        if uri == conf.auth_base .. "/verify/complete" then
+            return verify.complete(conf, tokens, device, session.json_body,
+                function(bearer, result, sid)
+                    return session_record(conf, bearer, result, sid)
+                end)
+        end
+    end
 
     local bearer = session.bearer(ctx)
     if not bearer or bearer == "" then
@@ -379,6 +438,21 @@ function plugin.access(conf, ctx)
     strip_request_fields(conf)
     apply_upstream_headers(conf, ctx, fresh_session)
     session.set_meta_headers(key_id, user_id, tenant_id)
+
+    --OAuth tokens only work on the beta path: add ?beta=true when the
+    --configured path matches and the client did not send it. proxy-rewrite
+    --replaces only the path, so the argument survives the rewrite.
+    if conf.beta_query_path and conf.beta_query_path ~= "" then
+        local tail = conf.beta_query_path
+        local uri_path = ctx.var.uri or ""
+        if uri_path:sub(-#tail) == tail then
+            local args = ngx.req.get_uri_args()
+            if args.beta == nil then
+                args.beta = "true"
+                ngx.req.set_uri_args(args)
+            end
+        end
+    end
 
     ctx.consumer = {
         username = key_id,

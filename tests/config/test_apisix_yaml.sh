@@ -41,8 +41,7 @@ fi
 
 assert_eq "Valid YAML (parseable)" "ok" "ok"
 
-ROUTE_COUNT=$(echo "$JSON_DATA" | jq '.routes | length')
-assert_eq "Exactly 14 routes" "14" "$ROUTE_COUNT"
+assert_eq "Exactly 16 routes" "16" "$(echo "$JSON_DATA" | jq '.routes | length')"
 
 # --- relay-opencode (passthrough, no key-resolver) ---
 OC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode")][0]')

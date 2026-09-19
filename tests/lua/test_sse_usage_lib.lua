@@ -312,12 +312,113 @@ local function content_detection_tests()
     end
 end
 
+local function anthropic_stream_tests()
+    -- Anthropic /v1/messages SSE: message_start carries the input-side
+    -- usage under obj.message.usage with EXCLUSIVE cache counts;
+    -- content_block_delta carries text in a delta TABLE; message_delta
+    -- carries the final output count; the stream ends with message_stop
+    -- (no [DONE] sentinel).
+    do
+        local stream = table.concat({
+            'event: message_start',
+            'data: {"type":"message_start","message":{"id":"msg_1","model":"claude-sonnet-4-5","usage":{"input_tokens":100,"output_tokens":1,"cache_creation_input_tokens":50,"cache_read_input_tokens":400}}}',
+            '',
+            'event: content_block_delta',
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+            '',
+            'event: message_delta',
+            'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}',
+            '',
+            'event: message_stop',
+            'data: {"type":"message_stop"}',
+            '',
+        }, "\n")
+        local usage, model, done, cost, has_content = sse_lib.scan_sse_for_usage(stream)
+        assert_eq(model, "claude-sonnet-4-5", "anthropic[1] model from message_start")
+        assert_eq(done, true, "anthropic[1] message_stop completes stream")
+        assert_eq(has_content, true, "anthropic[1] text delta table counts as content")
+        check(usage ~= nil, "anthropic[1] usage found")
+        if usage then
+            --Inclusive convention: 100 plain + 400 read + 50 write = 550 in.
+            assert_eq(usage.prompt_tokens, 550, "anthropic[1] input folded with cache")
+            assert_eq(usage.completion_tokens, 42, "anthropic[1] final output from message_delta")
+            assert_eq(usage.total_tokens, 592, "anthropic[1] total recomputed")
+            local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(usage)
+            assert_eq(pt, 550, "anthropic[1] extract prompt_tokens")
+            assert_eq(ct, 42, "anthropic[1] extract completion_tokens")
+            assert_eq(cached, 400, "anthropic[1] extract cached = cache_read only")
+            assert_eq(reasoning, 0, "anthropic[1] no reasoning dimension")
+        end
+        assert_eq(cost, 0, "anthropic[1] no upstream cost field")
+    end
+
+    do
+        --No cache usage: plain input passes through unchanged.
+        local stream = table.concat({
+            'data: {"type":"message_start","message":{"model":"claude-haiku-4-5","usage":{"input_tokens":7,"output_tokens":2}}}',
+            'data: {"type":"message_delta","delta":{},"usage":{"output_tokens":9}}',
+            'data: {"type":"message_stop"}',
+            '',
+        }, "\n")
+        local usage, _, done = sse_lib.scan_sse_for_usage(stream)
+        assert_eq(done, true, "anthropic[2] done")
+        check(usage ~= nil, "anthropic[2] usage found")
+        if usage then
+            assert_eq(usage.prompt_tokens, 7, "anthropic[2] input without cache")
+            assert_eq(usage.completion_tokens, 9, "anthropic[2] output merged")
+        end
+    end
+
+    do
+        --message_delta WITHOUT a later message_stop: provider-aborted look
+        --(done stays false, partial usage still surfaces).
+        local stream = table.concat({
+            'data: {"type":"message_start","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":10,"output_tokens":1}}}',
+            'data: {"type":"message_delta","delta":{},"usage":{"output_tokens":5}}',
+            '',
+        }, "\n")
+        local usage, _, done = sse_lib.scan_sse_for_usage(stream)
+        assert_eq(done, false, "anthropic[3] no message_stop keeps stream open")
+        if usage then
+            assert_eq(usage.completion_tokens, 5, "anthropic[3] partial output kept")
+        end
+    end
+
+    do
+        --Non-stream JSON: Anthropic puts usage and model at the top level.
+        local usage, model, cost = sse_lib.parse_json_usage(
+            '{"id":"msg_2","model":"claude-opus-4-6","usage":{"input_tokens":30,"output_tokens":12,"cache_read_input_tokens":10}}')
+        check(usage ~= nil, "anthropic[4] json usage found")
+        assert_eq(model, "claude-opus-4-6", "anthropic[4] json model")
+        if usage then
+            assert_eq(usage.prompt_tokens, 40, "anthropic[4] json input folded")
+            assert_eq(usage.completion_tokens, 12, "anthropic[4] json output")
+        end
+        assert_eq(cost, 0, "anthropic[4] json no cost")
+    end
+
+    do
+        --Cost math over the inclusive numbers: sonnet-4.5 at $3/M input,
+        --$15/M output, $0.3/M cache read. 150 uncached + 400 cached in,
+        --42 out => 150*3/1e6 + 400*0.3/1e6 + 42*15/1e6.
+        local usage = sse_lib.normalize_usage({
+            input_tokens = 150, output_tokens = 42,
+            cache_read_input_tokens = 400,
+        })
+        local pt, ct, _, cached = sse_lib.extract_tokens(usage)
+        local cost = (pt - cached) * 3 / 1e6 + cached * 0.3 / 1e6 + ct * 15 / 1e6
+        assert_eq(pt - cached, 150, "anthropic[5] uncached input is plain input")
+        assert_eq(math.floor(cost * 1e9), 1200000, "anthropic[5] computed cost usd*1e9")
+    end
+end
+
 local function main()
     buffer_chunk_tests()
     scan_sse_tests()
     parse_json_usage_tests()
     extract_tokens_tests()
     content_detection_tests()
+    anthropic_stream_tests()
 
     io.write(string.format("\n==== SSE usage lib tests: %d passed, %d failed ====\n", pass, fail))
     if fail > 0 then

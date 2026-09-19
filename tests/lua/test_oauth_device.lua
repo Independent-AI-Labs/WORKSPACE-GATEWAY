@@ -178,6 +178,79 @@ check(url:find("code_challenge_method=S256", 1) ~= nil, "browser URL S256")
 check(device.engine({}).refresh_access_token ~= nil, "engine default rfc8628")
 check(device.engine({ protocol = "bogus" }) == device.engine({}), "engine unknown falls back")
 
+-- anthropic: gateway-minted device authorization makes no upstream call.
+local anthropic_conf = {
+    protocol = "anthropic",
+    auth_base = "/anthropic-device/auth",
+    oauth_host = "https://claude.ai",
+    token_host = "https://platform.claude.com",
+    client_id = "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+    authorize_path = "/oauth/authorize",
+    authorize_params = { code = "true" },
+    scopes = "user:inference user:profile",
+    token_path = "/v1/oauth/token",
+    browser_redirect_uri = "https://platform.claude.com/oauth/code/callback",
+    verification_origin = "https://gw.example.com",
+    refresh_rotation_required = false,
+}
+local before_calls = #calls
+auth = device.engine(anthropic_conf).request_device_authorization(anthropic_conf)
+check(#calls == before_calls, "anthropic device authorization is gateway-minted (no HTTP)")
+check(auth.user_code:match("^[%u%d][%u%d][%u%d][%u%d]%-[%u%d][%u%d][%u%d][%u%d]$") ~= nil,
+    "anthropic user_code shape XXXX-XXXX")
+check(auth.device_code:sub(1, 3) == "gw-", "anthropic device_code is gateway-minted")
+check(auth.verification_uri:find("^https://gw%.example%.com/anthropic%-device/auth/verify%?user_code=", 1) ~= nil,
+    "anthropic verification_uri on the public gateway origin")
+check(auth.user_code_index == "uc-" .. auth.user_code, "anthropic user_code index key")
+check(auth.expires_in == 900 and auth.interval == 5, "anthropic device ttl defaults")
+
+-- anthropic: poll is always pending (approval short-circuits in oauth-auth).
+r = device.engine(anthropic_conf).poll_device_token(anthropic_conf, auth.device_code, auth.user_code)
+check(r.pending == true and r.error_code == "authorization_pending", "anthropic poll pending")
+
+-- anthropic: authorize URL quirks - state == verifier, code=true, scope.
+verifier = string.rep("v", 43)
+challenge = string.rep("c", 43)
+url = device.engine(anthropic_conf).build_authorize_url(
+    anthropic_conf, anthropic_conf.browser_redirect_uri, verifier, challenge)
+check(url:find("^https://claude%.ai/oauth/authorize%?", 1) ~= nil, "anthropic authorize URL host + path")
+check(url:find("state=" .. verifier, 1) ~= nil, "anthropic state equals the PKCE verifier")
+check(url:find("code=true", 1) ~= nil, "anthropic authorize carries code=true")
+check(url:find("scope=user%%3Ainference%%20user%%3Aprofile", 1) ~= nil, "anthropic scopes present")
+check(url:find("code_challenge_method=S256", 1) ~= nil, "anthropic S256")
+check(url:find("client_id=9d1c250a%-e61b%-44d9%-88ed%-5944d1962f5e", 1) ~= nil, "anthropic client_id")
+
+-- anthropic: code exchange is JSON with state, on the separate token host.
+push({ status = 200, data = { access_token = "at-an", refresh_token = "rt-an", expires_in = 28800 } })
+local tok = device.engine(anthropic_conf).exchange_code(
+    anthropic_conf, "code-1", "state-1", anthropic_conf.browser_redirect_uri, "ver-1")
+check(tok ~= nil and tok.access_token == "at-an" and tok.refresh_token == "rt-an", "anthropic exchange success shape")
+check(calls[#calls].url == "https://platform.claude.com/v1/oauth/token", "anthropic exchange on token_host")
+check(calls[#calls].opts.headers["Content-Type"] == "application/json", "anthropic exchange JSON body")
+local ex_body = cjson.decode(calls[#calls].opts.body)
+check(ex_body.grant_type == "authorization_code" and ex_body.code == "code-1"
+    and ex_body.state == "state-1" and ex_body.code_verifier == "ver-1",
+    "anthropic exchange body carries code, state, verifier")
+set_reply({ status = 200, data = { access_token = "at-an2", expires_in = 28800 } })
+_, err_msg = device.engine(anthropic_conf).exchange_code(
+    anthropic_conf, "code-1", "state-1", anthropic_conf.browser_redirect_uri, "ver-1")
+check(err_msg == "token response missing refresh_token", "anthropic exchange requires refresh_token")
+
+-- anthropic: refresh is JSON on token_host; 401 -> invalid_grant;
+-- missing refresh_token keeps the old one (rotation not required).
+set_reply({ status = 401, data = { error = "invalid_grant" } })
+_, err_msg = device.engine(anthropic_conf).refresh_access_token(anthropic_conf, "rt-old")
+check(err_msg == "invalid_grant", "anthropic refresh 401 maps to invalid_grant")
+set_reply({ status = 200, data = { access_token = "at-r", expires_in = 28800 } })
+r = device.engine(anthropic_conf).refresh_access_token(anthropic_conf, "rt-old")
+check(r ~= nil and r.access_token == "at-r" and r.refresh_token == "rt-old",
+    "anthropic refresh keeps old refresh_token when none returned")
+check(calls[#calls].url == "https://platform.claude.com/v1/oauth/token", "anthropic refresh on token_host")
+check(calls[#calls].opts.headers["Content-Type"] == "application/json", "anthropic refresh JSON body")
+local rf_body = cjson.decode(calls[#calls].opts.body)
+check(rf_body.grant_type == "refresh_token" and rf_body.refresh_token == "rt-old",
+    "anthropic refresh body shape")
+
 if fail > 0 then
     io.stderr:write("test_oauth_device: " .. fail .. " failed\n")
     os.exit(1)

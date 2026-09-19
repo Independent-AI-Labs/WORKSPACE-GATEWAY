@@ -21,6 +21,8 @@ local ROUTE_PROVIDERS = {
     ["relay-kimi-key-v1"] = "workspace-gw-kimi-api-key",
     ["relay-zai-key"] = "workspace-gw-zai-api-key",
     ["relay-zai-key-v1"] = "workspace-gw-zai-api-key",
+    ["relay-anthropic"] = "workspace-gw-anthropic-passthrough",
+    ["relay-anthropic-device"] = "workspace-gw-anthropic-device-oauth",
     ["relay-llamafile"] = "workspace-gw-llamafile-no-auth",
 }
 

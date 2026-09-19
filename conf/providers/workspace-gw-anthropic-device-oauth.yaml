@@ -1,0 +1,28 @@
+---
+id: workspace-gw-anthropic-device-oauth
+name: "Workspace GW (Anthropic Device OAuth)"
+provider:
+  id: anthropic
+  label: Anthropic
+route: "/anthropic-device"
+npm: "@anthropic-ai/sdk"
+auth:
+  type: oauth
+  plugin: oauth-auth
+  methods:
+    - id: anthropic-device-oauth
+      flow: device_authorization
+      route: /anthropic-device/auth
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+context_limit_ceiling: 200000
+model_source:
+  type: models_dev_provider
+  provider: anthropic
+pricing:
+  source:
+    type: models_dev
+    provider: anthropic
+  missing_policy: unknown

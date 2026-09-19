@@ -3,10 +3,14 @@ local set_headers = {}
 local body_override = nil
 local raw_body = "{}"
 
+local uri_args = {}
+local set_uri_args_log = {}
 ngx.req = {
     set_header = function(k, v) set_headers[k] = v end,
     set_body_data = function(b) body_override = b end,
     get_body_data = function() return body_override end,
+    get_uri_args = function() return uri_args end,
+    set_uri_args = function(a) set_uri_args_log[#set_uri_args_log + 1] = a end,
 }
 ngx.var = { arg_session = "test-session", request_id = "req-test" }
 
@@ -55,7 +59,12 @@ function fake_store.delete_device(_, _code)
 end
 function fake_store.consume_device(_, code)
     store_calls.consume_device = store_calls.consume_device + 1
-    return stored_devices[code]
+    --Atomic claim: the record is removed on read (matches OpenBao DELETE);
+    --a missing key reports "not found" so callers can map replays to 400.
+    local rec = stored_devices[code]
+    stored_devices[code] = nil
+    if not rec then return nil, "not found" end
+    return rec
 end
 
 package.loaded["apisix.core"] = {
@@ -131,6 +140,7 @@ local function call(uri, headers)
     local ctx = { var = { uri = uri }, headers = headers or {} }
     set_headers = {}
     body_override = nil
+    set_uri_args_log = {}
     local status, body = plugin.access(conf, ctx)
     return status, body, ctx
 end
@@ -266,6 +276,121 @@ status, body = call("/test/auth/device/poll")
 check(status == 200 and stored_sessions["at-org"] ~= nil
     and stored_sessions["at-org"].account_id == "org-77",
     "account claim resolves via organizations[1].id path")
+
+-- ---- Anthropic device facade (gateway-minted codes + verify page) ----
+device_for_code = nil
+conf.protocol = "anthropic"
+conf.oauth_host = "https://claude.ai"
+conf.token_host = "https://platform.claude.com"
+conf.authorize_path = "/oauth/authorize"
+conf.authorize_params = { code = "true" }
+conf.scopes = "user:inference user:profile"
+conf.token_path = "/v1/oauth/token"
+conf.browser_redirect_uri = "https://platform.claude.com/oauth/code/callback"
+conf.verify_page = true
+conf.verification_origin = "https://gw.example.com"
+conf.beta_query_path = "/v1/messages"
+conf.refresh_rotation_required = false
+
+-- Device start: minted locally, indexed by user_code, no upstream call.
+status, body = call("/test/auth/device")
+check(status == 200, "anthropic device start returns 200")
+local an_user_code = body.user_code
+check(an_user_code:match("^[%u%d][%u%d][%u%d][%u%d]%-[%u%d][%u%d][%u%d][%u%d]$") ~= nil,
+    "anthropic user_code shape")
+local an_gw_code = body.device_code
+check(an_gw_code:sub(1, 3) == "gw-", "anthropic device_code is gateway-minted")
+check(body.verification_uri == "https://gw.example.com/test/auth/verify?user_code=" .. an_user_code,
+    "anthropic verification_uri on the public origin")
+check(stored_devices["uc-" .. an_user_code] ~= nil
+    and stored_devices["uc-" .. an_user_code].device_code == an_gw_code,
+    "anthropic user_code index points at the device record")
+
+-- Poll before approval: engine is gateway-minted, always pending, no HTTP.
+raw_body = require("cjson.safe").encode({ device_code = an_gw_code })
+status, body = call("/test/auth/device/poll")
+check(status == 202 and body.error_code == "authorization_pending",
+    "anthropic poll pending before approval")
+
+-- Verify page: HTML served on the auth base.
+status, body = call("/test/auth/verify")
+check(status == 200 and type(body) == "string"
+    and body:find("<html", 1, true) ~= nil
+    and body:find("/verify/start", 1, true) ~= nil
+    and body:find("/verify/complete", 1, true) ~= nil
+    and body:find('base = "/test/auth"', 1, true) ~= nil,
+    "anthropic verify page served with wired endpoints")
+
+-- Verify start: user_code via query arg, PKCE verifier stored under state.
+ngx.var.arg_user_code = an_user_code
+raw_body = "{}"
+status, body = call("/test/auth/verify/start")
+ngx.var.arg_user_code = nil
+check(status == 200 and body.authorization_url ~= nil and body.state ~= nil,
+    "verify start returns authorization URL")
+local verify_state = body.state
+local verify_record = stored_devices[verify_state]
+check(verify_record ~= nil and verify_record.flow == "verify"
+    and verify_record.code_verifier ~= nil, "verify start stores PKCE record")
+check(body.authorization_url:find("^https://claude%.ai/oauth/authorize%?", 1) ~= nil,
+    "verify start URL hits claude.ai authorize")
+check(body.authorization_url:find("state=" .. verify_record.code_verifier, 1, true) ~= nil,
+    "verify start URL state equals the PKCE verifier")
+check(body.authorization_url:find("code=true", 1) ~= nil, "verify start URL carries code=true")
+
+-- Verify complete: CODE#STATE split, single-use state, exchange, approval.
+http_queue[1] = { status = 200, data = { access_token = "at-an", refresh_token = "rt-an",
+    expires_in = 28800 } }
+raw_body = require("cjson.safe").encode({
+    state = verify_state,
+    code_state = "anth-code#" .. verify_record.code_verifier,
+})
+status, body = call("/test/auth/verify/complete")
+check(status == 200 and body.status == "approved", "verify complete approves")
+check(stored_sessions["at-an"] ~= nil and stored_sessions["at-an"].refresh_token == "rt-an",
+    "verify complete stores session with refresh token")
+check(stored_sessions["at-an"].session_id == "test-session",
+    "verify complete binds the CLI session id")
+local an_device = stored_devices[an_gw_code]
+check(an_device.approved == true and an_device.session_bearer == "at-an",
+    "verify complete marks the device record approved")
+
+-- Replay: the consumed state is gone.
+raw_body = require("cjson.safe").encode({
+    state = verify_state,
+    code_state = "anth-code#" .. verify_record.code_verifier,
+})
+status, body = call("/test/auth/verify/complete")
+check(status == 400, "verify complete state is single-use")
+
+-- Poll after approval: short-circuit returns the stored bearer, keeps the
+-- persisted session record intact (refresh token survives), no HTTP.
+local session_writes_before = store_calls.store_session
+raw_body = require("cjson.safe").encode({ device_code = an_gw_code })
+status, body = call("/test/auth/device/poll")
+check(status == 200 and body.access_token == "at-an", "approved poll returns the bearer")
+check(body.session_id == "test-session", "approved poll returns the CLI session id")
+check(store_calls.store_session == session_writes_before,
+    "approved poll does not rewrite the session record")
+check(stored_sessions["at-an"].refresh_token == "rt-an",
+    "approved poll leaves the session refresh token intact")
+
+-- Beta query: ?beta=true appended on /v1/messages only, never duplicated.
+local fresh_an = make_jwt({ sub = "user-an", exp = now + 3600 })
+session_for_bearer = { access_token = fresh_an, refresh_token = "rt-an",
+    expires_at = now + 3600, issued_access_token_hash = "cccccccccccccccc",
+    sub = "user-an", session_id = "test-session" }
+uri_args = {}
+local an_ret = call("/test/api/v1/messages", { Authorization = "Bearer " .. fresh_an })
+check(an_ret == nil, "anthropic proxy fresh session continues")
+check(#set_uri_args_log == 1 and set_uri_args_log[1].beta == "true",
+    "beta=true appended on the messages path")
+uri_args = { beta = "true" }
+call("/test/api/v1/messages", { Authorization = "Bearer " .. fresh_an })
+check(#set_uri_args_log == 0, "existing beta argument kept as-is")
+uri_args = {}
+call("/test/api/chat", { Authorization = "Bearer " .. fresh_an })
+check(#set_uri_args_log == 0, "no beta argument on other paths")
 
 if fail > 0 then
     io.stderr:write("test_oauth_auth: " .. fail .. " failed\n")

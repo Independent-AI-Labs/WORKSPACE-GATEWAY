@@ -21,10 +21,60 @@ local function normalize_usage(usage)
                 reasoning_tokens = output_details.reasoning_tokens or 0,
             }
         end
+        --Anthropic reports cache tokens as separate top-level counts that
+        --input_tokens EXCLUDES (OpenAI totals include the cached subset).
+        --Fold into the inclusive convention the extractor and cost formula
+        --expect: total input covers reads + writes; cached_tokens carries
+        --the read side. Cache writes bill at the plain input rate.
+        local cache_read = tonumber(usage.cache_read_input_tokens) or 0
+        local cache_write = tonumber(usage.cache_creation_input_tokens) or 0
+        if cache_read > 0 or cache_write > 0 then
+            normalized.prompt_tokens = (usage.input_tokens or 0) + cache_read + cache_write
+            normalized.total_tokens = normalized.prompt_tokens + normalized.completion_tokens
+            normalized.prompt_tokens_details = {
+                cached_tokens = (normalized.prompt_tokens_details
+                    and normalized.prompt_tokens_details.cached_tokens or 0) + cache_read,
+            }
+        end
         return normalized
     end
     return usage
 end
+
+--Anthropic splits final counts across events (message_start carries the
+--input side, message_delta the final output); OpenAI repeats running
+--totals. Taking the larger of each dimension lands on the final totals
+--under both conventions.
+M.normalize_usage = normalize_usage
+local function merge_usage(dst, src)
+    if not dst then return src end
+    local merged = {
+        prompt_tokens = math.max(tonumber(dst.prompt_tokens) or 0, tonumber(src.prompt_tokens) or 0),
+        completion_tokens = math.max(tonumber(dst.completion_tokens) or 0, tonumber(src.completion_tokens) or 0),
+    }
+    --total is defined as input + output in every supported convention, so
+    --derive it after the merge; max() alone cannot recombine a split pair.
+    merged.total_tokens = merged.prompt_tokens + merged.completion_tokens
+    local function detail_value(u, key, field)
+        local d = u[key]
+        if type(d) == "table" then return tonumber(d[field]) or 0 end
+        return 0
+    end
+    local cached = math.max(
+        detail_value(dst, "prompt_tokens_details", "cached_tokens"),
+        detail_value(src, "prompt_tokens_details", "cached_tokens"))
+    if cached > 0 then
+        merged.prompt_tokens_details = { cached_tokens = cached }
+    end
+    local reasoning = math.max(
+        detail_value(dst, "completion_tokens_details", "reasoning_tokens"),
+        detail_value(src, "completion_tokens_details", "reasoning_tokens"))
+    if reasoning > 0 then
+        merged.completion_tokens_details = { reasoning_tokens = reasoning }
+    end
+    return merged
+end
+M.merge_usage = merge_usage
 
 function M.buffer_chunk(existing, new_chunk)
     if type(new_chunk) ~= "string" or new_chunk == "" then
@@ -58,9 +108,11 @@ local function event_has_content(obj)
         if type(rc) == "string" and rc ~= "" then return true end
     end
     local et = type(obj.type) == "string" and obj.type or ""
-    if et:sub(-6) == ".delta" then
+    if et:sub(-6) == ".delta" or et == "content_block_delta" then
         local d = obj.delta
         if type(d) == "string" and d ~= "" then return true end
+        --Anthropic content_block_delta: delta is a table carrying .text
+        if type(d) == "table" and type(d.text) == "string" and d.text ~= "" then return true end
     end
     return false
 end
@@ -82,14 +134,33 @@ function M.scan_sse_for_usage(text)
                     if not has_content and event_has_content(obj) then
                         has_content = true
                     end
+                    --Anthropic terminates with a message_stop event, not a
+                    --[DONE] sentinel; both count as a completed stream.
+                    if obj.type == "message_stop" then
+                        done = true
+                    end
                     local response = type(obj.response) == "table" and obj.response or obj
-                    if response.usage and type(response.usage) == "table" then
-                        usage = normalize_usage(response.usage)
-                        local ec = tonumber(response.usage.estimated_cost)
+                    --message_start carries the input-side usage under
+                    --obj.message.usage; message_delta carries the final
+                    --output at the top level.
+                    local candidate = response.usage
+                    if type(obj.message) == "table" and type(obj.message.usage) == "table" then
+                        candidate = obj.message.usage
+                    end
+                    if type(candidate) == "table" then
+                        local normalized = normalize_usage(candidate)
+                        if normalized then
+                            usage = merge_usage(usage, normalized)
+                        end
+                        local ec = tonumber(candidate.estimated_cost)
                         if ec and ec > 0 then cost = ec end
                     end
-                    if response.model and type(response.model) == "string" and response.model ~= "" and not model then
-                        model = response.model
+                    local model_source = response.model
+                    if type(obj.message) == "table" and type(obj.message.model) == "string" then
+                        model_source = obj.message.model
+                    end
+                    if type(model_source) == "string" and model_source ~= "" and not model then
+                        model = model_source
                     end
                     local chunk_cost = tonumber(obj.cost)
                     if chunk_cost and chunk_cost > 0 then

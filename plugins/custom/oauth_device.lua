@@ -1,12 +1,15 @@
 -- Generic OAuth device/browser protocol engines for oauth-auth.
 --
--- Two engines, selected by conf.protocol:
+-- Three engines, selected by conf.protocol:
 --   rfc8628       - pure RFC 8628: form/JSON POSTs, standard error codes in
 --                   the token response body (authorization_pending,
 --                   slow_down, expired_token, access_denied).
 --   chatgpt_device - ChatGPT/Codex custom two-step flow: JSON usercode +
 --                    token exchange (device -> authorization_code ->
 --                    /oauth/token), pending signalled by HTTP 403/404.
+--   anthropic     - Claude browser PKCE grant behind a gateway-minted
+--                   device facade (JSON token bodies, state == verifier,
+--                   token_host separate from oauth_host).
 --
 -- All provider differences are conf knobs (paths, encoding, user_agent).
 -- No provider names appear in this file.
@@ -14,6 +17,10 @@ local cjson = require("cjson.safe")
 local http = require("resty.http")
 local random = require("resty.random")
 local sha256_lib = require("resty.sha256")
+local ok_broker, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
+if not ok_broker then
+    oauth_broker = require("oauth_broker")
+end
 
 local M = {}
 
@@ -290,6 +297,134 @@ function engines.chatgpt_device.poll_device_token(conf, device_code, user_code)
 end
 
 engines.chatgpt_device.refresh_access_token = refresh_common
+
+-- Anthropic browser-PKCE engine with a gateway-minted device facade.
+-- Upstream has no RFC 8628 endpoint (RES-ANTHROPIC-OAUTH F3): the gateway
+-- issues the user_code/device_code pair itself and completes Anthropic's
+-- authorization-code + PKCE grant behind the verify page. Protocol quirks
+-- that MUST be preserved: the authorize URL carries state == the PKCE
+-- verifier and code=true; token exchange and refresh are JSON bodies; the
+-- manual callback pastes CODE#STATE; the token host differs from the
+-- authorize host.
+engines.anthropic = {}
+
+local USER_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+local function mint_user_code()
+    local bytes = random.bytes(8, true)
+    local chars = {}
+    for i = 1, 8 do
+        local idx = (string.byte(bytes, i) % #USER_CODE_ALPHABET) + 1
+        chars[i] = USER_CODE_ALPHABET:sub(idx, idx)
+    end
+    local flat = table.concat(chars)
+    return flat:sub(1, 4) .. "-" .. flat:sub(5, 8)
+end
+
+local function token_origin(conf)
+    local origin = conf.token_host
+    if not origin or origin == "" then
+        origin = host(conf)
+    end
+    return (origin:gsub("/$", ""))
+end
+
+function engines.anthropic.request_device_authorization(conf)
+    local user_code = mint_user_code()
+    local device_code = oauth_broker.gateway_device_code("anthropic-device:" .. user_code)
+    local origin = conf.verification_origin
+    if not origin or origin == "" then
+        --Derive from the incoming request when no public origin is set;
+        --pcall guards resty CLI contexts without a full ngx.var table.
+        local okr, derived = pcall(function()
+            return (ngx.var.scheme or "https") .. "://" .. (ngx.var.host or "localhost")
+        end)
+        origin = okr and derived or "http://localhost"
+    end
+    local verify_uri = origin:gsub("/$", "") .. conf.auth_base
+        .. "/verify?user_code=" .. url_encode(user_code)
+    return {
+        user_code = user_code,
+        device_code = device_code,
+        verification_uri = verify_uri,
+        verification_uri_complete = verify_uri,
+        expires_in = tonumber(conf.user_code_ttl) or 900,
+        interval = 5,
+        -- Secondary lookup key for the verify page: maps user_code to the
+        -- gateway device_code stored in the pending record.
+        user_code_index = "uc-" .. user_code,
+    }, nil
+end
+
+function engines.anthropic.poll_device_token()
+    --Approval is written on the device record by the verify page and
+    --short-circuited in oauth-auth before the engine is consulted, so
+    --reaching here means the user has not finished yet.
+    return { pending = true, error_code = "authorization_pending" }, nil
+end
+
+function engines.anthropic.build_authorize_url(conf, redirect_uri, verifier, challenge)
+    local params = {
+        response_type = "code",
+        client_id = conf.client_id,
+        redirect_uri = redirect_uri,
+        state = verifier,
+        code_challenge = challenge,
+        code_challenge_method = "S256",
+    }
+    if conf.scopes and conf.scopes ~= "" then
+        params.scope = conf.scopes
+    end
+    for k, v in pairs(conf.authorize_params or {}) do
+        params[k] = v
+    end
+    local parts = {}
+    for key, value in pairs(params) do
+        parts[#parts + 1] = url_encode(key) .. "=" .. url_encode(value)
+    end
+    return host(conf) .. conf.authorize_path .. "?" .. table.concat(parts, "&")
+end
+
+function engines.anthropic.exchange_code(conf, code, state, redirect_uri, verifier)
+    local res, err = post_json(conf, token_origin(conf) .. conf.token_path, {
+        grant_type = "authorization_code",
+        code = code,
+        state = state,
+        redirect_uri = redirect_uri,
+        client_id = conf.client_id,
+        code_verifier = verifier,
+    })
+    if not res then return nil, err end
+    if res.status < 200 or res.status >= 300 then
+        return nil, "token exchange failed (HTTP " .. res.status .. ")"
+    end
+    local token, tok_err = token_from_response(res, { require_refresh_token = true })
+    if not token then return nil, tok_err end
+    return token, nil
+end
+
+function engines.anthropic.refresh_access_token(conf, refresh_token)
+    local res, err = post_json(conf, token_origin(conf) .. conf.token_path, {
+        grant_type = "refresh_token",
+        refresh_token = refresh_token,
+        client_id = conf.client_id,
+    })
+    if not res then return nil, err end
+    if res.status == 401 or res.status == 403 then
+        return nil, "invalid_grant"
+    end
+    if res.status >= 500 then
+        return nil, "refresh server error (HTTP " .. res.status .. ")"
+    end
+    --Anthropic may answer a refresh without a new refresh_token: keep the
+    --old one unless rotation is required and actually happened.
+    local token, tok_err = token_from_response(res, {
+        require_refresh_token = conf.refresh_rotation_required ~= false,
+        keep_refresh_token = conf.refresh_rotation_required == false and refresh_token or nil,
+    })
+    if not token then return nil, "refresh failed: " .. tok_err end
+    return token, nil
+end
 
 function M.engine(conf)
     return engines[conf.protocol or "rfc8628"] or engines.rfc8628

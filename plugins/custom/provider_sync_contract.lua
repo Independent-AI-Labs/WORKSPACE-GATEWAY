@@ -5,6 +5,7 @@ local MODES = {
     authorization_code_pkce = { suffix = "browser-oauth", label = "Browser OAuth" },
     virtual_key = { suffix = "virtual-key", label = "Virtual Key" },
     api_key = { suffix = "api-key", label = "API Key" },
+    passthrough = { suffix = "passthrough", label = "Passthrough" },
     none = { suffix = "no-auth", label = "No Auth" },
 }
 
