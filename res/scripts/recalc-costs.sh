@@ -36,9 +36,12 @@ case "$_SELF" in
 esac
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-if [ ! -f "$REPO_ROOT/conf/clickhouse-init.sql" ]; then
+if [ ! -f "$REPO_ROOT/conf/sql/clickhouse-init.sql" ]; then
     REPO_ROOT="$(pwd)"
 fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
 
 CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
 CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
@@ -200,14 +203,8 @@ LIMIT_CLAUSE=""
 [ "$LIMIT" -gt 0 ] && LIMIT_CLAUSE="LIMIT $LIMIT"
 
 ROWS="$TMP_DIR/rows.tsv"
-ch "SELECT event_id, request_id, toString(timestamp), provider_id, model,
-           prompt_tokens, completion_tokens, total_tokens, cached_tokens,
-           cache_write_tokens, reasoning_tokens, toString(cost_source), cost
-    FROM ${DB}.usage_log
-    WHERE $WHERE
-    ORDER BY timestamp
-    $LIMIT_CLAUSE
-    FORMAT TabSeparated" > "$ROWS"
+ch "$(sql_render ops/recalc-costs/candidates.sql \
+    DB="$DB" WHERE="$WHERE" LIMIT_CLAUSE="$LIMIT_CLAUSE")" > "$ROWS"
 
 ROW_COUNT=$(grep -c . "$ROWS") || ROW_COUNT=0
 echo "[recalc] candidate rows: $ROW_COUNT"
@@ -255,15 +252,15 @@ fi
 # ---- 4. full pre-change backup (mandatory unless --no-backup) ----
 if [ "$DO_BACKUP" = true ]; then
   BNAME="pre-recalc-${RUN_ID#run-}"
-  echo "[recalc] BACKUP DATABASE ${DB} TO Disk('backups','${BNAME}') ..."
-  if ! BACKUP_OUT=$(ch_long "BACKUP DATABASE ${DB} TO Disk('backups', '${BNAME}')"); then
+  echo "[recalc] backing up ${DB} as ${BNAME} ..."
+  if ! BACKUP_OUT=$(ch_long "$(sql_render ops/gateway-ch-backup/backup.sql DB="$DB" NAME="$BNAME")"); then
     echo "[recalc] ERROR: BACKUP statement failed; aborting before any write" >&2
     printf '%s\n' "$BACKUP_OUT" >&2
     exit 1
   fi
   # system.backups.name is the full spec Disk('backups', '<name>'), so match
   # by substring rather than equality on the bare name.
-  BSTATUS=$(ch_value "SELECT status FROM system.backups WHERE position(name, '${BNAME}') > 0 ORDER BY start_time DESC LIMIT 1") || BSTATUS=""
+  BSTATUS=$(ch_value "$(sql_render ops/gateway-ch-backup/status.sql NAME="$BNAME")") || BSTATUS=""
   if [ "$BSTATUS" != "BACKUP_CREATED" ]; then
     echo "[recalc] ERROR: backup '${BNAME}' status='${BSTATUS}' (not BACKUP_CREATED); aborting" >&2
     exit 1
@@ -274,24 +271,9 @@ else
 fi
 
 # ---- 5. audit table + append old->new before mutating ----
-ch "CREATE TABLE IF NOT EXISTS ${DB}.cost_recalc_audit (
-      event_id String,
-      provider_id LowCardinality(String) DEFAULT '',
-      new_provider_id LowCardinality(String) DEFAULT '',
-      model LowCardinality(String) DEFAULT '',
-      old_cost Float64,
-      new_cost Float64,
-      old_source LowCardinality(String) DEFAULT '',
-      run_id String,
-      timestamp DateTime64(3) DEFAULT now()
-    )
-    ENGINE = MergeTree()
-    PARTITION BY toYYYYMM(timestamp)
-    ORDER BY (event_id, run_id, timestamp)
-    TTL toDateTime(timestamp) + INTERVAL 13 MONTH"
+ch "$(sql_render ops/recalc-costs/create-audit.sql DB="$DB")"
 # Existing audit tables predate the provider-backfill column.
-ch "ALTER TABLE ${DB}.cost_recalc_audit
-    ADD COLUMN IF NOT EXISTS new_provider_id LowCardinality(String) DEFAULT ''"
+ch "$(sql_render ops/recalc-costs/alter-audit-add-column.sql DB="$DB")"
 
 echo "[recalc] writing audit rows..."
 {
@@ -303,9 +285,7 @@ echo "[recalc] writing audit rows..."
 } > "$TMP_DIR/audit.tsv"
 
 {
-  printf 'INSERT INTO %s.cost_recalc_audit\n' "$DB"
-  printf '    (event_id, provider_id, new_provider_id, model, old_cost, new_cost, old_source, run_id)\n'
-  printf '    FORMAT TabSeparated\n'
+  sql_render ops/recalc-costs/insert-audit.sql DB="$DB"
   cat "$TMP_DIR/audit.tsv"
 } > "$TMP_DIR/audit.payload"
 ch_payload "$TMP_DIR/audit.payload"
@@ -350,12 +330,9 @@ done < "$CORRECTIONS"
 if [ "${#PG[@]}" -gt 0 ]; then
   for k in "${!PG[@]}"; do
     new_pid="${k##*|}"
-    if ALTER_OUT=$(ch "ALTER TABLE ${DB}.usage_log
-           UPDATE provider_id = $(esc "$new_pid")
-           WHERE ${PG[$k]}
-             AND provider_id != $(esc "$new_pid")
-             AND cost_source IN ($SOURCE_SQL)
-           SETTINGS mutations_sync = 1"); then
+    if ALTER_OUT=$(ch "$(sql_render ops/recalc-costs/alter-provider.sql \
+           DB="$DB" NEW_PID="$(esc "$new_pid")" PREDICATE="${PG[$k]}" \
+           SOURCE_SQL="$SOURCE_SQL")"); then
       APPLIED=$((APPLIED + 1))
     else
       FAILED=$((FAILED + 1))
@@ -378,13 +355,9 @@ if [ "${#COST_MODELS[@]}" -gt 0 ]; then
           + toInt64(cached_tokens) * $pcr / 1e6
           + toInt64(cache_write_tokens) * $pcw / 1e6
           + toInt64(reasoning_tokens) * $prr / 1e6"
-    if ALTER_OUT=$(ch "ALTER TABLE ${DB}.usage_log
-           UPDATE cost = $EXPR, cost_source = $(esc "$nsrc")
-           WHERE provider_id = $(esc "$cpid")
-             AND model IN (${COST_MODELS[$gkey]})
-             AND cost_source IN ($SOURCE_SQL)
-             AND (abs(cost - ($EXPR)) > $EPSILON OR cost_source != $(esc "$nsrc"))
-           SETTINGS mutations_sync = 1"); then
+    if ALTER_OUT=$(ch "$(sql_render ops/recalc-costs/alter-cost.sql \
+           DB="$DB" EXPR="$EXPR" NEW_SOURCE="$(esc "$nsrc")" PID="$(esc "$cpid")" \
+           MODELS="${COST_MODELS[$gkey]}" SOURCE_SQL="$SOURCE_SQL" EPSILON="$EPSILON")"); then
       APPLIED=$((APPLIED + 1))
     else
       FAILED=$((FAILED + 1))
@@ -396,4 +369,4 @@ fi
 
 echo "[recalc] applied=$APPLIED failed=$FAILED (provider groups=${#PG[@]} cost groups=${#COST_MODELS[@]}) run_id=$RUN_ID"
 [ "$FAILED" -eq 0 ] || exit 1
-echo "[recalc] done. Audit: SELECT * FROM ${DB}.cost_recalc_audit WHERE run_id = '${RUN_ID}'"
+echo "[recalc] done. Audit rows for run_id=${RUN_ID} are in ${DB}.cost_recalc_audit."

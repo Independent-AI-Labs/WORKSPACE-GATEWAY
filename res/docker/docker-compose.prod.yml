@@ -61,7 +61,7 @@ services:
       - prod-clickhouse-data:/var/lib/clickhouse
       # 00- prefix: provision users/grants BEFORE init.sql baseline schema.
       - ../../res/docker/clickhouse-provision.sh:/docker-entrypoint-initdb.d/00-provision.sh:ro
-      - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../../conf/sql/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ../../conf/clickhouse-disable-metric-logs.xml:/etc/clickhouse-server/config.d/disable-metric-logs.xml:ro
       - ../../conf/clickhouse-storage-tiering.xml:/etc/clickhouse-server/config.d/storage-tiering.xml:ro
       - ../../conf/clickhouse-performance.xml:/etc/clickhouse-server/config.d/performance.xml:ro
@@ -91,7 +91,7 @@ services:
       clickhouse:
         condition: service_healthy
     volumes:
-      - ../../conf/migrations:/migrations:ro
+      - ../../conf/sql/migrations:/migrations:ro
     entrypoint:
       - "migrate"
       - "-path=/migrations/"

@@ -108,8 +108,8 @@ flowchart LR
 
 ## 5. Schema Split and Tiering
 
-**Migrations:** `conf/migrations/000010_split_request_bodies.{up,down}.sql`,
-`000011_tiered_retention.{up,down}.sql`. `conf/clickhouse-init.sql` stays
+**Migrations:** `conf/sql/migrations/000010_split_request_bodies.{up,down}.sql`,
+`000011_tiered_retention.{up,down}.sql`. `conf/sql/clickhouse-init.sql` stays
 UNCHANGED as the historical baseline: fresh volumes get init.sql at initdb,
 then golang-migrate converges them (000001-000011) like existing volumes  - 
 one schema lineage, no forked fresh-install path.
@@ -231,8 +231,8 @@ allowlist) and the verification matrix executed from this host (V7).
 |------|--------|
 | `res/docker/clickhouse-provision.sh` | new  -  user/grant provisioning |
 | `conf/clickhouse-storage-tiering.xml` | new  -  tiered storage policy |
-| `conf/migrations/000010_*`, `000011_*` | new  -  body split, tiered retention |
-| `conf/clickhouse-init.sql` | unchanged historical baseline; fresh volumes converge via migrations 000010/000011 |
+| `conf/sql/migrations/000010_*`, `000011_*` | new  -  body split, tiered retention |
+| `conf/sql/clickhouse-init.sql` | unchanged historical baseline; fresh volumes converge via migrations 000010/000011 |
 | `conf/vector.toml` | second sink + basic auth |
 | `plugins/custom/sse-usage.lua` | auth fields + Authorization header |
 | `conf/apisix.yaml` + `.j2` | sse-usage auth fields on 15 blocks |

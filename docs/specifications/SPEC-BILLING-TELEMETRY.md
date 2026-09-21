@@ -11,8 +11,8 @@
 
 **Cross-references:**
 - [REQ-BILLING-TELEMETRY](../requirements/REQ-BILLING-TELEMETRY.md): requirements
-- [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql): tables + billing_ledger_mv
-- [`conf/migrations/`](../../conf/migrations): 000001-000007 up/down pairs
+- [`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql): tables + billing_ledger_mv
+- [`conf/sql/migrations/`](../../conf/sql/migrations): 000001-000007 up/down pairs
 - [`conf/vector.toml`](../../conf/vector.toml): source → remap → ClickHouse sink
 - [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua): usage_log writer
 - [`plugins/custom/sse_usage_lib.lua`](../../plugins/custom/sse_usage_lib.lua): SSE/JSON parsing lib
@@ -65,7 +65,7 @@ request |  request-id plugin -> X-Request-Id                      |
 
 ## 4. Table Schemas
 
-From [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). All MergeTree, `PARTITION BY toYYYYMM`, `SETTINGS index_granularity = 8192`, no deletion TTL  -  tiered compression retention per REQ-SECURITY-HARDENING FR-4.
+From [`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql). All MergeTree, `PARTITION BY toYYYYMM`, `SETTINGS index_granularity = 8192`, no deletion TTL  -  tiered compression retention per REQ-SECURITY-HARDENING FR-4.
 
 ### 4.1 request_log (written by Vector)
 ORDER BY `(provider, model, timestamp)`. Columns: `event_id`, `provider`, `model`, `stream`, `method`, `uri`, `status`, `upstream_response_time_s`, `request_size`, `response_size`, `client_ip`, `api_key_id`, `tenant_id`, `user_id`, `key_id`, `session_id`, `request_id`, `project_id`, `parent_session_id`, `client_type`, `agent_name`, `opencode_version`, `user_agent`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `req_body`, `resp_body`, `redact_active`, `redact_token_count`, `timestamp DateTime64(3)`.
@@ -128,8 +128,8 @@ Remap stages:
 
 | File | Purpose | Key Changes |
 |------|---------|-------------|
-| [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql) | DB, 4 tables, billing_ledger_mv |  -  |
-| [`conf/migrations/00000[1-5].*.sql`](../../conf/migrations) | Schema evolution |  -  |
+| [`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql) | DB, 4 tables, billing_ledger_mv |  -  |
+| [`conf/sql/migrations/00000[1-5].*.sql`](../../conf/sql/migrations) | Schema evolution |  -  |
 | [`conf/vector.toml`](../../conf/vector.toml) | Ingest pipeline + GENERATED canonicalization |  -  |
 | [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua) | usage_log writer |  -  |
 | [`plugins/custom/sse_usage_lib.lua`](../../plugins/custom/sse_usage_lib.lua) | chunk buffering, usage scanning, token extraction |  -  |
@@ -143,7 +143,7 @@ Remap stages:
 | request_log pipeline | Implemented | conf/vector.toml |
 | usage_log writer | Implemented | plugins/custom/sse-usage.lua |
 | billing_ledger_mv | Implemented | clickhouse-init.sql:190-221; migrations 000004/000005 |
-| Migrations 000001-000007 | Implemented | conf/migrations/ |
+| Migrations 000001-000007 | Implemented | conf/sql/migrations/ |
 | Model canonicalization | Implemented | vector.toml GENERATED block; sse-usage.lua:190-191 |
 | Reconciler (gateway totals) | Implemented | res/scripts/reconciler.sh |
 | Reconciler upstream comparison | Not implemented | v2 comment in reconciler.sh |

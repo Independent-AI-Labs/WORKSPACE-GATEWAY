@@ -20,17 +20,10 @@ opencode_stats_dry_run_report() {
         END { printf "[DRY-RUN] rows priced via models.dev: %d; unknown: %d\n", res+0, unpriced+0 }
     ' "$TMPD/gateway_providers.tsv" "$TMPD/direct_pricing.tsv" "$TMPD/pricing.tsv" "$TMPD/dedup.tsv"
     if curl -sSf --max-time 5 "$CH_URL/ping" 2>&1 | grep -q 'Ok.'; then
-        EX_U=$(ch "SELECT count() FROM $DB.usage_log WHERE event_id LIKE 'ocm_%'")
-        EX_R=$(ch "SELECT count() FROM $DB.request_log WHERE event_id LIKE 'ocr_%'")
+        EX_U=$(ch "$(sql_render ops/migrate-opencode-stats/count-prefixed.sql DB="$DB" TABLE=usage_log PREFIX=ocm_)")
+        EX_R=$(ch "$(sql_render ops/migrate-opencode-stats/count-prefixed.sql DB="$DB" TABLE=request_log PREFIX=ocr_)")
         echo "[DRY-RUN] already present: usage_log=$EX_U request_log=$EX_R"
-        ch "SELECT event_id, model, model_raw, provider_id,
-                   toString(prompt_tokens), toString(completion_tokens),
-                   toString(total_tokens), toString(cached_tokens),
-                   toString(cache_write_tokens), toString(reasoning_tokens),
-                   toString(cost), cost_source, toString(reported_cost),
-                   toString(timestamp),
-                   toString(duration_ms), toString(ttft_content_ms)
-            FROM $DB.usage_log WHERE event_id LIKE 'ocm_%' FORMAT TabSeparated" \
+        ch "$(sql_render ops/migrate-opencode-stats/usage-dump.sql DB="$DB" PREFIX=ocm_)" \
             > "$TMPD/ch_usage.tsv"
         awk -F'\t' '
             NR==FNR {
@@ -90,7 +83,7 @@ insert_table() {
         [ -s "$b" ] || continue
         local ids exist keep
         ids=$(jq -r '.event_id' "$b" | awk 'BEGIN{q="\x27"} {printf "%s", (NR>1?",":"") q $0 q}')
-        exist=$(ch "SELECT event_id FROM $DB.$table WHERE event_id IN ($ids)")
+        exist=$(ch "$(sql_render ops/migrate-opencode-stats/existing-ids.sql DB="$DB" TABLE="$table" IDS="$ids")")
         if [ -n "$exist" ]; then
             printf '%s\n' "$exist" | sort > "$TMPD/exist.txt"
             jq -r '.event_id' "$b" | sort > "$TMPD/batch_ids.txt"
@@ -106,7 +99,7 @@ insert_table() {
                 echo "[FAIL] batch filter produced no rows" >&2; return 1
             fi
             local code
-            if ! code=$({ printf 'INSERT INTO %s.%s FORMAT JSONEachRow\n' "$DB" "$table"; cat "$TMPD/keep.jsonl"; } \
+            if ! code=$({ sql_render ops/migrate-opencode-stats/insert-json-each-row.sql DB="$DB" TABLE="$table"; cat "$TMPD/keep.jsonl"; } \
                 | curl -sS --max-time 300 -X POST --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @- \
                     -o "$TMPD/resp.txt" -w '%{http_code}'); then
                 echo "[FAIL] insert request error for $table" >&2; return 1

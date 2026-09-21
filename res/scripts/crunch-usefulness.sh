@@ -11,7 +11,7 @@ set -euo pipefail
 #
 # Usage: crunch-usefulness.sh [--dry-run] [--rebuild] [--days N] [--since 'YYYY-MM-DD hh:mm:ss'] [--limit N]
 #   --rebuild  DROP + recreate request_signals from the canonical DDL in
-#              conf/clickhouse-init.sql, then crunch. For clean recomputes
+#              conf/sql/clickhouse-init.sql, then crunch. For clean recomputes
 #              after dictionary/matcher changes; no manual SQL ever.
 # Env:  CLICKHOUSE_HOST (default localhost), CLICKHOUSE_PORT (default 8123),
 #       PODMAN_BIN (default $PODMAN_PATH or podman), APISIX_CONTAINER,
@@ -52,13 +52,16 @@ case "$_SELF" in
 esac
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-if [ ! -f "$REPO_ROOT/conf/clickhouse-init.sql" ]; then
+if [ ! -f "$REPO_ROOT/conf/sql/clickhouse-init.sql" ]; then
     REPO_ROOT="$(pwd)"
 fi
-if [ ! -f "$REPO_ROOT/conf/clickhouse-init.sql" ]; then
+if [ ! -f "$REPO_ROOT/conf/sql/clickhouse-init.sql" ]; then
     echo "ERROR: cannot locate repo root (invoked as $_SELF, cwd $(pwd))" >&2
     exit 1
 fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
 
 PROF="$REPO_ROOT/conf/profanity/en.txt"
 PHRASES="$REPO_ROOT/conf/profanity/frustration-phrases.txt"
@@ -147,16 +150,16 @@ if $REBUILD; then
     if $DRY_RUN; then
         echo "[crunch] dry-run: would DROP + recreate ${DATABASE}.request_signals from canonical DDL"
     else
-        # Canonical DDL single source of truth: conf/clickhouse-init.sql.
+        # Canonical DDL single source of truth: conf/sql/clickhouse-init.sql.
         # Extract the request_signals CREATE block verbatim (up to the first
         # line ending in a semicolon).
         DDL="$(awk '/^CREATE TABLE IF NOT EXISTS llm_gateway\.request_signals \(/,/;$/' \
-            "$REPO_ROOT/conf/clickhouse-init.sql")"
+            "$REPO_ROOT/conf/sql/clickhouse-init.sql")"
         if [ -z "$DDL" ] || ! printf '%s' "$DDL" | grep -q 'ENGINE = ReplacingMergeTree'; then
             echo "[crunch] ERROR: could not extract request_signals DDL from clickhouse-init.sql" >&2
             exit 1
         fi
-        ch "DROP TABLE IF EXISTS ${DATABASE}.request_signals" \
+        ch "$(sql_render ops/crunch-usefulness/drop-request-signals.sql DB="$DATABASE")" \
             || { echo "[crunch] ERROR: rebuild drop failed" >&2; exit 1; }
         ch "$DDL" \
             || { echo "[crunch] ERROR: rebuild create failed" >&2; exit 1; }
@@ -168,11 +171,8 @@ fi
 # the unparseable UNION branch draw from this filter). One prequery instead
 # of thousands of empty hourly SELECTs -- the loop below never touches an
 # empty window.
-HOURS=$(ch "SELECT DISTINCT toStartOfHour(timestamp) AS h
-FROM ${DATABASE}.request_log
-WHERE timestamp >= '${WT0_GLOBAL}' AND timestamp < '${WT1_GLOBAL}'
-  AND (uri LIKE '%/chat/completions%' OR uri LIKE '%/responses%')
-ORDER BY h FORMAT TabSeparated") \
+HOURS=$(ch "$(sql_render ops/crunch-usefulness/non-empty-hours.sql \
+    DB="$DATABASE" WT0="$WT0_GLOBAL" WT1="$WT1_GLOBAL")") \
   || { echo "[crunch] ERROR: hour prequery failed" >&2; exit 1; }
 N_HOURS=$(printf '%s\n' "$HOURS" | grep -c . ) || N_HOURS=0
 echo "[crunch] $N_HOURS non-empty hourly windows in range"
@@ -193,27 +193,20 @@ BLOCK_SIG=0
 # while block-aligned spans keep runs idempotent (deterministic boundaries).
 FLUSH_WINDOWS="${FLUSH_WINDOWS:-12}"
 
-INSERT_SQL="INSERT INTO ${DATABASE}.request_signals
-(request_id, model, timestamp, is_followup, parsed, profane, profane_count,
- profane_terms, frustrated, frustration_count, frustration_terms,
- signal_count, signal_weight, guard_blocks, guard_rules, user_rejections,
- rule_denials, dict_version)
-FORMAT TabSeparated
-"
+INSERT_SQL="$(sql_render ops/crunch-usefulness/insert-request-signals.sql DB="$DATABASE")"
 
 flush_block() {
   [ "$BLOCK_COUNT" -eq 0 ] && return 0
   if $DRY_RUN; then
     echo "[crunch] ${BLOCK_START} .. ${BLOCK_END}: dry-run windows=$BLOCK_COUNT rows=$BLOCK_ROWS signal_rows=$BLOCK_SIG"
   else
-    ch "ALTER TABLE ${DATABASE}.request_signals
-        DELETE WHERE timestamp >= '${BLOCK_START}' AND timestamp < '${BLOCK_END}'
-        SETTINGS mutations_sync = 2" \
+    ch "$(sql_render ops/crunch-usefulness/delete-window.sql \
+        DB="$DATABASE" BLOCK_START="$BLOCK_START" BLOCK_END="$BLOCK_END")" \
       || { echo "[crunch] ERROR: block delete failed for ${BLOCK_START}" >&2; exit 1; }
     # curl concatenates multiple --data-binary parts with '&' (form-field
     # semantics), which corrupts the first TSV row of every block insert
     # ("&<request_id>"). Build ONE payload file and send it whole.
-    { printf '%s' "$INSERT_SQL"; cat "$BATCH_FILE"; } > "$TMP_DIR/insert.payload"
+    { printf '%s\n' "$INSERT_SQL"; cat "$BATCH_FILE"; } > "$TMP_DIR/insert.payload"
     INSERT_CODE=$(curl -sS --max-time 300 \
         -w '%{http_code}' -o "$TMP_DIR/insert.err" "$CH_URL/" \
         --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
@@ -242,48 +235,9 @@ while IFS= read -r WT0; do
   LIMIT_CLAUSE=""
   [[ "$LIMIT" -gt 0 ]] && LIMIT_CLAUSE="LIMIT $LIMIT"
 
-  ROWS=$(ch "
-SELECT request_id, model, toString(ts) AS ts, if(length(asst) > 0, 1, 0) AS is_followup,
-       guard_blocks, guard_rules_csv, user_rejections, rule_denials, last_msg FROM (
-    SELECT r.request_id AS request_id, r.model AS model, r.timestamp AS ts,
-           countMatches(b.req_body, 'BLOCKED: bash ') + countMatches(b.req_body, 'BLOCKED: ts=') AS guard_blocks,
-           arrayStringConcat(extractAll(b.req_body, '[(]([a-z][a-z0-9-]+)[)] [(]2[0-9]{3}-[0-9]{2}-[0-9]{2}T'), ',') AS guard_rules_csv,
-           countMatches(b.req_body, 'The user rejected permission to use this specific tool call') AS user_rejections,
-           countMatches(b.req_body, 'The user has specified a rule which prevents you from using this specific tool call') AS rule_denials,
-           arrayFilter(m -> JSONExtractString(m, 'role') = 'assistant',
-               JSONExtractArrayRaw(b.req_body, 'messages')) AS asst,
-           arrayFilter(m -> JSONExtractString(m, 'role') = 'user',
-               JSONExtractArrayRaw(b.req_body, 'messages')) AS usr,
-           if(length(usr) > 0, usr[length(usr)], '') AS last_raw,
-           if(last_raw = '', '',
-             multiIf(
-               JSONType(last_raw, 'content') = 'String',
-                 JSONExtractString(last_raw, 'content'),
-               JSONType(last_raw, 'content') = 'Array',
-                 arrayStringConcat(arrayMap(
-                   p -> if(JSONType(p, 'text') = 'String', JSONExtractString(p, 'text'), ''),
-                   arrayFilter(p -> JSONHas(p, 'text'),
-                     JSONExtractArrayRaw(last_raw, 'content'))), ' '),
-               '')) AS last_msg
-    FROM ${DATABASE}.request_log AS r
-    INNER JOIN ${DATABASE}.request_bodies AS b ON r.event_id = b.event_id
-    WHERE r.timestamp >= '${WT0}' AND r.timestamp < '${WT1}'
-      AND b.req_body != ''
-      AND isValidJSON(b.req_body)
-      AND JSONType(b.req_body, 'messages') = 'Array'
-      AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%')
-)
-UNION ALL
-SELECT r.request_id AS request_id, r.model AS model, toString(r.timestamp) AS ts, 0 AS is_followup,
-       toUInt16(0) AS guard_blocks, '' AS guard_rules_csv, toUInt16(0) AS user_rejections, toUInt16(0) AS rule_denials, '' AS last_msg
-FROM ${DATABASE}.request_log AS r
-LEFT JOIN ${DATABASE}.request_bodies AS b ON r.event_id = b.event_id
-WHERE r.timestamp >= '${WT0}' AND r.timestamp < '${WT1}'
-  AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%')
-  AND (b.event_id = '' OR b.req_body = '' OR NOT isValidJSON(b.req_body)
-       OR JSONType(b.req_body, 'messages') != 'Array')
-${LIMIT_CLAUSE}
-FORMAT TabSeparated") || { echo "[crunch] ERROR: fetch failed for window ${WT0}" >&2; exit 1; }
+  ROWS=$(ch "$(sql_render ops/crunch-usefulness/fetch-window.sql \
+      DB="$DATABASE" WT0="$WT0" WT1="$WT1" LIMIT_CLAUSE="$LIMIT_CLAUSE")") \
+      || { echo "[crunch] ERROR: fetch failed for window ${WT0}" >&2; exit 1; }
 
   N_ROWS=$(printf '%s\n' "$ROWS" | grep -c . ) || N_ROWS=0
   if [ "$N_ROWS" -eq 0 ]; then

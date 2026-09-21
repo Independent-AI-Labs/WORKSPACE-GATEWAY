@@ -1,0 +1,1 @@
+SELECT count() as total_requests FROM llm_gateway.request_log WHERE {{ time_filter('timestamp') }} AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ({{ gf_str_multi('api_key') }}) AND model IN ({{ gf_str_multi('model') }})

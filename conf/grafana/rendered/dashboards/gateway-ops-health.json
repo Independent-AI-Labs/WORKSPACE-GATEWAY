@@ -1,0 +1,1096 @@
+{
+  "title": "Gateway Operations & Health",
+  "uid": "gateway-ops-health",
+  "tags": [
+    "gateway",
+    "llm"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 47,
+  "hideControls": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "2d",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "api_key",
+        "label": "Client API Key",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "multi": true,
+        "includeAll": true,
+        "allValue": null,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Requests",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "SELECT count() as total_requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "req",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#70c1b3"
+              },
+              {
+                "value": 1000,
+                "color": "#ffe066"
+              },
+              {
+                "value": 10000,
+                "color": "#b7990d"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "description": "Every logged request in the selected range, gateway traffic plus migrated history."
+    },
+    {
+      "id": 4,
+      "title": "Error Rate",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "SELECT round(countIf(status >= 400) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#70c1b3"
+              },
+              {
+                "value": 1,
+                "color": "#ffe066"
+              },
+              {
+                "value": 5,
+                "color": "#f25f5c"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "description": "Share of requests that returned 4xx or 5xx. 401/429 auth and rate-limit rejections are included; pick a single api key to see its own rate."
+    },
+    {
+      "id": 2,
+      "title": "Active Connections",
+      "type": "stat",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "apisix_nginx_http_current_connections{state=\"active\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#70c1b3"
+              },
+              {
+                "value": 50,
+                "color": "#ffe066"
+              },
+              {
+                "value": 100,
+                "color": "#f25f5c"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "description": "Live nginx connection count right now (Prometheus)."
+    },
+    {
+      "id": 5,
+      "title": "Request Rate (req/s)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(apisix_http_status{key_hash=~\"$api_key\"}[5m]))",
+          "legendFormat": "requests/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "description": "Requests per second through the gateway, 5-minute rolling rate."
+    },
+    {
+      "id": 7,
+      "title": "Status Code Breakdown",
+      "type": "piechart",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "SELECT toString(status) as status, count() as count FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY status ORDER BY status"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "#70c1b3"
+              },
+              {
+                "value": 200,
+                "color": "#70c1b3"
+              },
+              {
+                "value": 401,
+                "color": "#b7990d"
+              },
+              {
+                "value": 500,
+                "color": "#f25f5c"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "200"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#70c1b3",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "401"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#ffe066",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "429"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#b7990d",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "499"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#247ba0",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "504"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#f25f5c",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "pieType": "donut",
+        "useMaxMin": false,
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "description": "Response status codes over the range. A healthy gateway is dominated by 200s; 499s mean the client hung up mid-stream."
+    },
+    {
+      "id": 13,
+      "title": "Stream Abort Rate by Direction",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Client aborted' as label, sum(if(aborted = 1, 1, 0)) * 100.0 / count() as abort_rate FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Provider aborted' as label, sum(if(aborted = 2, 1, 0)) * 100.0 / count() as abort_rate FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none"
+            },
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f25f5c"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Provider aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#ffe066"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "description": "Stream aborts split by who cut the connection: client-side cancels (you stopped it) vs provider-side aborts (vendor dropped it). Gateway rows count each attempt."
+    },
+    {
+      "id": 14,
+      "title": "Stream Status (completed / client-aborted / provider-aborted)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Completed' as label, sum(if(aborted = 0, 1, 0)) as count FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Client aborted' as label, sum(if(aborted = 1, 1, 0)) as count FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "C",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "SELECT toStartOfMinute(timestamp) as time, 'Provider aborted' as label, sum(if(aborted = 2, 1, 0)) as count FROM llm_gateway.usage_log WHERE is_stream = 1 AND $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "fillOpacity": 80,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Completed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#70c1b3"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f25f5c"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Provider aborted"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#ffe066"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "description": "Absolute stream outcomes over the range: completed, cancelled by the client, aborted by the provider. The three stack to total streams."
+    },
+    {
+      "id": 9,
+      "title": "Latency p50 / p95 / p99 (ms)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#70c1b3"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#ffe066"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p99"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f25f5c"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Gateway latency percentiles (p50/p95/p99) from Prometheus histograms, in milliseconds."
+    },
+    {
+      "id": 10,
+      "title": "Response Time p50 by Model",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "rawSql": "SELECT u.model, quantile(0.5)(r.upstream_response_time_s) as p50_latency FROM llm_gateway.request_log r ASOF LEFT JOIN llm_gateway.usage_log u ON r.request_id = u.request_id AND r.timestamp >= u.timestamp WHERE $__timeFilter(r.timestamp) AND r.upstream_response_time_s > 0 AND u.model != '' AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND u.model IN (${model:singlequote}) GROUP BY u.model ORDER BY p50_latency DESC LIMIT 20",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
+      },
+      "description": "Average wall time per response, per model. Includes migrated history, where a response's time is the full agent generation (first byte to completion), so gateway-era and migrated rows agree in meaning."
+    },
+    {
+      "id": 11,
+      "title": "Bandwidth In / Out (bytes/s)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"ingress\"}[5m]))",
+          "legendFormat": "ingress",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(apisix_bandwidth{key_hash=~\"$api_key\",type=\"egress\"}[5m]))",
+          "legendFormat": "egress",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ingress"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#247ba0"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "egress"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#a5d0a8"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Bytes in and out through the gateway per second, 5-minute rolling rate."
+    },
+    {
+      "id": 12,
+      "title": "Shared Dict Memory Usage",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "prometheus",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "targets": [
+        {
+          "expr": "(1 - apisix_shared_dict_free_space_bytes{name=\"key_cache\"} / apisix_shared_dict_capacity_bytes{name=\"key_cache\"}) * 100",
+          "legendFormat": "key_cache",
+          "refId": "A"
+        },
+        {
+          "expr": "(1 - apisix_shared_dict_free_space_bytes{name=\"redact_state\"} / apisix_shared_dict_capacity_bytes{name=\"redact_state\"}) * 100",
+          "legendFormat": "redact_state",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "fillOpacity": 30,
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "key_cache"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#70c1b3"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "redact_state"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#b7990d"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "description": "Lua shared-dict memory pressure (key cache, redact state). Sustained near-100% means the dict is too small for the working set."
+    },
+    {
+      "id": 50,
+      "title": "Storage Footprint: hot vs archive",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT disk_name AS volume, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active GROUP BY disk_name ORDER BY bytes DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "archive"
+            },
+            "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "#b7990d"
+                  }
+                }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
+      },
+      "description": "Bytes on disk per storage volume (REQ-SECURITY-HARDENING FR-4). Retention is tiered, never deleting: parts older than the tier window (bodies 6mo, metadata 12mo) move to the ZSTD(3) `archive` volume. Growth alert fires from the provisioned alert rule when the total crosses its threshold."
+    },
+    {
+      "id": 51,
+      "title": "Storage Footprint by Table",
+      "type": "bargauge",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT table AS table, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active GROUP BY table ORDER BY bytes DESC LIMIT 10"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
+      },
+      "description": "Bytes on disk per table (request_bodies dominates once conversation logging is enabled). Use with the volume panel above to watch archive-tier growth."
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [],
+  "liveNow": false,
+  "panelsOrder": []
+}

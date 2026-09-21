@@ -15,6 +15,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SCRIPT="$REPO_ROOT/res/scripts/recalc-costs.sh"
+RECALC_SQL_DIR="$REPO_ROOT/conf/sql/ops/recalc-costs"
+BACKUP_SQL="$REPO_ROOT/conf/sql/ops/gateway-ch-backup/backup.sql"
 LUA="$REPO_ROOT/res/scripts/cost/recalc.lua"
 DEDUPE="$REPO_ROOT/res/scripts/dedupe-model-history.sh"
 MAKEFILE="$REPO_ROOT/Makefile"
@@ -68,30 +70,31 @@ assert_contains "small batch default LIMIT=100" "$BODY" "LIMIT=100"
 assert_contains "--all with --apply requires --confirm-all" "$BODY" "REFUSING --apply --all without --confirm-all"
 
 # ── (C) mandatory verified backup before any write ──────────────────────
-assert_contains "takes a full-database backup" "$BODY" "BACKUP DATABASE"
+RECALC_SQL_BODY="$(cat "$RECALC_SQL_DIR"/*.sql)"
+assert_contains "takes a full-database backup" "$(cat "$BACKUP_SQL")" "BACKUP DATABASE"
 assert_contains "verifies backup status" "$BODY" "BACKUP_CREATED"
 assert_contains "aborts when backup is unverified" "$BODY" "not BACKUP_CREATED); aborting"
-# backup block appears before the first ALTER ... UPDATE
-backup_line=$(grep -n "BACKUP DATABASE" "$SCRIPT" | sed -n '1p' | cut -d: -f1)
-alter_line=$(grep -n "ALTER TABLE \${DB}.usage_log" "$SCRIPT" | sed -n '1p' | cut -d: -f1)
+# backup render call appears before the first mutation render call
+backup_line=$(grep -n "ops/gateway-ch-backup/backup.sql" "$SCRIPT" | sed -n '1p' | cut -d: -f1)
+alter_line=$(grep -n "ops/recalc-costs/alter-provider.sql" "$SCRIPT" | sed -n '1p' | cut -d: -f1)
 assert_eq "backup happens before the first mutation" "true" \
     "$(if [ -n "$backup_line" ] && [ -n "$alter_line" ] && [ "$backup_line" -lt "$alter_line" ]; then printf 'true'; else printf 'false'; fi)"
 
 # ── (D) audit-before-mutate, targeted, idempotent ───────────────────────
 assert_contains "writes cost_recalc_audit" "$BODY" "cost_recalc_audit"
 assert_contains "reprices every provenance by default" "$BODY" 'SOURCES="unknown,provider_override,models_dev"'
-assert_contains "mutation is scoped by source" "$BODY" "AND cost_source IN (\$SOURCE_SQL)"
-assert_contains "cost mutation is idempotent (skips already-correct rows)" "$BODY" 'AND (abs(cost - ($EXPR)) > $EPSILON OR cost_source != $(esc "$nsrc"))'
-assert_contains "provider backfill is one bulk UPDATE per mapping" "$BODY" "UPDATE provider_id = "
-assert_contains "cost revalue writes the resolved provenance" "$BODY" 'UPDATE cost = $EXPR, cost_source = $(esc "$nsrc")'
-if [[ "$BODY" == *"AND timestamp = toDateTime64("* ]]; then
+assert_contains "mutation is scoped by source" "$RECALC_SQL_BODY" "AND cost_source IN ({{ SOURCE_SQL }})"
+assert_contains "cost mutation is idempotent (skips already-correct rows)" "$RECALC_SQL_BODY" 'AND (abs(cost - ({{ EXPR }})) > {{ EPSILON }} OR cost_source != {{ NEW_SOURCE }})'
+assert_contains "provider backfill is one bulk UPDATE per mapping" "$RECALC_SQL_BODY" "UPDATE provider_id = {{ NEW_PID }}"
+assert_contains "cost revalue writes the resolved provenance" "$RECALC_SQL_BODY" 'UPDATE cost = {{ EXPR }}, cost_source = {{ NEW_SOURCE }}'
+if [[ "$RECALC_SQL_BODY" == *"AND timestamp = toDateTime64("* ]]; then
     echo "[FAIL] recalc must not mutate row-by-row (bulk groups expected)"
     fail=$((fail + 1))
 else
     echo "[PASS] recalc mutates in bulk, not row-by-row"
     pass=$((pass + 1))
 fi
-audit_line=$(grep -n "INSERT INTO %s.cost_recalc_audit" "$SCRIPT" | sed -n '1p' | cut -d: -f1)
+audit_line=$(grep -n "ops/recalc-costs/insert-audit.sql" "$SCRIPT" | sed -n '1p' | cut -d: -f1)
 assert_eq "audit insert precedes the first mutation" "true" \
     "$(if [ -n "$audit_line" ] && [ -n "$alter_line" ] && [ "$audit_line" -lt "$alter_line" ]; then printf 'true'; else printf 'false'; fi)"
 

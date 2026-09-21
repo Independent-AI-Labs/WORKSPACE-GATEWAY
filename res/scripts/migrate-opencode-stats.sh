@@ -21,6 +21,9 @@ if ! source "$REPO_ROOT/res/scripts/lib-opencode-stats-report.sh"; then
     echo "[FAIL] cannot source lib-opencode-stats-report.sh from $REPO_ROOT" >&2
     exit 1
 fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
 
 DRY_RUN=false
 FORCE=false
@@ -439,7 +442,7 @@ fi
 # populated target skips every existing row without notice, keeping stale cost
 # and schema values. Requiring --force forces the operator through a
 # backup + delete + verify-zero reset first.
-EXISTING=$(ch "SELECT count() FROM $DB.usage_log WHERE event_id LIKE 'ocm_%'")
+EXISTING=$(ch "$(sql_render ops/migrate-opencode-stats/count-prefixed.sql DB="$DB" TABLE=usage_log PREFIX=ocm_)")
 if [ "$EXISTING" -gt 0 ] && [ "$FORCE" != true ]; then
     echo "[FAIL] $EXISTING migrated row(s) already present in $DB.usage_log." >&2
     echo "       A rerun skips them (stable event ids) and keeps stale values." >&2
@@ -456,13 +459,13 @@ if [ -n "$BACKUP_DIR" ]; then
     echo "[INFO] backing up $DB tables to $BACKUP_DIR (FORMAT Native)" >&2
     : > "$BACKUP_DIR/manifest.txt"
     for t in usage_log request_log billing_ledger; do
-        cnt=$(ch "SELECT count() FROM $DB.$t")
-        cks=$(ch "SELECT sum(cityHash64(*)) FROM $DB.$t")
+        cnt=$(ch "$(sql_render ops/migrate-opencode-stats/table-count.sql DB="$DB" TABLE="$t")")
+        cks=$(ch "$(sql_render ops/migrate-opencode-stats/table-checksum.sql DB="$DB" TABLE="$t")")
         printf '%s\trows=%s\tcityHash64sum=%s\n' "$t" "$cnt" "$cks" \
             >> "$BACKUP_DIR/manifest.txt"
         if ! curl -sS --max-time 600 -o "$BACKUP_DIR/$t.native" \
                 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
-                "$CH_URL/" --data-binary "SELECT * FROM $DB.$t FORMAT Native"; then
+                "$CH_URL/" --data-binary "$(sql_render ops/migrate-opencode-stats/table-native-dump.sql DB="$DB" TABLE="$t")"; then
             echo "[FAIL] backup dump of $t failed" >&2
             exit 1
         fi

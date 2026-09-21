@@ -61,6 +61,7 @@ as not implemented.
 | [`specifications/SPEC-USEFULNESS-TELEMETRY.md`](specifications/SPEC-USEFULNESS-TELEMETRY.md) | Usefulness telemetry implementation: TTFT capture, batch cruncher, dashboard (Implemented) |
 | [`specifications/SPEC-STATS-MIGRATION.md`](specifications/SPEC-STATS-MIGRATION.md) | opencode stats migrator implementation (Implemented) |
 | [`specifications/SPEC-SECURITY-HARDENING.md`](specifications/SPEC-SECURITY-HARDENING.md) | Hardening implementation: provision script, migrations 000010/000011, network/port surface, writer auth, runbooks |
+| [`specifications/SPEC-SQL-STRUCTURE.md`](specifications/SPEC-SQL-STRUCTURE.md) | Externalized `conf/sql/` tree: templating, loaders, sqlfluff lint, no-inline-SQL guard |
 
 ### research/  -  upstream findings
 

@@ -35,7 +35,7 @@ groups:
                 uid: clickhouse
               queryType: table
               format: table
-              rawSql: SELECT sum(bytes_on_disk) AS total FROM system.parts WHERE database = 'llm_gateway' AND active
+              rawSql: "{{sql:grafana/queries/alerts-storage-growth.sql}}"
           - refId: B
             datasourceUid: __expr__
             model:

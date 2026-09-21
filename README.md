@@ -342,7 +342,7 @@ on stack start. Admin API and built-in dashboard are reached via
 - `conf/profanity/`: vendored rejection-language dictionaries (refresh: `make gw-update-dictionaries`)
 - `conf/grafana/`: Grafana datasources + 4 provisioned dashboards
 - `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
-- `conf/clickhouse-init.sql`: Base schema; incremental changes via `conf/migrations/`
+- `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff` (`docs/specifications/SPEC-SQL-STRUCTURE.md`)
 - `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink
 - `res/docker/docker-compose.yml`: 8 services: apisix, etcd, clickhouse, migrate, vector, openbao, prometheus, grafana
 - `res/docker/Dockerfile.apisix`: Custom APISIX image: Lua plugins + config copied in

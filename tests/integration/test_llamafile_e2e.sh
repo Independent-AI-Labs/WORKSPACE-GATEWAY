@@ -136,7 +136,7 @@ assert_alignment "$U_EID" "$U_RID" "$R_EID" "$R_RID"
 
 # Additional usage_log assertions: cost_source enum valid, model normalized.
 if [ -n "$U_RID" ]; then
-    COST_ROW=$(ch_query "SELECT cost_source, model, prompt_tokens, completion_tokens, total_tokens FROM llm_gateway.usage_log WHERE request_id = '$U_RID' LIMIT 1")
+    COST_ROW=$(ch_query "$(sql_render tests/llamafile-e2e/usage-cost-row.sql "RID=$U_RID")")
     U_COST_SOURCE=$(printf '%s' "$COST_ROW" | cut -f1)
     U_MODEL=$(printf '%s' "$COST_ROW" | cut -f2)
     U_PROMPT=$(printf '%s' "$COST_ROW" | cut -f3)

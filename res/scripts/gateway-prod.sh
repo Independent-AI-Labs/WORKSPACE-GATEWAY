@@ -31,6 +31,10 @@ PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set to the absolute podman binar
 PROJ="workspace-gateway-prod"
 PROD_TAG="${PROD_TAG:-localhost/workspace-gateway:0.1.0}"
 
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+
 PROD_PORT=9081
 # Debug ports are unpublished in prod (REQ-SECURITY-HARDENING FR-6); the
 # Admin API is reached via `podman exec gw-prod-apisix` (container IPs are
@@ -178,7 +182,7 @@ verify() {
     # network-stack-dependent under rootless port publishing).
     if ! rows=$("$PODMAN_PATH" exec gw-prod-clickhouse clickhouse-client \
         --user ops_admin --password "${CH_OPS_PASSWORD:-}" \
-        -q 'SELECT count() FROM llm_gateway.request_log'); then
+        -q "$(sql_render ops/gateway-prod/request-log-count.sql)"); then
         rows="-1"
     fi
     echo "request_log rows: $rows"

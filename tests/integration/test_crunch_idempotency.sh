@@ -18,6 +18,10 @@ esac
 REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
 CRUNCH="$REPO_ROOT/res/scripts/crunch-usefulness.sh"
 
+export REPO_ROOT
+# shellcheck source=../../res/scripts/lib-sql.sh
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+
 pass=0
 fail=0
 
@@ -70,9 +74,7 @@ W=$(( NOW_S - (NOW_S % 3600) ))
 WT0="$(date -u -d "@$W" '+%F %T')"
 WT1="$(date -u -d "@$((W + 3600))" '+%F %T')"
 
-ch "ALTER TABLE llm_gateway.request_signals
-    DELETE WHERE timestamp >= '${WT0}' AND timestamp < '${WT1}'
-    SETTINGS mutations_sync = 2"
+ch "$(sql_render tests/crunch-idempotency/delete-signals-window.sql "WT0=$WT0" "WT1=$WT1")"
 
 # JSONEachRow rows: req_body values are embedded as raw JSON objects
 # (SQL-string quoting would be invalid inside JSONEachRow).
@@ -83,36 +85,18 @@ FRICTION_BODY='{"model":"test-model","messages":[{"role":"user","content":"hi"},
 
 # Bodies live in request_bodies since migration 000010; seed both tables
 # with shared event_ids (request_log keeps metadata only).
-ch "INSERT INTO llm_gateway.request_log
-(event_id, request_id, provider, model, stream, method, uri, status, timestamp)
-FORMAT JSONEachRow
-{\"event_id\":\"00000000-0000-0000-0000-0000000000a1\",\"request_id\":\"crunch-test-a\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000b1\",\"request_id\":\"crunch-test-b\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000c1\",\"request_id\":\"crunch-test-c\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000d1\",\"request_id\":\"crunch-test-d\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000e1\",\"request_id\":\"crunch-test-e\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}"
+ch "$(sql_render tests/crunch-idempotency/insert-request-log.sql "WT0=$WT0")"
 
-ch "INSERT INTO llm_gateway.request_bodies
-(event_id, request_id, req_body, timestamp)
-FORMAT JSONEachRow
-{\"event_id\":\"00000000-0000-0000-0000-0000000000a1\",\"request_id\":\"crunch-test-a\",\"req_body\":${FOLLOWUP_BODY},\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000b1\",\"request_id\":\"crunch-test-b\",\"req_body\":${FIRSTTURN_BODY},\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000c1\",\"request_id\":\"crunch-test-c\",\"req_body\":${PHRASE_BODY},\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000d1\",\"request_id\":\"crunch-test-d\",\"req_body\":\"not json at all\",\"timestamp\":\"${WT0}\"}
-{\"event_id\":\"00000000-0000-0000-0000-0000000000e1\",\"request_id\":\"crunch-test-e\",\"req_body\":${FRICTION_BODY},\"timestamp\":\"${WT0}\"}"
+ch "$(sql_render tests/crunch-idempotency/insert-request-bodies.sql \
+    "WT0=$WT0" "FOLLOWUP_BODY=$FOLLOWUP_BODY" "FIRSTTURN_BODY=$FIRSTTURN_BODY" \
+    "PHRASE_BODY=$PHRASE_BODY" "FRICTION_BODY=$FRICTION_BODY")"
 
 RUN1=$(CLICKHOUSE_HOST="$CLICKHOUSE_HOST" CLICKHOUSE_PORT="$CLICKHOUSE_PORT" \
        APISIX_CONTAINER="$APISIX_CONTAINER" \
        SHG_SCRIPT_PATH="$CRUNCH" bash "$CRUNCH" --since "${WT0}") \
   && ok "cruncher run 1 succeeds" || ko "cruncher run 1 fails"
 
-SIG1=$(ch "SELECT request_id, is_followup, parsed, profane, profane_count,
-       arrayStringConcat(profane_terms, ','), frustrated, frustration_count,
-       arrayStringConcat(frustration_terms, ','), signal_count, signal_weight,
-       guard_blocks, arrayStringConcat(guard_rules, ','), user_rejections, rule_denials
-FROM llm_gateway.request_signals
-WHERE timestamp >= '${WT0}' AND timestamp < '${WT1}' AND request_id LIKE 'crunch-test-%'
-ORDER BY request_id FORMAT TSV")
+SIG1=$(ch "$(sql_render tests/crunch-idempotency/signals-window.sql "WT0=$WT0" "WT1=$WT1" "PREFIX=crunch-test-")")
 
 echo "--- signals after run 1 ---"
 printf '%s\n' "$SIG1"
@@ -123,7 +107,7 @@ N_ROWS=$(printf '%s\n' "$SIG1" | grep -c . ) || N_ROWS=0
 
 # curl used to join multiple --data-binary parts with '&', corrupting the
 # first TSV row of every block insert to "&<request_id>"
-N_AMP=$(ch "SELECT countIf(request_id LIKE '&%') FROM llm_gateway.request_signals") || N_AMP="?"; [ "$N_AMP" = "0" ] && ok "no ampersand-corrupted request_ids (curl multi-part join guard)" || ko "found $N_AMP request_ids starting with '&'"
+N_AMP=$(ch "$(sql_render tests/crunch-idempotency/count-amp-request-ids.sql)") || N_AMP="?"; [ "$N_AMP" = "0" ] && ok "no ampersand-corrupted request_ids (curl multi-part join guard)" || ko "found $N_AMP request_ids starting with '&'"
 
 ROW_A=$(printf '%s\n' "$SIG1" | grep -a $'^crunch-test-a\t')
 echo "$ROW_A" | grep -q $'crunch-test-a\t1\t1\t1\t1\tshit' && ok "row A: followup profanity detected + canonicalized" || ko "row A wrong: $ROW_A"
@@ -148,13 +132,7 @@ RUN2=$(CLICKHOUSE_HOST="$CLICKHOUSE_HOST" CLICKHOUSE_PORT="$CLICKHOUSE_PORT" \
        SHG_SCRIPT_PATH="$CRUNCH" bash "$CRUNCH" --since "${WT0}") \
   && ok "cruncher run 2 succeeds" || ko "cruncher run 2 fails"
 
-SIG2=$(ch "SELECT request_id, is_followup, parsed, profane, profane_count,
-       arrayStringConcat(profane_terms, ','), frustrated, frustration_count,
-       arrayStringConcat(frustration_terms, ','), signal_count, signal_weight,
-       guard_blocks, arrayStringConcat(guard_rules, ','), user_rejections, rule_denials
-FROM llm_gateway.request_signals
-WHERE timestamp >= '${WT0}' AND timestamp < '${WT1}' AND request_id LIKE 'crunch-test-%'
-ORDER BY request_id FORMAT TSV")
+SIG2=$(ch "$(sql_render tests/crunch-idempotency/signals-window.sql "WT0=$WT0" "WT1=$WT1" "PREFIX=crunch-test-")")
 
 if [ "$SIG1" = "$SIG2" ]; then
   ok "re-run over same window is byte-identical (idempotent, FR-2.2)"
@@ -170,14 +148,8 @@ N_ROWS_2=$(printf '%s\n' "$SIG2" | grep -c . ) || N_ROWS_2=0
 # Cleanup: remove seeded request_log + request_bodies rows, then re-crunch
 # the window so any REAL pre-existing signals for these hours are restored
 # (idempotent replay).
-CLEAN_DEL=$(ch "ALTER TABLE llm_gateway.request_log
-    DELETE WHERE request_id LIKE 'crunch-test-%'
-      AND timestamp >= '${WT0}' AND timestamp < '${WT1}'
-    SETTINGS mutations_sync = 2")
-CLEAN_DEL_BODIES=$(ch "ALTER TABLE llm_gateway.request_bodies
-    DELETE WHERE request_id LIKE 'crunch-test-%'
-      AND timestamp >= '${WT0}' AND timestamp < '${WT1}'
-    SETTINGS mutations_sync = 2")
+CLEAN_DEL=$(ch "$(sql_render tests/crunch-idempotency/delete-request-log-prefix.sql "WT0=$WT0" "WT1=$WT1" "PREFIX=crunch-test-")")
+CLEAN_DEL_BODIES=$(ch "$(sql_render tests/crunch-idempotency/delete-request-bodies-prefix.sql "WT0=$WT0" "WT1=$WT1" "PREFIX=crunch-test-")")
 CLEAN_REPLAY=""
 if CLEAN_REPLAY=$(CLICKHOUSE_HOST="$CLICKHOUSE_HOST" CLICKHOUSE_PORT="$CLICKHOUSE_PORT" \
   APISIX_CONTAINER="$APISIX_CONTAINER" \

@@ -1,0 +1,411 @@
+{
+  "title": "Gateway Cost Leaderboard",
+  "uid": "gateway-cost-leaderboard",
+  "tags": [
+    "gateway",
+    "llm"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 29,
+  "hideControls": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "2d",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "api_key",
+        "label": "Client API Key",
+        "type": "query",
+        "datasource": {
+          "uid": "clickhouse",
+          "type": "grafana-clickhouse-datasource"
+        },
+        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "multi": true,
+        "includeAll": true,
+        "allValue": null,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 20,
+      "title": "Top Clients by Cost & Tokens (Top 3)",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH ranked AS (\n    SELECT\n        coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS client,\n        toInt64(sum(total_tokens)) AS total_tok,\n        round(sum(cost), 2) AS total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n    GROUP BY client\n    ORDER BY total_cost DESC\n    LIMIT 100\n)\nSELECT\n    concat(toString(row_number() OVER ()), '. ', client, ' - ', multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok))) AS name_str,\n    concat('$', toString(floor(round(total_cost * 100) / 100)), '.', leftPad(toString(round(total_cost * 100) % 100), 2, '0')) AS value_str,\n    multiIf(\n        row_number() OVER () = 1, '#C9A44C',\n        row_number() OVER () = 2, '#A8A9AD',\n        row_number() OVER () = 3, '#B07A3C',\n        '#FFFFFF'\n    ) AS Color\nFROM ranked\nLIMIT 3"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value_str",
+                "handlerKey": "field.value"
+              },
+              {
+                "fieldName": "Color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FFFFFF"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "textSize": {
+          "title": {
+            "mode": "fixed",
+            "fixed": 22
+          },
+          "value": {
+            "mode": "fixed",
+            "fixed": 44
+          }
+        },
+        "maxPerRow": 3
+      },
+      "description": "Top tiles by spend in range. Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
+    },
+    {
+      "id": 21,
+      "title": "Top Models by Cost & Tokens (Top 3)",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH ranked AS (\n    SELECT\n        model AS model_name,\n        toInt64(sum(total_tokens)) AS total_tok,\n        round(sum(cost), 2) AS total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND model != ''\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n    GROUP BY model_name\n    ORDER BY total_cost DESC\n    LIMIT 100\n)\nSELECT\n    concat(toString(row_number() OVER ()), '. ', model_name, ' - ', multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok))) AS name_str,\n    concat('$', toString(floor(round(total_cost * 100) / 100)), '.', leftPad(toString(round(total_cost * 100) % 100), 2, '0')) AS value_str,\n    multiIf(\n        row_number() OVER () = 1, '#C9A44C',\n        row_number() OVER () = 2, '#A8A9AD',\n        row_number() OVER () = 3, '#B07A3C',\n        '#FFFFFF'\n    ) AS Color\nFROM ranked\nLIMIT 3"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value_str",
+                "handlerKey": "field.value"
+              },
+              {
+                "fieldName": "Color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FFFFFF"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "textSize": {
+          "title": {
+            "mode": "fixed",
+            "fixed": 22
+          },
+          "value": {
+            "mode": "fixed",
+            "fixed": 44
+          }
+        },
+        "maxPerRow": 3
+      },
+      "description": "Top tiles by spend in range. Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
+    },
+    {
+      "id": 22,
+      "title": "Top Clients by Cost & Tokens (4-10)",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH ranked AS (\n    SELECT\n        coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS client,\n        toInt64(sum(total_tokens)) AS total_tok,\n        round(sum(cost), 2) AS total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n    GROUP BY client\n    ORDER BY total_cost DESC\n    LIMIT 100\n)\nSELECT\n    concat(toString(row_number() OVER ()), '. ', client, ' - ', multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok))) AS name_str,\n    concat('$', toString(floor(round(total_cost * 100) / 100)), '.', leftPad(toString(round(total_cost * 100) % 100), 2, '0')) AS value_str,\n    multiIf(\n        row_number() OVER () = 1, '#C9A44C',\n        row_number() OVER () = 2, '#A8A9AD',\n        row_number() OVER () = 3, '#B07A3C',\n        '#FFFFFF'\n    ) AS Color\nFROM ranked\nLIMIT 7 OFFSET 3"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value_str",
+                "handlerKey": "field.value"
+              },
+              {
+                "fieldName": "Color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FFFFFF"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "textSize": {
+          "title": {
+            "mode": "fixed",
+            "fixed": 16
+          },
+          "value": {
+            "mode": "fixed",
+            "fixed": 22
+          }
+        },
+        "maxPerRow": 4
+      },
+      "description": "Ranks 4-10 by spend in range (the podium above shows the top 3). Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
+    },
+    {
+      "id": 23,
+      "title": "Top Models by Cost & Tokens (4-10)",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "queryType": "table",
+          "rawSql": "WITH ranked AS (\n    SELECT\n        model AS model_name,\n        toInt64(sum(total_tokens)) AS total_tok,\n        round(sum(cost), 2) AS total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND model != ''\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n    GROUP BY model_name\n    ORDER BY total_cost DESC\n    LIMIT 100\n)\nSELECT\n    concat(toString(row_number() OVER ()), '. ', model_name, ' - ', multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok))) AS name_str,\n    concat('$', toString(floor(round(total_cost * 100) / 100)), '.', leftPad(toString(round(total_cost * 100) % 100), 2, '0')) AS value_str,\n    multiIf(\n        row_number() OVER () = 1, '#C9A44C',\n        row_number() OVER () = 2, '#A8A9AD',\n        row_number() OVER () = 3, '#B07A3C',\n        '#FFFFFF'\n    ) AS Color\nFROM ranked\nLIMIT 7 OFFSET 3"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value_str",
+                "handlerKey": "field.value"
+              },
+              {
+                "fieldName": "Color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FFFFFF"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "textSize": {
+          "title": {
+            "mode": "fixed",
+            "fixed": 16
+          },
+          "value": {
+            "mode": "fixed",
+            "fixed": 22
+          }
+        },
+        "maxPerRow": 4
+      },
+      "description": "Ranks 4-10 by spend in range (the podium above shows the top 3). Tile value is exact currency ($, 2 decimals, never abbreviated); name carries rank, entity and compact token volume (B/M/K)."
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [],
+  "liveNow": false,
+  "panelsOrder": []
+}

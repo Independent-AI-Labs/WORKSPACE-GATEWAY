@@ -1,0 +1,55 @@
+# Default values for conf/sql/{{NAME}} variables.
+#
+# One KEY=VALUE per line. This file is the single source of truth for the
+# sample values used when rendering (runtime callers may override per-call)
+# and for the sqlfluff Jinja context in the repo-root .sqlfluff.
+#
+# Keep values valid SQL for the dialect that consumes the template:
+# identifiers bare (llm_gateway), literals quoted ('x').
+DB=llm_gateway
+NOW_MS=0
+# Sample runtime identifiers (callers pass the real value via sql_render).
+NAME=example
+TABLE=usage_log
+PREFIX=example
+IDS='id'
+CUTOFF=2026-01-01 00:00:00
+LIMIT_CLAUSE=
+BUF=('id','model','key','2026-01-01 00:00:00',1,4)
+EFID='id'
+RT=1
+WT0=2026-01-01 00:00:00
+WT1=2026-01-01 01:00:00
+BLOCK_START=2026-01-01 00:00:00
+BLOCK_END=2026-01-01 12:00:00
+MODEL_WHERE=lower(model) IN ('alias')
+MODEL_MULTIIF=multiIf(lower(model) = 'alias', 'canonical', model)
+MODEL_NAME_WHERE=lower(model_name) IN ('alias')
+MODEL_NAME_MULTIIF=multiIf(lower(model_name) = 'alias', 'canonical', model_name)
+WHERE=cost_source IN ('unknown')
+SOURCE_SQL='unknown'
+NEW_PID='x'
+PREDICATE=provider_id = 'x'
+EXPR=0
+NEW_SOURCE='models_dev'
+PID='x'
+MODELS='model'
+EPSILON=1e-9
+SEED_MODEL=seed-model
+SEED_KEY=seed-key
+SEED_RID_PREFIX=seed-rid-
+SEED_EID_PREFIX=seed-eid-
+SEED_ROW_COUNT=150
+# Test-probe variables (tests/**/ via sql_render).
+RID=rid-example
+EID=event-example
+FROM_TS=2026-01-01 00:00:00
+TO_TS=2026-01-02 00:00:00
+KEYS='key'
+COLS=aborted
+FORMAT=
+CTE=WITH totals AS (SELECT 1 AS total_tok, 1 AS input_tok, 1 AS cached_tok, 1 AS output_tok, 1 AS reasoning_tok)
+FOLLOWUP_BODY={"model":"test-model","messages":[]}
+FIRSTTURN_BODY={"model":"test-model","messages":[]}
+PHRASE_BODY={"model":"test-model","messages":[]}
+FRICTION_BODY={"model":"test-model","messages":[]}

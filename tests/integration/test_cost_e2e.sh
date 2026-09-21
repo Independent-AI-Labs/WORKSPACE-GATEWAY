@@ -92,7 +92,7 @@ fi
 U_EID=""
 ULOG=""
 for i in $(seq 1 25); do
-    ULOG=$(ch_query "SELECT event_id, cost_source, cost, model, prompt_tokens, completion_tokens, total_tokens FROM llm_gateway.usage_log WHERE request_id = '$LIVE_RID' LIMIT 1")
+    ULOG=$(ch_query "$(sql_render tests/cost-e2e/usage-row.sql "RID=$LIVE_RID")")
     [ -n "$ULOG" ] && break
     sleep 1
 done
@@ -146,7 +146,7 @@ if [ -z "$U_EID" ]; then
 else
     LEDGER=""
     for i in $(seq 1 25); do
-        LEDGER=$(ch_query "SELECT event_id, model_name, cost, prompt_tokens, total_tokens FROM llm_gateway.billing_ledger WHERE event_id = '$U_EID' LIMIT 1")
+        LEDGER=$(ch_query "$(sql_render tests/cost-e2e/ledger-row.sql "EID=$U_EID")")
         [ -n "$LEDGER" ] && break
         sleep 1
     done

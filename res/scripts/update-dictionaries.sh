@@ -26,10 +26,10 @@ SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 #When invoked through a /proc file descriptor the derived root is bogus
 #(/proc); make always runs recipes from the repo root, so use cwd instead.
-if [ ! -f "$REPO_ROOT/conf/clickhouse-init.sql" ]; then
+if [ ! -f "$REPO_ROOT/conf/sql/clickhouse-init.sql" ]; then
     REPO_ROOT="$(pwd)"
 fi
-if [ ! -f "$REPO_ROOT/conf/clickhouse-init.sql" ]; then
+if [ ! -f "$REPO_ROOT/conf/sql/clickhouse-init.sql" ]; then
     echo "ERROR: cannot locate repo root (invoked as $_SELF, cwd $(pwd))" >&2
     exit 1
 fi

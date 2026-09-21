@@ -38,6 +38,6 @@ limits from OpenBao are not wired in config today.
 | 2026-07 | `event_id` integer-seconds; model canonicalization both paths |
 | 2026-07 | http-logger 256K / 1MiB body limits |
 | 2026-07 | `billing_ledger_mv` on usage_log INSERT |
-| 2026-07 | golang-migrate `conf/migrations/` (v4.19.1) |
+| 2026-07 | golang-migrate `conf/sql/migrations/` (v4.19.1) |
 | 2026-07 | relay-llamafile route; 3-provider sync-models |
 | 2026-07 | Grafana join on `request_id`; dashboards p20/p21 |

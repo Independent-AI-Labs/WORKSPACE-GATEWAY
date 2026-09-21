@@ -92,7 +92,7 @@ and never billed. Authoritative usage for billing.
 ### billing_ledger
 
 Populated by **`billing_ledger_mv`** on every `usage_log` INSERT.
-25-column schema in [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql).
+25-column schema in [`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql).
 Some enrichment columns default empty until request_log join backfill (v2).
 
 ### billing_discrepancies
@@ -142,7 +142,7 @@ throw threshold.
 ## Migrations
 
 **Framework:** golang-migrate (MIT), image `migrate/migrate:v4.19.1`
-**Files:** `conf/migrations/NNNNNN_*.up.sql` / `.down.sql`
+**Files:** `conf/sql/migrations/NNNNNN_*.up.sql` / `.down.sql`
 **Tracking:** `schema_migrations` table (MergeTree engine)
 **Orchestration:** compose `migrate` service (authenticates as `migrator`)
 after `init.sql` in Ansible; `make ch-migrate`, `make ch-migrate-status`

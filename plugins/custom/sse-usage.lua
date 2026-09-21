@@ -47,6 +47,14 @@ plugin.schema = {
             type = "string",
             default = "CH_APISIX_PASSWORD",
         },
+        sql_dir = {
+            type = "string",
+            default = "/etc/apisix/sql",
+        },
+        db = {
+            type = "string",
+            default = "llm_gateway",
+        },
     },
 }
 
@@ -59,6 +67,23 @@ function plugin.access(conf, ctx)
     if body and type(body) == "table" and body.model then
         ctx.sse_req_model = tostring(body.model)
     end
+end
+
+-- SQL lives in conf/sql (AGENTS.md); load once and substitute the DB name.
+local insert_query
+
+local function usage_insert_sql(conf)
+    if insert_query then return insert_query end
+    local path = (conf.sql_dir or "/etc/apisix/sql") .. "/ingest/usage-log.insert.sql"
+    local f = io.open(path, "r")
+    if not f then
+        return nil, "cannot open SQL template " .. path
+    end
+    local tpl = f:read("*a")
+    f:close()
+    local db = conf.db or "llm_gateway"
+    insert_query = (tpl:gsub("%{%{%s*DB%s*%}%}", db):gsub("%s+$", ""))
+    return insert_query
 end
 
 local function is_sse()
@@ -366,11 +391,17 @@ function plugin.log(conf, ctx)
         if premature then return end
         retry_count = retry_count or 0
 
+        local query_sql, qerr = usage_insert_sql(conf)
+        if not query_sql then
+            core.log.error("sse-usage: ", qerr)
+            return
+        end
+
         local httpc = http.new()
         httpc:set_timeout(5000)
         local res, err = httpc:request_uri(clickhouse_addr .. "/", {
             method = "POST",
-            query = {query = "INSERT INTO llm_gateway.usage_log SETTINGS async_insert=1, wait_for_async_insert=1, async_insert_busy_timeout_ms=10000 FORMAT JSONEachRow"},
+            query = {query = query_sql},
             body = body,
             headers = {
                 ["Content-Type"] = "application/json",

@@ -16,7 +16,7 @@
 
 **Cross-references:**
 - [SPEC-STATS-MIGRATION](../specifications/SPEC-STATS-MIGRATION.md): companion specification (field map, dedup keys, algorithm)
-- [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql): destination schema (ground truth)
+- [`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql): destination schema (ground truth)
 - [REQ-BILLING-TELEMETRY](REQ-BILLING-TELEMETRY.md): owner of `usage_log` / `request_log` live write paths
 - [TELEMETRY-AND-SCHEMA](../architecture/TELEMETRY-AND-SCHEMA.md): pipeline overview; `billing_ledger_mv` behavior
 - [`res/scripts/fix-opencode-empty-parts.sh`](../../res/scripts/fix-opencode-empty-parts.sh): prior art reading the same SQLite source
@@ -110,7 +110,7 @@ that history visible in the existing Grafana cost/usage dashboards and in
 | ID | Requirement |
 |----|-------------|
 | FR-5.1 | Every test execution of the migrator MUST operate on a COPY of the SQLite source (online `sqlite3 .backup` / `VACUUM INTO`, which checkpoints WAL), never on the live `opencode.db`, and MUST verify the copy is byte-stable for the test duration (no `-wal`/`-shm` side files). |
-| FR-5.2 | Every test execution of the migrator MUST target a brand-new, separately provisioned ClickHouse instance (ephemeral container from the same digest-pinned image family as `tests/docker-compose.test.yml`, `conf/clickhouse-init.sql` applied, fresh empty volume), never the dev stack's ClickHouse or any instance holding live data. |
+| FR-5.2 | Every test execution of the migrator MUST target a brand-new, separately provisioned ClickHouse instance (ephemeral container from the same digest-pinned image family as `tests/docker-compose.test.yml`, `conf/sql/clickhouse-init.sql` applied, fresh empty volume), never the dev stack's ClickHouse or any instance holding live data. |
 | FR-5.3 | The test MUST assert pre-run that the target instance is empty (`SELECT count() = 0` from `usage_log`, `request_log`, `billing_ledger`) and MUST NOT bind the dev stack's published port 8123 (use an ephemeral loopback port). |
 | FR-5.4 | The test MUST tear down the ephemeral instance and remove the SQLite copy afterwards, leaving the dev environment untouched. |
 
@@ -139,5 +139,5 @@ that history visible in the existing Grafana cost/usage dashboards and in
 |------|--------|----------|
 | `res/scripts/migrate-opencode-stats.sh` | Implemented | fixture pass 88/88 (2026-09-21, incl. provider-scoped models.dev pricing, provider alias canonicalization, `cache_write_tokens`, gateway-route `uri`, dry-run diff, `--force` gate) |
 | Fixture test | Implemented | [`tests/test_migrate_opencode_stats.sh`](../../tests/test_migrate_opencode_stats.sh): isolation (FR-5), field map (AC-3), idempotency (AC-1/2), models.dev pricing, provider alias, dry-run diff, rerun gate (FR-4.6), rehearsal (AC-5) |
-| ClickHouse schema | Already sufficient | [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql) needs no change |
+| ClickHouse schema | Already sufficient | [`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql) needs no change |
 | Production run against dev ClickHouse | Complete | 62,157 rows re-migrated (2026-08-28) via the FR-4.6 reset procedure with computed pricing: cost_source upstream $999.30 (34,329 rows) + computed $893.98 (21,291 rows) + unknown 6,535 (free-tier/unlisted); second `--force` pass idempotent; plain rerun aborts at the gate; backups under `backups/2026-08-28-pre-pricing-rerun/`, `-pricing-rerun/` |

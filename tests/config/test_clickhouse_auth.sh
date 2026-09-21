@@ -117,7 +117,7 @@ assert_eq "implicit default disk is NOT redefined under <disks> (CH 24.8 fatal)"
 # system.backups.name is the full spec Disk('backups', '<name>'), so the
 # nightly backup must match by substring or it never sees its own backup.
 assert_eq "nightly backup matches system.backups.name by substring" "1" \
-    "$(grep -c "position(name, '\${NAME}')" "$REPO_ROOT/res/scripts/gateway-ch-backup.sh")"
+    "$(grep -c "position(name, '{{ NAME }}')" "$REPO_ROOT/conf/sql/ops/gateway-ch-backup/status.sql")"
 # system.backups is a non-persistent SystemBackups view: it rejects mutations,
 # so the failed-backup cleanup must remove the directory, never ALTER DELETE.
 assert_eq "failed-backup cleanup does not mutate system.backups" "0" \

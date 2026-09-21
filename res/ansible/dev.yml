@@ -251,23 +251,25 @@
       tags: [start, health]
 
     - name: Wait for Vector ingest endpoint to be reachable
-      ansible.builtin.shell: >
-        {{ podman_path }} exec {{ vector_container }} curl -sS -o /dev/null
-        -w "%{http_code}" --max-time 5 http://127.0.0.1:8080/ingest
-        2>>{{ run_log | quote }}
+      # Probe the published host port, not the container: the Vector image
+      # ships no curl/wget, so an in-container exec could never succeed.
+      ansible.builtin.uri:
+        url: http://localhost:8080/ingest
+        method: GET
+        status_code: [200, 301, 302, 404, 405]
+        follow_redirects: none
+        timeout: 5
       register: vector_health
-      until: vector_health.stdout | default('') | trim in ['200', '404', '405']
-      failed_when: vector_health.rc not in [0, 7, 28]
+      until: vector_health.status in [200, 301, 302, 404, 405]
       retries: 15
       delay: 2
-      changed_when: false
       tags: [start, health]
 
     - name: Run ClickHouse init SQL (idempotent)
       ansible.builtin.shell: >
         {{ podman_path }} exec -i -e CLICKHOUSE_PASSWORD {{ clickhouse_container }}
         bash -c 'clickhouse-client --password "$CLICKHOUSE_PASSWORD" --multiquery'
-        < {{ project_root }}/conf/clickhouse-init.sql
+        < {{ project_root }}/conf/sql/clickhouse-init.sql
         >>{{ run_log | quote }} 2>&1
       register: ch_init
       changed_when: true

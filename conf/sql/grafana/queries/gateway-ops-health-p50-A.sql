@@ -1,0 +1,1 @@
+SELECT disk_name AS volume, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active GROUP BY disk_name ORDER BY bytes DESC

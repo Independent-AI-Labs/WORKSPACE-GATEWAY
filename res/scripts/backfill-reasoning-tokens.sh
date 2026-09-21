@@ -42,6 +42,20 @@ done
 
 DB="$DATABASE"
 
+_SELF="${BASH_SOURCE[0]}"
+case "$_SELF" in
+    /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;;
+esac
+REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
+# /proc/fd execution (test runners) leaves SHG_SCRIPT_PATH unset; use the
+# caller's working directory when it is the repo root.
+if [ ! -f "$REPO_ROOT/res/scripts/lib-sql.sh" ] && [ -f "$PWD/res/scripts/lib-sql.sh" ]; then
+    REPO_ROOT="$PWD"
+fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+
 ch() {
   local sql="$1"
   curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
@@ -89,14 +103,12 @@ if [ -z "$CUTOFF" ]; then
 fi
 
 # Stream rows as JSONL (handles multi-line resp_body properly)
-QUERY="SELECT event_id, model, key_id, toString(timestamp) AS ts, resp_body
-FROM ${DB}.request_log
-WHERE resp_body LIKE '%reasoning_content\":\"%'
-  AND event_id != ''
-  AND timestamp >= '$CUTOFF'
-ORDER BY timestamp DESC"
-[[ "$LIMIT" -gt 0 ]] && QUERY+=" LIMIT $LIMIT"
-QUERY+=" FORMAT JSONEachRow"
+limit_clause=""
+if [ "$LIMIT" -gt 0 ]; then
+    limit_clause="LIMIT $LIMIT"
+fi
+QUERY="$(sql_render ops/backfill-reasoning-tokens/fetch-rows.sql \
+    DB="$DB" CUTOFF="$CUTOFF" LIMIT_CLAUSE="$limit_clause")"
 
 echo "[backfill] Fetching rows..."
 FETCH_OUT=$(ch "$QUERY") || { echo "[backfill] ERROR: fetch failed" >&2; exit 1; }
@@ -147,18 +159,8 @@ echo "[backfill] Computed reasoning tokens for $PROCESSED rows"
 
 # Step 3: create + populate temp table
 echo "[backfill] Creating reasoning_backfill table..."
-ch "DROP TABLE IF EXISTS ${DB}.reasoning_backfill" || { echo "[backfill] WARN: DROP reasoning_backfill failed (continuing - table may not exist)" >&2; }
-ch "
-  CREATE TABLE ${DB}.reasoning_backfill (
-    event_id         String,
-    model            String,
-    key_id           String,
-    ts               DateTime64(3),
-    reasoning_tokens  UInt32,
-    reasoning_chars   UInt32
-  ) ENGINE = MergeTree()
-  ORDER BY (event_id)
-" || { echo "[backfill] ERROR: create table failed" >&2; exit 1; }
+ch "$(sql_render ops/backfill-reasoning-tokens/drop-backfill.sql DB="$DB")" || { echo "[backfill] WARN: DROP reasoning_backfill failed (continuing - table may not exist)" >&2; }
+ch "$(sql_render ops/backfill-reasoning-tokens/create-backfill.sql DB="$DB")" || { echo "[backfill] ERROR: create table failed" >&2; exit 1; }
 
 echo "[backfill] Inserting into temp table..."
 INSERTED=0
@@ -170,11 +172,7 @@ while IFS='|' read -r eid em ek ets tokens chars; do
   INSERTED=$(( INSERTED + 1 ))
 
   if [[ $(( INSERTED % BATCH_SIZE )) -eq 0 ]] || [[ "$INSERTED" -eq "$PROCESSED" ]]; then
-    if ! ch "
-      INSERT INTO ${DB}.reasoning_backfill
-      (event_id, model, key_id, ts, reasoning_tokens, reasoning_chars)
-      VALUES $BUF
-    "; then
+    if ! ch "$(sql_render ops/backfill-reasoning-tokens/insert-backfill.sql DB="$DB" BUF="$BUF")"; then
       FAILED=$(( FAILED + 1 ))
       echo "[backfill] ERROR: batch insert failed at row $INSERTED (batch $(( INSERTED / BATCH_SIZE )))" >&2
     fi
@@ -184,11 +182,7 @@ while IFS='|' read -r eid em ek ets tokens chars; do
 done < "$TMPFILE"
 # flush remaining
 if [[ -n "$BUF" ]]; then
-  if ! ch "
-    INSERT INTO ${DB}.reasoning_backfill
-    (event_id, model, key_id, ts, reasoning_tokens, reasoning_chars)
-    VALUES $BUF
-  "; then
+  if ! ch "$(sql_render ops/backfill-reasoning-tokens/insert-backfill.sql DB="$DB" BUF="$BUF")"; then
     FAILED=$(( FAILED + 1 ))
     echo "[backfill] ERROR: final batch insert failed" >&2
   fi
@@ -196,13 +190,8 @@ fi
 echo >&2
 
 # Step 4: count matched usage_log rows
-MATCHED=$(ch "
-  SELECT count()
-  FROM ${DB}.usage_log
-  WHERE reasoning_tokens = 0
-    AND event_id IN (SELECT event_id FROM ${DB}.reasoning_backfill)
-  FORMAT TabSeparated
-" || { echo "[backfill] ERROR: matched-count query failed" >&2; echo "0"; })
+MATCHED=$(ch "$(sql_render ops/backfill-reasoning-tokens/matched-count.sql DB="$DB")" \
+  || { echo "[backfill] ERROR: matched-count query failed" >&2; echo "0"; })
 echo "[backfill] usage_log rows with event_id match (reasoning_tokens=0): $MATCHED"
 
 # Sample
@@ -213,29 +202,18 @@ done
 
 if $DRY_RUN; then
   echo "[backfill] DRY RUN -- no data written to usage_log."
-  echo "[backfill] Data in ${DB}.reasoning_backfill. Drop: DROP TABLE ${DB}.reasoning_backfill"
+  echo "[backfill] Data in ${DB}.reasoning_backfill. Drop it via ops/backfill-reasoning-tokens/drop-backfill.sql"
   exit 0
 fi
 
 # Step 5: UPDATE usage_log row by row
 if [[ "$MATCHED" -gt 0 ]]; then
   echo "[backfill] Updating $MATCHED usage_log rows..."
-  ch "
-    SELECT event_id, reasoning_tokens
-    FROM ${DB}.reasoning_backfill
-    WHERE event_id IN (
-      SELECT event_id FROM ${DB}.usage_log WHERE reasoning_tokens = 0
-    )
-    FORMAT TabSeparated
-  " | while IFS=$'\t' read -r eid rt; do
+  ch "$(sql_render ops/backfill-reasoning-tokens/select-updates.sql DB="$DB")" \
+    | while IFS=$'\t' read -r eid rt; do
     [[ "$eid" == "event_id" ]] && continue
     eeid=$(esc "$eid")
-    if ! ch "
-      ALTER TABLE ${DB}.usage_log
-      UPDATE reasoning_tokens = $rt
-      WHERE event_id = $eeid AND reasoning_tokens = 0
-      SETTINGS mutations_sync = 1
-    "; then
+    if ! ch "$(sql_render ops/backfill-reasoning-tokens/alter-update.sql DB="$DB" EFID="$eeid" RT="$rt")"; then
       FAILED=$(( FAILED + 1 ))
       echo "[backfill] ERROR: ALTER failed for $eid" >&2
     fi
@@ -247,12 +225,9 @@ else
 fi
 
 # Step 6: verify
-VERIFIED=$(ch "
-  SELECT countIf(reasoning_tokens > 0), sum(reasoning_tokens)
-  FROM ${DB}.usage_log
-  FORMAT TabSeparated
-" || { echo "[backfill] ERROR: verify query failed" >&2; echo "0 0"; })
+VERIFIED=$(ch "$(sql_render ops/backfill-reasoning-tokens/verify.sql DB="$DB")" \
+  || { echo "[backfill] ERROR: verify query failed" >&2; echo "0 0"; })
 echo "[backfill] Overall usage_log (with_reasoning / total_reasoning): $VERIFIED"
 
-ch "DROP TABLE IF EXISTS ${DB}.reasoning_backfill" || { echo "[backfill] WARN: final DROP reasoning_backfill failed" >&2; }
+ch "$(sql_render ops/backfill-reasoning-tokens/drop-backfill.sql DB="$DB")" || { echo "[backfill] WARN: final DROP reasoning_backfill failed" >&2; }
 echo "[backfill] Done."

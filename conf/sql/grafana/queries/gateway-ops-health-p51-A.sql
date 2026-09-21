@@ -1,0 +1,1 @@
+SELECT table AS table, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active GROUP BY table ORDER BY bytes DESC LIMIT 10

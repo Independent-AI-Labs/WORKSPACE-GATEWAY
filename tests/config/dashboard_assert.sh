@@ -8,7 +8,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
     _SELF="$SHG_SCRIPT_PATH"
 fi
 REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
-DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
+DASH_DIR="$REPO_ROOT/conf/grafana/rendered/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
 LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"

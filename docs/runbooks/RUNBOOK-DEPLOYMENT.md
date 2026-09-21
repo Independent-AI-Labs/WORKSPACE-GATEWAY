@@ -82,7 +82,7 @@ make gw-restart-service SVC=apisix
 | Service | Mounted config |
 |---------|----------------|
 | apisix | `conf/apisix.yaml`, `conf/config.yaml`, `conf/providers/`, `conf/redact-patterns.json`, `plugins/custom/*.lua` |
-| clickhouse | `conf/clickhouse-init.sql` (initdb), `conf/migrations/` (via migrate) |
+| clickhouse | `conf/sql/clickhouse-init.sql` (initdb), `conf/sql/migrations/` (via migrate) |
 | vector | `conf/vector.toml` |
 | openbao | `conf/openbao.hcl` |
 | prometheus | `conf/prometheus.yml` |
@@ -121,7 +121,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3030/api/health   # Gr
 ### 7. ClickHouse access
 
 Database `llm_gateway` (tables `request_log`, `request_bodies`, `usage_log`,
-`billing_ledger`, `billing_discrepancies`; migrations in `conf/migrations/`).
+`billing_ledger`, `billing_discrepancies`; migrations in `conf/sql/migrations/`).
 All access is authenticated (RUNBOOK-SECRETS); conversation bodies live in
 `request_bodies`, readable only by `ops_admin`.
 

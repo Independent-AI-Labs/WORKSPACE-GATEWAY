@@ -5,6 +5,11 @@
 #
 # The caller creates the empty target TSV files under TMPD before calling.
 
+_LIB_SQL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${REPO_ROOT:-$(cd "$_LIB_SQL_DIR/../.." && pwd)}"
+# shellcheck source=lib-sql.sh
+source "$_LIB_SQL_DIR/lib-sql.sh" || return 1
+
 extract_opencode_rows() {
     local dbs="${1:?OPENCODE_DBS required}"
     local tmpd="${2:?TMPD required}"
@@ -28,45 +33,23 @@ extract_opencode_rows() {
         echo "[INFO] extracting $src" >&2
 
         t0=$(date +%s%3N)
-        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" "
-SELECT m.id, m.session_id, m.time_created,
-       coalesce(json_extract(m.data,'\$.providerID'),''),
-       coalesce(json_extract(m.data,'\$.modelID'),''),
-       coalesce(json_extract(m.data,'\$.cost'),0),
-       coalesce(json_extract(m.data,'\$.tokens.input'),0),
-       coalesce(json_extract(m.data,'\$.tokens.output'),0),
-       coalesce(json_extract(m.data,'\$.tokens.reasoning'),0),
-       coalesce(json_extract(m.data,'\$.tokens.cache.read'),0),
-       coalesce(json_extract(m.data,'\$.agent'), coalesce(s.agent,''), ''),
-       coalesce(s.project_id,''), coalesce(s.parent_id,''), s.version,
-        strftime('%Y-%m-%d %H:%M:%f', m.time_created/1000.0, 'unixepoch'),
-       coalesce(json_extract(m.data,'\$.error.name'),''),
-       coalesce(json_extract(m.data,'\$.time.completed'),0),
-       coalesce(json_extract(m.data,'\$.tokens.cache.write'),0)
-FROM message m JOIN session s ON s.id = m.session_id
-WHERE json_extract(m.data,'\$.role')='assistant'
-ORDER BY m.id;
-" >> "$tmpd/msg.tsv"
+        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" \
+            "$(sql_render sqlite/opencode-stats/messages.sql)" >> "$tmpd/msg.tsv"
         t1=$(date +%s%3N)
         echo "[TIME] messages $((t1 - t0))ms" >&2
 
         # First visible (non-reasoning) part per message: content TTFT input.
         t0=$(date +%s%3N)
-        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" "
-SELECT message_id, min(time_created) FROM part
-WHERE json_extract(data,'\$.type') != 'reasoning'
-GROUP BY message_id ORDER BY message_id;
-" >> "$tmpd/firstpart.tsv"
+        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" \
+            "$(sql_render sqlite/opencode-stats/firstpart.sql)" >> "$tmpd/firstpart.tsv"
         t1=$(date +%s%3N)
         echo "[TIME] firstpart $((t1 - t0))ms" >&2
 
         # Role timeline per session (req_body synthesis: prior assistant turns
         # detect followup requests the way resent conversation history would).
         t0=$(date +%s%3N)
-        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" "
-SELECT m.id, m.session_id, m.time_created, coalesce(json_extract(m.data,'\$.role'),'')
-FROM message m ORDER BY m.session_id, m.time_created;
-" >> "$tmpd/roles.tsv"
+        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" \
+            "$(sql_render sqlite/opencode-stats/roles.sql)" >> "$tmpd/roles.tsv"
         t1=$(date +%s%3N)
         echo "[TIME] roles $((t1 - t0))ms" >&2
 
@@ -74,19 +57,8 @@ FROM message m ORDER BY m.session_id, m.time_created;
         # permission-rejection markers (same marker strings the usefulness
         # cruncher counts). Text sanitized to single-line, capped at 64 KiB.
         t0=$(date +%s%3N)
-        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" "
-SELECT p.message_id, p.session_id, p.time_created,
-       CASE WHEN json_extract(m.data,'\$.role')='user' THEN 'U' ELSE 'M' END,
-       replace(replace(replace(substr(coalesce(json_extract(p.data,'\$.text'),''),1,65536),
-         char(9),' '), char(10),' '), char(13),' ')
-FROM part p JOIN message m ON m.id = p.message_id
-WHERE (json_extract(m.data,'\$.role')='user' AND json_extract(p.data,'\$.type')='text')
-   OR json_extract(p.data,'\$.text') LIKE '%BLOCKED: bash %'
-   OR json_extract(p.data,'\$.text') LIKE '%BLOCKED: ts=%'
-   OR json_extract(p.data,'\$.text') LIKE '%The user rejected permission to use this specific tool call%'
-   OR json_extract(p.data,'\$.text') LIKE '%The user has specified a rule which prevents you from using this specific tool call%'
-ORDER BY p.session_id, p.time_created;
-" >> "$tmpd/usermark.tsv"
+        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" \
+            "$(sql_render sqlite/opencode-stats/usermark.sql)" >> "$tmpd/usermark.tsv"
         t1=$(date +%s%3N)
         echo "[TIME] usermark $((t1 - t0))ms" >&2
     done
@@ -113,14 +85,8 @@ ORDER BY p.session_id, p.time_created;
         uri="file:${src}?mode=ro"
 
         t0=$(date +%s%3N)
-        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" "
-SELECT p.message_id, p.session_id, p.time_created,
-       hex(json_extract(p.data,'\$.type') || ':' || coalesce(json_extract(p.data,'\$.text'),'')),
-       length(CAST(coalesce(json_extract(p.data,'\$.text'),'') AS BLOB))
-FROM part p
-WHERE json_extract(p.data,'\$.type') IN ('text','reasoning')
-ORDER BY p.message_id, p.id;
-" | awk -F'\t' -v needf="$tmpd/needs_hash.txt" -v hashf="$tmpd/hash.tsv" -v streamf="$tmpd/partstream.tsv" '
+        sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" \
+            "$(sql_render sqlite/opencode-stats/parts.sql)" | awk -F'\t' -v needf="$tmpd/needs_hash.txt" -v hashf="$tmpd/hash.tsv" -v streamf="$tmpd/partstream.tsv" '
     BEGIN { while ((getline l < needf) > 0) need[l] = 1 }
     function flush() {
         if (cur == "") return

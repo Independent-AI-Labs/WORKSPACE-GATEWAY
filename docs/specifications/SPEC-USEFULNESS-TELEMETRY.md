@@ -86,7 +86,7 @@ Entry JSON gains `ttft_first_byte_ms`, `ttft_content_ms`, `duration_ms`.
 Client-cancel-before-first-byte is representable: `aborted=1` with
 `ttft_first_byte_ms = 0 < duration_ms`.
 
-### 2.3 Schema: `conf/migrations/000008_add_ttft_duration.{up,down}.sql`
+### 2.3 Schema: `conf/sql/migrations/000008_add_ttft_duration.{up,down}.sql`
 
 ```sql
 -- up
@@ -104,7 +104,7 @@ SELECT ... (existing columns unchanged) ...,
 FROM llm_gateway.usage_log;
 ```
 
-`conf/clickhouse-init.sql` gains the three columns in both the CREATE TABLE
+`conf/sql/clickhouse-init.sql` gains the three columns in both the CREATE TABLE
 and the MV, plus the idempotent `ADD COLUMN IF NOT EXISTS` ALTER block
 (house style). Down migration drops the columns and restores the old MV
 SELECT (zeros).
@@ -124,7 +124,7 @@ lag (late inserts excluded by design). Efficiency and idempotency mechanics:
 1. One prequery fetches the DISTINCT non-empty hourly windows in range; the
    loop never touches an empty window (no month-of-nulls churn).
 2. `--rebuild` drops + recreates `request_signals` from the canonical DDL
-   extracted out of `conf/clickhouse-init.sql` (single source of truth -
+   extracted out of `conf/sql/clickhouse-init.sql` (single source of truth -
    never hand-written SQL).
 3. Rows are crunched per window but committed in blocks of `FLUSH_WINDOWS`
    (default 12): one span DELETE + one INSERT per block. Per-window inserts
@@ -516,8 +516,8 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | File | Purpose |
 |------|---------|
 | `plugins/custom/sse-usage.lua`, `plugins/custom/sse_usage_lib.lua` | TTFT/duration stamps |
-| `conf/migrations/000008_add_ttft_duration.{up,down}.sql` | usage_log columns + MV recreation |
-| `conf/clickhouse-init.sql` | same, initdb path |
+| `conf/sql/migrations/000008_add_ttft_duration.{up,down}.sql` | usage_log columns + MV recreation |
+| `conf/sql/clickhouse-init.sql` | same, initdb path |
 | `conf/profanity/en.txt`, `vader-negative.txt`, `frustration-phrases.txt`, `fuzzy-blocklist.txt` | vendored dictionaries (snapshots; blocklist generated) |
 | `res/scripts/update-dictionaries.sh` | dictionary refresh + blocklist generation |
 | `res/scripts/crunch-usefulness.sh` | orchestrator |
@@ -531,10 +531,10 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | Component | Status | Evidence |
 |-----------|--------|----------|
 | TTFT/duration capture | Implemented | plugins/custom/sse-usage.lua, sse_usage_lib.lua; tests/lua/test_sse_usage_lib.lua (content_detection_tests) |
-| Migration 000008 + MV wiring | Implemented | conf/migrations/000008_add_ttft_duration.{up,down}.sql; conf/clickhouse-init.sql |
+| Migration 000008 + MV wiring | Implemented | conf/sql/migrations/000008_add_ttft_duration.{up,down}.sql; conf/sql/clickhouse-init.sql |
 | Dictionaries vendored + refresh target | Implemented | conf/profanity/*; res/scripts/update-dictionaries.sh; make gw-update-dictionaries |
 | Cruncher (shell + Lua) | Implemented | res/scripts/crunch-usefulness.sh, res/scripts/usefulness/cruncher.lua; make gw-crunch-usefulness |
-| request_signals table | Implemented | migration 000008 + conf/clickhouse-init.sql |
+| request_signals table | Implemented | migration 000008 + conf/sql/clickhouse-init.sql |
 | systemd timer (daily 00:00) | Implemented | res/systemd/gateway-usefulness-crunch.{service,timer}; make gw-install-crunch-timer |
 | model experience + performance dashboards | Implemented | conf/grafana/dashboards/gateway-model-{experience,performance}.json; tests/config/test_dashboard_{experience,performance}.sh |
 | Tests | Implemented | tests/lua/test_usefulness_cruncher.lua; tests/integration/test_crunch_idempotency.sh; extended test_clickhouse_sql.sh, test_grafana_provisioning.sh, dashboard_assert.sh |

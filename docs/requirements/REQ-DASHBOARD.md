@@ -153,7 +153,7 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Constraint | Source |
 |----|------------|--------|
-| C-1 | ClickHouse database is `llm_gateway` (tables `request_log`, `usage_log`) | conf/migrations |
+| C-1 | ClickHouse database is `llm_gateway` (tables `request_log`, `usage_log`) | conf/sql/migrations |
 | C-2 | Dashboard JSONs are the tested artifact; tests verify against this requirements doc, not JSON structure alone | earlier dashboard spec |
 
 ## 5. Assumptions

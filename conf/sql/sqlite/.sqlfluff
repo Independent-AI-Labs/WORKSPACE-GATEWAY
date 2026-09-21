@@ -1,0 +1,5 @@
+# SQLFluff dialect override for the SQLite templates under conf/sql/sqlite/.
+# Everything else (templater, macros, excluded rules) cascades from the
+# repo-root .sqlfluff.
+[sqlfluff]
+dialect = sqlite

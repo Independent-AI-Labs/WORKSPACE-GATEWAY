@@ -9,7 +9,23 @@ set -euo pipefail
 #
 # Usage: seed-clickhouse-dashboard-data.sh [--clickhouse-url <url>] [--cleanup]
 
+_SELF="${BASH_SOURCE[0]}"
+case "$_SELF" in
+    /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;;
+esac
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# /proc/fd execution (test runners) leaves SHG_SCRIPT_PATH unset; use the
+# caller's working directory when it is the repo root.
+if [ ! -f "$REPO_ROOT/res/scripts/lib-sql.sh" ] && [ -f "$PWD/res/scripts/lib-sql.sh" ]; then
+    REPO_ROOT="$PWD"
+fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+
 CH_URL="${CLICKHOUSE_URL:-http://localhost:8123}"
+SEED_DB="llm_gateway"
 SEED_MODEL="gw-integration-seed-model"
 SEED_KEY="integration-seed-key"
 SEED_RID_PREFIX="integration-seed-ds-proxy-"
@@ -50,9 +66,12 @@ echo "[INFO] Seeding ClickHouse dashboard integration data ($SEED_ROW_COUNT rows
 # request_log rows and must be removed too, or the seed model shows up on
 # the model experience scorecard (it passes the >=100 requests gate).
 cleanup_seed() {
-    ch_exec "ALTER TABLE llm_gateway.request_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
-    ch_exec "ALTER TABLE llm_gateway.usage_log DELETE WHERE request_id LIKE '${SEED_RID_PREFIX}%'" 1>&2
-    ch_exec "ALTER TABLE llm_gateway.request_signals DELETE WHERE model = '${SEED_MODEL}'" 1>&2
+    ch_exec "$(sql_render ops/seed-dashboard/cleanup-request-log.sql \
+        DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")" 1>&2
+    ch_exec "$(sql_render ops/seed-dashboard/cleanup-usage-log.sql \
+        DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")" 1>&2
+    ch_exec "$(sql_render ops/seed-dashboard/cleanup-request-signals.sql \
+        DB="$SEED_DB" SEED_MODEL="$SEED_MODEL")" 1>&2
 }
 
 cleanup_seed
@@ -63,46 +82,20 @@ if [ "$CLEANUP_ONLY" -eq 1 ]; then
 fi
 
 # request_log: >100 rows, mixed status codes (200/401/404/500), populated model/key.
-ch_exec "INSERT INTO llm_gateway.request_log (
-    provider, method, uri, status, model, key_id, request_id,
-    upstream_response_time_s, timestamp
-)
-SELECT
-    'integration-seed' AS provider,
-    'POST' AS method,
-    '/v1/chat/completions' AS uri,
-    multiIf(
-        number % 10 = 0, 401,
-        number % 7 = 0, 404,
-        number % 13 = 0, 500,
-        200
-    ) AS status,
-    '${SEED_MODEL}' AS model,
-    '${SEED_KEY}' AS key_id,
-    concat('${SEED_RID_PREFIX}', toString(number)) AS request_id,
-    0.05 + (number % 10) * 0.01 AS upstream_response_time_s,
-    now() - INTERVAL (number % 45) MINUTE AS timestamp
-FROM numbers(${SEED_ROW_COUNT})" 1>&2
+ch_exec "$(sql_render ops/seed-dashboard/insert-request-log.sql \
+    DB="$SEED_DB" SEED_MODEL="$SEED_MODEL" SEED_KEY="$SEED_KEY" \
+    SEED_RID_PREFIX="$SEED_RID_PREFIX" SEED_ROW_COUNT="$SEED_ROW_COUNT")" 1>&2
 
 # usage_log: matching request_id rows for model filter + ASOF JOIN panels.
-ch_exec "INSERT INTO llm_gateway.usage_log (
-    event_id, request_id, model, key_id,
-    prompt_tokens, completion_tokens, total_tokens, cost, timestamp
-)
-SELECT
-    concat('${SEED_EID_PREFIX}', toString(number)) AS event_id,
-    concat('${SEED_RID_PREFIX}', toString(number)) AS request_id,
-    '${SEED_MODEL}' AS model,
-    '${SEED_KEY}' AS key_id,
-    100 AS prompt_tokens,
-    50 AS completion_tokens,
-    150 AS total_tokens,
-    0.001 AS cost,
-    now() - INTERVAL (number % 45) MINUTE AS timestamp
-FROM numbers(${SEED_ROW_COUNT})" 1>&2
+ch_exec "$(sql_render ops/seed-dashboard/insert-usage-log.sql \
+    DB="$SEED_DB" SEED_MODEL="$SEED_MODEL" SEED_KEY="$SEED_KEY" \
+    SEED_RID_PREFIX="$SEED_RID_PREFIX" SEED_EID_PREFIX="$SEED_EID_PREFIX" \
+    SEED_ROW_COUNT="$SEED_ROW_COUNT")" 1>&2
 
-seed_count=$(ch_exec "SELECT count() FROM llm_gateway.request_log WHERE request_id LIKE '${SEED_RID_PREFIX}%' FORMAT TabSeparated")
-err_count=$(ch_exec "SELECT countIf(status >= 400) FROM llm_gateway.request_log WHERE request_id LIKE '${SEED_RID_PREFIX}%' FORMAT TabSeparated")
+seed_count=$(ch_exec "$(sql_render ops/seed-dashboard/count-request-log.sql \
+    DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")")
+err_count=$(ch_exec "$(sql_render ops/seed-dashboard/count-errors.sql \
+    DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")")
 
 if [ -z "${seed_count:-}" ] || [ "$seed_count" -lt 100 ]; then
     echo "[FAIL] Seed inserted only ${seed_count:-0} request_log rows (expected >=100)" >&2

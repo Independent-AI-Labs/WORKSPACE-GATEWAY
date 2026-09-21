@@ -26,6 +26,12 @@
 : "${CH_URL:=http://localhost:8123}"
 export GATEWAY_URL CH_URL
 
+# Renderers for the conf/sql/test templates (caller sets REPO_ROOT).
+: "${REPO_ROOT:?lib_event_align.sh requires REPO_ROOT}"
+export REPO_ROOT
+# shellcheck source=../../res/scripts/lib-sql.sh
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || return 1
+
 setup_endpoints() {
     # Returns 0 if both endpoints are reachable, 1 otherwise.
     curl_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" )
@@ -59,19 +65,19 @@ count_recent() {
     local table="$1" boundary="$2"
     local where=""
     [ "$boundary" -gt 0 ] && where="AND toUInt32(toDateTime(timestamp)) >= $boundary"
-    ch_query "SELECT count() FROM llm_gateway.$table WHERE request_id != '' $where" | tr -d ' \n'
+    ch_query "$(sql_render tests/event-align/count-recent.sql "TABLE=$table" "WHERE=$where")" | tr -d ' \n'
 }
 
 latest_pair() {
     local table="$1" boundary="$2"
     local where=""
     [ "$boundary" -gt 0 ] && where="AND toUInt32(toDateTime(timestamp)) >= $boundary"
-    ch_query "SELECT event_id, request_id FROM llm_gateway.$table WHERE request_id != '' $where ORDER BY timestamp DESC LIMIT 1"
+    ch_query "$(sql_render tests/event-align/latest-pair.sql "TABLE=$table" "WHERE=$where")"
 }
 
 pair_by_rid() {
     local table="$1" rid="$2"
-    ch_query "SELECT event_id, request_id FROM llm_gateway.$table WHERE request_id = '$rid' LIMIT 1"
+    ch_query "$(sql_render tests/event-align/pair-by-rid.sql "TABLE=$table" "RID=$rid")"
 }
 
 assert_eq() {

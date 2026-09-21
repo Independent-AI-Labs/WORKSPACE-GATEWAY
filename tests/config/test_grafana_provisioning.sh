@@ -96,7 +96,7 @@ assert_eq "Dashboard provider path is /var/lib/grafana/dashboards" "/var/lib/gra
 
 # ── dashboard JSON (4 dashboards) ─────────────────────────────────────
 
-DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
+DASH_DIR="$REPO_ROOT/conf/grafana/rendered/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
 LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"

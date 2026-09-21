@@ -8,7 +8,7 @@
 -- to 0 until a reconciler pricing snapshot lands in ClickHouse.
 --
 -- This migration replicates the canonical MV declared in
--- conf/clickhouse-init.sql lines 174-212 so databases that pre-date the
+-- conf/sql/clickhouse-init.sql lines 174-212 so databases that pre-date the
 -- MV (or that were provisioned before billing_ledger existed) get it on
 -- the next `make ch-migrate`. Idempotent.
 

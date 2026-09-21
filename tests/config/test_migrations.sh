@@ -14,7 +14,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MIGRATIONS_DIR="$REPO_ROOT/conf/migrations"
+MIGRATIONS_DIR="$REPO_ROOT/conf/sql/migrations"
 COMPOSE_FILE="$REPO_ROOT/res/docker/docker-compose.yml"
 ANSIBLE_FILE="$REPO_ROOT/res/ansible/dev.yml"
 MAKEFILE="$REPO_ROOT/Makefile"
@@ -167,7 +167,7 @@ assert_contains "migrate DSN authenticates as migrator (query-param form)" "$com
 assert_contains "migrate command has -path=/migrations/" "$compose_body" "-path=/migrations/"
 assert_contains "migrate -database connects via compose DNS clickhouse:9000 (native protocol)" "$compose_body" "clickhouse:9000"
 assert_not_contains "migrate -database does NOT use localhost" "$compose_body" "database=clickhouse://localhost"
-assert_contains "migrate service mounts conf/migrations read-only" "$compose_body" "conf/migrations:/migrations:ro"
+assert_contains "migrate service mounts conf/sql/migrations read-only" "$compose_body" "conf/sql/migrations:/migrations:ro"
 
 # ── (E) ansible orchestration integration ──────────────────────────────
 ansible_body_rc=0

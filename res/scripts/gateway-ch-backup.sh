@@ -22,6 +22,20 @@ fail() { echo "[ch-backup] ERROR: $*" >&2; exit 1; }
 : "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (systemd EnvironmentFile=.env)}"
 CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
 
+_SELF="${BASH_SOURCE[0]}"
+case "$_SELF" in
+    /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;;
+esac
+REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
+# /proc/fd execution (test runners) leaves SHG_SCRIPT_PATH unset; use the
+# caller's working directory when it is the repo root.
+if [ ! -f "$REPO_ROOT/res/scripts/lib-sql.sh" ] && [ -f "$PWD/res/scripts/lib-sql.sh" ]; then
+    REPO_ROOT="$PWD"
+fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+
 DATE="$(date +%F)"
 NAME="gw-${DATE}"
 
@@ -37,7 +51,7 @@ mkdir -p "$STAGING"
 STATUS=""
 # system.backups.name is the full spec Disk('backups', '<name>'), so match
 # by substring rather than equality on the bare name.
-if STATUS_FROM_CH="$(chq "SELECT status FROM system.backups WHERE position(name, '${NAME}') > 0 ORDER BY start_time DESC LIMIT 1")"; then
+if STATUS_FROM_CH="$(chq "$(sql_render ops/gateway-ch-backup/status.sql NAME="$NAME")")"; then
     STATUS="$STATUS_FROM_CH"
 fi
 if [ -n "${STATUS:-}" ] && [ "${STATUS:-}" != "BACKUP_CREATED" ]; then
@@ -50,7 +64,7 @@ if [ "${STATUS:-}" = "BACKUP_CREATED" ]; then
     echo "[ch-backup] ${NAME} already exists (status BACKUP_CREATED); copy-out only"
 else
     echo "[ch-backup] creating ${NAME}"
-    chq "BACKUP DATABASE llm_gateway TO Disk('backups', '${NAME}')"
+    chq "$(sql_render ops/gateway-ch-backup/backup.sql NAME="$NAME")"
 fi
 
 # Copy out of the container volume to staging.

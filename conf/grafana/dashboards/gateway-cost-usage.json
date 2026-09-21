@@ -48,7 +48,7 @@
           "uid": "clickhouse",
           "type": "grafana-clickhouse-datasource"
         },
-        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
+        "query": "{{sql:grafana/queries/gateway-cost-usage-var-model.sql}}",
         "includeAll": true,
         "multi": true,
         "current": {
@@ -64,7 +64,7 @@
           "uid": "clickhouse",
           "type": "grafana-clickhouse-datasource"
         },
-        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "query": "{{sql:grafana/queries/gateway-cost-usage-var-api_key.sql}}",
         "multi": true,
         "includeAll": true,
         "allValue": null,
@@ -95,7 +95,7 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        round(sum(cost), 2) as total_cost,\n        uniqExact(toDate(timestamp)) as days,\n        uniqExact(toStartOfWeek(timestamp, 1)) as weeks,\n        uniqExact(toStartOfMonth(timestamp)) as months\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n),\navgs AS (\n    SELECT\n        total_tok, input_tok, cached_tok, output_tok, reasoning_tok, total_cost,\n        round(total_tok / greatest(days, 1)) as day_tok,\n        round(total_tok / greatest(weeks, 1)) as week_tok,\n        round(total_tok / greatest(months, 1)) as month_tok,\n        round(total_cost / greatest(days, 1), 2) as day_cost,\n        round(total_cost / greatest(weeks, 1), 2) as week_cost,\n        round(total_cost / greatest(months, 1), 2) as month_cost\n    FROM totals\n)\nSELECT\n    multiIf(input_tok >= 1000000000, concat(toString(round(input_tok / 1000000000, 2)), 'B'), input_tok >= 1000000, concat(toString(round(input_tok / 1000000, 2)), 'M'), input_tok >= 1000, concat(toString(round(input_tok / 1000, 2)), 'K'), toString(input_tok)) as \"Input Tokens\",\n    multiIf(cached_tok >= 1000000000, concat(toString(round(cached_tok / 1000000000, 2)), 'B'), cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000, 2)), 'M'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000, 2)), 'K'), toString(cached_tok)) as \"Cached Tokens\",\n    multiIf(output_tok >= 1000000000, concat(toString(round(output_tok / 1000000000, 2)), 'B'), output_tok >= 1000000, concat(toString(round(output_tok / 1000000, 2)), 'M'), output_tok >= 1000, concat(toString(round(output_tok / 1000, 2)), 'K'), toString(output_tok)) as \"Output Tokens\",\n    multiIf(reasoning_tok >= 1000000000, concat(toString(round(reasoning_tok / 1000000000, 2)), 'B'), reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000, 2)), 'M'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000, 2)), 'K'), toString(reasoning_tok)) as \"Reasoning Tokens\",\n    concat(multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok)), ' / $', toString(floor(round(total_cost * 100) / 100)), '.', leftPad(toString(round(total_cost * 100) % 100), 2, '0')) as \"Total\",\n    concat(multiIf(month_tok >= 1000000000, concat(toString(round(month_tok / 1000000000, 2)), 'B'), month_tok >= 1000000, concat(toString(round(month_tok / 1000000, 2)), 'M'), month_tok >= 1000, concat(toString(round(month_tok / 1000, 2)), 'K'), toString(month_tok)), ' / $', toString(floor(round(month_cost * 100) / 100)), '.', leftPad(toString(round(month_cost * 100) % 100), 2, '0')) as \"Monthly Average\",\n    concat(multiIf(week_tok >= 1000000000, concat(toString(round(week_tok / 1000000000, 2)), 'B'), week_tok >= 1000000, concat(toString(round(week_tok / 1000000, 2)), 'M'), week_tok >= 1000, concat(toString(round(week_tok / 1000, 2)), 'K'), toString(week_tok)), ' / $', toString(floor(round(week_cost * 100) / 100)), '.', leftPad(toString(round(week_cost * 100) % 100), 2, '0')) as \"Weekly Average\",\n    concat(multiIf(day_tok >= 1000000000, concat(toString(round(day_tok / 1000000000, 2)), 'B'), day_tok >= 1000000, concat(toString(round(day_tok / 1000000, 2)), 'M'), day_tok >= 1000, concat(toString(round(day_tok / 1000, 2)), 'K'), toString(day_tok)), ' / $', toString(floor(round(day_cost * 100) / 100)), '.', leftPad(toString(round(day_cost * 100) % 100), 2, '0')) as \"Daily Average\"\nFROM avgs"
+          "rawSql": "{{sql:grafana/queries/gateway-cost-usage-p3-A.sql}}"
         }
       ],
       "fieldConfig": {
@@ -297,7 +297,7 @@
           "refId": "A",
           "format": "timeseries",
           "timeColumn": "time",
-          "rawSql": "SELECT toStartOfMinute(timestamp) as time, model as label, round(sum(cost), 6) as cost FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time, model ORDER BY time, label"
+          "rawSql": "{{sql:grafana/queries/gateway-cost-usage-p15-A.sql}}"
         }
       ],
       "fieldConfig": {
@@ -354,7 +354,7 @@
         {
           "queryType": "table",
           "refId": "A",
-          "rawSql": "SELECT model, count() as requests FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY requests DESC LIMIT 20",
+          "rawSql": "{{sql:grafana/queries/gateway-cost-usage-p8-A.sql}}",
           "format": "table"
         }
       ],
@@ -402,7 +402,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT\n    coalesce(nullIf(provider_id,''),'unknown') AS \"provider\",\n    round(sum(cost), 2) AS \"usd\"\nFROM llm_gateway.usage_log\nWHERE $__timeFilter(timestamp)\n  AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n  AND model IN (${model:singlequote})\nGROUP BY \"provider\"\nORDER BY \"usd\" DESC\n"
+          "rawSql": "{{sql:grafana/queries/gateway-cost-usage-p46-A.sql}}"
         }
       ],
       "fieldConfig": {

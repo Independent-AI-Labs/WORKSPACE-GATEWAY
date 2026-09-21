@@ -49,7 +49,7 @@
           "uid": "clickhouse",
           "type": "grafana-clickhouse-datasource"
         },
-        "query": "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model",
+        "query": "{{sql:grafana/queries/gateway-model-performance-var-model.sql}}",
         "includeAll": true,
         "multi": true,
         "current": {
@@ -65,7 +65,7 @@
           "uid": "clickhouse",
           "type": "grafana-clickhouse-datasource"
         },
-        "query": "SELECT k AS __text, k AS __value FROM (SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log) ORDER BY k",
+        "query": "{{sql:grafana/queries/gateway-model-performance-var-api_key.sql}}",
         "multi": true,
         "includeAll": true,
         "allValue": null,
@@ -97,7 +97,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT concat(model, ' (p50)') AS metric, round(medianExactIf(prompt_tokens / nullIf(ttft_content_ms, 0) * 1000, ttft_content_ms >= 100), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND is_stream = 1 AND ttft_content_ms >= 100 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY model ORDER BY value DESC LIMIT 40"
+          "rawSql": "{{sql:grafana/queries/gateway-model-performance-p30-A.sql}}"
         }
       ],
       "fieldConfig": {
@@ -144,7 +144,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT concat(model, ' (p50)') AS metric, round(medianExactIf(completion_tokens / nullIf(duration_ms - ttft_content_ms, 0) * 1000, is_stream = 1 AND ttft_content_ms >= 100 AND duration_ms - ttft_content_ms >= 100), 2) AS value FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND is_stream = 1 AND ttft_content_ms >= 100 AND duration_ms - ttft_content_ms >= 100 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY model ORDER BY value DESC LIMIT 40"
+          "rawSql": "{{sql:grafana/queries/gateway-model-performance-p44-A.sql}}"
         }
       ],
       "fieldConfig": {
@@ -191,7 +191,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT round(countIf(aborted = 1) * 100.0 / nullIf(countIf(is_stream = 1), 0), 2) AS \"Cancels %\", round(countIf(aborted = 2) * 100.0 / nullIf(countIf(is_stream = 1), 0), 2) AS \"Provider Aborts %\" FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND is_stream = 1 AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated)"
+          "rawSql": "{{sql:grafana/queries/gateway-model-performance-p31-A.sql}}"
         }
       ],
       "fieldConfig": {
@@ -276,7 +276,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100),\nev AS (\n    SELECT\n        u.completion_tokens AS ct,\n        u.aborted AS ab,\n        s.user_rejections + s.rule_denials + s.guard_blocks AS rej,\n        lagInFrame(ct, 1) OVER (PARTITION BY if(r.session_id != '', r.session_id, concat('k:', coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown'))) ORDER BY r.timestamp, r.request_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS prev_ct, lagInFrame(cost, 1) OVER (PARTITION BY if(r.session_id != '', r.session_id, concat('k:', coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown'))) ORDER BY r.timestamp, r.request_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS prev_cost,\n        lagInFrame(ab, 1) OVER (PARTITION BY if(r.session_id != '', r.session_id, concat('k:', coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown'))) ORDER BY r.timestamp, r.request_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS prev_ab\n    FROM llm_gateway.request_log r\n    INNER JOIN llm_gateway.usage_log u ON u.request_id = r.request_id\n    INNER JOIN llm_gateway.request_signals s ON s.request_id = r.request_id\n    WHERE $__timeFilter(r.timestamp)\n      AND r.request_id != ''\n      AND coalesce(nullIf(r.key_id,''), nullIf(r.api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND u.model IN (${model:singlequote})\n      AND u.model IN (SELECT model FROM gated)\n),\nagg AS (\n    SELECT\n        sum(if(aborted > 0, completion_tokens, 0)) AS wasted_tokens,\n        sum(completion_tokens) AS total_tokens,\n        round(sumIf(cost, aborted > 0), 2) AS wasted_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n      AND model IN (SELECT model FROM gated)\n),\nrejw AS (\n    SELECT sumIf(prev_ct, rej > 0 AND prev_ab = 0) AS rej_wasted, sumIf(prev_cost, rej > 0 AND prev_ab = 0) AS rej_cost FROM ev\n)\nSELECT\n    multiIf(wasted_tokens + rej_wasted >= 1000000000, concat(toString(round((wasted_tokens + rej_wasted) / 1000000000, 2)), 'B'),\n            wasted_tokens + rej_wasted >= 1000000, concat(toString(round((wasted_tokens + rej_wasted) / 1000000, 2)), 'M'),\n            wasted_tokens + rej_wasted >= 1000, concat(toString(round((wasted_tokens + rej_wasted) / 1000, 2)), 'K'),\n            toString(wasted_tokens + rej_wasted)) AS \"Wasted Tokens\",\n    concat(toString(round(100 * (wasted_tokens + rej_wasted) / nullIf(total_tokens, 0), 2)), '%') AS \"Wasted % of Total\",\n    concat('$', toString(floor(round((wasted_cost + rej_cost) * 100) / 100)), '.', leftPad(toString(round((wasted_cost + rej_cost) * 100) % 100), 2, '0')) AS \"Cost of Wasted Tokens\"\nFROM agg, rejw\n"
+          "rawSql": "{{sql:grafana/queries/gateway-model-performance-p36-A.sql}}"
         }
       ],
       "fieldConfig": {
@@ -352,7 +352,7 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100)\nSELECT\n    concat('$', toString(floor(round(cpc * 100) / 100)), '.', leftPad(toString(round(cpc * 100) % 100), 2, '0')) AS \"Cost per Completed Response (avg)\",\n    concat(toString(round(tpc, 1)), 's') AS \"Avg Time per Completed\",\n    multiIf(n >= 1000000000, concat(toString(round(n / 1000000000, 2)), 'B'), n >= 1000000, concat(toString(round(n / 1000000, 2)), 'M'), n >= 1000, concat(toString(round(n / 1000, 2)), 'K'), toString(n)) AS \"Completed Responses\"\nFROM (\n    SELECT\n        sumIf(cost, aborted = 0) / nullIf(countIf(aborted = 0), 0) AS cpc,\n        avgIf(duration_ms, aborted = 0 AND duration_ms > 0) / 1000 AS tpc,\n        countIf(aborted = 0) AS n\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp)\n      AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n      AND model IN (${model:singlequote})\n      AND model IN (SELECT model FROM gated)\n)\n"
+          "rawSql": "{{sql:grafana/queries/gateway-model-performance-p45-A.sql}}"
         }
       ],
       "fieldConfig": {

@@ -35,6 +35,7 @@ COPY plugins/custom/redact_lib.lua /usr/local/apisix/apisix/plugins/redact_lib.l
 COPY plugins/custom/redact_walk.lua /usr/local/apisix/apisix/plugins/redact_walk.lua
 COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
 COPY conf/redact-patterns.json /etc/apisix/redact-patterns.json
+COPY conf/sql /etc/apisix/sql
 COPY conf/providers /usr/local/apisix/conf/providers
 
 EXPOSE 9080 9443 9100

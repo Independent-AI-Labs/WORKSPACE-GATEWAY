@@ -20,6 +20,20 @@
 #   OPENCODE_DB   path to opencode.db (default: ~/.local/share/opencode/opencode.db)
 set -euo pipefail
 
+_SELF="${BASH_SOURCE[0]}"
+case "$_SELF" in
+    /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;;
+esac
+SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
+# /proc/fd execution (test runners) leaves SHG_SCRIPT_PATH unset; use the
+# caller's working directory when it is the repo root.
+if [ ! -f "$SCRIPT_DIR/lib-sql.sh" ] && [ -f "$PWD/res/scripts/lib-sql.sh" ]; then
+    SCRIPT_DIR="$PWD/res/scripts"
+fi
+REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+# shellcheck source=lib-sql.sh
+source "$SCRIPT_DIR/lib-sql.sh" || exit 1
+
 DB="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
 MODE="fix"
 if [ "${1:-}" = "--check" ]; then
@@ -34,12 +48,7 @@ if [ ! -f "$DB" ]; then
     exit 1
 fi
 
-ISSUES=$(sqlite3 "$DB" "
-SELECT count(*) FROM part
-WHERE (json_extract(data,'$.type')='reasoning' AND json_extract(data,'$.text')='')
-   OR (json_extract(data,'$.type')='text' AND json_extract(data,'$.text')=''
-       AND json_extract((SELECT m.data FROM message m WHERE m.id=part.message_id),'$.role')='assistant');
-")
+ISSUES=$(sqlite3 "$DB" "$(sql_render sqlite/opencode-fix/count_empty.sql)")
 
 echo "[INFO] $DB: $ISSUES empty content part(s) found"
 
@@ -48,12 +57,7 @@ if [ "$ISSUES" -eq 0 ]; then
 fi
 
 if [ "$MODE" = "check" ]; then
-    sqlite3 "$DB" "
-SELECT p.id, m.session_id, json_extract(p.data,'$.type')
-FROM part p JOIN message m ON m.id = p.message_id
-WHERE (json_extract(p.data,'$.type')='reasoning' AND json_extract(p.data,'$.text')='')
-   OR (json_extract(p.data,'$.type')='text' AND json_extract(p.data,'$.text')=''
-       AND json_extract(m.data,'$.role')='assistant');"
+    sqlite3 "$DB" "$(sql_render sqlite/opencode-fix/list_empty.sql)"
     exit 1
 fi
 
@@ -63,25 +67,9 @@ echo "[INFO] backup: $BACKUP"
 
 NOW_MS=$(($(date +%s) * 1000))
 
-sqlite3 "$DB" "$(printf "
-UPDATE part
-SET data = json_set(data, '\$.text', '[reasoning interrupted]'),
-    time_updated = %s
-WHERE json_extract(data,'\$.type')='reasoning' AND json_extract(data,'\$.text')='';
+sqlite3 "$DB" "$(sql_render sqlite/opencode-fix/repair.sql NOW_MS="$NOW_MS")"
 
-UPDATE part
-SET data = json_set(data, '\$.text', ' '),
-    time_updated = %s
-WHERE json_extract(data,'\$.type')='text' AND json_extract(data,'\$.text')=''
-  AND json_extract((SELECT m.data FROM message m WHERE m.id=part.message_id),'\$.role')='assistant';
-" "$NOW_MS" "$NOW_MS")"
-
-REMAINING=$(sqlite3 "$DB" "
-SELECT count(*) FROM part
-WHERE (json_extract(data,'$.type')='reasoning' AND json_extract(data,'$.text')='')
-   OR (json_extract(data,'$.type')='text' AND json_extract(data,'$.text')=''
-       AND json_extract((SELECT m.data FROM message m WHERE m.id=part.message_id),'$.role')='assistant');
-")
+REMAINING=$(sqlite3 "$DB" "$(sql_render sqlite/opencode-fix/count_empty.sql)")
 
 if [ "$REMAINING" -ne 0 ]; then
     echo "[FAIL] $REMAINING empty part(s) remain after repair" >&2

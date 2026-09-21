@@ -32,7 +32,7 @@ summary() {
     fi
 }
 
-SQL_FILE="$REPO_ROOT/conf/clickhouse-init.sql"
+SQL_FILE="$REPO_ROOT/conf/sql/clickhouse-init.sql"
 
 HAS_DB_RC=0
 HAS_DB=$(grep -c 'CREATE DATABASE.*llm_gateway' "$SQL_FILE" ) || { HAS_DB_RC=$?; HAS_DB="0"; }
@@ -225,8 +225,8 @@ HAS_SIGNAL_WEIGHT_RC=0
 HAS_SIGNAL_WEIGHT=$(grep -c 'signal_weight.*Float32' "$SQL_FILE" ) || { HAS_SIGNAL_WEIGHT_RC=$?; HAS_SIGNAL_WEIGHT="0"; }
 assert_eq "request_signals carries valence-factored signal_weight" "1" "$HAS_SIGNAL_WEIGHT"
 
-MIG_UP="$REPO_ROOT/conf/migrations/000008_add_ttft_duration.up.sql"
-MIG_DOWN="$REPO_ROOT/conf/migrations/000008_add_ttft_duration.down.sql"
+MIG_UP="$REPO_ROOT/conf/sql/migrations/000008_add_ttft_duration.up.sql"
+MIG_DOWN="$REPO_ROOT/conf/sql/migrations/000008_add_ttft_duration.down.sql"
 MIG_UP_TTFT_RC=0
 MIG_UP_TTFT=$(grep -c 'ADD COLUMN IF NOT EXISTS ttft_first_byte_ms' "$MIG_UP" ) || { MIG_UP_TTFT_RC=$?; MIG_UP_TTFT="0"; }
 assert_eq "migration 000008 up adds ttft_first_byte_ms" "1" "$MIG_UP_TTFT"
@@ -250,14 +250,14 @@ assert_eq "rebuild DDL extraction includes the final SETTINGS line" "1" "$DDL_EN
 
 # Friction telemetry (REQ FR-8): migration 000009 columns, canonical DDL,
 # marker extraction SQL wired into the crunch INSERT path.
-MIG9_UP="$REPO_ROOT/conf/migrations/000009_add_friction_columns.up.sql"
+MIG9_UP="$REPO_ROOT/conf/sql/migrations/000009_add_friction_columns.up.sql"
 MIG9_UP_RC=0
 MIG9_UP=$(grep -c 'ADD COLUMN IF NOT EXISTS guard_blocks UInt16 DEFAULT 0' "$MIG9_UP" ) || { MIG9_UP_RC=$?; MIG9_UP="0"; }
 assert_eq "migration 000009 adds guard_blocks" "1" "$MIG9_UP"
 FRICTION_COLS_RC=0
 FRICTION_COLS=$(grep -cE 'guard_blocks +UInt16|guard_rules +Array\(String\)|user_rejections +UInt16|rule_denials +UInt16' "$SQL_FILE" ) || { FRICTION_COLS_RC=$?; FRICTION_COLS="0"; }
 assert_eq "init.sql request_signals carries all 4 friction columns" "4" "$FRICTION_COLS"
-CRUNCH="$REPO_ROOT/res/scripts/crunch-usefulness.sh"
+CRUNCH="$REPO_ROOT/conf/sql/ops/crunch-usefulness/fetch-window.sql"
 MARKER_BASH_RC=0
 MARKER_BASH=$(grep -c "countMatches(b.req_body, 'BLOCKED: bash ')" "$CRUNCH" ) || { MARKER_BASH_RC=$?; MARKER_BASH="0"; }
 assert_eq "crunch counts shell-guard BLOCKED markers" "1" "$MARKER_BASH"

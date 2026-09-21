@@ -1,0 +1,1 @@
+INSERT INTO {{ DB }}.{{ TABLE }} FORMAT JSONEachRow

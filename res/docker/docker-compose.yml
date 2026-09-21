@@ -12,6 +12,7 @@ services:
       - ../../conf/providers:/usr/local/apisix/conf/providers:ro
       - ../../conf/redact-patterns.json:/etc/apisix/redact-patterns.json:ro
       - ../../conf/profanity:/etc/apisix/profanity:ro
+      - ../../conf/sql:/etc/apisix/sql:ro
       - ../../res/scripts/usefulness:/usr/local/apisix/usefulness:ro
       - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
       - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
@@ -78,7 +79,7 @@ services:
       - clickhouse-data:/var/lib/clickhouse
       # 00- prefix: provision users/grants BEFORE init.sql baseline schema.
       - ../../res/docker/clickhouse-provision.sh:/docker-entrypoint-initdb.d/00-provision.sh:ro
-      - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../../conf/sql/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ../../conf/clickhouse-disable-metric-logs.xml:/etc/clickhouse-server/config.d/disable-metric-logs.xml:ro
       - ../../conf/clickhouse-storage-tiering.xml:/etc/clickhouse-server/config.d/storage-tiering.xml:ro
       - ../../conf/clickhouse-performance.xml:/etc/clickhouse-server/config.d/performance.xml:ro
@@ -115,7 +116,7 @@ services:
       clickhouse:
         condition: service_healthy
     volumes:
-      - ../../conf/migrations:/migrations:ro
+      - ../../conf/sql/migrations:/migrations:ro
     # entrypoint holds the persistent flags so `podman-compose run --rm
     # migrate <subcommand>` replaces ONLY args (subcommand), preserving
     # -path and -database. Default command is "up"; overridden by
@@ -208,8 +209,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
     volumes:
-      - ../../conf/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ../../conf/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../conf/grafana/rendered/provisioning:/etc/grafana/provisioning:ro
+      - ../../conf/grafana/rendered/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "127.0.0.1:3030:3000"

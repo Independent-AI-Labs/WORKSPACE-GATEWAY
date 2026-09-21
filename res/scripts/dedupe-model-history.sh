@@ -42,6 +42,10 @@ elif [ "${1:-}" != "" ]; then
   exit 2
 fi
 
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+
 # shellcheck source=../../tests/config/yaml_helpers.sh
 source "$REPO_ROOT/tests/config/yaml_helpers.sh" || exit 1
 
@@ -119,18 +123,16 @@ echo "$RENAME_PAIRS" | while IFS=$'\t' read -r a c; do echo "  $a -> $c"; done
 # ---- before snapshot ----
 echo ""
 echo "[dedupe] BEFORE:"
-ch "SELECT 'usage_log' AS t, model, count(), toFloat64(sum(cost)) FROM ${DB}.usage_log WHERE ${MODEL_WHERE} GROUP BY model
-    UNION ALL
-    SELECT 'billing_ledger', model_name, count(), toFloat64(sum(cost)) FROM ${DB}.billing_ledger WHERE ${MODEL_NAME_WHERE} GROUP BY model_name
-    UNION ALL
-    SELECT 'request_log', model, count(), toFloat64(0) FROM ${DB}.request_log WHERE ${MODEL_WHERE} GROUP BY model
-    ORDER BY 1, 2 FORMAT PrettyCompact"
+ch "$(sql_render ops/dedupe-model-history/before-snapshot.sql \
+    DB="$DB" MODEL_WHERE="$MODEL_WHERE" MODEL_NAME_WHERE="$MODEL_NAME_WHERE")"
 
 if $DRY_RUN; then
   echo ""
   echo "[dedupe] DRY RUN -- would execute:"
-  echo "ALTER TABLE ${DB}.usage_log UPDATE model_raw = model, model = ${MODEL_MULTIIF} WHERE ${MODEL_WHERE} SETTINGS mutations_sync = 1;"
-  echo "ALTER TABLE ${DB}.billing_ledger UPDATE model_raw = model_name, model_name = ${MODEL_NAME_MULTIIF} WHERE ${MODEL_NAME_WHERE} SETTINGS mutations_sync = 1;"
+  echo "$(sql_render ops/dedupe-model-history/alter-usage-model.sql \
+      DB="$DB" MODEL_MULTIIF="$MODEL_MULTIIF" MODEL_WHERE="$MODEL_WHERE")"
+  echo "$(sql_render ops/dedupe-model-history/alter-ledger-model.sql \
+      DB="$DB" MODEL_NAME_MULTIIF="$MODEL_NAME_MULTIIF" MODEL_NAME_WHERE="$MODEL_NAME_WHERE")"
   echo "request_log shadow-table swap (CREATE/INSERT SELECT/EXCHANGE/DROP)"
   echo "cost repair is owned by res/scripts/recalc-costs.sh (run: make gw-recalc-costs)"
   exit 0
@@ -139,27 +141,21 @@ fi
 # ---- 1. usage_log ----
 echo ""
 echo "[dedupe] Merging usage_log..."
-ch "ALTER TABLE ${DB}.usage_log
-    UPDATE model_raw = model, model = ${MODEL_MULTIIF}
-    WHERE ${MODEL_WHERE}
-    SETTINGS mutations_sync = 1"
+ch "$(sql_render ops/dedupe-model-history/alter-usage-model.sql \
+    DB="$DB" MODEL_MULTIIF="$MODEL_MULTIIF" MODEL_WHERE="$MODEL_WHERE")"
 
 # ---- 2. billing_ledger ----
 echo "[dedupe] Merging billing_ledger..."
-ch "ALTER TABLE ${DB}.billing_ledger
-    UPDATE model_raw = model_name, model_name = ${MODEL_NAME_MULTIIF}
-    WHERE ${MODEL_NAME_WHERE}
-    SETTINGS mutations_sync = 1"
+ch "$(sql_render ops/dedupe-model-history/alter-ledger-model.sql \
+    DB="$DB" MODEL_NAME_MULTIIF="$MODEL_NAME_MULTIIF" MODEL_NAME_WHERE="$MODEL_NAME_WHERE")"
 
 # ---- 3. request_log shadow-table swap (model is in ORDER BY) ----
 echo "[dedupe] Merging request_log (shadow-table swap)..."
-ch "DROP TABLE IF EXISTS ${DB}.request_log_dedup"
-ch "CREATE TABLE ${DB}.request_log_dedup AS ${DB}.request_log"
-ch "INSERT INTO ${DB}.request_log_dedup
-    SELECT * REPLACE (${MODEL_MULTIIF} AS model)
-    FROM ${DB}.request_log"
-ch "EXCHANGE TABLES ${DB}.request_log AND ${DB}.request_log_dedup"
-ch "DROP TABLE ${DB}.request_log_dedup"
+ch "$(sql_render ops/dedupe-model-history/drop-dedup.sql DB="$DB")"
+ch "$(sql_render ops/dedupe-model-history/create-dedup.sql DB="$DB")"
+ch "$(sql_render ops/dedupe-model-history/insert-dedup.sql DB="$DB" MODEL_MULTIIF="$MODEL_MULTIIF")"
+ch "$(sql_render ops/dedupe-model-history/exchange-dedup.sql DB="$DB")"
+ch "$(sql_render ops/dedupe-model-history/drop-dedup-final.sql DB="$DB")"
 
 # ---- 4. cost repair is owned by the dedicated tool ----
 # Historical costs are revalued by res/scripts/recalc-costs.sh. It is
@@ -174,15 +170,12 @@ echo "         Run: make gw-recalc-costs"
 # ---- verify ----
 echo ""
 echo "[dedupe] Verifying no alias rows remain..."
-REMAINING=$(ch_value "
-  SELECT
-    (SELECT count() FROM ${DB}.usage_log WHERE ${MODEL_WHERE})
-    + (SELECT count() FROM ${DB}.billing_ledger WHERE ${MODEL_NAME_WHERE})
-    + (SELECT count() FROM ${DB}.request_log WHERE ${MODEL_WHERE})")
+REMAINING=$(ch_value "$(sql_render ops/dedupe-model-history/remaining-count.sql \
+  DB="$DB" MODEL_WHERE="$MODEL_WHERE" MODEL_NAME_WHERE="$MODEL_NAME_WHERE")")
 REMAINING=${REMAINING:-1}
 
 echo "[dedupe] AFTER:"
-ch "SELECT model, cost_source, count(), sum(cost) FROM ${DB}.usage_log GROUP BY model, cost_source ORDER BY count() DESC FORMAT PrettyCompact"
+ch "$(sql_render ops/dedupe-model-history/after-snapshot.sql DB="$DB")"
 
 if [ "$REMAINING" -ne 0 ]; then
   echo "[dedupe] FAIL: $REMAINING alias rows remain" >&2

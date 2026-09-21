@@ -13,7 +13,10 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
+export REPO_ROOT
+# shellcheck source=../../res/scripts/lib-sql.sh
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+DASH_DIR="$REPO_ROOT/conf/grafana/rendered/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
 LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"
@@ -128,8 +131,9 @@ ds_query() {
         -e 's|\${model:singlequote}|MODELPLACEHOLDER|g')
 
     # Step 3: Expand "All" variables the same way Grafana templating does.
-    local all_keys_sub="(SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') FROM llm_gateway.request_log)"
-    local all_models_sub="(SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != ''))"
+    local all_keys_sub all_models_sub
+    all_keys_sub="$(sql_render tests/grafana-ds-proxy/all-keys-sub.sql)"
+    all_models_sub="$(sql_render tests/grafana-ds-proxy/all-models-sub.sql)"
     sql="${sql//APIKEYPLACEHOLDER/$all_keys_sub}"
     sql="${sql//MODELPLACEHOLDER/$all_models_sub}"
 

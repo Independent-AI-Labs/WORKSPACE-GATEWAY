@@ -12,7 +12,10 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DASH_DIR="$REPO_ROOT/conf/grafana/dashboards"
+export REPO_ROOT
+# shellcheck source=../../res/scripts/lib-sql.sh
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+DASH_DIR="$REPO_ROOT/conf/grafana/rendered/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
 LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"
@@ -77,12 +80,12 @@ echo "[INFO] Time range: $FROM_TS to $TO_TS"
 # ── Fetch all key hashes and models from ClickHouse ────────────────────
 ALL_KEYS_RC=0
 ALL_KEYS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
-    "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.usage_log ORDER BY k FORMAT TabSeparated" \
+    "$(sql_render tests/dashboard-queries/all-keys.sql "TABLE=usage_log")" \
     ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
 if [ -z "$ALL_KEYS" ]; then
     ALL_KEYS_RC=0
     ALL_KEYS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
-    "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log ORDER BY k FORMAT TabSeparated" \
+    "$(sql_render tests/dashboard-queries/all-keys.sql "TABLE=request_log")" \
     ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
 fi
 [ -z "$ALL_KEYS" ] && ALL_KEYS="unknown"
@@ -94,7 +97,7 @@ echo "[INFO] Keys: $(echo "$ALL_KEYS" | grep -c '.')"
 
 ALL_MODELS_RC=0
 ALL_MODELS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
-    "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model FORMAT TabSeparated" \
+    "$(sql_render tests/dashboard-queries/all-models.sql)" \
     ) || { ALL_MODELS_RC=$?; ALL_MODELS=""; }
 [ -z "$ALL_MODELS" ] && ALL_MODELS="unknown"
 CH_MODEL_LIST=$(echo "$ALL_MODELS" | grep '.' | sed "s/^/'/; s/$/'/" | paste -sd, -)
@@ -226,9 +229,7 @@ echo ""
 echo "--- Q2: p3 Token Consistency ---"
 # Extract the WITH totals CTE from p3 refId=A and select raw token columns
 P3_CTE=$(get_ch_sql 3 A | sed -n '/^WITH totals AS/,/^)/p' | sed '$ s/,$//')
-P3_RAW_SQL="${P3_CTE}
-SELECT total_tok, input_tok, cached_tok, output_tok, reasoning_tok FROM totals FORMAT TabSeparated"
-P3R=$(exec_ch_raw "$(sub_ch "$P3_RAW_SQL")")
+P3R=$(exec_ch_raw "$(sub_ch "$(sql_render tests/dashboard-queries/p3-raw-tokens.sql "CTE=$P3_CTE")")")
 PT=$(echo "$P3R" | cut -f1); PI=$(echo "$P3R" | cut -f2); PC=$(echo "$P3R" | cut -f3); PO=$(echo "$P3R" | cut -f4); PR=$(echo "$P3R" | cut -f5)
 PT=${PT:-0}; PI=${PI:-0}; PC=${PC:-0}; PO=${PO:-0}; PR=${PR:-0}
 PS=$((PI + PC + PO + PR))
@@ -293,7 +294,7 @@ P14C=$(exec_ch 14 A | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
 P14CA=$(exec_ch 14 B | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
 P14PA=$(exec_ch 14 C | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
 # Total streams = count of all stream rows in usage_log
-P14T_SQL=$(sub_ch "SELECT count() FROM llm_gateway.usage_log WHERE \$__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (\${api_key:singlequote}) AND is_stream = 1")
+P14T_SQL=$(sql_render tests/dashboard-queries/count-stream-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST")
 P14T=$(exec_ch_raw "$P14T_SQL" | sed -n '1p'); P14T=${P14T:-0}
 P14S=$((P14C + P14CA + P14PA))
 P14DIFF=$((P14T - P14S))
@@ -310,7 +311,7 @@ echo ""
 echo "--- Q7: p15 Cost Sum = Total Cost ---"
 P15S=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
 # Total cost = sum(cost) from usage_log with same filters
-P15T_SQL=$(sub_ch "SELECT round(sum(cost), 6) FROM llm_gateway.usage_log WHERE \$__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (\${api_key:singlequote}) AND model IN (\${model:singlequote})")
+P15T_SQL=$(sql_render tests/dashboard-queries/sum-cost-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST" "MODELS=$CH_MODEL_LIST")
 P15T=$(exec_ch_raw "$P15T_SQL" | sed -n '1p'); P15T=${P15T:-0}
 P7DIFF=$(awk "BEGIN{d=$P15S-$P15T; if(d<0)d=-d; print d}")
 awk "BEGIN{exit !($P7DIFF < 0.01)}" && rp "Q7: cost_sum($P15S)~=total($P15T) diff=$P7DIFF" || rf "Q7: cost_sum($P15S)!=total($P15T) diff=$P7DIFF"
@@ -325,7 +326,7 @@ echo "--- Q8: p8 Model Distribution Consistency ---"
 P8D=$(exec_ch 8 A)
 P8S=$(echo "$P8D" | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
 # Compare against usage_log row count (p8 counts usage_log rows per model)
-P8T_SQL="SELECT count() FROM llm_gateway.usage_log WHERE timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS') AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ($CH_KEY_LIST) AND model IN ($CH_MODEL_LIST) FORMAT TabSeparated"
+P8T_SQL="$(sql_render tests/dashboard-queries/count-model-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST" "MODELS=$CH_MODEL_LIST")"
 P8T=$(exec_ch_raw "$P8T_SQL" | sed -n '1p'); P8T=${P8T:-0}
 P8DIFF=$((P8T - P8S))
 if [ "$P8DIFF" -lt 0 ]; then P8DIFF=$((-P8DIFF)); fi
@@ -380,7 +381,7 @@ echo "--- Q11: p4 Error Rate (ClickHouse, status >= 400) ---"
 P4V=$(exec_ch 4 A | sed -n '1p'); P4V=${P4V:-0}
 in_range "$P4V" 0 100 && rp "Q11: error_rate=$P4V in [0,100]" || rf "Q11: error_rate=$P4V out of range"
 # Cross-check: count 4xx+5xx errors directly
-P4ERR_SQL=$(sub_ch "SELECT countIf(status >= 400) FROM llm_gateway.request_log WHERE \$__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (\${api_key:singlequote})")
+P4ERR_SQL=$(sql_render tests/dashboard-queries/count-error-request.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST")
 P4ERR=$(exec_ch_raw "$P4ERR_SQL" | sed -n '1p'); P4ERR=${P4ERR:-0}
 if [ "$P4ERR" -gt 0 ]; then
     awk "BEGIN{exit !($P4V > 0)}" && rp "Q11: 4xx+5xx errors=$P4ERR, error_rate=$P4V (>0)" \
@@ -444,9 +445,7 @@ else
 
     # p3 Token Usage: single key total tokens < all keys total tokens
     P3_CTE=$(get_ch_sql 3 A | sed -n '/^WITH totals AS/,/^)/p' | sed '$ s/,$//')
-    P3_RAW_SQL="${P3_CTE}
-SELECT total_tok FROM totals FORMAT TabSeparated"
-    P3_SINGLE=$(exec_ch_raw "$(sub_ch "$P3_RAW_SQL" "$SKL" "$CH_MODEL_LIST")" | cut -f1)
+    P3_SINGLE=$(exec_ch_raw "$(sub_ch "$(sql_render tests/dashboard-queries/p3-raw-total.sql "CTE=$P3_CTE")" "$SKL" "$CH_MODEL_LIST")" | cut -f1)
     P3_SINGLE=${P3_SINGLE:-0}
     [ "$P3_SINGLE" -lt "$PT" ] \
         && rp "Q14: p3 single_key_tokens($P3_SINGLE) < all_tokens($PT)" \

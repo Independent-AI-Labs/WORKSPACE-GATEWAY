@@ -14,6 +14,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+export REPO_ROOT
+# shellcheck source=../../res/scripts/lib-sql.sh
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+
 pass=0
 fail=0
 
@@ -72,18 +76,18 @@ ch_post() { curl -sS --max-time 5 -o /tmp/gw-sec-ch.out -w '%{http_code}' http:/
 code=$(ch_post --user "ops_admin:$CH_OPS_PASSWORD" --data-binary 'SELECT 1')
 [ "$code" = "200" ] && ok "ops_admin can query" || bad "ops_admin query: HTTP $code $(cat /tmp/gw-sec-ch.out)"
 
-code=$(ch_post --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary 'SELECT count() FROM llm_gateway.request_log FORMAT TSV')
+code=$(ch_post --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-log.sql)")
 [ "$code" = "200" ] && ok "grafana_ro reads metadata" || bad "grafana_ro metadata read: HTTP $code $(cat /tmp/gw-sec-ch.out)"
 
-code=$(ch_post --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary 'SELECT count() FROM llm_gateway.request_bodies FORMAT TSV')
+code=$(ch_post --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-bodies.sql)")
 [ "$code" != "200" ] && ok "grafana_ro CANNOT read request_bodies" || bad "grafana_ro read request_bodies: HTTP $code - GRANT LEAK"
 
-code=$(ch_post --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary 'SELECT count() FROM llm_gateway.request_log FORMAT TSV')
+code=$(ch_post --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-log.sql)")
 [ "$code" != "200" ] && ok "vector_rw CANNOT SELECT" || bad "vector_rw SELECT: HTTP $code - GRANT LEAK"
 
-code=$(ch_post --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary "INSERT INTO llm_gateway.request_bodies (event_id) VALUES ('sec-matrix-probe')")
+code=$(ch_post --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/insert-body-probe.sql)")
 [ "$code" = "200" ] && ok "vector_rw can INSERT bodies" || bad "vector_rw insert bodies: HTTP $code $(cat /tmp/gw-sec-ch.out)"
-code=$(ch_post --user "ops_admin:$CH_OPS_PASSWORD" --data-binary "ALTER TABLE llm_gateway.request_bodies DELETE WHERE event_id = 'sec-matrix-probe'")
+code=$(ch_post --user "ops_admin:$CH_OPS_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/delete-body-probe.sql)")
 [ "$code" = "200" ] && ok "probe row cleaned up" || bad "probe cleanup: HTTP $code"
 
 code=$(ch_post --data-binary 'SELECT 1')

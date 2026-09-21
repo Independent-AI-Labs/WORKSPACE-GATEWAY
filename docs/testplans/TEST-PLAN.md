@@ -195,8 +195,13 @@ Representative checks:
   two clickhouse sinks (`request_log`, `request_bodies`) to
   `http://clickhouse:8123`, database `llm_gateway`, `skip_unknown_fields`,
   basic auth; remap parses bodies and extracts token/header fields.
-- **migrations** (`test_migrations.sh`): `conf/migrations/` files consistent
+- **migrations** (`test_migrations.sh`): `conf/sql/migrations/` files consistent
   with the schema documented in `docs/architecture/TELEMETRY-AND-SCHEMA.md`.
+- **SQL tree** (`test_sql_render.sh`, `test_no_inline_sql.sh`): the renderer
+  resolves `{{ … }}` with the documented precedence and fails closed on an
+  unresolved template variable; the guard rejects inline SQL outside `conf/sql/`
+  and non-`{{sql:<path>}}` Grafana `rawSql`
+  (`docs/specifications/SPEC-SQL-STRUCTURE.md`).
 - **model_registry / cost_calc** (`test_model_registry.sh`,
   `test_cost_calc.sh`): registry codegen output and pricing lookup API
   (`get_pricing`/`compute_cost`/`resolve_cost`) in container LuaJIT.

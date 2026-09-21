@@ -43,6 +43,9 @@ if [ ! -f "$REPO_ROOT/conf/model-registry.yaml" ]; then
     echo "ERROR: cannot locate repo root (invoked as $_SELF, cwd $(pwd))" >&2
     exit 1
 fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
@@ -114,8 +117,8 @@ jq -cRn 'inputs | split("\t") as $f |
     "$TMPD/rows.tsv" > "$TMPD/rows.jsonl"
 
 curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" \
-    --data-binary "TRUNCATE TABLE ${DATABASE}.model_registry"
-{ printf 'INSERT INTO %s.model_registry (model, is_local, provider) FORMAT JSONEachRow\n' "$DATABASE"
+    --data-binary "$(sql_render ops/sync-model-registry/truncate-model-registry.sql DB="$DATABASE")"
+{ sql_render ops/sync-model-registry/insert-model-registry.sql DB="$DATABASE"
   cat "$TMPD/rows.jsonl"; } > "$TMPD/insert.payload"
 curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @"$TMPD/insert.payload"
 echo "[OK] model_registry synced: $N_ROWS models ($(awk -F'\t' '$2==1' "$TMPD/rows.tsv" | wc -l) local)"

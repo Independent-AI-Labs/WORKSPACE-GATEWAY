@@ -1,0 +1,30 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  # REQ-SECURITY-HARDENING FR-2: least-privilege grafana_ro account.
+  # No SELECT grant on llm_gateway.request_bodies - Explore/dashboards can
+  # read metadata only. Password injected from .env (CH_GRAFANA_RO_PASSWORD).
+  - name: ClickHouse
+    uid: clickhouse
+    type: grafana-clickhouse-datasource
+    access: proxy
+    jsonData:
+      host: clickhouse
+      port: 9000
+      protocol: native
+      username: grafana_ro
+      defaultDatabase: llm_gateway
+      dialTimeout: 10
+      queryTimeout: 60
+      validateSql: false
+    secureJsonData:
+      password: ${CH_GRAFANA_RO_PASSWORD}
+    editable: false

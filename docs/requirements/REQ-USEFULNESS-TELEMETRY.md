@@ -102,7 +102,7 @@ Answer, per model (with ≥ 100 logged responses), from production traffic:
 | FR-1.3 | `sse-usage.lua` `log` phase MUST compute `duration_ms` as `(ngx.now() - request_start_time) * 1000` and MUST include `ttft_first_byte_ms`, `ttft_content_ms`, `duration_ms` in the `usage_log` entry JSON. |
 | FR-1.4 | For non-stream (JSON) responses, both TTFT columns MUST equal `duration_ms` (whole body arrives at once). |
 | FR-1.5 | Aborted streams (client or provider) MUST still carry timing columns; a cancel before first byte is the strongest negative latency signal and MUST be distinguishable (`ttft_first_byte_ms = 0` with `duration_ms > 0`). |
-| FR-1.6 | `usage_log` schema MUST gain `ttft_first_byte_ms UInt32 DEFAULT 0`, `ttft_content_ms UInt32 DEFAULT 0`, `duration_ms UInt32 DEFAULT 0` via a new migration and `conf/clickhouse-init.sql`. |
+| FR-1.6 | `usage_log` schema MUST gain `ttft_first_byte_ms UInt32 DEFAULT 0`, `ttft_content_ms UInt32 DEFAULT 0`, `duration_ms UInt32 DEFAULT 0` via a new migration and `conf/sql/clickhouse-init.sql`. |
 | FR-1.7 | The `billing_ledger_mv` materialized view MUST be recreated (DROP + CREATE; its SELECT is frozen at creation) so `billing_ledger.ttft_ms` receives `ttft_content_ms` and `llm_latency_ms` receives `duration_ms`; rows written before this change keep their historical zeros. |
 | FR-1.8 | Request-path overhead added by FR-1.1-1.3 MUST be O(1) per chunk (two integer stamps and one boolean check); no dictionary matching or regex work may run in the request path. |
 
@@ -111,7 +111,7 @@ Answer, per model (with ≥ 100 logged responses), from production traffic:
 | ID | Requirement |
 |----|-------------|
 | FR-2.1 | The system SHALL provide `res/scripts/crunch-usefulness.sh` + `res/scripts/usefulness/cruncher.lua` that recompute rejection-language signals from `request_log.req_body` into `llm_gateway.request_signals` with no request-path involvement. |
-| FR-2.2 | A run processes only complete aligned windows (default trailing 1 day, hourly buckets, configurable via `--days`/`--since`); it MUST prequery the set of non-empty hourly windows and never issue queries for empty ones. Windows are committed in blocks (default 12, `FLUSH_WINDOWS`): per block, DELETE that block's span from `request_signals` before re-inserting, making repeated, overlapping, or concurrent runs convergent (100% idempotent) while keeping ClickHouse part creation bounded. `--rebuild` MUST drop and recreate `request_signals` from the canonical DDL in `conf/clickhouse-init.sql` for clean recomputes. |
+| FR-2.2 | A run processes only complete aligned windows (default trailing 1 day, hourly buckets, configurable via `--days`/`--since`); it MUST prequery the set of non-empty hourly windows and never issue queries for empty ones. Windows are committed in blocks (default 12, `FLUSH_WINDOWS`): per block, DELETE that block's span from `request_signals` before re-inserting, making repeated, overlapping, or concurrent runs convergent (100% idempotent) while keeping ClickHouse part creation bounded. `--rebuild` MUST drop and recreate `request_signals` from the canonical DDL in `conf/sql/clickhouse-init.sql` for clean recomputes. |
 | FR-2.3 | The orchestrator MUST support `--dry-run`, `--days N`, `--since TS`, `--limit N` and MUST fail loudly (non-zero exit, no partial window commits) on ClickHouse or Lua errors. |
 | FR-2.4 | ClickHouse MUST pre-extract per-row the last `role=user` message text and the follow-up flag (JSON functions in the SELECT); the Lua core MUST NOT parse JSON (TSV in, TSV out) and MUST run on the APISIX container's openresty luajit (host has no Lua). |
 | FR-2.5 | The Lua matching core MUST be pure stdlib Lua (no `resty.*`, no cjson) so it is testable under plain luajit. |
@@ -276,7 +276,7 @@ Answer, per model (with ≥ 100 logged responses), from production traffic:
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| FR-1.x TTFT/duration capture | Implemented | plugins/custom/sse-usage.lua (body_filter stamps, log-phase duration); plugins/custom/sse_usage_lib.lua (has_content); conf/migrations/000008_add_ttft_duration.{up,down}.sql; conf/clickhouse-init.sql |
+| FR-1.x TTFT/duration capture | Implemented | plugins/custom/sse-usage.lua (body_filter stamps, log-phase duration); plugins/custom/sse_usage_lib.lua (has_content); conf/sql/migrations/000008_add_ttft_duration.{up,down}.sql; conf/sql/clickhouse-init.sql |
 | FR-2.x batch cruncher | Implemented | res/scripts/crunch-usefulness.sh + res/scripts/usefulness/cruncher.lua; compose mounts in res/docker/docker-compose{,.prod}.yml and tests/docker-compose.test.yml |
 | FR-3.x dictionaries | Implemented | conf/profanity/{en.txt,vader-negative.txt,frustration-phrases.txt} + README; res/scripts/update-dictionaries.sh; make gw-update-dictionaries |
 | FR-4.x matching semantics | Implemented | res/scripts/usefulness/cruncher.lua (SymSpell delete-1, bounded Levenshtein, trigram phrases, dedup precedence); tests/lua/test_usefulness_cruncher.lua |
@@ -284,6 +284,6 @@ Answer, per model (with ≥ 100 logged responses), from production traffic:
 | FR-6.x dashboard | Implemented | conf/grafana/dashboards/gateway-model-experience.json (6 panels) + gateway-model-performance.json (5 panels); tests/config/test_dashboard_experience.sh + test_dashboard_performance.sh; REQ-DASHBOARD FR-1.1 amended to 5 dashboards |
 | FR-7.x derived metrics | Implemented | dashboard p30/p36/p37/p38/p39 queries |
 | NFR-1.6 daily 00:00 scheduling | Implemented | res/systemd/gateway-usefulness-crunch.{service,timer}; make gw-install-crunch-timer |
-| FR-8.x friction telemetry | Implemented | migration 000009 + conf/clickhouse-init.sql; marker SQL in res/scripts/crunch-usefulness.sh; live 2026-09-16 backfill: 13,467 guard blocks (2,964 requests), 81 user rejections, 52 rule denials, 13 rule ids |
+| FR-8.x friction telemetry | Implemented | migration 000009 + conf/sql/clickhouse-init.sql; marker SQL in res/scripts/crunch-usefulness.sh; live 2026-09-16 backfill: 13,467 guard blocks (2,964 requests), 81 user rejections, 52 rule denials, 13 rule ids |
 | FR-9.x score family | Implemented | gateway-model-experience.json p40/p47 (Overall = sqrt(PAI × Reliability), fixed goalposts 50/100/5/5, geometric aggregation, ≥30-request gate, friction/speed excluded); live: 12 models ranked, kimi-k3 88.7 / glm-5.3 81.9 / glm-5.2 0.0 |
 | FR-10.x dashboard refinement | Implemented | p40-p43 + p50-only speed panels (p30/p44, full fleet via migrated timing); FR-10.3/4/5 readability pass (censored merged strings table, %/USD waste, human names, tiered layout split across experience/performance dashboards); FR-10.6 merged scorecard cells + include_local toggle; p35/p39 removed, p45 added; test_dashboard_experience.sh 74/74 + test_dashboard_performance.sh 53/53 |

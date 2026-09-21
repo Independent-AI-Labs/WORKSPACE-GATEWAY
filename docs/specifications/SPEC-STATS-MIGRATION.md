@@ -15,7 +15,7 @@
 
 **Cross-references:**
 - [REQ-STATS-MIGRATION](../requirements/REQ-STATS-MIGRATION.md): requirements
-- [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql): destination schema (ground truth)
+- [`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql): destination schema (ground truth)
 - [`conf/vector.toml`](../../conf/vector.toml): live model canonicalization mirrored by the migrator
 - [`conf/model-registry.yaml`](../../conf/model-registry.yaml): canonical alias map (single source of truth)
 - [`plugins/custom/sse_usage_lib.lua`](../../plugins/custom/sse_usage_lib.lua): live `total_tokens` default convention
@@ -70,7 +70,7 @@ is NULL on 1 row; `session.version` never empty.
 ## 2. Destination Ground Truth
 
 `llm_gateway.usage_log` and `llm_gateway.request_log` as defined in
-[`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). Key facts
+[`conf/sql/clickhouse-init.sql`](../../conf/sql/clickhouse-init.sql). Key facts
 driving this design:
 
 - `billing_ledger_mv` fires on every `usage_log` INSERT → historical cost
@@ -391,7 +391,7 @@ test; the dev stack is never touched.
    no `$TMPDIR/mig-test.db-wal` / `-shm` exist (byte-stable copy). Fixture
    rows (below) are INSERTed into this copy, not into any real database.
 2. **Fresh ClickHouse**: ephemeral podman container, unique name, fresh
-   anonymous volume, `conf/clickhouse-init.sql` bind-mounted to
+   anonymous volume, `conf/sql/clickhouse-init.sql` bind-mounted to
    `/docker-entrypoint-initdb.d/init.sql:ro` (same pattern as
    `tests/docker-compose.test.yml` `clickhouse` service), HTTP published on
    an ephemeral loopback port (`-p 127.0.0.1::8123`), NOT dev's 8123.
@@ -430,6 +430,6 @@ rehearsal for the real run against dev.
 | `res/scripts/migrate-opencode-stats.sh` | Complete | fixture test 88/88 pass (2026-09-21, incl. §4.1 provider-scoped models.dev pricing, provider canonicalization, `cache_write_tokens`, gateway-route `uri`, `--force` gate, dry-run diff) |
 | `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + models.dev pricing + provider alias + rerun gate + `--full` rehearsal 88/88 pass (2026-09-21) |
 | Source probes | Complete | §1 (run 2026-08-28 against live opencode.db) |
-| Schema fit | Verified | all §3 destination columns exist in `conf/clickhouse-init.sql` |
+| Schema fit | Verified | all §3 destination columns exist in `conf/sql/clickhouse-init.sql` |
 | Production run against dev ClickHouse | Complete | re-run with computed pricing (2026-08-28) via the §6 step-5 reset procedure: 62,157 rows; cost_source upstream $999.30 / computed $893.98 / unknown 6,535 rows; second `--force` pass idempotent, gate blocks plain reruns; backups at `backups/2026-08-28-pre-migration/`, `-broken-migrated-rows/`, `-pre-repair/`, `-pre-pricing-rerun/`, `-pricing-rerun/` |
 | Production re-run, models.dev alignment (2026-09-21) | Complete | reset (§6 step 5) then `--force` insert: 75,259 usage_log + 75,259 request_log rows; `cost_source` upstream 45,304 / $1,813.23, computed 26,566 / $1,083.17, unknown 3,389; follow-up `recalc-costs.sh --apply --all --confirm-all` (`run-20260921095045-3486843`, backup `pre-recalc-20260921095045-3486843`) corrected 22,920 rows (22,203 live `relay-*` + 717 migrated) in 8 grouped `UPDATE`s, re-run a converged no-op; final dry-run `missing=0 differing=717 extra=0` (717 = sub-1e-7 Float64/Lua cost rounding on recalc-owned rows); backups at `backups/2026-09-21-pre-aligned-remigrate/`, `backups/2026-09-21-aligned-remigrate/` |

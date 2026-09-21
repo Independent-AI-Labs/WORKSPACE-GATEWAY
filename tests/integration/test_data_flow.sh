@@ -93,7 +93,7 @@ fi
 # row and the body row separately.
 RLOG=""
 for i in $(seq 1 25); do
-    RLOG=$(ch_query "SELECT request_id, model, status, client_ip, request_size, upstream_response_time_s FROM llm_gateway.request_log WHERE request_id = '$LIVE_RID' LIMIT 1")
+    RLOG=$(ch_query "$(sql_render tests/data-flow/request-row.sql "RID=$LIVE_RID")")
     [ -n "$RLOG" ] && break
     sleep 1
 done
@@ -112,7 +112,7 @@ if [ -n "$RLOG" ]; then
     assert_eq "request_log.request_size > 0" "true" "$(if [ "${R_REQ_SIZE:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
     R_BODY=""
     for i in $(seq 1 10); do
-        R_BODY=$(ch_query "SELECT req_body FROM llm_gateway.request_bodies WHERE request_id = '$LIVE_RID' AND req_body != '' LIMIT 1")
+        R_BODY=$(ch_query "$(sql_render tests/data-flow/request-body.sql "RID=$LIVE_RID")")
         [ -n "$R_BODY" ] && break
         sleep 1
     done
@@ -124,7 +124,7 @@ fi
 # Pull usage_log columns for THIS request_id (Lua sse-usage write).
 ULOG=""
 for i in $(seq 1 25); do
-    ULOG=$(ch_query "SELECT request_id, model, prompt_tokens, completion_tokens, total_tokens FROM llm_gateway.usage_log WHERE request_id = '$LIVE_RID' LIMIT 1")
+    ULOG=$(ch_query "$(sql_render tests/data-flow/usage-row.sql "RID=$LIVE_RID")")
     [ -n "$ULOG" ] && break
     sleep 1
 done
