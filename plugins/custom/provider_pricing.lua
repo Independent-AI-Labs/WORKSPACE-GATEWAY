@@ -69,10 +69,22 @@ local function models_dev_for(models_dev, namespace, model_key)
     return copy_rates(model.cost)
 end
 
+--A provider may declare a model alias whose target is not in the global
+--registry (provider.model_aliases). The alias bills at its target's price, so
+--resolve the target id before canonicalizing. This is id resolution, not a
+--third price step.
+local function alias_target(provider, model_id)
+    local aliases = provider.model_aliases
+    if type(aliases) ~= "table" then return model_id end
+    local target = aliases[model_id]
+    if type(target) == "string" and target ~= "" then return target end
+    return model_id
+end
+
 function M.resolve(provider, model_id, models_dev)
     provider = provider or {}
     local namespace = declared_namespace(provider)
-    local model_key = registry.canonical(model_id)
+    local model_key = registry.canonical(alias_target(provider, model_id))
     if model_key == "" then
         return nil, "unknown", namespace
     end

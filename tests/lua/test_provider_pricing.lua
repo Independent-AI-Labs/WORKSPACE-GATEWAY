@@ -55,6 +55,14 @@ check(rates.input == 9.0 and rates.output == 4.5 and rates.cache_read == 0.9,
     "complete override declares every rate")
 check(rates.cache_write == nil, "override omits rates it does not declare")
 
+-- A provider-declared alias bills at its target's price, even when the alias
+-- id itself is unknown to the global registry.
+provider.pricing.overrides = nil
+provider.model_aliases = { ["gpt-5-alias"] = "gpt-5" }
+rates, source = pricing.resolve(provider, "gpt-5-alias", models_dev)
+check(rates and rates.input == 0.2, "provider alias resolves to target price")
+check(source == "models_dev", "alias keeps the target provenance")
+
 -- A model only in another models.dev namespace must NOT resolve: there is
 -- no cross-provider scan.
 local other = {
