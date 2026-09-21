@@ -3,9 +3,8 @@ set -euo pipefail
 
 # dedupe-model-history.sh
 # One-off historical merge: rewrite every alias-shaped model string in
-# ClickHouse to its canonical id from conf/model-registry.yaml, then
-# recompute cost for cost_source='unknown' rows whose canonical model is
-# priced by the gateway catalog.
+# ClickHouse to its canonical id from conf/model-registry.yaml. Cost repair
+# is owned by res/scripts/recalc-costs.sh (provider-scoped, audit-backed).
 #
 #   usage_log:      ALTER UPDATE in place (model not in ORDER BY).
 #                   model_raw is set to the pre-merge value for audit.
@@ -25,7 +24,6 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:9080}"
 CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
 CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
@@ -78,13 +76,6 @@ if [ -z "$REGISTRY_JSON" ]; then
   echo "[dedupe] ERROR: could not parse conf/model-registry.yaml" >&2
   exit 1
 fi
-
-# Full alias map (alias -> canonical, canonical maps to itself), lowercased.
-ALIAS_MAP_JSON=$(echo "$REGISTRY_JSON" | jq -c '
-  [ .models | to_entries[] | .key as $c
-    | ([$c] + [(.value.aliases // [])[] | ascii_downcase])[]
-    | {key: ., value: $c} ]
-  | from_entries')
 
 # Rename pairs only (alias != canonical), sorted.
 RENAME_PAIRS=$(echo "$REGISTRY_JSON" | jq -r '
@@ -141,7 +132,7 @@ if $DRY_RUN; then
   echo "ALTER TABLE ${DB}.usage_log UPDATE model_raw = model, model = ${MODEL_MULTIIF} WHERE ${MODEL_WHERE} SETTINGS mutations_sync = 1;"
   echo "ALTER TABLE ${DB}.billing_ledger UPDATE model_raw = model_name, model_name = ${MODEL_NAME_MULTIIF} WHERE ${MODEL_NAME_WHERE} SETTINGS mutations_sync = 1;"
   echo "request_log shadow-table swap (CREATE/INSERT SELECT/EXCHANGE/DROP)"
-  echo "cost repair for cost_source='unknown' rows priced by the gateway catalog"
+  echo "cost repair is owned by res/scripts/recalc-costs.sh (run: make gw-recalc-costs)"
   exit 0
 fi
 
@@ -170,61 +161,15 @@ ch "INSERT INTO ${DB}.request_log_dedup
 ch "EXCHANGE TABLES ${DB}.request_log AND ${DB}.request_log_dedup"
 ch "DROP TABLE ${DB}.request_log_dedup"
 
-# ---- 4. cost repair for unknown rows priced by the catalog ----
+# ---- 4. cost repair is owned by the dedicated tool ----
+# Historical costs are revalued by res/scripts/recalc-costs.sh. It is
+# provider-scoped, audit-backed, idempotent and reuses the live cost formula
+# (cost_calc.compute_cost). This script no longer rewrites cost: the old
+# inline repair was provider-agnostic and could apply one provider's price
+# to another provider's rows.
 echo ""
-echo "[dedupe] Fetching gateway catalog pricing..."
-PROVIDER_LIST_JSON=$(curl -sSf --max-time 30 "${GATEWAY_URL}/gateway/providers") || {
-  echo "[dedupe] ERROR: failed to fetch ${GATEWAY_URL}/gateway/providers" >&2
-  exit 1
-}
-
-# The list endpoint returns summaries only; fetch each provider detail.
-CATALOG_JSON="[]"
-while read -r pid; do
-  [ -z "$pid" ] && continue
-  DETAIL=$(curl -sSf --max-time 30 "${GATEWAY_URL}/gateway/providers/${pid}") || {
-    echo "[dedupe] ERROR: failed to fetch provider ${pid}" >&2
-    exit 1
-  }
-  CATALOG_JSON=$(jq -c --argjson d "$DETAIL" '. + [$d]' <<< "$CATALOG_JSON")
-done < <(jq -r '.[].id' <<< "$PROVIDER_LIST_JSON")
-
-PRICED_MODELS=$(echo "$CATALOG_JSON" | jq -r --argjson am "$ALIAS_MAP_JSON" '
-  [ .[] | .id as $p | (.models // {}) | to_entries[]
-    | select(.value.cost != null)
-    | { m: (.key | ascii_downcase | . as $k | ($am[$k] // ($k | split("/")[-1] | . as $s | ($am[$s] // $s)))),
-        p: $p,
-        i: (.value.cost.input // 0),
-        o: (.value.cost.output // 0),
-        cr: (.value.cost.cache_read // 0) } ]
-  | sort_by(.m, .p)
-  | unique_by(.m)[]
-  | [.m, .i, .o, .cr] | @tsv')
-
-if [ -z "$PRICED_MODELS" ]; then
-  echo "[dedupe] WARNING: no priced models in gateway catalog; skipping cost repair" >&2
-else
-  echo "[dedupe] Repairing cost for unknown rows with priced canonical models..."
-  while IFS=$'\t' read -r model input output cache_read; do
-    affected=$(ch_value "SELECT count() FROM ${DB}.usage_log WHERE cost_source = 'unknown' AND model = $(esc "$model")")
-    affected=${affected:-0}
-    if [ "$affected" -eq 0 ]; then
-      continue
-    fi
-    echo "  $model: $affected rows (in=$input out=$output cr=$cache_read)"
-    ch "ALTER TABLE ${DB}.usage_log
-        UPDATE
-          cost = (
-            greatest(prompt_tokens - cached_tokens, 0) * ${input}
-            + greatest(completion_tokens - reasoning_tokens, 0) * ${output}
-            + cached_tokens * ${cache_read}
-            + reasoning_tokens * ${output}
-          ) / 1000000,
-          cost_source = 'computed'
-        WHERE cost_source = 'unknown' AND model = $(esc "$model")
-        SETTINGS mutations_sync = 1"
-  done <<< "$PRICED_MODELS"
-fi
+echo "[dedupe] Cost repair is owned by recalc-costs.sh (dry-run by default)."
+echo "         Run: make gw-recalc-costs"
 
 # ---- verify ----
 echo ""

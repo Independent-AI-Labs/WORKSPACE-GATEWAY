@@ -107,7 +107,7 @@ cannot run a browser login (custody mode).
 | ID | Requirement |
 |----|-------------|
 | FR-5.1 | Two provider files SHALL be provisioned: `workspace-gw-anthropic` (route `/anthropic`, auth type passthrough) and `workspace-gw-anthropic-device` (route `/anthropic-device`, auth type oauth, method device facade), following the existing provider yaml schema. |
-| FR-5.2 | Model catalog and pricing SHALL sync from models.dev provider `anthropic`; model ids MUST NOT be remapped. |
+| FR-5.2 | Model catalog and pricing SHALL sync from models.dev namespace `anthropic`; model ids MUST NOT be remapped. |
 | FR-5.3 | Provider display MUST use the `@anthropic-ai/sdk` npm package id for Anthropic-protocol clients. |
 
 ### FR-6: Security

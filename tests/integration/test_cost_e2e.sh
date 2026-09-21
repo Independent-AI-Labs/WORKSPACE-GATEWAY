@@ -116,19 +116,18 @@ U_TOTAL=$(printf '%s' "$ULOG" | cut -f6)
 echo "[INFO] usage_log row: cost_source=$U_COST_SOURCE cost=$U_COST model=$U_MODEL tokens=$U_PROMPT/$U_COMPLETION/$U_TOTAL"
 
 case "$U_COST_SOURCE" in
-    upstream|computed|unknown)
+    provider_override|models_dev|unknown)
         assert_eq "usage_log cost_source is a valid enum" "$U_COST_SOURCE" "$U_COST_SOURCE" ;;
     *)
-        assert_eq "usage_log cost_source is a valid enum" "upstream|computed|unknown" "$U_COST_SOURCE" ;;
+        assert_eq "usage_log cost_source is a valid enum" "provider_override|models_dev|unknown" "$U_COST_SOURCE" ;;
 esac
 
-# Local llamafile model is priced 0/0 by the provider catalog (free local
-# model), so cost_source is "computed" (or "unknown" if the catalog has no
-# entry); cost must be 0 either way - no hallucinated cost.
-if [ "$U_COST_SOURCE" = "unknown" ] || [ "$U_COST_SOURCE" = "computed" ]; then
-    assert_eq "usage_log cost == 0 for zero-priced local model (no hallucinated cost)" "0" "$U_COST"
+# Local llamafile model has no models.dev price, so cost_source is "unknown";
+# cost must be 0 - no hallucinated cost.
+if [ "$U_COST_SOURCE" = "unknown" ]; then
+    assert_eq "usage_log cost == 0 for unpriced local model (no hallucinated cost)" "0" "$U_COST"
 else
-    assert_eq "usage_log cost > 0 for upstream-cost model" "true" "$(if [ "$U_COST" != "0" ]; then printf 'true'; else printf 'false'; fi)"
+    assert_eq "usage_log cost > 0 for priced model" "true" "$(if [ "$U_COST" != "0" ]; then printf 'true'; else printf 'false'; fi)"
 fi
 
 # Model must be canonicalized by model_registry.canonical(): lowercase + last

@@ -276,6 +276,12 @@ assert_eq "ClickHouse mounts ops_admin XML user" "1" "$HAS_OPS_ADMIN_XML"
 HAS_DISABLED_METRIC_LOGS_RC=0
 HAS_DISABLED_METRIC_LOGS=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-disable-metric-logs.xml" ) || { HAS_DISABLED_METRIC_LOGS_RC=$?; HAS_DISABLED_METRIC_LOGS="0"; }
 assert_eq "ClickHouse disables metric log writers" "1" "$HAS_DISABLED_METRIC_LOGS"
+HAS_PERF_XML_RC=0
+HAS_PERF_XML=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "clickhouse-performance.xml" ) || { HAS_PERF_XML_RC=$?; HAS_PERF_XML="0"; }
+assert_eq "ClickHouse mounts performance tuning config" "1" "$HAS_PERF_XML"
+HAS_PERF_USER_XML_RC=0
+HAS_PERF_USER_XML=$(echo "$CLICKHOUSE_MOUNTS" | grep -c "zz-performance.xml" ) || { HAS_PERF_USER_XML_RC=$?; HAS_PERF_USER_XML="0"; }
+assert_eq "ClickHouse mounts performance user profile" "1" "$HAS_PERF_USER_XML"
 CLICKHOUSE_NO_CHOWN=$(echo "$JSON_DATA" | jq -r '[.services.clickhouse.environment[] | select(. == "CLICKHOUSE_DO_NOT_CHOWN=1")] | length')
 assert_eq "ClickHouse skips recursive volume chown" "1" "$CLICKHOUSE_NO_CHOWN"
 CLICKHOUSE_NO_ACM=$(echo "$JSON_DATA" | jq '[.services.clickhouse.environment[] | select(. == "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1")] | length')

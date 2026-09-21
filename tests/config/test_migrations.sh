@@ -144,6 +144,15 @@ assert_contains "000011 moves parts to the archive volume" "$TIERED_UP" "TO VOLU
 assert_contains "000011 recompresses with ZSTD(3)" "$TIERED_UP" "RECOMPRESS CODEC(ZSTD(3))"
 assert_not_contains "000011 must not DELETE any rows" "$TIERED_UP" "DELETE WHERE"
 
+# 000012: cache_write_tokens column + audit table for history revaluation.
+assert_eq "migration 000012_add_cache_write_tokens.up.sql exists" "true" \
+    "$(if [ -f "$MIGRATIONS_DIR/000012_add_cache_write_tokens.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
+CACHE_WRITE_UP_RC=0
+    CACHE_WRITE_UP="$(cat "$MIGRATIONS_DIR/000012_add_cache_write_tokens.up.sql")" || CACHE_WRITE_UP_RC=$?
+assert_contains "000012 adds cache_write_tokens to usage_log" "$CACHE_WRITE_UP" "cache_write_tokens UInt32 DEFAULT 0"
+assert_contains "000012 creates the cost_recalc_audit table" "$CACHE_WRITE_UP" "CREATE TABLE IF NOT EXISTS llm_gateway.cost_recalc_audit"
+assert_not_contains "000012 must not DROP usage_log" "$CACHE_WRITE_UP" "DROP TABLE llm_gateway.usage_log"
+
 # ── (D) compose `migrate` service integration ───────────────────────────
 compose_body_rc=0
     compose_body="$(cat "$COMPOSE_FILE")" || compose_body_rc=$?

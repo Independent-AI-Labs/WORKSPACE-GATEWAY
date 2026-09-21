@@ -17,10 +17,7 @@ local cjson = require("cjson.safe")
 local http = require("resty.http")
 local random = require("resty.random")
 local sha256_lib = require("resty.sha256")
-local ok_broker, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
-if not ok_broker then
-    oauth_broker = require("oauth_broker")
-end
+local oauth_broker = require("apisix.plugins.oauth_broker")
 
 local M = {}
 

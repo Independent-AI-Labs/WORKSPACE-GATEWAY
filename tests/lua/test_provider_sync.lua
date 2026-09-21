@@ -113,6 +113,10 @@ options:
 model_source:
   type: models_dev_provider
   provider: kimi
+pricing:
+  source:
+    type: models_dev
+    provider: kimi
 model_aliases:
   kimi-for-coding-highspeed: kimi-k1
 ]])
@@ -129,6 +133,10 @@ auth:
 model_source:
   type: models_dev_provider
   provider: openai
+pricing:
+  source:
+    type: models_dev
+    provider: openai
 context_limit_pct: 80
 context_limit_ceiling: 100000
 ]])
@@ -159,6 +167,10 @@ model_source:
   filter:
     exclude:
       - "-free$"
+pricing:
+  source:
+    type: models_dev
+    provider: minimax
 ]])
     f:close()
 
@@ -173,6 +185,10 @@ auth:
 model_source:
   type: gateway
   endpoint: "/opencode_zen/v1/models"
+pricing:
+  source:
+    type: models_dev
+    provider: minimax
 ]])
     f:close()
 

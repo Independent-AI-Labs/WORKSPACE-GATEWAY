@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.usage_log (
     completion_tokens         UInt32 DEFAULT 0,
     total_tokens              UInt32 DEFAULT 0,
     cached_tokens             UInt32 DEFAULT 0,
+    cache_write_tokens        UInt32 DEFAULT 0,
     reasoning_tokens          UInt32 DEFAULT 0,
     key_id                    String DEFAULT '',
     api_key_id                String DEFAULT '',
@@ -63,7 +64,8 @@ CREATE TABLE IF NOT EXISTS llm_gateway.usage_log (
     ttft_content_ms           UInt32 DEFAULT 0,
     duration_ms               UInt32 DEFAULT 0,
     cost                      Float64 DEFAULT 0,
-    cost_source               Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2) DEFAULT 2,
+    cost_source               Enum8('provider_override' = 0, 'models_dev' = 1, 'unknown' = 2) DEFAULT 2,
+    reported_cost             Float64 DEFAULT 0,
     provider_id               LowCardinality(String) DEFAULT '',
     pricing_source            LowCardinality(String) DEFAULT '',
     pricing_snapshot          String DEFAULT '',
@@ -95,6 +97,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger (
     completion_tokens UInt32,
     reasoning_tokens  UInt32,
     cached_tokens     UInt32,
+    cache_write_tokens UInt32 DEFAULT 0,
     total_tokens      UInt32,
     rate_input        Decimal64(8),
     rate_output       Decimal64(8),
@@ -164,6 +167,25 @@ CREATE TABLE IF NOT EXISTS llm_gateway.model_registry (
 ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY model;
 
+-- Append-only history of cost revaluations performed by
+-- res/scripts/recalc-costs.sh. The script never deletes these rows, so any
+-- usage_log cost written by the repair tool is recoverable from here.
+CREATE TABLE IF NOT EXISTS llm_gateway.cost_recalc_audit (
+    event_id    String,
+    provider_id LowCardinality(String) DEFAULT '',
+    new_provider_id LowCardinality(String) DEFAULT '',
+    model       LowCardinality(String) DEFAULT '',
+    old_cost    Float64,
+    new_cost    Float64,
+    old_source  LowCardinality(String) DEFAULT '',
+    run_id      String,
+    timestamp   DateTime64(3) DEFAULT now()
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (event_id, run_id, timestamp)
+TTL toDateTime(timestamp) + INTERVAL 13 MONTH;
+
 CREATE TABLE IF NOT EXISTS llm_gateway.billing_discrepancies (
     date             Date,
     tenant_id        LowCardinality(String),
@@ -221,6 +243,9 @@ ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS cached_tokens    UInt32 DEFAULT 0 AFTER total_tokens;
 
 ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cache_write_tokens UInt32 DEFAULT 0 AFTER cached_tokens;
+
+ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS reasoning_tokens UInt32 DEFAULT 0 AFTER cached_tokens;
 
 ALTER TABLE llm_gateway.usage_log
@@ -248,10 +273,13 @@ ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS cost             Float64 DEFAULT 0 AFTER is_stream;
 
 ALTER TABLE llm_gateway.usage_log
-    ADD COLUMN IF NOT EXISTS cost_source      Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2) DEFAULT 2 AFTER cost;
+    ADD COLUMN IF NOT EXISTS cost_source      Enum8('provider_override' = 0, 'models_dev' = 1, 'unknown' = 2) DEFAULT 2 AFTER cost;
 
 ALTER TABLE llm_gateway.usage_log
-    ADD COLUMN IF NOT EXISTS provider_id      LowCardinality(String) DEFAULT '' AFTER cost_source;
+    ADD COLUMN IF NOT EXISTS reported_cost    Float64 DEFAULT 0 AFTER cost_source;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS provider_id      LowCardinality(String) DEFAULT '' AFTER reported_cost;
 
 ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS pricing_source   LowCardinality(String) DEFAULT '' AFTER provider_id;
@@ -267,6 +295,9 @@ ALTER TABLE llm_gateway.usage_log
 
 ALTER TABLE llm_gateway.billing_ledger
     ADD COLUMN IF NOT EXISTS model_raw       LowCardinality(String) DEFAULT '' AFTER model_name;
+
+ALTER TABLE llm_gateway.billing_ledger
+    ADD COLUMN IF NOT EXISTS cache_write_tokens UInt32 DEFAULT 0 AFTER cached_tokens;
 
 ALTER TABLE llm_gateway.request_log MODIFY SETTING
     parts_to_delay_insert = 500,
@@ -323,6 +354,7 @@ SELECT
     completion_tokens       AS completion_tokens,
     reasoning_tokens        AS reasoning_tokens,
     cached_tokens           AS cached_tokens,
+    cache_write_tokens      AS cache_write_tokens,
     total_tokens            AS total_tokens,
     CAST(0 AS Decimal64(8)) AS rate_input,
     CAST(0 AS Decimal64(8)) AS rate_output,

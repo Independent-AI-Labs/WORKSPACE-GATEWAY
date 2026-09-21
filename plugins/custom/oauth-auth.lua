@@ -17,12 +17,9 @@ local cjson = require("cjson.safe")
 local jwt = require("apisix.plugins.oauth_jwt")
 local device = require("apisix.plugins.oauth_device")
 local tokens = require("apisix.plugins.oauth_store")
-local ok, oauth_broker = pcall(require, "apisix.plugins.oauth_broker")
-if not ok then oauth_broker = require("oauth_broker") end
-local ok_session, session = pcall(require, "apisix.plugins.oauth_session")
-if not ok_session then session = require("oauth_session") end
-local ok_verify, verify = pcall(require, "apisix.plugins.oauth_verify")
-if not ok_verify then verify = require("oauth_verify") end
+local oauth_broker = require("apisix.plugins.oauth_broker")
+local session = require("apisix.plugins.oauth_session")
+local verify = require("apisix.plugins.oauth_verify")
 
 local plugin_name = "oauth-auth"
 

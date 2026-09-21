@@ -1,0 +1,13 @@
+<clickhouse>
+    <!-- Extends the `default` profile (used by ops_admin, see ops-admin.xml)
+         so gateway/recalc/migration queries use all 32 cores. max_insert_threads
+         only parallelises INSERT ... SELECT; FORMAT inserts stay one writer. -->
+    <profiles>
+        <default>
+            <max_threads>32</max_threads>
+            <max_final_threads>32</max_final_threads>
+            <max_insert_threads>16</max_insert_threads>
+            <max_download_threads>16</max_download_threads>
+        </default>
+    </profiles>
+</clickhouse>

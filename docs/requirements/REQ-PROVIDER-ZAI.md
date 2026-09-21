@@ -69,7 +69,7 @@ credential logic and proxies transparently.
 | ID | Requirement |
 |----|-------------|
 | FR-2.1 | One OpenCode provider id MUST exist: `workspace-gw-zai-api-key` (`/zai-key`, auth `api_key`). |
-| FR-2.2 | It MUST source models from models.dev provider `zai` with `strip_prefix: z-ai/` + `lowercase` normalization and `pricing.source.type: models_dev`, `pricing.source.provider: zai`. |
+| FR-2.2 | It MUST source models from models.dev namespace `zai` with `strip_prefix: z-ai/` + `lowercase` normalization and `pricing.source.type: models_dev`, `pricing.source.provider: zai`. |
 
 ## 3. Non-Functional Requirements
 
@@ -92,7 +92,7 @@ credential logic and proxies transparently.
 | ID | Assumption |
 |----|------------|
 | A-1 | GLM Coding Plan endpoints are fully OpenAI Chat-Completions-compatible; `sse-usage`/`cost_calc` need no Z.ai-specific changes. |
-| A-2 | models.dev provider `zai` covers the GLM model set and pricing (PAYG rates; subscription quota usage is priced at PAYG-equivalent by the existing `zai-coding-plan`→`zai` shadow map in stats migration). |
+| A-2 | models.dev namespace `zai` covers the GLM model set and pricing (PAYG rates; subscription quota usage is priced at PAYG-equivalent by the existing `zai-coding-plan`→`zai` shadow map in stats migration). |
 
 ## 6. Open Questions
 

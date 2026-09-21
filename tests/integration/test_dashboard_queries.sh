@@ -254,23 +254,23 @@ echo ""
 # =====================================================================
 echo "--- Q4: p3 Output Format ---"
 P3_FMT_ROW=$(exec_ch 3 A | sed -n '1p')
-P3_LABELS=("Total Tokens" "Input Tokens" "Cached Tokens" "Output Tokens" "Reasoning Tokens" "Total Cost")
+P3_LABELS=("Input Tokens" "Cached Tokens" "Output Tokens" "Reasoning Tokens" "Total" "Monthly Average" "Weekly Average" "Daily Average")
 P3_IDX=0
 IFS=$'\t' read -r -a P3_COLS <<< "$P3_FMT_ROW"
 for val in "${P3_COLS[@]}"; do
     label="${P3_LABELS[$P3_IDX]}"
-    if [ "$P3_IDX" -lt 5 ]; then
+    if [ "$P3_IDX" -lt 4 ]; then
         echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)?$' \
             && rp "Q4: p3-${label} format valid" \
             || rf "Q4: p3-${label} format invalid: $val"
     else
-        echo "$val" | grep -qE '^\$[0-9]+\.[0-9]{2}$' \
+        echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)? / \$[0-9]+\.[0-9]{2}$' \
             && rp "Q4: p3-${label} format valid" \
             || rf "Q4: p3-${label} format invalid: $val"
     fi
     P3_IDX=$((P3_IDX + 1))
 done
-[ "${#P3_COLS[@]}" -eq 6 ] && rp "Q4: p3 returns 6 formatted columns" || rf "Q4: p3 returns ${#P3_COLS[@]} columns (expected 6)"
+[ "${#P3_COLS[@]}" -eq 8 ] && rp "Q4: p3 returns 8 formatted columns" || rf "Q4: p3 returns ${#P3_COLS[@]} columns (expected 8)"
 echo ""
 
 # =====================================================================

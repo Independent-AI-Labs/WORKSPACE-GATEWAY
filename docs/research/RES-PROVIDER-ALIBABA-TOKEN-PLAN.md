@@ -132,7 +132,7 @@ handling.
   telemetry can read the stream, as on the other relay routes.
 - **Unstable model list:** model ids are console-defined; unknown models
   must pass through in telemetry/pricing.
-- **Pricing:** Token Plan is Credits-based, not a models.dev provider;
+- **Pricing:** Token Plan is Credits-based, not covered by a models.dev namespace;
   token pricing on this route is indicative. `missing_policy: unknown`.
 
 ## 8. Conclusion

@@ -196,7 +196,7 @@ assert_eq "Total panels across 5 dashboards" "32" "$TOTAL_PANELS"
 CURRENCY_OK=0
 CURRENCY_EXPECT=5
 CU_P3=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$COST_USAGE_FILE")
-printf '%s' "$CU_P3" | grep -qF "concat('$'" && printf '%s' "$CU_P3" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
+printf '%s' "$CU_P3" | grep -qF "' / \$'" && printf '%s' "$CU_P3" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
 LB_SQL=$(jq -r '[.panels[]|select(.id==20 or .id==21)][0].targets[0].rawSql' "$LEADERBOARD_FILE")
 printf '%s' "$LB_SQL" | grep -qF "concat('$'" && printf '%s' "$LB_SQL" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
 U_P36=$(jq -r '[.panels[]|select(.id==36)][0].targets[].rawSql' "$PERFORMANCE_FILE")
@@ -227,7 +227,7 @@ fi
 # ── p3 Token Usage stat: 5 field overrides, 5 targets (in cost-usage) ──
 
 P3_OVERRIDES=$(jq '[.panels[] | select(.id == 3)][0].fieldConfig.overrides | length' "$COST_USAGE_FILE")
-assert_eq "p3 has 6 field overrides (Total, Input, Cached, Output, Reasoning)" "6" "$P3_OVERRIDES"
+assert_eq "p3 has 8 field overrides (4 categories + Total + 3 averages)" "8" "$P3_OVERRIDES"
 
 P3_TARGETS=$(jq '[.panels[] | select(.id == 3)][0].targets | length' "$COST_USAGE_FILE")
 assert_eq "p3 has 1 target (consolidated CTE)" "1" "$P3_TARGETS"
@@ -314,7 +314,7 @@ P3_HAS_5_CATEGORIES=$(jq -r '[.panels[] | select(.id == 3)][0].targets[0].rawSql
 assert_eq "p3 has 5 categories (Total + Input + Cached + Output + Reasoning)" "5" "$P3_HAS_5_CATEGORIES"
 
 P3_OVERRIDES=$(jq '[.panels[] | select(.id == 3)][0].fieldConfig.overrides | length' "$COST_USAGE_FILE")
-assert_eq "p3 has 6 field overrides (Total, Input, Cached, Output, Reasoning)" "6" "$P3_OVERRIDES"
+assert_eq "p3 has 8 field overrides (4 categories + Total + 3 averages)" "8" "$P3_OVERRIDES"
 
 # ── p15 Cost Over Time by Model (in cost-usage) ───────────────────────
 
@@ -417,13 +417,12 @@ P3_PALETTE=$(jq -r '
     "Input (uncached)":       "#247ba0",
     "Cached":                 "#8cada7",
     "Output (non-reasoning)": "#ffe066",
-    "Reasoning":              "#f25f5c",
-    "Total Cost":             "#b7990d"
+    "Reasoning":              "#f25f5c"
   } as $expected |
   if $got == $expected then "OK"
   else "MISMATCH expected=\($expected|tojson) got=\($got|tojson)" end
 ' "$COST_USAGE_FILE")
-assert_eq "p3 uses brand palette (5 category tiles + cost)" "OK" "$P3_PALETTE"
+assert_eq "p3 uses brand palette (5 category tiles)" "OK" "$P3_PALETTE"
 
 # ── p14 palette (in ops-health) ───────────────────────────────────────
 

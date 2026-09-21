@@ -64,8 +64,10 @@ services:
       - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ../../conf/clickhouse-disable-metric-logs.xml:/etc/clickhouse-server/config.d/disable-metric-logs.xml:ro
       - ../../conf/clickhouse-storage-tiering.xml:/etc/clickhouse-server/config.d/storage-tiering.xml:ro
+      - ../../conf/clickhouse-performance.xml:/etc/clickhouse-server/config.d/performance.xml:ro
       - ../../conf/clickhouse-users.d/ops-admin.xml:/etc/clickhouse-server/users.d/ops-admin.xml:ro
       - ../../conf/clickhouse-users.d/default-local.xml:/etc/clickhouse-server/users.d/zz-default-local.xml:ro
+      - ../../conf/clickhouse-users.d/performance.xml:/etc/clickhouse-server/users.d/zz-performance.xml:ro
     environment:
       - CLICKHOUSE_PASSWORD
       - CH_OPS_PASSWORD

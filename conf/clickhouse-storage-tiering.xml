@@ -5,6 +5,12 @@
          is a BACKUP target only, never a live disk (constraint C-1).
          NOTE: the implicit `default` disk must NOT be redefined here -
          ClickHouse 24.8 fails startup with UNKNOWN_ELEMENT_IN_CONFIG. -->
+    <!-- ClickHouse 24.8 gates the Disk backup engine behind an explicit
+         allow-list. Without this the nightly BACKUP and the pre-recalc
+         backup fail with INVALID_CONFIG_PARAMETER (backups.allowed_disk). -->
+    <backups>
+        <allowed_disk>backups</allowed_disk>
+    </backups>
     <storage_configuration>
         <disks>
             <archive>

@@ -119,7 +119,7 @@ OpenAI-compatible endpoint at `http://gateway:9080/grok`.
 | NFR-1.2 | PKCE state MUST be single-use and expire after 300s. |
 | NFR-1.3 | The client-held access token MUST be treated as a secret equal to an API key (HTTPS only, hashed for storage paths). |
 | NFR-1.4 | OIDC discovery SHOULD be cached for 1h in a `lua_shared_dict xai_cache 5m`. |
-| NFR-1.5 | Usage/cost tracking MUST remain unchanged: OpenAI-compatible path -> `sse-usage` -> Vector -> ClickHouse, `cost_source = computed`. |
+| NFR-1.5 | Usage/cost tracking MUST remain unchanged: OpenAI-compatible path -> `sse-usage` -> Vector -> ClickHouse, billed `cost_source = models_dev` (models.dev registry; no provider override declared). |
 
 ## 4. Constraints
 

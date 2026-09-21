@@ -86,8 +86,8 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 ### usage_log columns (inserted)
 
 `event_id`, `request_id`, `model`, token breakdown, `key_id`, `api_key_id`,
-`aborted`, `is_stream`, `cost`, `cost_source`, `provider_id`, `pricing_source`,
-`pricing_snapshot`, `timestamp`. Full schema:
+`aborted`, `is_stream`, `cost`, `cost_source`, `reported_cost`, `provider_id`,
+`pricing_source`, `pricing_snapshot`, `timestamp`. Full schema:
 [`TELEMETRY-AND-SCHEMA.md`](TELEMETRY-AND-SCHEMA.md).
 
 ## Library modules (not registered plugins)

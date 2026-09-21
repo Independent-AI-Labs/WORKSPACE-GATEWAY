@@ -1,0 +1,19 @@
+<clickhouse>
+    <!-- Test-only ops_admin for the ephemeral migration-test ClickHouse.
+         The production conf/clickhouse-users.d/ops-admin.xml pins ops_admin
+         to the dev/prod stack gateway IPs; the ephemeral container is
+         reached over the podman bridge, so this fixture allows any source.
+         Password still comes from CH_OPS_PASSWORD. Never mounted by a stack. -->
+    <users>
+        <ops_admin>
+            <password from_env="CH_OPS_PASSWORD"/>
+            <networks>
+                <ip>0.0.0.0/0</ip>
+                <ip>::/0</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </ops_admin>
+    </users>
+</clickhouse>

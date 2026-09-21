@@ -118,7 +118,7 @@ and retaining all telemetry data indefinitely at controlled storage cost.
 | FR-7.1 | The Vector ClickHouse sink MUST authenticate (HTTP basic auth) as `vector_rw` via env-interpolated credentials. |
 | FR-7.2 | The `sse-usage` plugin MUST authenticate its `usage_log` INSERTs as `apisix_rw`: route config carries `clickhouse_user` and `clickhouse_password_env` (env resolved at request time, following the `openbao_token_env` pattern); the password env MUST be declared in `nginx_config.envs`. |
 | FR-7.3 | The golang-migrate DSN (`make ch-migrate`, compose `migrate` service) MUST authenticate as `migrator`. |
-| FR-7.4 | Every host-side ClickHouse client script (reconciler, crunch-usefulness, sync-model-registry, backfill-reasoning-tokens, seed-clickhouse-dashboard-data, dedupe-model-history, migrate-opencode-stats) MUST send `ops_admin` basic auth from env (`CH_OPS_USER`/`CH_OPS_PASSWORD`), with no unauthenticated access. |
+| FR-7.4 | Every host-side ClickHouse client script (reconciler, crunch-usefulness, sync-model-registry, backfill-reasoning-tokens, seed-clickhouse-dashboard-data, dedupe-model-history, recalc-costs, migrate-opencode-stats) MUST send `ops_admin` basic auth from env (`CH_OPS_USER`/`CH_OPS_PASSWORD`), with no unauthenticated access. |
 
 ### FR-8: etcd RBAC
 | ID | Requirement |

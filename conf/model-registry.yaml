@@ -40,6 +40,9 @@ models:
     aliases:
       - k3
       - moonshotai/kimi-k3
+  deepseek-v4.1-flash:
+    aliases:
+      - deepseek-flash
   minicpm5-1b-q8_0.gguf:
     aliases:
       - /zip/minicpm5-1b-q8_0.gguf

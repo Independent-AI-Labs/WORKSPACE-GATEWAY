@@ -1,0 +1,14 @@
+<clickhouse>
+    <!-- Host has 32 cores. Stock background_pool_size (16) with ratio 2 leaves
+         most cores idle during bulk INSERT ... SELECT, background merges and
+         mutation catch-up. Raise the pool and mutation concurrency, and lower
+         the free-entries threshold so mutations are not starved behind a full
+         merge queue (the TOO_MANY_PARTS incident, 2026-09-21). Server-level
+         settings only: query/user limits live in users.d/performance.xml. -->
+    <background_pool_size>32</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>3</background_merges_mutations_concurrency_ratio>
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_execute_mutation>8</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>4</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    </merge_tree>
+</clickhouse>

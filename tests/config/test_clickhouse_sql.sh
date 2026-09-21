@@ -161,8 +161,8 @@ HAS_COST_SOURCE_ALTER=$(grep -c 'ADD COLUMN IF NOT EXISTS cost_source' "$SQL_FIL
 assert_eq "Has idempotent ALTER for cost_source column" "1" "$HAS_COST_SOURCE_ALTER"
 
 HAS_ENUM_VALUES_RC=0
-HAS_ENUM_VALUES=$(grep -c "Enum8('upstream' = 0, 'computed' = 1, 'unknown' = 2)" "$SQL_FILE" ) || { HAS_ENUM_VALUES_RC=$?; HAS_ENUM_VALUES="0"; }
-assert_eq "cost_source enum has upstream=0, computed=1, unknown=2" "true" "$(if [ "$HAS_ENUM_VALUES" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
+HAS_ENUM_VALUES=$(grep -c "Enum8('provider_override' = 0, 'models_dev' = 1, 'unknown' = 2)" "$SQL_FILE" ) || { HAS_ENUM_VALUES_RC=$?; HAS_ENUM_VALUES="0"; }
+assert_eq "cost_source enum has provider_override=0, models_dev=1, unknown=2" "true" "$(if [ "$HAS_ENUM_VALUES" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
 
 HAS_BILLING_MV_RC=0
 HAS_BILLING_MV=$(grep -c 'CREATE MATERIALIZED VIEW IF NOT EXISTS.*billing_ledger_mv' "$SQL_FILE" ) || { HAS_BILLING_MV_RC=$?; HAS_BILLING_MV="0"; }

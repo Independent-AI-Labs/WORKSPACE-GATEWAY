@@ -343,11 +343,12 @@ local function anthropic_stream_tests()
             assert_eq(usage.prompt_tokens, 550, "anthropic[1] input folded with cache")
             assert_eq(usage.completion_tokens, 42, "anthropic[1] final output from message_delta")
             assert_eq(usage.total_tokens, 592, "anthropic[1] total recomputed")
-            local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(usage)
+            local pt, ct, tt, cached, reasoning, cache_write = sse_lib.extract_tokens(usage)
             assert_eq(pt, 550, "anthropic[1] extract prompt_tokens")
             assert_eq(ct, 42, "anthropic[1] extract completion_tokens")
             assert_eq(cached, 400, "anthropic[1] extract cached = cache_read only")
             assert_eq(reasoning, 0, "anthropic[1] no reasoning dimension")
+            assert_eq(cache_write, 50, "anthropic[1] extract cache_write separately")
         end
         assert_eq(cost, 0, "anthropic[1] no upstream cost field")
     end

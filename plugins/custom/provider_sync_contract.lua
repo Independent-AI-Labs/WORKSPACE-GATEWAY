@@ -12,7 +12,7 @@ local MODES = {
 function M.mode(auth)
     if not auth then return MODES.none end
     if auth.type == "oauth" and auth.methods and auth.methods[1] then
-        return MODES[auth.methods[1].flow] or MODES.oauth_device
+        return MODES[auth.methods[1].flow] or MODES.none
     end
     return MODES[auth.flow] or MODES[auth.type] or MODES.none
 end

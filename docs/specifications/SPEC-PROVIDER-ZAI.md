@@ -73,7 +73,7 @@ Identical blocks are committed in `conf/apisix.yaml` and
 
 `conf/providers/workspace-gw-zai-api-key.yaml`: id
 `workspace-gw-zai-api-key`, route `/zai-key`, npm
-`@ai-sdk/openai-compatible`, auth `api_key`. Models from models.dev provider
+`@ai-sdk/openai-compatible`, auth `api_key`. Models from models.dev namespace
 `zai` (`strip_prefix: z-ai/`, `lowercase`), pricing from the same source with
 `missing_policy: unknown`.
 

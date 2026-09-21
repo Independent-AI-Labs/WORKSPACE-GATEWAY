@@ -83,6 +83,11 @@ One logic per quantity type, identical in every panel (operator ruling
   Floor-truncated decimals are FORBIDDEN (`floor((v % 1000) / 10)` turns
   `106059` into `106.05K`; rounding gives `106.06K`). No unit word:
   Grafana's `short` unit renders "Bil"/"Mil" and is forbidden on tiles.
+- **Graphs, bargauges, axes and tables (rendered values)** = set the Grafana
+  `unit` and let Grafana abbreviate: `short` for large counts (K / Mil / Bil),
+  the domain unit otherwise (`bytes`, `s`, `ms`, `Bps`, `percent`, ...). The
+  `short` unit is allowed here (e.g. p8 Model Distribution request counts)
+  precisely because these are not exact-value stat tiles.
 - **Precision**: measured rates, costs, speeds and scores display 2 decimals
   (display `decimals: 2` + SQL `round(x, 2)`); raw counts stay integers.
 - **Stat panels with string fields** must use `textMode: value_and_name`
@@ -106,26 +111,31 @@ No `allValue`; Grafana expands `${var:singlequote}` natively.
 
 ## 4. Gateway Cost & Usage
 
-### Panel 3: Token Usage by Category (stat, CH, grid x:0 y:0 w:12 h:8)
+### Panel 3: Token Usage by Category (stat, CH, grid x:0 y:0 w:12 h:12)
 
 Single query (refId A) with a `WITH totals AS (...)` CTE over
 `llm_gateway.usage_log` computing `total_tok`, `input_tok`
 (`prompt_tokens - cached_tokens`), `cached_tok`, `output_tok`
 (`completion_tokens - reasoning_tokens`), `reasoning_tok`, and
-`round(total_cost, 2)`, emitting 6 string columns: `"Total Tokens"`,
-`"Input Tokens"`, `"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"`
-(compact uppercase `B`/`M`/`K` `multiIf` strings, e.g. `9.18B`) and
-`"Total Cost"` as an exact currency string `concat('$', toString(floor(...)), '.',
-leftPad(toString(round((... - floor(...)) * 100)), 2, '0'))`: `$2882.40`,
-never SI-abbreviated (ClickHouse `toString(toDecimal64(x,2))` strips trailing
-zeros, so cents are split and left-padded manually). Colors (byName): Total
-teal, Input cerulean, Cached muted-teal, Output gold, Reasoning coral, Total
-Cost gold-accent `#b7990d`. Panel contract (FR-7.4): `reduceOptions.fields`
-must be `/./`: Grafana matches that regex against post-override display
-names, which no longer contain "Tokens"/"Cost"; string fields only render with
+`round(total_cost, 2)`, plus `uniqExact(toDate / toStartOfWeek(mode 1) /
+toStartOfMonth(timestamp))` period counts; a second `avgs` CTE divides the
+totals by `greatest(period_count, 1)`. Emits 8 string columns: `"Input Tokens"`,
+`"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"` (compact uppercase
+`B`/`M`/`K` `multiIf` strings, e.g. `9.18B`), then `"Total"`, `"Monthly Average"`,
+`"Weekly Average"`, `"Daily Average"`, each formatted as compact tokens for the
+quantity followed by exact spend: `"12B / $3894.37"` (`"4.1B / $1298.12"` for
+the averages). The spend side is an exact currency string
+`toString(floor(round(x * 100) / 100))` + `'.'` +
+`leftPad(toString(round(x * 100) % 100), 2, '0')`, never SI-abbreviated
+(ClickHouse `toString(toDecimal64(x,2))` strips trailing zeros, so cents are
+split and left-padded manually). Colors (byName): Total teal, Input cerulean,
+Cached muted-teal, Output gold, Reasoning coral, Monthly teal, Weekly gold,
+Daily cerulean. Panel contract (FR-7.4): `reduceOptions.fields` must be `/./`:
+Grafana matches that regex against post-override display names, which no longer
+contain "Tokens"/"Cost"; string fields only render with
 `textMode: value_and_name`.
 
-### Panel 15: Cost Over Time by Model (timeseries, CH, grid x:12 y:0 w:12 h:8)
+### Panel 15: Cost Over Time by Model (timeseries, CH, grid x:0 y:12 w:24 h:8)
 
 ```sql
 SELECT toStartOfMinute(timestamp) as time, model as label,
@@ -139,7 +149,7 @@ GROUP BY time, model ORDER BY time, label
 
 Stacked area (`stacking.mode: normal`), sum legend table at bottom.
 
-### Panel 8: Model Distribution (bargauge, CH, grid x:0 y:8 w:24 h:8)
+### Panel 8: Model Distribution (bargauge, CH, grid x:12 y:0 w:12 h:12)
 
 ```sql
 SELECT model, count() as requests
@@ -152,12 +162,14 @@ GROUP BY model ORDER BY requests DESC LIMIT 20
 
 Note: this panel queries `usage_log` directly (no ASOF join); `usage_log.model`
 is authoritative. Horizontal gradient bars, `palette-classic`, `showUnfilled`.
+Rendered request counts use Grafana `unit: short` (K / Mil / Bil) with
+`decimals: 2`, consistent with the other graphs/bargauges (SPEC §2.4).
 
-Layout (2026-09-17): p3 keeps horizontal tiles (`maxPerRow: 4`, w:12 h:8)
-so the four category tiles fill the top row and Total Tokens + Total Cost
-wrap onto the bottom row together, each carrying a per-field `textSize`
-override (title 14 / value 30); p15 sits at x:12 w:12 h:12, p8 at y:12
-w:24 h:8.
+Layout (2026-09-17, revised 2026-09-21): p3 keeps horizontal tiles
+(`maxPerRow: 4`, w:12 h:12) so the four category tiles fill the top row; the
+bottom row is Total (carrying a per-field `textSize` override, title 14 /
+value 30) plus the three period averages; p8 sits at x:12 w:12 h:12 beside p3,
+p15 at y:12 w:24 h:8.
 
 ### Panel 46: Cost by Provider (piechart, CH, grid x:0 y:20 w:24 h:8)
 

@@ -144,8 +144,8 @@ if [ -n "$U_RID" ]; then
     U_TOTAL=$(printf '%s' "$COST_ROW" | cut -f5)
     echo "[INFO] usage_log row: cost_source=$U_COST_SOURCE model=$U_MODEL tokens=$U_PROMPT/$U_COMPLETION/$U_TOTAL"
     case "$U_COST_SOURCE" in
-        upstream|computed|unknown) assert_eq "usage_log cost_source is valid enum" "$U_COST_SOURCE" "$U_COST_SOURCE" ;;
-        *) assert_eq "usage_log cost_source is valid enum" "upstream|computed|unknown" "$U_COST_SOURCE" ;;
+        provider_override|models_dev|unknown) assert_eq "usage_log cost_source is valid enum" "$U_COST_SOURCE" "$U_COST_SOURCE" ;;
+        *) assert_eq "usage_log cost_source is valid enum" "provider_override|models_dev|unknown" "$U_COST_SOURCE" ;;
     esac
     # Model must be canonicalized by model_registry.canonical(): lowercase,
     # last path segment (provider prefix stripped). The local model id is

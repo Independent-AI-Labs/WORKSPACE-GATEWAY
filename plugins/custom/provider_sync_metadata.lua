@@ -71,25 +71,10 @@ local function candidate_ids(model_id, normalize)
     return ids
 end
 
---Build a lookup over one sync's models.dev snapshot: the declared provider
---block first, then a cross-provider index (sorted provider name, first
---declaration wins) so endpoint ids without a declared provider still resolve.
+--Build a metadata lookup over one sync's models.dev snapshot for the
+--declared namespace ONLY. There is no cross-provider index: an endpoint id
+--must resolve inside the provider's own `pricing.source.provider` block.
 function M.model_index(models_dev, provider_name)
-    local cross_provider, names = {}, {}
-    if type(models_dev) == "table" then
-        for name in pairs(models_dev) do names[#names + 1] = name end
-        table.sort(names)
-        for _, name in ipairs(names) do
-            local block = models_dev[name]
-            if type(block) == "table" and type(block.models) == "table" then
-                for id, model in pairs(block.models) do
-                    if type(model) == "table" and cross_provider[id] == nil then
-                        cross_provider[id] = model
-                    end
-                end
-            end
-        end
-    end
     local declared = nil
     if provider_name and type(models_dev) == "table" then
         local block = models_dev[provider_name]
@@ -97,24 +82,16 @@ function M.model_index(models_dev, provider_name)
             declared = block.models
         end
     end
-    return { declared = declared, cross_provider = cross_provider }
+    return { declared = declared }
 end
 
 function M.lookup(index, model_id, normalize)
-    if not index then
+    if not index or type(index.declared) ~= "table" then
         return nil
     end
-    local ids = candidate_ids(model_id, normalize)
-    if index.declared then
-        for _, id in ipairs(ids) do
-            if type(index.declared[id]) == "table" then
-                return index.declared[id]
-            end
-        end
-    end
-    for _, id in ipairs(ids) do
-        if type(index.cross_provider[id]) == "table" then
-            return index.cross_provider[id]
+    for _, id in ipairs(candidate_ids(model_id, normalize)) do
+        if type(index.declared[id]) == "table" then
+            return index.declared[id]
         end
     end
     return nil
@@ -216,16 +193,9 @@ function M.build_entry(meta, entry_id, pct, ceiling, npm)
         }
     end
 
-    if type(meta.cost) == "table" then
-        local cost = {
-            input = meta.cost.input or 0,
-            output = meta.cost.output or 0,
-        }
-        if meta.cost.cache_read ~= nil then cost.cache_read = meta.cost.cache_read end
-        if meta.cost.cache_write ~= nil then cost.cache_write = meta.cost.cache_write end
-        entry.cost = cost
-    end
-
+    --No cost here. Price is owned solely by provider_sync_pricing
+    --(provider `pricing.overrides` or models.dev in the declared namespace);
+    --a metadata/endpoint join must never carry a price.
     return entry
 end
 

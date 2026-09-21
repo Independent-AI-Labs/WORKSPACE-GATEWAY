@@ -35,12 +35,15 @@ mkdir -p "$STAGING"
 # Idempotency: skip if today's backup already completed. A failed query
 # (e.g. system.backups empty) means no prior backup; treat as empty string.
 STATUS=""
-if STATUS_FROM_CH="$(chq "SELECT status FROM system.backups WHERE name = '${NAME}' ORDER BY start_time DESC LIMIT 1")"; then
+# system.backups.name is the full spec Disk('backups', '<name>'), so match
+# by substring rather than equality on the bare name.
+if STATUS_FROM_CH="$(chq "SELECT status FROM system.backups WHERE position(name, '${NAME}') > 0 ORDER BY start_time DESC LIMIT 1")"; then
     STATUS="$STATUS_FROM_CH"
 fi
 if [ -n "${STATUS:-}" ] && [ "${STATUS:-}" != "BACKUP_CREATED" ]; then
-    # Failed/async leftover of a previous attempt: drop it and retry.
-    chq "ALTER TABLE system.backups DELETE WHERE name = '${NAME}'"
+    # Failed/async leftover of a previous attempt: drop its files and retry.
+    # system.backups is a non-persistent SystemBackups view (no mutations,
+    # cleared on restart), so removing the directory is the whole cleanup.
     "$PODMAN" exec "$CONTAINER" rm -rf "/var/lib/clickhouse/backups/${NAME}"
 fi
 if [ "${STATUS:-}" = "BACKUP_CREATED" ]; then

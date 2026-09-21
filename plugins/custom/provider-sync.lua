@@ -10,23 +10,7 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
 
-local function load_catalog()
-    local ok, mod = pcall(require, "apisix.plugins.provider_sync_catalog")
-    if ok then
-        return mod
-    end
-    local first_err = mod
-    ok, mod = pcall(require, "provider_sync_catalog")
-    if ok then
-        return mod
-    end
-    return nil, tostring(first_err) .. " | plain require: " .. tostring(mod)
-end
-
-local catalog, catalog_err = load_catalog()
-if not catalog then
-    error("provider-sync: failed to load provider_sync_catalog: " .. (catalog_err or "unknown"))
-end
+local catalog = require("apisix.plugins.provider_sync_catalog")
 
 local plugin_name = "provider-sync"
 

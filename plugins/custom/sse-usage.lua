@@ -8,26 +8,6 @@ local resty_sha256 = require("resty.sha256")
 
 local plugin_name = "sse-usage"
 
-local ROUTE_PROVIDERS = {
-    ["relay-opencode"] = "workspace-gw-opencode-go-api-key",
-    ["relay-opencode-federated"] = "workspace-gw-opencode-go-virtual-key",
-    ["relay-opencode-zen"] = "workspace-gw-opencode-zen-api-key",
-    ["relay-openai"] = "workspace-gw-openai-device-oauth",
-    ["relay-kimi"] = "workspace-gw-kimi-device-oauth",
-    ["relay-kimi-v1"] = "workspace-gw-kimi-device-oauth",
-    ["relay-kimi-federated"] = "workspace-gw-kimi-virtual-key",
-    ["relay-kimi-federated-v1"] = "workspace-gw-kimi-virtual-key",
-    ["relay-kimi-key"] = "workspace-gw-kimi-api-key",
-    ["relay-kimi-key-v1"] = "workspace-gw-kimi-api-key",
-    ["relay-zai-key"] = "workspace-gw-zai-api-key",
-    ["relay-zai-key-v1"] = "workspace-gw-zai-api-key",
-    ["relay-anthropic"] = "workspace-gw-anthropic-passthrough",
-    ["relay-anthropic-device"] = "workspace-gw-anthropic-device-oauth",
-    ["relay-alibaba-token-plan"] = "workspace-gw-alibaba-token-plan-passthrough",
-    ["relay-alibaba-token-plan-cn"] = "workspace-gw-alibaba-token-plan-cn-passthrough",
-    ["relay-llamafile"] = "workspace-gw-llamafile-no-auth",
-}
-
 local plugin = {
     version = 0.1,
     priority = 2400,
@@ -246,23 +226,33 @@ function plugin.log(conf, ctx)
         ttft_content = duration_ms
     end
 
-    local pt, ct, tt, cached, reasoning = sse_lib.extract_tokens(ctx.sse_usage)
+    local pt, ct, tt, cached, reasoning, cache_write = sse_lib.extract_tokens(ctx.sse_usage)
     local model = ctx.sse_model or ""
-    local sse_cost = tonumber(ctx.sse_cost) or 0
+    local reported_cost = tonumber(ctx.sse_cost) or 0
     local req_model = ctx.sse_req_model or model
     local route_id = ctx.route_id or ""
-    local provider_id = ROUTE_PROVIDERS[route_id]
+
+    --Use ngx.var.start_time (Nginx $start_time, seconds.millis string), same source Vector reads.
+    --to_int() in VRL truncates to integer seconds, so match that.
+    local start_time_sec = math.floor(tonumber(ngx.var.start_time)
+        or ngx.req.start_time() or 0)
+    local event_id = route_id .. "_" .. tostring(start_time_sec)
+
+    --Provider identity is resolved exactly like the offline recalc
+    --(cost_calc.resolve_provider): explicit alias first, then the request's
+    --provider id, then the route map. No other provider is consulted.
+    local provider_id = cost_calc.resolve_provider(ctx.provider_id or "", event_id)
 
     local final_cost, cost_source = cost_calc.resolve_cost(
-        sse_cost,
-        { pt = pt, ct = ct, cached = cached, reasoning = reasoning },
+        { pt = pt, ct = ct, cached = cached, cache_write = cache_write, reasoning = reasoning },
         req_model,
         provider_id
     )
-    local pricing_source = ""
-    if cost_source == cost_calc.SOURCE_COMPUTED then
-        local price = cost_calc.get_pricing(req_model, provider_id)
-        pricing_source = price and price.pricing_source or ""
+    --resolve_cost already returns the record's provenance, so the pricing
+    --snapshot column reads it directly instead of looking the price up twice.
+    local pricing_source = cost_source
+    if cost_source == cost_calc.SOURCE_UNKNOWN then
+        pricing_source = ""
     end
     local pricing_snapshot = ""
     local cache = ngx.shared and ngx.shared["gateway-cache"]
@@ -290,13 +280,6 @@ function plugin.log(conf, ctx)
     --canonical too and the Grafana model variable UNION stays clean.
     local model_raw = model
     model = model_registry.canonical(model)
-
-    route_id = ctx.route_id or ""
-    --Use ngx.var.start_time (Nginx $start_time, seconds.millis string), same source Vector reads.
-    --to_int() in VRL truncates to integer seconds, so match that.
-    local start_time_sec = math.floor(tonumber(ngx.var.start_time)
-        or ngx.req.start_time() or 0)
-    local event_id = route_id .. "_" .. tostring(start_time_sec)
 
     --Resolve + hash client key (mirrors conf/vector.toml VRL hashing
     --so usage_log.key_id == request_log.key_id for the same request).
@@ -341,6 +324,7 @@ function plugin.log(conf, ctx)
         completion_tokens = ct,
         total_tokens = tt,
         cached_tokens = cached,
+        cache_write_tokens = cache_write,
         reasoning_tokens = reasoning,
         key_id = hashed,
         api_key_id = consumer,
@@ -351,6 +335,7 @@ function plugin.log(conf, ctx)
         duration_ms = duration_ms,
         cost = final_cost,
         cost_source = cost_source,
+        reported_cost = reported_cost,
         provider_id = provider_id or "",
         pricing_source = pricing_source or "",
         pricing_snapshot = pricing_snapshot,
@@ -392,22 +377,24 @@ function plugin.log(conf, ctx)
                 ["Authorization"] = ch_auth,
             },
         })
-        if res and res.status ~= 200 then
-            core.log.error("sse-usage: clickhouse returned status ", res.status,
-                           ": ", res.body or "")
-        end
-        if not res and retry_count < max_retries then
+        --A transport error OR a non-200 status is a failed insert; retry
+        --both, otherwise the row is dropped without a record.
+        local ok_status = res and res.status == 200
+        if not ok_status and retry_count < max_retries then
             core.log.warn("sse-usage: clickhouse insert failed (attempt ",
-                          retry_count + 1, "/", max_retries, "): ", err or "unknown")
+                          retry_count + 1, "/", max_retries, "): ",
+                          err or ("status " .. tostring(res and res.status)))
             local ok, timer_err = ngx.timer.at(retry_delays[retry_count + 1] or 1, timer_handler, retry_count + 1)
             if not ok then
                 core.log.error("sse-usage: retry timer creation failed: ", timer_err)
             end
             return
         end
-        if not res then
+        if not ok_status then
             core.log.error("sse-usage: clickhouse insert failed after ",
-                           max_retries, " attempts: ", err or "unknown")
+                           max_retries, " attempts: ",
+                           err or ("status " .. tostring(res and res.status)),
+                           res and res.body and (": " .. res.body) or "")
         end
     end
 

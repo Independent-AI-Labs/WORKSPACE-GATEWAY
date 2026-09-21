@@ -34,42 +34,47 @@ assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.u
 # Generic structural checks (basics, brand palette, time/refresh, macros, formats)
 check_dashboard_basics "$F" "$LABEL"
 
-# p3: 6 unique override matcher names (5 token categories + cost)
+# p3: 8 unique override matcher names (4 categories + Total + 3 averages)
 P3_MATCHERS=$(jq -r '[.panels[]|select(.id==3)][0].fieldConfig.overrides | map(.matcher.options) | sort | join(",")' "$F")
-assert_eq "$LABEL S5b: p3 has 6 matcher names (5 token categories + cost)" \
-  "Cached Tokens,Input Tokens,Output Tokens,Reasoning Tokens,Total Cost,Total Tokens" "$P3_MATCHERS"
+assert_eq "$LABEL S5b: p3 has 8 matcher names (4 categories + Total + 3 averages)" \
+  "Cached Tokens,Daily Average,Input Tokens,Monthly Average,Output Tokens,Reasoning Tokens,Total,Weekly Average" "$P3_MATCHERS"
 
-# p3: consolidated single target (was 5 duplicated CTEs), 6 overrides (5 token categories + cost)
+# p3: consolidated single target (was 5 duplicated CTEs), 8 overrides (4 categories + Total + 3 averages)
 P3_TARGETS=$(jq '[.panels[]|select(.id==3)][0].targets|length' "$F")
 assert_eq "$LABEL: p3 has 1 target" "1" "$P3_TARGETS"
 P3_OVERRIDES=$(jq '[.panels[]|select(.id==3)][0].fieldConfig.overrides|length' "$F")
-assert_eq "$LABEL: p3 has 6 field overrides" "6" "$P3_OVERRIDES"
+assert_eq "$LABEL: p3 has 8 field overrides" "8" "$P3_OVERRIDES"
 P3_SQL=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F")
 P3_COLS=0
-for col in "Total Tokens" "Input Tokens" "Cached Tokens" "Output Tokens" "Reasoning Tokens" "Total Cost"; do
+for col in "Input Tokens" "Cached Tokens" "Output Tokens" "Reasoning Tokens" "Total"; do
     printf '%s' "$P3_SQL" | grep -qF "as \"$col\"" && P3_COLS=$((P3_COLS+1))
 done
-assert_eq "$LABEL: p3 query returns 5 token categories + cost" "6" "$P3_COLS"
+assert_eq "$LABEL: p3 query returns 5 token columns incl. Total" "5" "$P3_COLS"
 
-# p3: numeric columns, no string-formatted values; cost is native currency
+# p3: numeric columns, no string-formatted values; Total folds spend into token string
 # token categories formatted as compact uppercase B/M/K strings; cost as exact "$x.yy"
 P3_STR=0
 printf '%s' "$P3_SQL" | grep -qE "multiIf" || P3_STR=1
 printf '%s' "$P3_SQL" | grep -qF ", 'B')" && printf '%s' "$P3_SQL" | grep -qF ", 'M')" && printf '%s' "$P3_SQL" | grep -qF ", 'K')" || P3_STR=1
 assert_eq "$LABEL: p3 token columns use compact B/M/K formatting" "0" "$P3_STR"
-P3_COST_UNIT=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F")
-printf '%s' "$P3_COST_UNIT" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p3 cost renders exact dollars (\$x.yy)"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 missing dollar formatting"; fail=$((fail+1)); }
+printf '%s' "$P3_SQL" | grep -qF "' / \$'" && { echo "[PASS] $LABEL: p3 renders tokens / exact dollars (\$x.yy)"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 missing tokens/dollar formatting"; fail=$((fail+1)); }
 
-# p3: horizontal tiles, totals wrap onto a second row (maxPerRow 4), enlarged
+# p3: horizontal tiles, Total + averages fill the second row (maxPerRow 4), Total enlarged
 P3_ORIENT=$(jq -r '[.panels[]|select(.id==3)][0].options.orientation // "missing"' "$F")
 assert_eq "$LABEL: p3 keeps horizontal tiles" "horizontal" "$P3_ORIENT"
 P3_MAXROW=$(jq -r '[.panels[]|select(.id==3)][0].options.maxPerRow // "missing"' "$F")
-assert_eq "$LABEL: p3 wraps after 4 tiles (totals land on the bottom row)" "4" "$P3_MAXROW"
+assert_eq "$LABEL: p3 wraps after 4 tiles (Total + averages on the bottom row)" "4" "$P3_MAXROW"
 P3_LAST_COLS=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F" | grep -o 'as "[^"]*"' | sed 's/as "//; s/"//' | paste -sd, -)
-assert_eq "$LABEL: p3 column order puts totals last" \
-  "Input Tokens,Cached Tokens,Output Tokens,Reasoning Tokens,Total Tokens,Total Cost" "$P3_LAST_COLS"
-P3_BIG=$(jq '[ [.panels[]|select(.id==3)][0].fieldConfig.overrides[] | select(.matcher.options == "Total Tokens" or .matcher.options == "Total Cost") | .properties[] | select(.id == "textSize") ] | length' "$F")
-assert_eq "$LABEL: p3 totals carry textSize overrides (enlarged)" "2" "$P3_BIG"
+assert_eq "$LABEL: p3 column order puts Total then period averages last" \
+  "Input Tokens,Cached Tokens,Output Tokens,Reasoning Tokens,Total,Monthly Average,Weekly Average,Daily Average" "$P3_LAST_COLS"
+P3_BIG=$(jq '[ [.panels[]|select(.id==3)][0].fieldConfig.overrides[] | select(.matcher.options == "Total") | .properties[] | select(.id == "textSize") ] | length' "$F")
+assert_eq "$LABEL: p3 Total carries a textSize override (enlarged)" "1" "$P3_BIG"
+
+# p3: Total and the period averages combine compact tokens + exact dollars
+P3_AVG_SEP=$(printf '%s' "$P3_SQL" | grep -oF "' / \$'" | wc -l | tr -d ' ')
+assert_eq "$LABEL: p3 Total + averages render tokens / exact cost (4 columns)" "4" "$P3_AVG_SEP"
+P3_AVG_PERIODS=$(printf '%s' "$P3_SQL" | grep -oF 'uniqExact(' | wc -l | tr -d ' ')
+assert_eq "$LABEL: p3 averages divide by distinct days/weeks/months" "3" "$P3_AVG_PERIODS"
 
 # p3: stat panel positioned top-left
 P3_GRID=$(jq -r '[.panels[]|select(.id==3)][0].gridPos | "y=\(.y),x=\(.x)"' "$F")

@@ -21,6 +21,10 @@ MIGRATOR="$REPO_ROOT/res/scripts/migrate-opencode-stats.sh"
 INIT_SQL="$REPO_ROOT/conf/clickhouse-init.sql"
 CH_IMAGE="clickhouse/clickhouse-server:24.8-alpine"
 OPENCODE_LIVE_DB="${OPENCODE_LIVE_DB:-$HOME/.local/share/opencode/opencode.db}"
+TEST_OPS_ADMIN="$SCRIPT_DIR/test-ops-admin.xml"
+
+# The migrator authenticates as ops_admin; source repo .env first.
+: "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
 
 FULL=false
 [ "${1:-}" = "--full" ] && FULL=true
@@ -117,7 +121,9 @@ start_clickhouse() {
     CH_URL=""
     if ! out=$("$PODMAN_BIN" run -d --rm --name "$name" \
         -p 127.0.0.1::8123 \
+        -e "CH_OPS_PASSWORD=$CH_OPS_PASSWORD" \
         -v "$INIT_SQL:/docker-entrypoint-initdb.d/init.sql:ro" \
+        -v "$TEST_OPS_ADMIN:/etc/clickhouse-server/users.d/ops-admin.xml:ro" \
         "$CH_IMAGE" 2>&1); then
         echo "[FAIL] podman run: $out" >&2
         return 1
@@ -163,19 +169,22 @@ INSERT INTO part VALUES ('prt_u01a','msg_u01','s1',1787917492001,'{"type":"text"
 INSERT INTO part VALUES ('prt_a01c','msg_a01','s1',1787917493003,'{"type":"tool","text":"The user rejected permission to use this specific tool call: bash"}');
 INSERT INTO part VALUES ('prt_a01d','msg_a01','s1',1787917493004,'{"type":"tool","text":"BLOCKED: bash rm -rf / by deny rule"}');
 INSERT INTO message VALUES ('msg_o01','ghost',1787917495000,'{"role":"assistant","agent":"build","modelID":"glm-5.3","providerID":"zai-coding-plan","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917495000}}');
-INSERT INTO message VALUES ('msg_b01','s1',1787917495000,'{"role":"assistant","agent":"build","modelID":"glm-5.3","providerID":"zai-coding-plan","cost":0,"tokens":{"input":1000000,"output":500000,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917495000}}');
+INSERT INTO message VALUES ('msg_b01','s1',1787917495000,'{"role":"assistant","agent":"build","modelID":"glm-5.3","providerID":"zai-coding-plan","cost":0,"tokens":{"input":1000000,"output":300000,"reasoning":200000,"cache":{"read":0,"write":0}},"time":{"created":1787917495000}}');
 INSERT INTO message VALUES ('msg_b02','s1',1787917496000,'{"role":"assistant","agent":"build","modelID":"zai.glm-5","providerID":"amazon-bedrock","cost":0,"tokens":{"input":1000000,"output":1000000,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917496000,"completed":1787917496100}}');
 INSERT INTO message VALUES ('msg_b03','s1',1787917497000,'{"role":"assistant","agent":"build","modelID":"no-such-model","providerID":"no-such-provider","cost":0,"tokens":{"input":10,"output":20,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1787917497000},"error":{"name":"APIError","message":"Connection reset by server"}}');
 SQL
 
-# models.dev-format pricing fixture: zai-coding-plan publishes all-zero
-# rates (flat-fee plan), so msg_b01 prices via the zai shadow provider.
+# models.dev-format fixture. Direct providers (amazon-bedrock) are their
+# own models.dev provider; zai-coding-plan is flat-fee (zero rates) and is
+# explicitly priced at zai; gateway routes and models.dev provider ids come
+# from conf/providers/*.yaml, not from here.
 PRICING_FIXTURE="$TMPD/pricing.json"
 cat > "$PRICING_FIXTURE" <<'JSON'
 {
-  "zai": {"models": {"glm-5.3": {"cost": {"input": 1.4, "output": 4.4}}}},
   "zai-coding-plan": {"models": {"glm-5.3": {"cost": {"input": 0, "output": 0}}}},
-  "amazon-bedrock": {"models": {"zai.glm-5": {"cost": {"input": 2, "output": 8}}}}
+  "zai": {"models": {"glm-5.3": {"cost": {"input": 1.4, "output": 4.4}}}},
+  "amazon-bedrock": {"models": {"glm-5": {"cost": {"input": 2, "output": 8}}}},
+  "moonshotai": {"models": {"kimi-k3": {"cost": {"input": 3, "output": 15}}}}
 }
 JSON
 
@@ -200,8 +209,8 @@ assert_eq "dry-run dup count" \
     "[DRY-RUN] source duplicates collapsed: 1" \
     "$(echo "$DRY_OUT" | grep 'duplicates collapsed:')"
 assert_eq "dry-run pricing coverage" \
-    "[DRY-RUN] rows with cost=0: 4; priced via models.dev: 2; unknown: 2" \
-    "$(echo "$DRY_OUT" | grep 'cost=0')"
+    "[DRY-RUN] rows priced via models.dev: 3; unknown: 2" \
+    "$(echo "$DRY_OUT" | grep 'priced via models.dev')"
 
 # ---------------------------------------------------------- run 1
 BACKUP_DIR="$TMPD/backup"
@@ -226,36 +235,38 @@ assert_eq "backup manifest pre-insert counts are 0" "3" \
 # ---------------------------------------------------------- field checks
 chq() { curl -sSf "$CH_URL/" --data-binary "$1"; }
 
-U1=$(chq "SELECT model, model_raw, provider_id, prompt_tokens, completion_tokens, total_tokens, reasoning_tokens, cached_tokens, cost, cost_source, is_stream, request_id FROM llm_gateway.usage_log WHERE event_id='ocm_msg_a01' FORMAT JSONEachRow")
+U1=$(chq "SELECT model, model_raw, provider_id, prompt_tokens, completion_tokens, total_tokens, reasoning_tokens, cached_tokens, cost, cost_source, reported_cost, is_stream, request_id FROM llm_gateway.usage_log WHERE event_id='ocm_msg_a01' FORMAT JSONEachRow")
 assert_eq "canonical model k3->kimi-k3" "kimi-k3" "$(echo "$U1" | jq -r .model)"
 assert_eq "model_raw verbatim" "k3" "$(echo "$U1" | jq -r .model_raw)"
-assert_eq "provider_id" "workspace-gw-kimi" "$(echo "$U1" | jq -r .provider_id)"
-assert_eq "prompt_tokens=input+cache.read" "107" "$(echo "$U1" | jq -r .prompt_tokens)"
+assert_eq "provider_id aliased" "workspace-gw-kimi-device-oauth" "$(echo "$U1" | jq -r .provider_id)"
+assert_eq "prompt_tokens=input+cache.read+cache.write" "110" "$(echo "$U1" | jq -r .prompt_tokens)"
 assert_eq "completion_tokens=output+reasoning" "60" "$(echo "$U1" | jq -r .completion_tokens)"
-assert_eq "total_tokens=prompt+completion" "167" "$(echo "$U1" | jq -r .total_tokens)"
+assert_eq "total_tokens=prompt+completion" "170" "$(echo "$U1" | jq -r .total_tokens)"
 assert_eq "reasoning_tokens" "10" "$(echo "$U1" | jq -r .reasoning_tokens)"
 assert_eq "cached_tokens=cache.read" "7" "$(echo "$U1" | jq -r .cached_tokens)"
-assert_eq "cost passthrough" "0.5" "$(echo "$U1" | jq -r .cost)"
-assert_eq "cost_source upstream (cost>0)" "upstream" "$(echo "$U1" | jq -r .cost_source)"
+assert_eq "billed cost from provider-scoped models.dev price" "0.0012" "$(echo "$U1" | jq -r .cost)"
+assert_eq "cost_source models_dev (priced)" "models_dev" "$(echo "$U1" | jq -r .cost_source)"
+assert_eq "opencode-recorded cost kept as reported_cost" "0.5" "$(echo "$U1" | jq -r .reported_cost)"
 assert_eq "is_stream=1" "1" "$(echo "$U1" | jq -r .is_stream)"
 assert_eq "request_id=message.id" "msg_a01" "$(echo "$U1" | jq -r .request_id)"
 
-U2=$(chq "SELECT model, cost, cost_source FROM llm_gateway.usage_log WHERE event_id='ocm_msg_a02' FORMAT JSONEachRow")
+U2=$(chq "SELECT model, cost, cost_source, reported_cost FROM llm_gateway.usage_log WHERE event_id='ocm_msg_a02' FORMAT JSONEachRow")
 assert_eq "canonical /zip model" "minicpm5-1b-q8_0.gguf" "$(echo "$U2" | jq -r .model)"
 assert_eq "cost_source unknown (cost=0, no pricing)" "unknown" "$(echo "$U2" | jq -r .cost_source)"
+assert_eq "unpriced row reported_cost stays 0" "0" "$(echo "$U2" | jq -r .reported_cost)"
 
 # ---------------------------------------------------------- pricing checks
 B1=$(chq "SELECT model, model_raw, provider_id, cost, cost_source FROM llm_gateway.usage_log WHERE event_id='ocm_msg_b01' FORMAT JSONEachRow")
 assert_eq "b01 canonical model glm-5.3" "glm-5.3" "$(echo "$B1" | jq -r .model)"
-assert_eq "b01 shadow-priced via zai (1e6*1.4 + 5e5*4.4)/1e6" "3.6" "$(echo "$B1" | jq -r .cost)"
-assert_eq "b01 cost_source computed" "computed" "$(echo "$B1" | jq -r .cost_source)"
+assert_eq "b01 flat-fee zai-coding-plan priced at zai, reasoning falls back to output" "3.6" "$(echo "$B1" | jq -r .cost)"
+assert_eq "b01 cost_source models_dev" "models_dev" "$(echo "$B1" | jq -r .cost_source)"
 assert_eq "b01 provider_id unchanged" "zai-coding-plan" "$(echo "$B1" | jq -r .provider_id)"
 
 B2=$(chq "SELECT model, model_raw, cost, cost_source FROM llm_gateway.usage_log WHERE event_id='ocm_msg_b02' FORMAT JSONEachRow")
 assert_eq "b02 dot-form raw id canonicalizes (zai.glm-5 -> glm-5)" "glm-5" "$(echo "$B2" | jq -r .model)"
 assert_eq "b02 model_raw verbatim" "zai.glm-5" "$(echo "$B2" | jq -r .model_raw)"
-assert_eq "b02 priced via provider:raw key (1e6*2 + 1e6*8)/1e6" "10" "$(echo "$B2" | jq -r .cost)"
-assert_eq "b02 cost_source computed" "computed" "$(echo "$B2" | jq -r .cost_source)"
+assert_eq "b02 priced via models.dev amazon-bedrock (1e6*2 + 1e6*8)/1e6" "10" "$(echo "$B2" | jq -r .cost)"
+assert_eq "b02 cost_source models_dev" "models_dev" "$(echo "$B2" | jq -r .cost_source)"
 
 B3=$(chq "SELECT cost, cost_source, aborted FROM llm_gateway.usage_log WHERE event_id='ocm_msg_b03' FORMAT JSONEachRow")
 assert_eq "b03 unpriced model stays 0" "0" "$(echo "$B3" | jq -r .cost)"
@@ -295,7 +306,7 @@ assert_eq "request agent_name" "build" "$(echo "$R1" | jq -r .agent_name)"
 assert_eq "request opencode_version" "1.17.11" "$(echo "$R1" | jq -r .opencode_version)"
 assert_eq "request user_agent derived" "opencode/1.17.11" "$(echo "$R1" | jq -r .user_agent)"
 assert_eq "request synthetic method" "POST" "$(echo "$R1" | jq -r .method)"
-assert_eq "request synthetic uri" "/v1/chat/completions" "$(echo "$R1" | jq -r .uri)"
+assert_eq "request synthetic uri (catalog route)" "/kimi/chat/completions" "$(echo "$R1" | jq -r .uri)"
 assert_eq "request synthetic status" "200" "$(echo "$R1" | jq -r .status)"
 assert_eq "request stream true" "true" "$(echo "$R1" | jq -r .stream)"
 assert_eq "request_size=prior context bytes" "5" "$(echo "$R1" | jq -r .request_size)"
@@ -343,7 +354,7 @@ assert_eq "no row with reasoning>completion" "0" \
 # ---------------------------------------------------------- billing MV
 BL=$(chq "SELECT model_name, cost, provider FROM llm_gateway.billing_ledger WHERE event_id='ocm_msg_a01' FORMAT JSONEachRow")
 assert_eq "billing_ledger MV row model" "kimi-k3" "$(echo "$BL" | jq -r .model_name)"
-assert_eq "billing_ledger MV row cost" "0.5" "$(echo "$BL" | jq -r .cost)"
+assert_eq "billing_ledger MV row cost" "0.0012" "$(echo "$BL" | jq -r .cost)"
 
 # ---------------------------------------------------------- rerun gate
 GUARD_RC=0
@@ -377,7 +388,7 @@ echo "$RUN3"
 assert_eq "post-reset --force rerun reinserts all" \
     "[OK] usage_log: inserted=5 skipped_existing=0 of 5" \
     "$(echo "$RUN3" | grep 'usage_log:')"
-assert_eq "post-reset rerun keeps computed cost" "3.6" \
+assert_eq "post-reset rerun keeps priced cost" "3.6" \
     "$(chq "SELECT cost FROM llm_gateway.usage_log WHERE event_id='ocm_msg_b01'")"
 
 # ---------------------------------------------------------- full rehearsal (AC-5)

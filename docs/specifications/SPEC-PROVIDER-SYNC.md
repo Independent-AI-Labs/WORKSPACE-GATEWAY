@@ -91,27 +91,27 @@ One provider document per file; `id` is authoritative.
 | `auth.api_key` | string | for virtual_key | e.g. `vgw-kimi-key` |
 | `options.headers` | object | no | Static headers copied to the client block |
 | `model_source.type` | enum | yes | `models_dev_provider` / `gateway` / `llamafile` |
-| `model_source.provider` | string | for models_dev_provider | models.dev provider id |
+| `model_source.provider` | string | for models_dev_provider | models.dev namespace |
 | `model_source.normalize` | object | no | `strip_prefix`, `lowercase` |
 | `model_source.endpoint` | string | for gateway/llamafile | `/models` endpoint; relative resolves to `http://localhost:9080` |
 | `model_source.api_key` | string | no | Bearer for endpoint fetch |
-| `model_source.model_metadata` | list | no | Static metadata overlay for endpoint-reported ids (never introduces ids); wins over models.dev metadata |
+| `model_source.model_metadata` | list | no | Static metadata overlay for endpoint-reported ids (never introduces ids, never declares cost); wins over models.dev metadata |
 | `model_source.filter` | object | no | `include` / `exclude` lists of Lua patterns matched against model ids; `exclude` drops matches, `include` (when non-empty) keeps only matches. Used to hide e.g. `*-free` models on Go-tier providers |
 | `model_aliases` | map | no | alias id -> real model id (deep-copied entry) |
-| `pricing.source` | string | yes | `models_dev/<provider_id>` or `unknown` |
-| `pricing.overrides` | map | no | Provider-specific per-model rate overrides |
-| `pricing.missing_policy` | enum | no | `unknown` or `zero`, with `unknown` required for llamafile |
+| `pricing.source` | string | yes | `models_dev/<namespace>` or `unknown`. The namespace selects the models.dev registry block to consult for this provider; models.dev is not itself a provider |
+| `pricing.overrides` | map | no | **Only** manual price declaration channel: per-model `input`/`output`/`cache_read`/`cache_write`/`reasoning` rates. Wins over models.dev |
+| `pricing.missing_policy` | enum | no | `unknown` (required for llamafile); no `zero` policy is implemented |
 | `context_limit_pct` | int | no (100) | Context scaling percentage |
 | `context_limit_ceiling` | int | no (0 = none) | Context cap |
 
 Deployed files (8): `workspace-gw-kimi-device-oauth` (oauth, moonshotai),
 `workspace-gw-kimi-virtual-key` (virtual_key, moonshotai),
 `workspace-gw-kimi-api-key` (api_key, moonshotai),
-`workspace-gw-opencode-go-virtual-key` (virtual_key, opencode),
-`workspace-gw-openai-device-oauth` (oauth, opencode),
-`workspace-gw-opencode-go-api-key` (api_key, opencode),
+`workspace-gw-opencode-go-virtual-key` (virtual_key, opencode-go),
+`workspace-gw-openai-device-oauth` (oauth, openai),
+`workspace-gw-opencode-go-api-key` (api_key, opencode-go),
 `workspace-gw-opencode-zen-api-key` (api_key, endpoint
-`/opencode_zen/v1/models`), and `workspace-gw-llamafile-no-auth` (none,
+`/opencode_zen/v1/models`, opencode), and `workspace-gw-llamafile-no-auth` (none,
 `llamafile` source with `model_metadata`, `pricing.source: unknown`). All three Kimi providers alias
 `kimi-for-coding -> kimi-k2.7-code`.
 
@@ -161,23 +161,24 @@ From `plugins/custom/provider-sync.lua:32-67`:
    - `gateway`/`llamafile`: fetch endpoint (relative paths prefixed with
      `http://localhost:9080`, `User-Agent: WORKSPACE-GW/0.1`, optional Bearer);
      on failure or empty id list, log an error and sync the provider with
-     zero models. Each endpoint-reported id is then enriched from the
-     models.dev catalog by exact normalized-id match (`provider_sync_metadata`):
-     the declared `pricing.source.provider` block is preferred, otherwise a
-     `model_id -> metadata` index is built over all models.dev providers in
-     sorted-name order (first provider to declare the id wins). The overlay
-     carries `name`, `family`, `release_date`, `reasoning`, `attachment`/
-     `modalities`, `temperature`, `interleaved`, `reasoning_options`, `limit`,
-     and `cost`. Precedence is endpoint value, then `model_source.model_metadata`,
-     then models.dev. `model_metadata` and enrichment never introduce ids the
-     endpoint did not report. Context runs through `scale_limit` with the
-     provider's `context_limit_pct`/`context_limit_ceiling`, then `limit.output`
-     is clamped to the scaled context (FR-2.10).
+     zero models. Each endpoint-reported id is then enriched with **metadata
+     only** from the models.dev catalog by exact normalized-id match within the
+     declared `pricing.source.provider` namespace (`provider_sync_metadata`).
+     There is no cross-provider index and no sorted-name first-wins lookup.
+     The overlay carries `name`, `family`, `release_date`, `reasoning`,
+     `attachment`/`modalities`, `temperature`, `interleaved`,
+     `reasoning_options`, and `limit` - never `cost`. Precedence is endpoint
+     value, then `model_source.model_metadata`, then models.dev.
+     `model_metadata` and enrichment never introduce ids the endpoint did not
+     report. Context runs through `scale_limit` with the provider's
+     `context_limit_pct`/`context_limit_ceiling`, then `limit.output` is clamped
+     to the scaled context (FR-2.10).
    - Unknown source type: warn, empty model list.
 5. Apply `model_aliases`: copy the target entry under each alias id.
-6. Resolve each provider/model price from declared overrides, then the declared
-   models.dev provider, then endpoint metadata. Preserve unknown rates rather
-   than fabricating zero values.
+6. Resolve each provider/model billed price from `pricing.overrides` first, then
+   models.dev within the declared namespace. Endpoint/discovered cost is never
+   used. Preserve unknown rates rather than fabricating zero values and clear
+   any stale cost left on the entry.
 7. Store `providers:raw` / `providers:enriched` / `providers:ts`; delete lock.
 8. `pricing.populate_pricing_cache(enriched)`: resolve provider-scoped
    `pricing:<provider_id>:<canonical_id>` records with provenance, then publish
@@ -208,9 +209,12 @@ it triggers one sync; if `ts` exists but the enriched blob is gone it returns
   variants = variants(meta.reasoning_options, npm), -- when derivable (FR-2.9)
   limit = { context = scale_limit(ctx, pct, ceiling),
             output = clamp_output(out, scaled_context) }, -- only if a limit is known
-  cost = { input, output, cache_read?, cache_write? },    -- only if a cost is known
 }
 ```
+
+`build_entry` emits **no** `cost` key. Billed pricing is attached only by the
+pricing resolver (`provider_sync_pricing.apply_cost_source`), from
+`pricing.overrides` or models.dev; the metadata join never carries price.
 
 `has_attachment` is true when `modalities.input` contains `image` or `video`.
 `scale_limit` floors `context * pct / 100` and clamps to `ceiling` when > 0;

@@ -178,7 +178,8 @@ Notes:
 
 ## 5. Telemetry
 
-`plugins/custom/sse-usage.lua` `ROUTE_PROVIDERS` gains:
+`plugins/custom/cost_calc.lua` `ROUTE_PROVIDERS` (the single route→provider
+map, required by `sse-usage.lua`) gains:
 
 ```lua
 ["relay-alibaba-token-plan"] = "workspace-gw-alibaba-token-plan-passthrough",
@@ -227,7 +228,7 @@ pass through verbatim. Gateway-side failures are the common relay stack only
 | `conf/apisix.yaml.j2` | identical route blocks | drift-kept in sync |
 | `conf/providers/workspace-gw-alibaba-token-plan-passthrough.yaml` | Intl OpenCode provider | passthrough, models.dev qwen |
 | `conf/providers/workspace-gw-alibaba-token-plan-cn-passthrough.yaml` | China OpenCode provider | passthrough, models.dev qwen |
-| `plugins/custom/sse-usage.lua` | `ROUTE_PROVIDERS` mapping | 2 new entries |
+| `plugins/custom/cost_calc.lua` | `ROUTE_PROVIDERS` mapping (single source) | 2 new entries |
 | `tests/config/test_alibaba_token_plan_routes.sh` | route assertions | new, sourced by `test_apisix_yaml.sh` |
 | `tests/config/test_apisix_yaml.sh` | route count | 16 -> 18 |
 | `res/scripts/seed-routes.sh` | live route seeding | redirect exec stdin to `/dev/null` so the PUT loop stops consuming its own route list (pre-existing bug exposed by adding >1 route) |
@@ -238,6 +239,6 @@ pass through verbatim. Gateway-side failures are the common relay stack only
 |-----------|--------|----------|
 | 2 relay routes (.yaml + .j2) | Implemented | conf/apisix.yaml, conf/apisix.yaml.j2; seeded live (18/18 routes) |
 | 2 provider YAMLs | Implemented | conf/providers/workspace-gw-alibaba-token-plan{-cn,}-passthrough.yaml; 28 enriched models each |
-| sse-usage ROUTE_PROVIDERS mapping | Implemented | plugins/custom/sse-usage.lua; activated via a clean `apisix reload` - `provider_id` resolves to `workspace-gw-alibaba-token-plan-passthrough` |
+| Route-provider map | Implemented | plugins/custom/cost_calc.lua `ROUTE_PROVIDERS` (required by sse-usage.lua); activated via a clean `apisix reload` - `provider_id` resolves to `workspace-gw-alibaba-token-plan-passthrough` |
 | Config tests | Implemented | tests/config/test_alibaba_token_plan_routes.sh + `test_apisix_yaml.sh` (18) + `test_apisix_yaml_render.sh` (11/11) |
 | E2E live passthrough | Verified | OpenAI + Anthropic paths 200, SSE stream 200, CN route forwards (upstream 401 w/o CN key), usage_log records qwen3.8-max |

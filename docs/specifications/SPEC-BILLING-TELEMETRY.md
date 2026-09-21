@@ -71,7 +71,7 @@ From [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). All MergeTree
 ORDER BY `(provider, model, timestamp)`. Columns: `event_id`, `provider`, `model`, `stream`, `method`, `uri`, `status`, `upstream_response_time_s`, `request_size`, `response_size`, `client_ip`, `api_key_id`, `tenant_id`, `user_id`, `key_id`, `session_id`, `request_id`, `project_id`, `parent_session_id`, `client_type`, `agent_name`, `opencode_version`, `user_agent`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `req_body`, `resp_body`, `redact_active`, `redact_token_count`, `timestamp DateTime64(3)`.
 
 ### 4.2 usage_log (written by sse-usage)
-ORDER BY `(event_id, request_id, timestamp)`. Columns: `event_id`, `request_id`, `model`, `model_raw`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_tokens`, `reasoning_tokens`, `key_id`, `api_key_id`, `aborted UInt8`, `is_stream UInt8`, `cost Float64`, `cost_source Enum8('upstream'=0,'computed'=1,'unknown'=2)`, `provider_id`, `pricing_source`, `pricing_snapshot`, `timestamp`.
+ORDER BY `(event_id, request_id, timestamp)`. Columns: `event_id`, `request_id`, `model`, `model_raw`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `cached_tokens`, `reasoning_tokens`, `key_id`, `api_key_id`, `aborted UInt8`, `is_stream UInt8`, `cost Float64`, `cost_source Enum8('provider_override'=0,'models_dev'=1,'unknown'=2)`, `reported_cost`, `provider_id`, `pricing_source`, `pricing_snapshot`, `timestamp`. `cost`/`cost_source` are the billed cost and its provenance (provider override or models.dev); `reported_cost` carries the upstream-reported value as metadata.
 
 ### 4.3 billing_ledger (populated by MV)
 ORDER BY `(tenant_id, user_id, timestamp)`. 25+ columns incl. identity (tenant_id, user_id, provider, model_name, model_raw, route_name, consumer_group), `request_mode`, `cache_status`, token fields, `rate_input/rate_output Decimal64(8)`, `currency`, `cost Decimal64(6)`, `success`, `error_type`, latency fields, `upstream_resp_id`, redact fields. Enrichment-only columns are `''`/0 until backfill.
@@ -89,6 +89,7 @@ ORDER BY `(tenant_id, user_id, timestamp)`. 25+ columns incl. identity (tenant_i
 | 000005 | Add `model_raw` to usage_log + billing_ledger; recreate MV forwarding it |
 | 000006 | Add `model_raw` to request_log |
 | 000007 | Add provider and pricing snapshot provenance to usage_log |
+| 000013 | Add `reported_cost` metadata; convert `cost_source` enum to `provider_override`/`models_dev`/`unknown` |
 
 ## 5. Vector Pipeline
 
@@ -109,8 +110,8 @@ Remap stages:
 1. `init`  -  triggers `provider-sync.sync({})` so pricing cache is warm.
 2. `access`  -  captures request body `model` into `ctx.sse_req_model`.
 3. `header_filter`  -  enables tracking for `text/event-stream` (stream) or `application/json` (batch).
-4. `body_filter`  -  buffers via `sse_usage_lib.buffer_chunk`; scans complete lines (`scan_sse_for_usage` / `parse_json_usage`) for usage, model, `estimated_cost`; tracks `[DONE]` and upstream EOF.
-5. `log`  -  computes `aborted` (0 completed, 1 client abort, 2 provider abort), extracts tokens via `sse_usage_lib.extract_tokens`, resolves cost via provider-aware `cost_calc.resolve_cost`, records provider/pricing provenance and active snapshot, canonicalizes model (`model_registry.canonical`, verbatim kept in `model_raw`), builds `event_id`/`request_id`/`key_id`, encodes a JSONEachRow entry and INSERTs into `usage_log` from `ngx.timer.at` with retries {0.1, 0.5, 2.0}s. Also increments the `quota_counters` shared dict when `ctx.quota_bucket_key` is set.
+4. `body_filter`  -  buffers via `sse_usage_lib.buffer_chunk`; scans complete lines (`scan_sse_for_usage` / `parse_json_usage`) for usage, model, and the upstream-reported `estimated_cost` (captured as reported-cost metadata); tracks `[DONE]` and upstream EOF.
+5. `log`  -  computes `aborted` (0 completed, 1 client abort, 2 provider abort), extracts tokens via `sse_usage_lib.extract_tokens`, resolves the billed cost via provider-aware `cost_calc.resolve_cost` (provider override, else models.dev, else unknown), records provider/pricing provenance and active snapshot, canonicalizes model (`model_registry.canonical`, verbatim kept in `model_raw`), stores the upstream-reported cost in `reported_cost`, builds `event_id`/`request_id`/`key_id`, encodes a JSONEachRow entry and INSERTs into `usage_log` from `ngx.timer.at` with retries {0.1, 0.5, 2.0}s. Also increments the `quota_counters` shared dict when `ctx.quota_bucket_key` is set.
 
 ## 7. Reconciler
 
@@ -120,7 +121,7 @@ Remap stages:
 
 - SSE responses aborted before any usage chunk: row still written with tokens 0 and `aborted` 1/2; model falls back to the request body so dashboard filtering works.
 - `billing_ledger_mv` hardcodes `provider = 'opencode'`; multi-provider enrichment is a v2 backfill.
-- `rate_input/rate_output` are 0 in the MV: pricing lives in the nginx `gateway-cache` dict; provenance is retained in `usage_log`.
+- `rate_input/rate_output` are 0 in the MV: pricing lives in the nginx `gateway-cache` dict; provenance is retained in `usage_log`. The billed `cost` comes from the provider override or models.dev; `reported_cost` is upstream metadata and is never summed as revenue.
 - `key_id` is a 16-char hash prefix  -  no raw keys in telemetry.
 
 ## 9. File Map

@@ -130,8 +130,8 @@ printf '%s' "$P42_DESC" | grep -qi 'lower bound' && { echo "[PASS] $LABEL: p42 d
 P43_SQL=$(jq -r '[.panels[]|select(.id==43)][0].targets[0].rawSql' "$F")
 printf '%s' "$P43_SQL" | grep -q 'arrayJoin(guard_rules)' && { echo "[PASS] $LABEL: p43 ranks guard_rules via arrayJoin"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p43 missing arrayJoin(guard_rules)"; fail=$((fail+1)); }
 
-# Grouping (FR-10.6): verdict headline -> session depth -> cards -> detail/friction
-assert_eq "$LABEL: panels grouped top-to-bottom" "40 37 47 34 42 43" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+# Grouping (FR-10.6): score cards first, then verdict -> session depth -> detail/friction
+assert_eq "$LABEL: panels grouped top-to-bottom" "47 40 37 34 42 43" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
 
 # Local-model toggle reaches both score panels (p40 + p47)
 printf '%s' "$P40_SQL" | grep -qF 'model_registry' && printf '%s' "$P40_SQL" | grep -qF "'\${include_local}'" && { echo "[PASS] $LABEL: p40 honours include_local via model_registry"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing include_local predicate"; fail=$((fail+1)); }

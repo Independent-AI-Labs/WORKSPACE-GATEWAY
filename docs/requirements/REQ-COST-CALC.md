@@ -5,7 +5,7 @@
 **Type:** Requirements
 **Specification:** [SPEC-COST-CALC](../specifications/SPEC-COST-CALC.md)
 
-> Mandates cost calculation behavior for [`plugins/custom/cost_calc.lua`](../../plugins/custom/cost_calc.lua): a read-only pricing consumer exposing `get_pricing`, `compute_cost`, `resolve_cost`; `provider-sync` (`provider_sync_pricing.lua`) is the single writer of provider-scoped `pricing:*` keys in the `gateway-cache` shared dict; unknown pricing yields cost 0 with `cost_source = unknown` and a logged warning - never a crash, never a guess.
+> Mandates cost calculation behavior for [`plugins/custom/cost_calc.lua`](../../plugins/custom/cost_calc.lua): a read-only pricing consumer exposing `get_pricing`, `compute_cost`, `resolve_cost`; `provider-sync` (`provider_sync_pricing.lua`) is the single writer of provider-scoped `pricing:*` keys in the `gateway-cache` shared dict. Billed cost is resolved in exactly two steps: the provider's explicit `pricing.overrides` (the only manual price declaration), else models.dev (the pricing registry, ~99% of models). Upstream-reported per-response cost is **not** the billed cost - it is stored separately as reported-cost metadata. Unknown pricing yields cost 0 with `cost_source = unknown` and a logged warning - never a crash, never a guess.
 
 ---
 
@@ -21,7 +21,7 @@
 ## 1. Purpose & Scope
 
 ### 1.1 Purpose
-Provide deterministic, auditable per-request USD cost for every usage row, preferring upstream-reported cost, else computing locally from a cached pricing table, and reporting `cost_source = unknown` explicitly when pricing is unavailable.
+Provide deterministic, auditable per-request USD cost for every usage row, resolved from the provider's explicit `pricing.overrides` first and models.dev second, and reporting `cost_source = unknown` explicitly when pricing is unavailable. Upstream-reported cost is recorded as separate metadata and never substituted for the billed cost.
 
 ### 1.2 Scope
 **This document OWNS the requirements for:**
@@ -38,9 +38,11 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 ### 1.3 Terminology
 | Term | Definition |
 |------|------------|
-| pricing:* key | JSON blob in shared dict `gateway-cache` under `pricing:<provider_id>:<canonical-model-id>` with numeric `input`, `output`, optional `cache_read`, `cache_write`, `reasoning` (per 1M tokens) |
+| pricing:* key | JSON blob in shared dict `gateway-cache` under `pricing:<provider_id>:<canonical-model-id>` with numeric `input`, `output`, effective `cache_read`, `cache_write`, optional `reasoning` (per 1M tokens; a cache rate the source omits or zeroes is billed at the input rate) |
 | Canonical model id | Output of `model_registry.canonical()` from `conf/model-registry.yaml` |
-| cost_source | `upstream` (provider-reported), `computed` (local math), `unknown` (no pricing) |
+| cost_source | `provider_override` (price declared in the provider YAML `pricing.overrides`), `models_dev` (price resolved from the models.dev registry), `unknown` (no pricing) |
+| models.dev | The pricing/metadata registry used for ~99% of prices. It is **not** a provider: it is consulted by canonical model id within the namespace the provider declares (`pricing.source.provider`), never scanned cross-provider. |
+| reported_cost | Upstream-reported per-response cost (`usage.estimated_cost` / body `cost`), persisted as metadata only; it never determines the billed `cost` or `cost_source`. |
 
 ## 2. Functional Requirements
 
@@ -50,37 +52,39 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 | FR-1.1 | `cost_calc` MUST be a pure Lua module, NOT a registered APISIX plugin: no schema, no priority, no phase bindings. |
 | FR-1.2 | `cost_calc` MUST NOT write any `pricing:*` key. The ONLY writer MUST be `provider_sync_pricing.lua` (enforced by `tests/config/test_model_registry.sh`, which greps for `dict:set("pricing:"`). |
 | FR-1.3 | `cost_calc` MUST NOT fetch models.dev or any remote pricing source itself. |
-| FR-1.4 | The module MUST expose exactly the public functions `get_pricing(model_id)`, `compute_cost(tokens, price)`, `resolve_cost(sse_cost, tokens, model_id)` plus the `SOURCE_UPSTREAM`/`SOURCE_COMPUTED`/`SOURCE_UNKNOWN` constants. |
+| FR-1.4 | The module MUST expose exactly the public functions `get_pricing(model_id, provider_id)`, `compute_cost(tokens, price)`, `resolve_cost(tokens, model_id, provider_id)` plus the `SOURCE_PROVIDER_OVERRIDE`/`SOURCE_MODELS_DEV`/`SOURCE_UNKNOWN` constants. |
 
 ### FR-2: Canonical Pricing Keys
 | ID | Requirement |
 |----|-------------|
 | FR-2.1 | All pricing lookups MUST be keyed by provider id plus `model_registry.canonical(model_id)`; the module MUST contain no local key-normalization logic. |
 | FR-2.2 | The shared dict MUST be `gateway-cache` with key prefix `pricing:`. |
-| FR-2.3 | On a cache miss where `providers:ts` is absent (provider-sync never ran), the module MAY trigger `provider-sync.sync({})` once and re-read the provider-scoped key; if provider-sync has run and the key is absent, it MUST return miss without retry. |
+| FR-2.3 | The module MUST be read-only: it never triggers a sync, never fetches, and treats an absent provider-scoped key as a miss. provider-sync warms the cache in `plugin.init()` and via `POST /gateway/providers/sync`. |
 
 ### FR-3: Cost Math
 | ID | Requirement |
 |----|-------------|
-| FR-3.1 | `compute_cost` MUST compute: `(pt - cached) * input / 1e6 + (ct - reasoning) * output / 1e6 + cached * cache_read / 1e6 + reasoning * reasoning_rate / 1e6`, with negative components clamped to 0. |
+| FR-3.1 | `compute_cost` MUST compute: `max(pt - cached - cache_write, 0) * input / 1e6 + output_non_reasoning * output / 1e6 + cached * cache_read_rate / 1e6 + cache_write * cache_write_rate / 1e6 + reasoning * reasoning_rate / 1e6`, with negative components clamped to 0. |
 | FR-3.2 | `reasoning_rate` MUST equal the `output` rate when the price has no `reasoning` field. |
-| FR-3.3 | `cache_read` pricing MUST be supported; a missing `cache_read` rate MUST be treated as 0. |
+| FR-3.3 | Cache pricing MUST be supported for both reads and writes; when no `cache_read` or `cache_write` rate is declared, the `input` rate MUST be used (never bill cache tokens free). |
 | FR-3.4 | All token/rate values MUST be coerced with `tonumber(...) or 0`. |
+| FR-3.5 | When `reasoning > completion_tokens` (a provider counting reasoning as a separate stream), `output_non_reasoning` MUST equal `completion_tokens` so reasoning is not subtracted twice. |
+| FR-3.6 | A persistent, idempotent, non-destructive recalculation tool MUST be able to revalue historical rows using this same formula, provider-scoped, with a mandatory verified backup and an audit trail. It recomputes the billed `cost`/`cost_source` from the provider override or models.dev; the reported-cost metadata column is never modified. |
 
 ### FR-4: Failure Behavior
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | `resolve_cost` MUST return `(sse_cost, "upstream")` when the upstream SSE/JSON payload carries a positive cost. |
-| FR-4.2 | When no upstream cost and no pricing, `resolve_cost` MUST return `(0, "unknown")`  -  cost MUST NOT be fabricated. |
-| FR-4.3 | When pricing is unavailable and provider-sync cannot help, the module MUST log a warning (`core.log.warn`) naming the canonical key. |
+| FR-4.1 | `resolve_cost` MUST always derive the billed cost from the cached price record: provider `pricing.overrides` first (`cost_source = provider_override`), else models.dev (`cost_source = models_dev`). An upstream-reported cost MUST NOT be returned as the billed cost. |
+| FR-4.2 | When no pricing resolves, `resolve_cost` MUST return `(0, "unknown")`  -  cost MUST NOT be fabricated from the upstream response, a metadata join, or another provider. |
+| FR-4.3 | An unpriced provider/model MUST return `(0, "unknown")` as a plain miss. A cached price record whose provenance is neither `provider_override` nor `models_dev` MUST log an error (`core.log.error`) and return `(0, "unknown")` instead of billing with an unlabelable source. |
 | FR-4.4 | A missing price table or a price table without numeric `input` MUST be treated as a miss. |
-| FR-4.5 | `compute_cost`/`resolve_cost` (upstream + unknown branches) MUST be loadable in plain LuaJIT without the nginx runtime (deferred requires), so unit tests run with zero dependency injection. |
+| FR-4.5 | `compute_cost`/`resolve_cost` (priced + unknown branches) MUST be loadable in plain LuaJIT without the nginx runtime (deferred requires), so unit tests run with zero dependency injection. |
 
 ## 3. Non-Functional Requirements
 | ID | Requirement |
 |----|-------------|
 | NFR-1.1 | The pricing lookup MUST be an in-memory shared-dict read on the hot path. |
-| NFR-1.2 | Cross-provider "cheapest-wins" merging MUST NOT occur; each provider/model pair has an independent price record (fixes the historical collision/overcharge class of bug). |
+| NFR-1.2 | Cross-provider merging MUST NOT occur in any form: no "cheapest-wins", no alphabetical first-wins scan of the models.dev registry, no substitution with an unrelated provider's model entry. Each provider/model pair has an independent price record resolved solely from the provider's own override or its declared models.dev namespace. |
 
 ## 4. Constraints
 | ID | Constraint | Source |
@@ -112,6 +116,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, prefe
 |------|--------|----------|
 | FR-1.1-1.4 read-only module | Implemented | plugins/custom/cost_calc.lua (149 lines, no writer path) |
 | FR-2.1-2.3 canonical keys | Implemented | cost_calc.lua:35-37, 60-107 |
-| FR-3.1-3.4 cost math | Implemented | cost_calc.lua:109-134 |
+| FR-3.1-3.5 cost math | Implemented | cost_calc.lua compute_cost; tests/config/test_cost_calc.sh |
+| FR-3.6 historical recalculation | Implemented | res/scripts/recalc-costs.sh; tests/config/test_recalc_costs.sh |
 | FR-4.1-4.5 failure behavior | Implemented | cost_calc.lua:136-147, 94-96 |
 | Earlier writer path | Removed | absent from cost_calc.lua; removed per earlier v1.3 note |

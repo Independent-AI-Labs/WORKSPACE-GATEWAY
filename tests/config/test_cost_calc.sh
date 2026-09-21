@@ -72,10 +72,12 @@ check("Does NOT expose warmup (writer path removed)", type(M.warmup) == "nil")
 check("Does NOT expose fetch_and_cache (writer path removed)", type(M.fetch_and_cache) == "nil")
 check("Does NOT expose normalize_key (registry owns identity)", type(M.normalize_key) == "nil")
 
--- Test 4: exposes the three source constants
-check("SOURCE_UPSTREAM == upstream", M.SOURCE_UPSTREAM == "upstream")
-check("SOURCE_COMPUTED == computed", M.SOURCE_COMPUTED == "computed")
+-- Test 4: exposes the three source constants (no upstream/computed)
+check("SOURCE_PROVIDER_OVERRIDE == provider_override", M.SOURCE_PROVIDER_OVERRIDE == "provider_override")
+check("SOURCE_MODELS_DEV == models_dev", M.SOURCE_MODELS_DEV == "models_dev")
 check("SOURCE_UNKNOWN == unknown", M.SOURCE_UNKNOWN == "unknown")
+check("SOURCE_UPSTREAM removed", M.SOURCE_UPSTREAM == nil)
+check("SOURCE_COMPUTED removed", M.SOURCE_COMPUTED == nil)
 
 -- Test 5: input-only math -> 1.0
 local t5 = M.compute_cost({pt=1e6, ct=0, cached=0, reasoning=0}, {input=1, output=2})
@@ -101,21 +103,65 @@ check("compute_cost reasoning-set == 2.6", math.abs(t9 - 2.6) < 1e-9)
 local t9b = M.compute_cost({pt=1e6, ct=0, cached=0, reasoning=0}, {input=1, output=2, provider="vercel"})
 check("compute_cost ignores provider field", math.abs(t9b - 1.0) < 1e-9)
 
--- Test 10: Pathway A - upstream cost > 0 wins
-local fc10, src10 = M.resolve_cost(0.5, {pt=1e6, ct=0, cached=0, reasoning=0}, "glm-5.2")
-check("resolve_cost upstream cost == 0.5", math.abs(fc10 - 0.5) < 1e-9)
-check("resolve_cost upstream source", src10 == "upstream")
+-- Test 9c: cache_write bills at the cache_write rate -> 2.6
+local t9c = M.compute_cost({pt=1e6, ct=0, cached=0, cache_write=4e5, reasoning=0},
+    {input=1, output=2, cache_write=5})
+check("compute_cost cache_write rate == 2.6", math.abs(t9c - 2.6) < 1e-9)
 
--- Test 11: Pathway B miss - model not in (empty) cache
-local fc11, src11 = M.resolve_cost(0, {pt=1e6, ct=0, cached=0, reasoning=0}, "nonexistent-model")
+-- Test 9d: cache_write without a published rate falls back to input -> 1.0
+local t9d = M.compute_cost({pt=1e6, ct=0, cached=0, cache_write=2e5, reasoning=0},
+    {input=1, output=2})
+check("compute_cost cache_write falls back to input == 1.0", math.abs(t9d - 1.0) < 1e-9)
+
+-- Test 9e: cached without a cache_read rate bills at input, never free -> 1.0
+local t9e = M.compute_cost({pt=1e6, ct=0, cached=5e5, reasoning=0},
+    {input=1, output=2})
+check("compute_cost missing cache_read falls back to input == 1.0", math.abs(t9e - 1.0) < 1e-9)
+
+-- Test 9e2: an explicit zero cache_read rate also bills at input, never free
+local t9e2 = M.compute_cost({pt=1e6, ct=0, cached=5e5, reasoning=0},
+    {input=1, output=2, cache_read=0})
+check("compute_cost zero cache_read bills at input == 1.0", math.abs(t9e2 - 1.0) < 1e-9)
+
+-- Test 9e3: an explicit zero cache_write rate also bills at input, never free
+local t9e3 = M.compute_cost({pt=1e6, ct=0, cached=0, cache_write=4e5, reasoning=0},
+    {input=1, output=2, cache_write=0})
+check("compute_cost zero cache_write bills at input == 1.0", math.abs(t9e3 - 1.0) < 1e-9)
+
+-- Test 9e4: an explicit zero reasoning rate bills at output, never free
+local t9e4 = M.compute_cost({pt=0, ct=1e6, cached=0, reasoning=3e5},
+    {input=1, output=2, reasoning=0})
+check("compute_cost zero reasoning bills at output == 2.0", math.abs(t9e4 - 2.0) < 1e-9)
+
+-- Test 9f: reasoning larger than completion means a separate dimension ->
+-- bill both completion and reasoning instead of clamping output to zero.
+-- 1e5*2 + 3e5*4 = 1.4
+local t9f = M.compute_cost({pt=0, ct=1e5, cached=0, reasoning=3e5},
+    {input=1, output=2, reasoning=4})
+check("compute_cost separate reasoning == 1.4", math.abs(t9f - 1.4) < 1e-9)
+
+-- Test 10: with no shared dict (plain LuaJIT), every lookup is a miss:
+-- billed cost is 0/unknown. Priced-branch provenance is covered by
+-- tests/lua/test_provider_pricing.lua (pure resolve), so this suite stays
+-- dependency-free.
+local fc10, src10 = M.resolve_cost({pt=1e6, ct=0, cached=0, reasoning=0}, "glm-5.2", "workspace-gw-a")
+check("resolve_cost miss cost == 0", fc10 == 0)
+check("resolve_cost miss source", src10 == "unknown")
+
+-- A missing provider is a miss: there is no provider-agnostic price.
+local fc10c, src10c = M.resolve_cost({pt=1e6, ct=0, cached=0, reasoning=0}, "glm-5.2", "")
+check("resolve_cost empty provider is a miss", fc10c == 0 and src10c == "unknown")
+
+-- Test 11: Pathway B miss - model not in cache
+local fc11, src11 = M.resolve_cost({pt=1e6, ct=0, cached=0, reasoning=0}, "nonexistent-model", "workspace-gw-a")
 check("resolve_cost unknown cost == 0", fc11 == 0)
 check("resolve_cost unknown source", src11 == "unknown")
 
 -- Test 12: resolve_cost always returns exactly 2 values
-local a, b, c = M.resolve_cost(0.5, {pt=1, ct=1, cached=0, reasoning=0}, "x")
+local a, b, c = M.resolve_cost({pt=1, ct=1, cached=0, reasoning=0}, "x", "workspace-gw-a")
 check("resolve_cost returns exactly 2 values", c == nil and a ~= nil and b ~= nil)
 
-local a2, b2, c2 = M.resolve_cost(0, {pt=1, ct=1, cached=0, reasoning=0}, "x")
+local a2, b2, c2 = M.resolve_cost({pt=1, ct=1, cached=0, reasoning=0}, "x", "workspace-gw-a")
 check("resolve_cost miss returns exactly 2 values", c2 == nil and a2 ~= nil and b2 ~= nil)
 
 io.stderr:write(string.format("\nLUA_RESULTS:%d,%d\n", pass, fail))
@@ -131,7 +177,11 @@ if [ -z "$APISIX_CONTAINER" ]; then
     exit 1
 fi
 "$PODMAN_BIN" cp "$MODULE_FILE" "$APISIX_CONTAINER":/tmp/cost_calc_check.lua
-"$PODMAN_BIN" cp "$REPO_ROOT/plugins/custom/model_registry.lua" "$APISIX_CONTAINER":/tmp/model_registry.lua
+# cost_calc requires its sibling by the deployed dotted name
+# (apisix.plugins.model_registry); expose it under package.path=/tmp/?.lua.
+"$PODMAN_BIN" exec "$APISIX_CONTAINER" mkdir -p /tmp/apisix/plugins
+"$PODMAN_BIN" cp "$REPO_ROOT/plugins/custom/model_registry.lua" \
+    "$APISIX_CONTAINER":/tmp/apisix/plugins/model_registry.lua
 
 if ! LUA_OUTPUT=$("$PODMAN_BIN" exec "$APISIX_CONTAINER" luajit -e "
 package.path = '/tmp/?.lua;' .. package.path

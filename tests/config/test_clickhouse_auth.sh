@@ -107,11 +107,39 @@ assert_eq "archive disk under the data volume (comment + config)" "2" \
 assert_eq "tiered policy has hot + archive volumes" "1" \
     "$(printf '%s' "$TIER_BODY" | grep -c '<tiered>')"
 assert_eq "backups disk declared for nightly BACKUP" "1" \
-    "$(printf '%s' "$TIER_BODY" | grep -c '<backups>')"
+    "$(printf '%s' "$TIER_BODY" | grep -c '<path>/var/lib/clickhouse/backups/</path>')"
+assert_eq "Disk backup engine allows the backups disk (24.8 config gate)" "1" \
+    "$(printf '%s' "$TIER_BODY" | grep -c '<allowed_disk>backups</allowed_disk>')"
 assert_eq "no live disk path points at ws-backup" "0" \
     "$(printf '%s' "$TIER_BODY" | grep -c '<path>.*ws-backup')"
 assert_eq "implicit default disk is NOT redefined under <disks> (CH 24.8 fatal)" "0" \
     "$(printf '%s' "$TIER_BODY" | grep -c '<path>/var/lib/clickhouse/</path>')"
+# system.backups.name is the full spec Disk('backups', '<name>'), so the
+# nightly backup must match by substring or it never sees its own backup.
+assert_eq "nightly backup matches system.backups.name by substring" "1" \
+    "$(grep -c "position(name, '\${NAME}')" "$REPO_ROOT/res/scripts/gateway-ch-backup.sh")"
+# system.backups is a non-persistent SystemBackups view: it rejects mutations,
+# so the failed-backup cleanup must remove the directory, never ALTER DELETE.
+assert_eq "failed-backup cleanup does not mutate system.backups" "0" \
+    "$(grep -c "ALTER TABLE system.backups DELETE" "$REPO_ROOT/res/scripts/gateway-ch-backup.sh")"
+
+# ── core-utilisation tuning (32-core host) ────────────────────────────────
+PERF_XML="$REPO_ROOT/conf/clickhouse-performance.xml"
+PERF_USER_XML="$REPO_ROOT/conf/clickhouse-users.d/performance.xml"
+perf_rc=0
+PERF_BODY="$(cat "$PERF_XML")" || perf_rc=$?
+assert_eq "clickhouse-performance.xml exists" "0" "$perf_rc"
+assert_eq "background pool sized for all cores" "1" \
+    "$(printf '%s' "$PERF_BODY" | grep -c '<background_pool_size>32</background_pool_size>')"
+assert_eq "mutation free-entries threshold lowered" "1" \
+    "$(printf '%s' "$PERF_BODY" | grep -c '<number_of_free_entries_in_pool_to_execute_mutation>8<')"
+perf_user_rc=0
+PERF_USER_BODY="$(cat "$PERF_USER_XML")" || perf_user_rc=$?
+assert_eq "users.d performance.xml exists" "0" "$perf_user_rc"
+assert_eq "default profile uses all cores" "1" \
+    "$(printf '%s' "$PERF_USER_BODY" | grep -c '<max_threads>32</max_threads>')"
+assert_eq "performance XML defines no credentials" "0" \
+    "$(printf '%s' "$PERF_BODY" | grep -c 'password')"
 
 # ── .env.example ships every credential slot ──────────────────────────────
 for var in CLICKHOUSE_PASSWORD CH_OPS_PASSWORD CH_GRAFANA_RO_PASSWORD \

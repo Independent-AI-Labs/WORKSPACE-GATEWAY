@@ -80,9 +80,14 @@ in `req_body` by the `redact` plugin before logging.
 
 ### usage_log
 
-Written by sse-usage. Columns include `request_id`, `reasoning_tokens`,
-`cost`, `cost_source`, `provider_id`, `pricing_source`, and `pricing_snapshot`.
-Authoritative usage for billing.
+Written by sse-usage. Columns include `request_id`, `cached_tokens`,
+`cache_write_tokens`, `reasoning_tokens`, `cost`, `cost_source`, `reported_cost`,
+`provider_id`, `pricing_source`, and `pricing_snapshot`. `cached_tokens` is the
+cache-read volume and `cache_write_tokens` the cache-write volume; both are
+subtracted from `prompt_tokens` before the uncached input term. `cost` is the
+billed cost and `cost_source` its provenance (`provider_override` / `models_dev`
+/ `unknown`); `reported_cost` is the upstream-reported value kept as metadata
+and never billed. Authoritative usage for billing.
 
 ### billing_ledger
 
@@ -94,6 +99,18 @@ Some enrichment columns default empty until request_log join backfill (v2).
 
 v2 reconciler target. Empty today.
 
+### cost_recalc_audit
+
+Append-only audit of historical revaluation by
+[`res/scripts/recalc-costs.sh`](../../res/scripts/recalc-costs.sh): one row per
+correction (cost change and/or provider_id backfill) with `event_id`,
+`provider_id` (old), `new_provider_id` (resolved), `model`, `old_cost`,
+`new_cost`, `old_source`, and `run_id`. Never deleted; 13-month TTL. Written
+before the corresponding `usage_log` mutation. Providers are resolved only
+through the explicit route/alias map in `cost_calc`
+(`ROUTE_PROVIDERS`/`PROVIDER_ALIASES`/`resolve_provider`), with no other
+provider consulted.
+
 ## Retention: tiered compression, no deletion
 
 No table carries a delete TTL (migration `000011` removed the 13-month
@@ -102,7 +119,25 @@ retention; REQ-SECURITY-HARDENING FR-4). Tables use storage policy `tiered`
 parts move to the `archive` volume and recompress `CODEC ZSTD(3)` (bodies at
 6 months, metadata at 12/18). Cost is controlled by compression and monitored
 by the ops-health growth panel + alert, not by deletion. Nightly backups go
-to `/mnt/ws-backup`.
+to `/mnt/ws-backup`. The container-local `backups` disk is the `BACKUP
+DATABASE ... TO Disk('backups', ...)` target (also used by
+`res/scripts/recalc-costs.sh`); ClickHouse 24.8 gates the Disk engine behind
+`<backups><allowed_disk>backups</allowed_disk></backups>` in
+[`conf/clickhouse-storage-tiering.xml`](../../conf/clickhouse-storage-tiering.xml).
+
+## Core utilisation
+
+The host has 32 cores. Stock ClickHouse leaves most idle:
+[`conf/clickhouse-performance.xml`](../../conf/clickhouse-performance.xml)
+raises `background_pool_size` to 32 and
+`background_merges_mutations_concurrency_ratio` to 3, and lowers
+`number_of_free_entries_in_pool_to_execute_mutation` so bulk
+`INSERT ... SELECT` and mutation catch-up (the 2026-09 `TOO_MANY_PARTS`
+incident) are not starved behind merges. Query/user limits are extended in
+`conf/clickhouse-users.d/performance.xml` (`max_threads` etc. on the `default`
+profile, which `ops_admin` uses). Raising the part limits themselves is not a
+fix: fewer parts come from batching and fewer bulk mutations, not a higher
+throw threshold.
 
 ## Migrations
 
@@ -113,7 +148,9 @@ to `/mnt/ws-backup`.
 after `init.sql` in Ansible; `make ch-migrate`, `make ch-migrate-status`
 
 Init SQL alone is insufficient across volume restarts; Ansible reapplies
-`clickhouse-init.sql` and migrate runs pending versions.
+`clickhouse-init.sql` and migrate runs pending versions. `000012` adds
+`cache_write_tokens` to `usage_log`/`billing_ledger`, recreates
+`billing_ledger_mv`, and creates `cost_recalc_audit`.
 
 ## Reconciler
 

@@ -24,8 +24,9 @@ local function normalize_usage(usage)
         --Anthropic reports cache tokens as separate top-level counts that
         --input_tokens EXCLUDES (OpenAI totals include the cached subset).
         --Fold into the inclusive convention the extractor and cost formula
-        --expect: total input covers reads + writes; cached_tokens carries
-        --the read side. Cache writes bill at the plain input rate.
+        --expect: total input covers reads + writes; cached_tokens carries the
+        --read side and cache_write_tokens the write side, so each bills at its
+        --own rate instead of writes being charged at the input rate.
         local cache_read = tonumber(usage.cache_read_input_tokens) or 0
         local cache_write = tonumber(usage.cache_creation_input_tokens) or 0
         if cache_read > 0 or cache_write > 0 then
@@ -35,6 +36,9 @@ local function normalize_usage(usage)
                 cached_tokens = (normalized.prompt_tokens_details
                     and normalized.prompt_tokens_details.cached_tokens or 0) + cache_read,
             }
+            if cache_write > 0 then
+                normalized.cache_write_tokens = cache_write
+            end
         end
         return normalized
     end
@@ -71,6 +75,12 @@ local function merge_usage(dst, src)
         detail_value(src, "completion_tokens_details", "reasoning_tokens"))
     if reasoning > 0 then
         merged.completion_tokens_details = { reasoning_tokens = reasoning }
+    end
+    local cache_write = math.max(
+        tonumber(dst.cache_write_tokens) or 0,
+        tonumber(src.cache_write_tokens) or 0)
+    if cache_write > 0 then
+        merged.cache_write_tokens = cache_write
     end
     return merged
 end
@@ -195,7 +205,7 @@ end
 --upstream does not report a dimension (e.g. reasoning_tokens) the value is 0;
 --no estimation.
 function M.extract_tokens(usage)
-    if not usage then return 0, 0, 0, 0, 0 end
+    if not usage then return 0, 0, 0, 0, 0, 0 end
     usage = normalize_usage(usage)
     local pt = tonumber(usage.prompt_tokens) or 0
     local ct = tonumber(usage.completion_tokens) or 0
@@ -210,7 +220,8 @@ function M.extract_tokens(usage)
     if type(usage.completion_tokens_details) == "table" then
         reasoning = tonumber(usage.completion_tokens_details.reasoning_tokens) or reasoning
     end
-    return pt, ct, tt, cached, reasoning
+    local cache_write = tonumber(usage.cache_write_tokens) or 0
+    return pt, ct, tt, cached, reasoning, cache_write
 end
 
 return M

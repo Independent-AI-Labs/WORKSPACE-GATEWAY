@@ -1,11 +1,8 @@
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
-local contract_ok, contract = pcall(require, "apisix.plugins.provider_sync_contract")
-if not contract_ok then contract = require("provider_sync_contract") end
-local aliases_ok, aliases = pcall(require, "apisix.plugins.provider_sync_aliases")
-if not aliases_ok then aliases = require("provider_sync_aliases") end
-local metadata_ok, metadata = pcall(require, "apisix.plugins.provider_sync_metadata")
-if not metadata_ok then metadata = require("provider_sync_metadata") end
+local contract = require("apisix.plugins.provider_sync_contract")
+local aliases = require("apisix.plugins.provider_sync_aliases")
+local metadata = require("apisix.plugins.provider_sync_metadata")
 local M = {}
 local SHARED_DICT = "gateway-cache"
 local KEY_RAW = "providers:raw"
@@ -299,13 +296,11 @@ local function enrich_provider_models(provider, models_dev)
                            "; provider will sync with zero models")
             return {}
         end
-        local source_provider = provider.cost_source
-        if provider.pricing and provider.pricing.source then
-            source_provider = provider.pricing.source.provider or source_provider
-        end
-        if source.provider then
-            source_provider = source.provider
-        end
+        --Endpoint-discovered models join metadata from the provider's single
+        --declared models.dev namespace (the same namespace its prices come
+        --from). No other provider field is consulted.
+        local source_provider = provider.pricing and provider.pricing.source
+            and provider.pricing.source.provider or nil
         models = build_models_from_endpoint(provider, data, model_metadata,
             models_dev, source_provider)
         if not next(models) then
@@ -321,15 +316,7 @@ local function enrich_provider_models(provider, models_dev)
 
     return apply_model_filter(models, source.filter)
 end
-local pricing
-do
-    local ok, mod = pcall(require, "apisix.plugins.provider_sync_pricing")
-    if ok then
-        pricing = mod
-    else
-        pricing = require("provider_sync_pricing")
-    end
-end
+local pricing = require("apisix.plugins.provider_sync_pricing")
 
 function M.sync(conf)
     local dict = get_dict()

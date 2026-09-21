@@ -143,7 +143,7 @@ work without client-side gateway configuration beyond a base URL.
 |---|------|---------|
 | V1 | `tests/config/test_alibaba_token_plan_routes.sh` (new) | FR-1.1-FR-1.6 (route ids, URIs, nodes, no auth plugin, rewrite, identity encoding) |
 | V2 | `tests/config/test_apisix_yaml_render.sh` | FR-1.7 (.j2/.yaml drift) |
-| V3 | `tests/config/test_oauth_auth_routes.sh` route-provider guard | FR-1.6 (`sse-usage` ROUTE_PROVIDERS mapping) |
+| V3 | `tests/config/test_oauth_auth_routes.sh` route-provider guard | FR-1.6 (route→provider map in `cost_calc`) |
 | V4 | `tests/config/test_apisix_yaml.sh` route count | FR-1.1/FR-1.2 (exactly 2 new routes) |
 | V5 | `tests/config/test_zai_provider.sh` per-provider loop | FR-3.1 (provider file schema) |
 
@@ -153,6 +153,6 @@ work without client-side gateway configuration beyond a base URL.
 |------|--------|----------|
 | FR-1.x 2 routes | Implemented | conf/apisix.yaml + conf/apisix.yaml.j2 (`relay-alibaba-token-plan`, `relay-alibaba-token-plan-cn`); seeded live via `res/scripts/seed-routes.sh` (18/18 routes) |
 | FR-3.x provider YAMLs | Implemented | conf/providers/workspace-gw-alibaba-token-plan{-cn,}-passthrough.yaml; provider sync reports 28 enriched models each |
-| sse-usage ROUTE_PROVIDERS mapping | Implemented | plugins/custom/sse-usage.lua; activated via a clean `apisix reload` (no container restart) - usage_log `provider_id` now resolves to `workspace-gw-alibaba-token-plan-passthrough` |
+| Route-provider map | Implemented | plugins/custom/cost_calc.lua `ROUTE_PROVIDERS` (single source, required by sse-usage.lua); activated via a clean `apisix reload` (no container restart) - usage_log `provider_id` now resolves to `workspace-gw-alibaba-token-plan-passthrough` |
 | Config tests | Implemented | tests/config/test_alibaba_token_plan_routes.sh; `test_apisix_yaml.sh` (18 routes) and `test_apisix_yaml_render.sh` (11/11) pass |
 | E2E live passthrough | Verified | `POST /token-plan/compatible-mode/v1/chat/completions` (200) and `/token-plan/apps/anthropic/v1/messages` (200); SSE stream 200; `/token-plan-cn` forwards to CN and returns upstream 401 without a CN key; usage_log rows show qwen3.8-max with `pricing_source=models_dev` |

@@ -40,7 +40,8 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 |------|------------|
 | event_id | `route_id .. "_" .. floor(start_time)`; correlation id produced identically by Vector and sse-usage |
 | request_id | `X-Request-Id` header set by the APISIX request-id plugin; join key between request_log and usage_log |
-| cost_source | Enum8: `upstream` (0), `computed` (1), `unknown` (2) |
+| cost_source | Enum8: `provider_override` (0), `models_dev` (1), `unknown` (2) - the provenance of the billed `cost` |
+| reported_cost | Upstream-reported per-response cost (`usage.estimated_cost` / body `cost`); stored as additional metadata, never used to derive the billed `cost` |
 | pricing provenance | `provider_id`, `pricing_source`, and `pricing_snapshot` identify the provider rate-card source and immutable snapshot used for a computed cost |
 | Canonical model | Model id produced by `model_registry.canonical()` from `conf/model-registry.yaml` |
 
@@ -66,7 +67,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 | ID | Requirement |
 |----|-------------|
 | FR-3.1 | Database `llm_gateway` MUST contain tables `request_log`, `request_bodies`, `usage_log`, `billing_ledger`, `billing_discrepancies` as defined in [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). Bodies (`req_body`, `resp_body`) live in `request_bodies` only (REQ-SECURITY-HARDENING FR-3.1). |
-| FR-3.2 | `usage_log` MUST include columns: event_id, request_id, model, model_raw, prompt/completion/total/cached/reasoning tokens, key_id, api_key_id, aborted (UInt8), is_stream (UInt8), cost (Float64), cost_source (Enum8 upstream/computed/unknown), provider_id, pricing_source, pricing_snapshot, timestamp. |
+| FR-3.2 | `usage_log` MUST include columns: event_id, request_id, model, model_raw, prompt/completion/total/cached/reasoning tokens, key_id, api_key_id, aborted (UInt8), is_stream (UInt8), cost (Float64), cost_source (Enum8 provider_override/models_dev/unknown), reported_cost (upstream-reported metadata), provider_id, pricing_source, pricing_snapshot, timestamp. |
 | FR-3.3 | `billing_ledger` MUST be auto-populated by materialized view `billing_ledger_mv` on every usage_log INSERT, deriving `request_mode` (stream/batch), `cache_status` (hit/miss), `success`, and `error_type`. |
 | FR-3.4 | `billing_discrepancies` MUST exist as the reconciler target (columns date, tenant_id, provider, model_name, gateway_tokens, provider_tokens, divergence, tolerance, flagged_at). |
 | FR-3.5 | Schema evolution MUST go through golang-migrate migrations in [`conf/migrations/`](../../conf/migrations), each idempotent with `.up.sql`/`.down.sql` pairs. |
@@ -82,7 +83,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 ### FR-5: Cost Computation Ownership
 | ID | Requirement |
 |----|-------------|
-| FR-5.1 | Cost MUST be resolved by `cost_calc.resolve_cost` inside sse-usage: upstream-reported cost wins; otherwise computed from the pricing cache; otherwise `cost_source = unknown`. |
+| FR-5.1 | Cost MUST be resolved by `cost_calc.resolve_cost` inside sse-usage: provider `pricing.overrides` first (`cost_source = provider_override`), else models.dev (`cost_source = models_dev`), else `cost_source = unknown` with cost 0. An upstream-reported cost MUST NOT be billed; it is persisted separately as `reported_cost`. |
 | FR-5.2 | `billing_ledger_mv` MUST copy cost rounded to 6 decimals; rate_input/rate_output are 0 until a pricing snapshot lands in ClickHouse. |
 
 ### FR-6: Reconciler

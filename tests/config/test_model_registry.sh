@@ -77,6 +77,8 @@ check("kimi-for-coding -> kimi-k2.7-code", "kimi-k2.7-code", r.canonical("kimi-f
 check("k3 -> kimi-k3", "kimi-k3", r.canonical("k3"))
 check("moonshotai/kimi-k3 -> kimi-k3", "kimi-k3", r.canonical("moonshotai/kimi-k3"))
 check("moonshotai/kimi-k2.7-code -> kimi-k2.7-code", "kimi-k2.7-code", r.canonical("moonshotai/kimi-k2.7-code"))
+check("deepseek-flash -> deepseek-v4.1-flash", "deepseek-v4.1-flash", r.canonical("deepseek-flash"))
+check("deepseek-v4.1-flash stays", "deepseek-v4.1-flash", r.canonical("deepseek-v4.1-flash"))
 check("/zip/MiniCPM5-1B-Q8_0.gguf -> minicpm5-1b-q8_0.gguf", "minicpm5-1b-q8_0.gguf", r.canonical("/zip/MiniCPM5-1B-Q8_0.gguf"))
 
 -- canonical ids are stable

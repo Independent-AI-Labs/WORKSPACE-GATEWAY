@@ -54,8 +54,8 @@ catalog:
 
 pricing:
   source:
-    type: models_dev | static | upstream | unknown
-    provider: openai                 # required for models.dev pricing
+    type: models_dev | static | unknown
+    provider: openai                 # models.dev namespace, required for models.dev pricing
   missing_policy: unknown
   overrides:
     model-id:
@@ -69,17 +69,26 @@ aliases:
 
 ### Resolution precedence
 
-Pricing is resolved independently for each field:
+Pricing is resolved independently for each field, in exactly two steps:
 
-1. Explicit provider/model override.
-2. Static model metadata override.
-3. Explicit `pricing.source`.
-4. Explicit `catalog.metadata` models.dev provider.
-5. Explicit `catalog.discovery` models.dev provider.
-6. `missing_policy`.
+1. Explicit provider/model override (`pricing.overrides`).
+2. models.dev, consulted by canonical model id within the namespace the provider declares (`pricing.source.provider`).
+3. `missing_policy` (explicit `unknown`).
+
+models.dev is a pricing/metadata **registry**, not a provider. It MUST be
+consulted only within the declared namespace - never scanned across providers
+and never resolved by alphabetical first-wins. The provider's discovery
+endpoint and the metadata join MUST NOT contribute cost under any
+circumstance.
 
 An explicit zero is valid and must remain zero. Missing fields must not be
 converted to zero. Unknown pricing remains observable as `unknown`.
+
+### Upstream-reported cost
+
+A per-response cost reported by the upstream (`usage.estimated_cost` / body
+`cost`) is **not** a pricing source and MUST NOT be billed. It is persisted
+separately as reported-cost metadata for reconciliation only.
 
 ### Supported pricing data
 
@@ -113,7 +122,7 @@ Create one pure resolver module:
 
 ```text
 resolve_price(provider_id, raw_model_id, provider_config,
-              discovered_model, models_dev_snapshot)
+              models_dev_snapshot)
 ```
 
 It returns a normalized rate card, canonical identity, selected source,
@@ -217,5 +226,9 @@ replacement with current prices.
 
 - Automatically assigning a cost to llamafile before a policy is defined.
 - Inferring provider prices from the cheapest available source.
+- Deriving cost from a provider's discovery-endpoint response or from a
+  cross-provider models.dev scan; scanning the models.dev registry outside the
+  provider's declared namespace.
+- Billing an upstream-reported cost instead of persisting it as metadata.
 - Treating current catalog prices as historical truth.
 - Adding xAI/Grok before its provider contract is implemented.

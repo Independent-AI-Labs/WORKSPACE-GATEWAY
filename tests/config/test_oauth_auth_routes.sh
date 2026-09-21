@@ -128,17 +128,17 @@ assert_eq "anthropic device YAML method route" "/anthropic-device/auth" "$(echo 
 assert_eq "anthropic device YAML route" "/anthropic-device" "$(echo "$ANTD_YAML" | jq -r '.route')"
 
 # --- ROUTE_PROVIDERS drift guard: every non-oauth provider route family is
-# --- mapped in sse-usage.lua for cost attribution (zai regression class) ---
-SSE_USAGE="$REPO_ROOT/plugins/custom/sse-usage.lua"
+# --- mapped in cost_calc.lua for cost attribution (zai regression class) ---
+SSE_USAGE="$REPO_ROOT/plugins/custom/cost_calc.lua"
 for pf in "$REPO_ROOT"/conf/providers/*.yaml; do
     pjson=$(yaml_to_json "$pf")
     pid=$(echo "$pjson" | jq -r '.id // empty')
     pauth=$(echo "$pjson" | jq -r '.auth.type // "none"')
     if [ -n "$pid" ] && [ "$pauth" != "oauth" ]; then
         if grep -q "\"$pid\"" "$SSE_USAGE"; then
-            assert_eq "$pid mapped in sse-usage ROUTE_PROVIDERS" "yes" "yes"
+            assert_eq "$pid mapped in route-provider map" "yes" "yes"
         else
-            assert_eq "$pid mapped in sse-usage ROUTE_PROVIDERS" "yes" "no"
+            assert_eq "$pid mapped in route-provider map" "yes" "no"
         fi
     fi
 done

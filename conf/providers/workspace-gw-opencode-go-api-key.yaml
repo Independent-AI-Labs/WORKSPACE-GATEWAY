@@ -23,5 +23,5 @@ model_source:
 pricing:
   source:
     type: models_dev
-    provider: opencode
+    provider: opencode-go
   missing_policy: unknown

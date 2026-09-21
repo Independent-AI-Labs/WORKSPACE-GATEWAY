@@ -101,7 +101,7 @@ a possibly-lost rotated refresh token.
 
 The provider file `workspace-gw-openai-device-oauth.yaml` declares
 `workspace-gw-openai-device-oauth`, route `/openai`, `@ai-sdk/openai`, OAuth auth via
-`oauth-auth`, and models.dev provider `openai`.
+`oauth-auth`, and models.dev namespace `openai`.
 
 ## 5. Failure Behavior
 

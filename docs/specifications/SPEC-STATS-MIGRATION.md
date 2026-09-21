@@ -82,8 +82,8 @@ driving this design:
 - TTL: none (superseded 2026-09-20 by REQ-SECURITY-HARDENING FR-4: tiered
   compression, indefinite retention; the migrator's "older than 13 months"
   classification remains as a reporting bucket only).
-- `tokens.cache.write` has no destination column (live path also drops it;
-  `cached_tokens` = cache read). Known, accepted loss.
+- `tokens.cache.write` maps to `usage_log.cache_write_tokens` (live path
+  stores it too since REQ migration `000012`); `cached_tokens` = cache read.
 
 ## 3. Field Maps
 
@@ -95,17 +95,19 @@ driving this design:
 | `request_id` | `message.id` | joins to request_log row |
 | `model` | `canonical(json_extract(data,'$.modelID'))` | see §4 |
 | `model_raw` | `json_extract(data,'$.modelID')` | verbatim |
-| `prompt_tokens` | `tokens.input + tokens.cache.read` | upstream convention (sse_usage_lib.lua): prompt INCLUDES cached; opencode stores them disjoint |
+| `prompt_tokens` | `tokens.input + tokens.cache.read + tokens.cache.write` | upstream convention (sse_usage_lib.lua): prompt INCLUDES cache read and write; opencode stores them disjoint |
 | `completion_tokens` | `tokens.output + tokens.reasoning` | upstream convention: completion INCLUDES reasoning; opencode stores them disjoint |
 | `reasoning_tokens` | `tokens.reasoning` | |
 | `cached_tokens` | `tokens.cache.read` | |
+| `cache_write_tokens` | `tokens.cache.write` | |
 | `total_tokens` | `prompt_tokens + completion_tokens` | live default convention |
 | `key_id`, `api_key_id` | `''` | no SQLite source |
 | `aborted` | mapped from `message.data.error.name`: `MessageAbortedError` → `1` (client cancel), `APIError`/`UnknownError` → `2` (provider abort), absent → `0` (completed). Source: `session/message-v2.ts` `fromError()` persists terminal outcomes on the assistant message | terminal outcome per generation; note the gateway logs per-attempt stream deaths, so gateway-era abort rates count attempts while migrated rows count outcomes |
 | `is_stream` | `1` | opencode always streams |
-| `cost` | `json_extract(data,'$.cost')` when > 0, else models.dev-priced per §4.1 | USD |
-| `cost_source` | `'upstream'` if source cost > 0, `'computed'` if priced via §4.1, else `'unknown'` | mirrors `resolve_cost` semantics |
-| `provider_id` | `json_extract(data,'$.providerID')` | |
+| `cost` | catalog-priced per §4.1 (provider `pricing.overrides`, else models.dev) | billed USD; never the opencode-recorded cost |
+| `reported_cost` | `json_extract(data,'$.cost')` | upstream/opencode-recorded cost, persisted as metadata only; never billed |
+| `cost_source` | `'provider_override'` when a `pricing.overrides` rate applied, `'models_dev'` when priced via models.dev in §4.1, else `'unknown'` | billed provenance; mirrors `resolve_cost` semantics |
+| `provider_id` | `resolve_provider(json_extract(data,'$.providerID'))`: `cost_calc.PROVIDER_ALIASES` remap, otherwise verbatim (no other provider) | aligns historical ids with canonical gateway ids |
 | `duration_ms` | `time.completed − time_created` when within `[0, 1h)`, else `0` | per-generation wall time; mirrors gateway sse-usage `duration_ms` |
 | `ttft_content_ms` | `min(part.time_created WHERE part.type != 'reasoning') − time_created`, clamped `[0, 1h)`, else `0` | first visible (text/tool) output; mirrors gateway `ttft_content_ms` |
 | `pricing_source`, `pricing_snapshot` | `''` | no pricing catalog at migration time |
@@ -116,10 +118,10 @@ driving this design:
 | request_log column | Source expression | Notes |
 |---------------------|-------------------|-------|
 | `event_id` | `'ocr_' ‖ message.id` | deterministic |
-| `provider` | `message.providerID` | real |
+| `provider` | resolved `provider_id` (same alias remap as usage_log) | canonical |
 | `model` / `model_raw` | same as usage_log | real |
 | `method` | `'POST'` | synthetic (constant) |
-| `uri` | `'/v1/chat/completions'` | synthetic (constant) |
+| `uri` | `gateway_route(provider_id) ‖ '/chat/completions'`, else `'/v1/chat/completions'` | synthetic: the declared gateway route from `conf/providers/*.yaml` |
 | `status` | `200` | synthetic (constant) |
 | `stream` | `true` | matches opencode behavior |
 | `session_id` | `session.id` | real |
@@ -159,34 +161,68 @@ at run time (jq/yaml_helpers), never hardcoded. Probed effects:
 `zai.glm-5` (dot-form bedrock id)→`glm-5`; `glm-5.3`,
 `big-pickle`, `gpt-5.6-luna` pass through lowercased.
 
-## 4.1 Pricing Resolution (cost = 0 rows)
+## 4.1 Billed Pricing Resolution (all rows)
 
-Catalog: models.dev (`MODELS_DEV_URL`, or `--pricing-file`), flattened to
-`provider \t model(lower) \t input \t output \t cache_read` (USD per 1M
-tokens, base tier only; tiered overrides ignored, matching `cost_calc.lua`).
-
-Lookup order for a row with source cost 0, first hit with any rate > 0 wins:
-
-1. `providerID : lower(modelID)`
-2. `providerID : canonical(modelID)`
-3. `shadow(providerID) : lower(modelID)` and `shadow(providerID) : canonical(modelID)`
-
-Shadow map: `zai-coding-plan`→`zai`. Subscription-plan providers publish
-all-zero rates on models.dev; the shadow prices those rows at the
-PAYG-equivalent provider so cost dashboards reflect economic value.
-
-Computed cost (mirrors `cost_calc.lua` formula):
+Billed cost is resolved for **every** row, exactly as the live path does:
+provider `pricing.overrides` first, else models.dev. models.dev is a
+pricing/metadata **registry**, not a provider. Source: **models.dev**
+(`MODELS_DEV_URL`, default `https://models.dev/api.json`; `--pricing-file
+<json>` for offline/test runs) - the same registry the gateway uses; every
+gateway provider declares `pricing.source.type: models_dev` and a
+`pricing.source.provider` namespace in `conf/providers/*.yaml` (e.g.
+kimi→`moonshotai`, opencode-go→`opencode`, zai→`zai`). Flattened to:
 
 ```
-cost = ( tokens.input        * input_rate
-       + tokens.output       * output_rate
-       + tokens.cache.read   * cache_read_rate
-       + tokens.reasoning    * output_rate ) / 1e6
+models_dev_provider \t model(lower) \t input \t output \t cache_read \t cache_write \t reasoning
 ```
 
-Result: `cost_source='computed'`. Rows with no pricing hit keep cost 0,
+(USD per 1M tokens, base tier only, matching `cost_calc.compute_cost`.)
+
+Provider resolution is **explicit**, one step, no second lookup:
+
+1. Apply `cost_calc.PROVIDER_ALIASES` to the historical `providerID`.
+2. If the result is a gateway id (present in `conf/providers/*.yaml`), the
+   models.dev namespace is that id's declared `pricing.source.provider`;
+   it is empty when `pricing.source.type` is not `models_dev` (e.g.
+   llamafile).
+3. Otherwise, an explicit direct-provider equivalence applies
+   (`zai-coding-plan` → `zai`: the flat-fee plan publishes only zero rates
+   on models.dev, so it is priced at the PAYG-equivalent namespace), and
+   failing that the historical `providerID` is used as the models.dev
+   namespace directly (opencode's direct providers, namely `openai`,
+   `opencode-go`, `opencode`, and `amazon-bedrock`, are used as models.dev
+   namespaces).
+
+The lookup key is `models_dev_provider : canonical(modelID)`. A rate that
+models.dev omits is applied the same way the live path applies it: a
+missing/zero `reasoning` rate bills reasoning at the `output` rate
+(`provider_sync_pricing` publishes a reasoning rate only when the catalog
+has one, so `compute_cost` falls through to output), while `cache_read` and
+`cache_write` are published as `0` and billed as `0`. A row whose resolved
+models.dev namespace is empty, or whose model has no models.dev cost, stays
+unpriced. `workspace-gateway` is the one historical id with no
+models.dev namespace (99 rows) and is written `cost=0`,
+`cost_source='unknown'` explicitly. A rate row is only used when its input
+rate is > 0 (a malformed all-zero row must never zero out token cost,
+mirroring `recalc.lua` `build_prices`).
+
+Computed cost (mirrors `cost_calc.compute_cost`):
+
+```
+input_uncached      = max(prompt − cached − cache_write, 0)
+output_non_reasoning = completion − reasoning  (completion when reasoning exceeds it)
+cost = ( input_uncached      * input_rate
+       + output_non_reasoning * output_rate
+       + cached               * cache_read_rate
+       + cache_write          * cache_write_rate
+       + reasoning            * reasoning_rate ) / 1e6
+```
+
+Result: `cost_source='models_dev'` (or `'provider_override'` when a
+`pricing.overrides` rate applied). Rows with no pricing hit keep cost 0,
 `cost_source='unknown'` (free-tier models such as `big-pickle`/`*-free`,
-unlisted providers).
+`workspace-gateway`). The opencode-recorded cost is written to
+`reported_cost` regardless of whether billing resolved.
 
 ## 5. Duplicate Detection
 
@@ -214,6 +250,14 @@ Rationale: identical logical turns replayed/imported (e.g. dev-db copies)
 share session, model, millisecond timestamp and content; transient parts
 (`step-*`, `tool`, `patch`) vary across replays and MUST NOT break the key.
 Within a collision group keep `min(message.id)`.
+
+**On-demand hashing.** The hash only distinguishes rows that already share
+the natural key `(session_id, providerID, modelID, time_created)`. Extraction
+therefore collects those keys across ALL sources first and computes MD5 only
+for messages inside a colliding group; every other message gets an empty
+hash. The kept-row set is identical, but the per-message `md5sum` forks that
+dominated the run time (≈60k process spawns, ≈4.5 min) collapse to the few
+real collisions. On healthy data that set is empty.
 
 ### 5.2 ClickHouse-side idempotency (insert time)
 
@@ -247,21 +291,32 @@ Env:   OPENCODE_DBS   colon-separated sqlite paths
 Pipeline (single streaming pass per source, spills nothing to disk except
 one dedup stage file under mktemp):
 
-1. **Registry + pricing**: alias map from `conf/model-registry.yaml`;
-   pricing TSV from models.dev per §4.1 (or `--pricing-file`).
-2. **Extract**: one `sqlite3` query per source db streaming the message's
-   ordered `part` rows (hex-encoded `type:text`) which awk folds into the
-   §5.1 `content_hash` via `md5sum`, plus a second query joining
-   `message`→`session` for the message/session fields, both emitting TSV.
+1. **Registry + pricing**: model alias map from `conf/model-registry.yaml`;
+   provider alias map from `cost_calc.lua`; gateway provider declarations
+   (id → route, models.dev namespace) from `conf/providers/*.yaml`; pricing
+   TSV from models.dev per §4.1 (or `--pricing-file`).
+2. **Extract**: first pass per source db runs the `message`→`session` query
+   plus the role/marker/first-part queries; the §5.1 natural keys are then
+   collected across all sources. A second pass streams each message's ordered
+   `part` rows (hex-encoded `type:text`) and folds them into the
+   `content_hash` via `md5sum` **only for messages in a colliding natural-key
+   group** (§5.1 on-demand hashing); every other message gets an empty hash.
    Read-only URI `?mode=ro`; sources missing on disk are skipped with a
-   warning (FR-1.4 no-op, not error).
+   warning (FR-1.4 no-op, not error). Each stage prints `[TIME] <stage> Nms`
+   to stderr so regressions on the multi-GB real DB stay visible.
 3. **Dedup**: sort by natural key then `message.id`; keep first of each
    natural key across ALL sources combined. Report `source_duplicates`.
-4. **Filter**: `--dry-run` stops here and prints: rows to insert per table,
-    source duplicates collapsed, older-than-13-months count
+4. **Filter**: `--dry-run` stops here (after materialization, so the diff
+    sees final fields) and prints: rows to insert per table, source
+    duplicates collapsed, older-than-13-months count
     (`time_created < now − 13 months`; reporting bucket only), pricing
-    coverage of cost-0 rows,
-    and, when ClickHouse is reachable, already-present counts.
+    coverage of cost-0 rows, and, when ClickHouse is reachable,
+    already-present counts plus a **source-vs-target diff**
+    (`missing`/`differing`/`extra` over `event_id`, a per-field difference
+    histogram, and up to five sample differing rows). This surfaces exactly
+    which historical rows a fresh (aligned) run would add or change, for example
+    raw-vs-canonical provider ids, cost/`cost_source` shifts, dropped
+    cache-write tokens, constant uri.
 5. **Rerun gate**: if `usage_log` already holds any `ocm_%` row, abort
    unless `--force` (FR-4.6; stable event ids would otherwise keep
    stale cost/mapping values without any signal). Reset procedure:
@@ -289,6 +344,13 @@ one dedup stage file under mktemp):
 
 Runtime target: ~61k rows ≈ 13 batches, minutes (NFR-1).
 
+After the insert, run `res/scripts/recalc-costs.sh --apply --all
+--confirm-all` (SPEC-COST-CALC §6). The migration backfills history from
+models.dev; the recalc is the authoritative pass over the live gateway
+catalog and the only pass that touches pre-existing `relay-*` rows, so
+migration → recalc → recalc-dry-run (0 corrections) is the converged
+sequence.
+
 ## 7. Rollback
 
 Not automated (FR-4.3). Manual:
@@ -306,8 +368,8 @@ the same prefix.)
 
 | Case | Decision |
 |------|----------|
-| cost = 0 (27,725 rows) | Priced from models.dev per §4.1 (`cost_source='computed'`); subscription-plan rows via shadow map; still-unpriced rows keep cost 0, `cost_source='unknown'` (never fabricated) |
-| `tokens.cache.write` | Dropped (no destination column; live path drops it too) |
+| cost = 0 (27,725 rows) | Priced provider-scoped from models.dev per §4.1 (`cost_source='models_dev'`, or `'provider_override'` when an override applied); rows whose resolved models.dev namespace/model has no rate (including `workspace-gateway`) keep cost 0, `cost_source='unknown'` (never fabricated) |
+| `tokens.cache.write` | Migrated to `cache_write_tokens` and included in `prompt_tokens`/cost (live path stores it since `000012`) |
 | `session.agent` NULL (1 session) | `agent_name` from message-level `agent` (present on all assistant rows at probe time); otherwise `session.agent`, else `''` |
 | Orphan `message.session_id` with no `session` row | 0 orphans at probe time; the inner `message`→`session` join drops any such row (session dims unavailable) |
 | DB busy / WAL lock | `?mode=ro` + `busy_timeout` retry; never blocks opencode |
@@ -343,7 +405,10 @@ test; the dev stack is never touched.
 
 1. Into the SQLite copy, insert: 3 assistant messages (one planted
    natural-key duplicate), 1 user message, 1 orphan message, 1 session.
-2. Assert dry-run counts (source_duplicates=1, insert=2, orphan=1).
+2. Assert dry-run counts (source_duplicates=1, insert=2, orphan=1), the
+   provider-scoped models.dev pricing coverage, and the source-vs-target
+   missing/differing/extra diff line
+   (`[DRY-RUN] diff vs ClickHouse: missing=N differing=N extra=N`).
 3. Run against the fresh ClickHouse; assert `usage_log`/`request_log` row
    fields exactly per §3 map (jq over `FORMAT JSONEachRow` SELECT), and
    `billing_ledger` gained matching rows via the MV.
@@ -362,8 +427,9 @@ rehearsal for the real run against dev.
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| `res/scripts/migrate-opencode-stats.sh` | Complete | fixture test 69/69 pass (2026-08-28, incl. §4.1 pricing, shadow map, `--force` gate) |
-| `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + pricing/shadow + rerun gate + `--full` rehearsal 69/69 pass; rehearsal migrated 61,496 rows, second pass inserted 0 (2026-08-28) |
+| `res/scripts/migrate-opencode-stats.sh` | Complete | fixture test 88/88 pass (2026-09-21, incl. §4.1 provider-scoped models.dev pricing, provider canonicalization, `cache_write_tokens`, gateway-route `uri`, `--force` gate, dry-run diff) |
+| `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + models.dev pricing + provider alias + rerun gate + `--full` rehearsal 88/88 pass (2026-09-21) |
 | Source probes | Complete | §1 (run 2026-08-28 against live opencode.db) |
 | Schema fit | Verified | all §3 destination columns exist in `conf/clickhouse-init.sql` |
 | Production run against dev ClickHouse | Complete | re-run with computed pricing (2026-08-28) via the §6 step-5 reset procedure: 62,157 rows; cost_source upstream $999.30 / computed $893.98 / unknown 6,535 rows; second `--force` pass idempotent, gate blocks plain reruns; backups at `backups/2026-08-28-pre-migration/`, `-broken-migrated-rows/`, `-pre-repair/`, `-pre-pricing-rerun/`, `-pricing-rerun/` |
+| Production re-run, models.dev alignment (2026-09-21) | Complete | reset (§6 step 5) then `--force` insert: 75,259 usage_log + 75,259 request_log rows; `cost_source` upstream 45,304 / $1,813.23, computed 26,566 / $1,083.17, unknown 3,389; follow-up `recalc-costs.sh --apply --all --confirm-all` (`run-20260921095045-3486843`, backup `pre-recalc-20260921095045-3486843`) corrected 22,920 rows (22,203 live `relay-*` + 717 migrated) in 8 grouped `UPDATE`s, re-run a converged no-op; final dry-run `missing=0 differing=717 extra=0` (717 = sub-1e-7 Float64/Lua cost rounding on recalc-owned rows); backups at `backups/2026-09-21-pre-aligned-remigrate/`, `backups/2026-09-21-aligned-remigrate/` |

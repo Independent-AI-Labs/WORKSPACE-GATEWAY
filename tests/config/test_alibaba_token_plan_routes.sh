@@ -84,12 +84,12 @@ assert_eq "alibaba token-plan-cn YAML auth type" "passthrough" "$(echo "$ATPC_YA
 assert_eq "alibaba token-plan-cn YAML route" "/token-plan-cn" "$(echo "$ATPC_YAML" | jq -r '.route')"
 assert_eq "alibaba token-plan-cn YAML model_source.provider" "alibaba-token-plan-cn" "$(echo "$ATPC_YAML" | jq -r '.model_source.provider')"
 
-# --- routes mapped in sse-usage.lua for cost attribution ---
-SSE_USAGE_FILE="$REPO_ROOT/plugins/custom/sse-usage.lua"
+# --- routes mapped in the single-source route-provider map ---
+SSE_USAGE_FILE="$REPO_ROOT/plugins/custom/cost_calc.lua"
 for rid in relay-alibaba-token-plan relay-alibaba-token-plan-cn; do
     if grep -q "\"$rid\"" "$SSE_USAGE_FILE"; then
-        assert_eq "$rid mapped in sse-usage ROUTE_PROVIDERS" "yes" "yes"
+        assert_eq "$rid mapped in route-provider map" "yes" "yes"
     else
-        assert_eq "$rid mapped in sse-usage ROUTE_PROVIDERS" "yes" "no"
+        assert_eq "$rid mapped in route-provider map" "yes" "no"
     fi
 done

@@ -3,24 +3,8 @@
 --(512-line file limit). Sole writer of pricing:* keys in the shared dict
 --(single-writer rule, enforced by tests/config/test_model_registry.sh).
 local cjson = require("cjson.safe")
-local model_registry
-do
-    local ok, mod = pcall(require, "apisix.plugins.model_registry")
-    if ok then
-        model_registry = mod
-    else
-        model_registry = require("model_registry")
-    end
-end
-local pricing_resolver
-do
-    local ok, mod = pcall(require, "apisix.plugins.provider_pricing")
-    if ok then
-        pricing_resolver = mod
-    else
-        pricing_resolver = require("provider_pricing")
-    end
-end
+local model_registry = require("apisix.plugins.model_registry")
+local pricing_resolver = require("apisix.plugins.provider_pricing")
 
 local M = {}
 
@@ -35,22 +19,40 @@ local function get_dict()
     return ngx.shared[SHARED_DICT]
 end
 
---Fill missing model costs from the provider's declared pricing source.
---provider.cost_source names the models.dev provider id whose prices
---apply to this gateway provider (e.g. "opencode" for the relay,
---"moonshotai" for Kimi). This is the ONLY pricing source; there is no
---cross-provider cheapest-wins merge.
+local function get_core()
+    return require("apisix.core")
+end
+
+--A cache rate must never make tokens free (FR-3.3). models.dev omits the
+--field for most providers and publishes an explicit 0 for zai, so a nil or
+--non-positive catalog rate is published at the input rate. input can be 0
+--only for a genuinely free model.
+local function billable_rate(value, floor_rate)
+    local rate = tonumber(value)
+    if rate and rate > 0 then return rate end
+    return floor_rate
+end
+
+--Fill each model's cost from the provider's single declared pricing source.
+--provider.pricing.source.provider names the models.dev namespace whose prices
+--apply (e.g. "opencode-go" for the relay, "moonshotai" for Kimi). There is no
+--cross-provider merge and no metadata-joined or endpoint-reported cost.
 function M.apply_cost_source(provider, models, models_dev)
+    local namespace = provider.pricing and provider.pricing.source
+        and provider.pricing.source.provider or nil
     for model_id, entry in pairs(models) do
         local cost, provenance = pricing_resolver.resolve(
-            provider, model_id, entry, models_dev)
+            provider, model_id, models_dev)
         if cost then
             entry.cost = cost
             entry.pricing = {
                 source = provenance,
-                provider = provider.pricing and provider.pricing.source
-                    and provider.pricing.source.provider or provider.cost_source,
+                provider = namespace,
             }
+        else
+            --A price that no longer resolves must not linger on the entry.
+            entry.cost = nil
+            entry.pricing = nil
         end
     end
 end
@@ -79,25 +81,42 @@ function M.populate_pricing_cache(enriched)
                 if model.cost then
                     local key = model_registry.canonical(model_id)
                     local scoped_key = provider_id .. ":" .. key
+                    local pricing_source = model.pricing and model.pricing.source
                     if key ~= "" and not written[scoped_key] then
-                        written[scoped_key] = true
-                        local price = {
-                            provider = provider_id,
-                            pricing_source = model.pricing and model.pricing.source
-                                or "unscoped",
-                            input = model.cost.input or 0,
-                            output = model.cost.output or 0,
-                            cache_read = model.cost.cache_read or 0,
-                            cache_write = model.cost.cache_write or 0,
-                            fetched_at = fetched_at,
-                        }
-                        snapshot[scoped_key] = price
-                        dict:set("pricing:" .. provider_id .. ":" .. key,
-                            cjson.encode(price), DEFAULT_STALE)
-                        --Compatibility key while request provider identity is
-                        --available to every telemetry caller.
-                        if not dict:get("pricing:" .. key) then
-                            dict:set("pricing:" .. key, cjson.encode(price), DEFAULT_STALE)
+                        if pricing_source ~= "provider_override"
+                            and pricing_source ~= "models_dev" then
+                            --A price with no recognized provenance would
+                            --publish an unlabelable cost_source. Refuse it and
+                            --name the writer contract violation.
+                            get_core().log.error(
+                                "provider_sync: refusing to publish price for '",
+                                model_id, "' under '", provider_id,
+                                "': unrecognized provenance '",
+                                tostring(pricing_source), "'")
+                        else
+                            written[scoped_key] = true
+                            local input = tonumber(model.cost.input) or 0
+                            local output = tonumber(model.cost.output) or 0
+                            local price = {
+                                provider = provider_id,
+                                pricing_source = pricing_source,
+                                input = input,
+                                output = output,
+                                cache_read = billable_rate(
+                                    model.cost.cache_read, input),
+                                cache_write = billable_rate(
+                                    model.cost.cache_write, input),
+                                fetched_at = fetched_at,
+                            }
+                            --Only publish a reasoning rate when the catalog has
+                            --one; omitting it makes compute_cost bill reasoning
+                            --at the output rate (0 would bill reasoning free).
+                            if model.cost.reasoning and model.cost.reasoning > 0 then
+                                price.reasoning = model.cost.reasoning
+                            end
+                            snapshot[scoped_key] = price
+                            dict:set("pricing:" .. provider_id .. ":" .. key,
+                                cjson.encode(price), DEFAULT_STALE)
                         end
                     end
                 end

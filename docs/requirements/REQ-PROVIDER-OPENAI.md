@@ -32,7 +32,7 @@ This document does not define OpenAI model catalog or pricing synchronization.
 | FR-1.5 | A successful poll MUST exchange OpenAI's `authorization_code` and `code_verifier` at `/oauth/token`, store the session, delete the pending device record, and return `access_token`, `expires_in`, and `session_id`. |
 | FR-1.6 | Proxy requests MUST require a Bearer token, resolve the session by the hash of the client-issued token, and refresh when expiry is within 300 seconds by default. |
 | FR-1.7 | The plugin MUST set the refreshed upstream Bearer token, `ChatGPT-Account-Id` when available, and gateway key, tenant, and rate-limit headers. |
-| FR-1.8 | `workspace-gw-openai-device-oauth` MUST use route `/openai`, OAuth plugin `oauth-auth`, npm package `@ai-sdk/openai`, and models.dev provider `openai`. |
+| FR-1.8 | `workspace-gw-openai-device-oauth` MUST use route `/openai`, OAuth plugin `oauth-auth`, npm package `@ai-sdk/openai`, and models.dev namespace `openai`. |
 | FR-1.9 | The provider-sync response MUST identify `chatgpt-headless` with flow `device_authorization` and `chatgpt-browser` with flow `authorization_code_pkce`. |
 | FR-1.10 | The gateway-owned OpenCode plugin MUST register both methods for `workspace-gw-openai-device-oauth` through OpenCode's standard `Hooks.auth` mechanism. |
 | FR-1.11 | Browser OAuth MUST use OpenCode's loopback callback `http://localhost:1455/auth/callback`; the gateway MUST validate state and perform the upstream code exchange. |

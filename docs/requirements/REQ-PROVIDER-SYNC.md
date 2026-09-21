@@ -33,13 +33,15 @@
 
 Make the gateway the single source of truth for provider and model metadata so
 that OpenCode clients can fetch a ready-to-use provider block and so that
-pricing is written exactly once, in one place.
+billed pricing is resolved from the provider override or models.dev exactly
+once, in one place. models.dev is a pricing/metadata registry, not a provider;
+it is consulted only within each provider's declared namespace.
 
 ### 1.2 Scope
 
 **This document OWNS the requirements for:**
 - Provider definition YAML schema contract (`conf/providers/*.yaml`)
-- Catalog enrichment (models.dev provider, gateway/llamafile endpoints, static model metadata overlay)
+- Catalog enrichment (models.dev namespace, gateway/llamafile endpoints, static model metadata overlay)
 - The `/gateway/providers*` HTTP endpoint family
 - The `opencode-provider-login.sh` client login flow and safe config merge
 - Endpoint security model and rate limiting
@@ -56,7 +58,7 @@ pricing is written exactly once, in one place.
 | Term | Definition |
 |------|------------|
 | Provider | A configured upstream described by one YAML in `conf/providers/` plus its enriched model catalog |
-| Enriched catalog | Provider definition + model metadata/pricing from `models.dev` or an endpoint |
+| Enriched catalog | Provider definition + model metadata from the provider endpoint and models.dev, with pricing resolved separately (overrides then models.dev) |
 | OpenCode provider block | JSON object inserted under `provider.<id>` in the OpenCode config |
 | `pricing` | Declared pricing source, overrides, and missing-value policy |
 | Provider-scoped pricing key | `pricing:<provider_id>:<canonical_model_id>`; provider identity is part of price identity |
@@ -72,7 +74,7 @@ pricing is written exactly once, in one place.
 | FR-1.2 | Each provider MUST define: `id`, `name`, `route`, `npm`, `auth`, `options`, `model_source`. |
 | FR-1.3 | `auth.type` MUST be one of `oauth`, `api_key`, `virtual_key`, `none`, `passthrough`; `oauth` requires `auth.plugin`. |
 | FR-1.4 | `model_source.type` MUST be one of `models_dev_provider` (requires `provider`), `gateway` (requires `endpoint`), or `llamafile` (requires `endpoint`). |
-| FR-1.5 | `pricing.source` MUST declare `models_dev` plus a provider id, or `unknown`; `pricing.overrides` MAY provide provider-specific model rates. |
+| FR-1.5 | `pricing.source` MUST declare `models_dev` plus a `provider` namespace, or `unknown`. `pricing.overrides` is the **only** manual price declaration channel (per-model `input`/`output`/`cache_read`/`cache_write`/`reasoning`). models.dev is a pricing/metadata registry, not a provider. |
 | FR-1.6 | `context_limit_pct` (default 100) and `context_limit_ceiling` (default 0 = no cap) MAY scale exposed context limits. |
 | FR-1.7 | `model_aliases` MAY map alias ids to real model ids; aliases MUST receive a deep copy of the target model entry. |
 | FR-1.8 | `model_source.filter` (optional) MAY carry `include` / `exclude` lists of Lua patterns matched against normalized model ids. `exclude` patterns MUST drop matching ids; a non-empty `include` list MUST keep only matching ids. Applies to every `model_source.type`. |
@@ -84,12 +86,12 @@ pricing is written exactly once, in one place.
 |----|-------------|
 | FR-2.1 | Sync MUST acquire the `providers:lock` key (30s TTL) via `add`; a held lock MUST yield "sync already in progress" without error. |
 | FR-2.2 | Sync MUST fetch `https://models.dev/api.json` with `User-Agent: Kimi CLI (Linux 6.17.0-35-generic x64)`; fetch failure MUST NOT abort sync (providers with endpoint sources still populate). |
-| FR-2.3 | `gateway`/`llamafile` sources MUST query the configured endpoint (relative paths resolved against `http://localhost:9080`). Endpoint failure or zero ids MUST produce an empty model list plus an error log (explicit empty state; no static catalog substitution). `model_source.model_metadata` MAY overlay static metadata (name, limits, cost, capabilities) onto endpoint-reported ids only; it MUST NOT introduce ids the endpoint did not report. |
+| FR-2.3 | `gateway`/`llamafile` sources MUST query the configured endpoint (relative paths resolved against `http://localhost:9080`). Endpoint failure or zero ids MUST produce an empty model list plus an error log (explicit empty state; no static catalog substitution). `model_source.model_metadata` MAY overlay static metadata (name, limits, capabilities) onto endpoint-reported ids only; it MUST NOT introduce ids the endpoint did not report and MUST NOT declare pricing (cost comes only from `pricing.overrides` or models.dev). |
 | FR-2.4 | Model ids MUST be normalized per `model_source.normalize` (`strip_prefix`, `lowercase`). |
 | FR-2.5 | Sync MUST store `providers:raw`, `providers:enriched`, and `providers:ts` in `gateway-cache` with `stale_seconds` TTL (default 86400). |
 | FR-2.6 | On plugin init, a warmup timer MUST run one sync with schema defaults when `warmup_on_init` is true. |
 | FR-2.7 | Every model entry exposed to clients MUST carry a context limit whenever one is knowable. Limits resolve from the endpoint (or `model_source.model_metadata`), then the models.dev catalog (FR-2.8); `context_limit_pct`/`context_limit_ceiling` apply last. Models with no match anywhere remain without a limit. |
-| FR-2.8 | For `gateway`/`llamafile` sources, each endpoint-reported id MUST be enriched from the models.dev catalog by normalized-id match (the declared `pricing.source.provider` is preferred; otherwise the first models.dev provider in sorted-name order wins), overlaying `name`, `family`, `release_date`, `reasoning`, `attachment`/`modalities`, `temperature`, `interleaved`, `reasoning_options`, `limit`, and `cost`. Precedence is endpoint-reported value, then `model_source.model_metadata`, then models.dev. Enrichment MUST NOT introduce ids the endpoint did not report; `model_source.filter` still applies. |
+| FR-2.8 | For `gateway`/`llamafile` sources, each endpoint-reported id MUST be enriched with **metadata only** from the models.dev catalog by normalized-id match within the declared `pricing.source.provider` namespace, overlaying `name`, `family`, `release_date`, `reasoning`, `attachment`/`modalities`, `temperature`, `interleaved`, `reasoning_options`, and `limit`. Enrichment MUST NOT scan other models.dev providers, MUST NOT use "first provider in sorted-name order", MUST NOT overlay `cost`, and MUST NOT introduce ids the endpoint did not report; `model_source.filter` still applies. |
 | FR-2.9 | Model entries returned by `GET /gateway/providers/{id}/opencode` MUST carry `variants` derived from the models.dev `reasoning_options` exactly as OpenCode derives them: each `effort` value maps to the npm-specific reasoning body (`@ai-sdk/openai-compatible` → `{ reasoningEffort = <value> }`; `@ai-sdk/openai` → `{ reasoningEffort = <value>, reasoningSummary = "auto", include = ["reasoning.encrypted_content"] }`). `budget_tokens` and `toggle` options map only for packages OpenCode supports and are a no-op for `@ai-sdk/openai-compatible`/`@ai-sdk/openai`. `modalities` (input/output) MUST also be emitted so OpenCode's v1→v2 migration preserves multimodal capability; `attachment`, `reasoning`, and `temperature` remain for v1 clients. When no models.dev metadata exists for an id, no `variants` key is emitted. |
 | FR-2.10 | When `context_limit_pct`/`context_limit_ceiling` reduce `limit.context`, a known `limit.output` MUST be clamped so no entry advertises `limit.output > limit.context`. |
 
@@ -99,8 +101,8 @@ pricing is written exactly once, in one place.
 |----|-------------|
 | FR-3.1 | `provider-sync` (via `provider_sync_pricing.lua`) MUST be the sole writer of `pricing:*` keys in `gateway-cache`. |
 | FR-3.2 | Pricing keys MUST be `pricing:<provider_id>:<canonical_model_id>` where canonicalization is `model_registry.canonical()`. |
-| FR-3.3 | Provider pricing MUST be resolved independently; identical model ids under different providers MUST NOT collide. |
-| FR-3.4 | The declared provider override wins per rate field, followed by models.dev, then discovered endpoint metadata; missing rates remain unknown. |
+| FR-3.3 | Provider pricing MUST be resolved independently; identical model ids under different providers MUST NOT collide. models.dev MUST be consulted only within the provider's declared `pricing.source.provider` namespace - never a cross-provider scan, never alphabetical first-wins. |
+| FR-3.4 | Billed pricing precedence is exactly: the provider's `pricing.overrides` for the canonical model id, then models.dev in the declared namespace, then unknown. Endpoint-discovered or metadata-joined cost MUST NOT be used. |
 | FR-3.5 | Each pricing record MUST include provider identity, provenance, input/output/cache/reasoning rates, and `fetched_at`. |
 | FR-3.6 | Sync MUST publish an immutable `pricing:snapshot:<generation>` and update `pricing:snapshot:active` only after the snapshot is written. |
 

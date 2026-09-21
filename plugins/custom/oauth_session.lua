@@ -3,10 +3,7 @@
 -- differences stay in oauth_device.lua engines and per-route plugin config.
 local core = require("apisix.core")
 local cjson = require("cjson.safe")
-local ok, jwt = pcall(require, "apisix.plugins.oauth_jwt")
-if not ok then
-    jwt = require("oauth_jwt")
-end
+local jwt = require("apisix.plugins.oauth_jwt")
 
 local M = {}
 
