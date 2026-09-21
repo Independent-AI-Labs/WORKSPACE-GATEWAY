@@ -1,0 +1,12 @@
+[Unit]
+Description=WORKSPACE-GATEWAY ClickHouse nightly backup (llm_gateway -> ws-backup)
+Documentation=file://%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY/docs/runbooks/RUNBOOK-SECRETS.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY
+ExecStart=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY/res/scripts/gateway-ch-backup.sh
+EnvironmentFile=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY/.env
+SyslogIdentifier=gateway-ch-backup
+NoNewPrivileges=true
+PrivateTmp=true

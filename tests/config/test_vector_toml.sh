@@ -48,11 +48,11 @@ assert_eq "Path /ingest" "1" "$HAS_PATH"
 
 HAS_CLICKHOUSE_SINK_RC=0
 HAS_CLICKHOUSE_SINK=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" ) || { HAS_CLICKHOUSE_SINK_RC=$?; HAS_CLICKHOUSE_SINK="0"; }
-assert_eq "Sink type clickhouse" "1" "$HAS_CLICKHOUSE_SINK"
+assert_eq "Sink type clickhouse (metadata + bodies)" "2" "$HAS_CLICKHOUSE_SINK"
 
 HAS_ENDPOINT_RC=0
 HAS_ENDPOINT=$(grep -c 'http://clickhouse:8123' "$VECTOR_TOML" ) || { HAS_ENDPOINT_RC=$?; HAS_ENDPOINT="0"; }
-assert_eq "Endpoint http://clickhouse:8123" "1" "$HAS_ENDPOINT"
+assert_eq "Endpoint http://clickhouse:8123 (both sinks)" "2" "$HAS_ENDPOINT"
 
 HAS_TABLE_RC=0
 HAS_TABLE=$(grep -c 'table = "request_log"' "$VECTOR_TOML" ) || { HAS_TABLE_RC=$?; HAS_TABLE="0"; }
@@ -60,11 +60,11 @@ assert_eq "Table request_log" "1" "$HAS_TABLE"
 
 HAS_DATABASE_RC=0
 HAS_DATABASE=$(grep -c 'database = "llm_gateway"' "$VECTOR_TOML" ) || { HAS_DATABASE_RC=$?; HAS_DATABASE="0"; }
-assert_eq "Database is llm_gateway" "1" "$HAS_DATABASE"
+assert_eq "Database is llm_gateway (both sinks)" "2" "$HAS_DATABASE"
 
 HAS_SKIP_UNKNOWN_RC=0
 HAS_SKIP_UNKNOWN=$(grep -c 'skip_unknown_fields = true' "$VECTOR_TOML" ) || { HAS_SKIP_UNKNOWN_RC=$?; HAS_SKIP_UNKNOWN="0"; }
-assert_eq "skip_unknown_fields is true" "1" "$HAS_SKIP_UNKNOWN"
+assert_eq "skip_unknown_fields is true (both sinks)" "2" "$HAS_SKIP_UNKNOWN"
 
 HAS_REMAP_RC=0
 HAS_REMAP=$(grep -c 'type = "remap"' "$VECTOR_TOML" ) || { HAS_REMAP_RC=$?; HAS_REMAP="0"; }
@@ -129,15 +129,15 @@ assert_eq "Remap uses generated alias map" "1" "$HAS_ALIAS_MAP"
 
 HAS_RETRY_RC=0
 HAS_RETRY=$(grep -c 'retry_attempts' "$VECTOR_TOML" ) || { HAS_RETRY_RC=$?; HAS_RETRY="0"; }
-assert_eq "ClickHouse sink has retry_attempts" "1" "$HAS_RETRY"
+assert_eq "ClickHouse sinks have retry_attempts (x2)" "2" "$HAS_RETRY"
 
 HAS_BUFFER_RC=0
 HAS_BUFFER=$(grep -c 'when_full = "block"' "$VECTOR_TOML" ) || { HAS_BUFFER_RC=$?; HAS_BUFFER="0"; }
-assert_eq "ClickHouse sink has memory buffer block policy" "1" "$HAS_BUFFER"
+assert_eq "ClickHouse sinks have memory buffer block policy (x2)" "2" "$HAS_BUFFER"
 
 HAS_BATCH_RC=0
 HAS_BATCH=$(grep -cx 'max_events = 1000' "$VECTOR_TOML" ) || { HAS_BATCH_RC=$?; HAS_BATCH="0"; }
-assert_eq "ClickHouse sink has batch max_events=1000" "1" "$HAS_BATCH"
+assert_eq "ClickHouse sinks have batch max_events=1000 (x2)" "2" "$HAS_BATCH"
 
 # --- event_id / timestamp math (must match sse-usage.lua) ---
 # APISIX http-logger sends `start_time` as integer MILLISECONDS since
@@ -164,9 +164,24 @@ ST_TS_RC=0
 ST_TS=$(grep -c 'from_unix_timestamp(start_time_ms, "milliseconds")' "$VECTOR_TOML" ) || { ST_TS_RC=$?; ST_TS="0"; }
 assert_eq "Remap builds timestamp from start_time_ms (milliseconds unit)" "1" "$ST_TS"
 
-# Only ONE console/debug sink remains absent (single clickhouse sink).
+# Bodies land in a dedicated request_bodies table (REQ-SECURITY-HARDENING
+# FR-3); both sinks share the single remap output.
+HAS_BODIES_TABLE_RC=0
+HAS_BODIES_TABLE=$(grep -c 'table = "request_bodies"' "$VECTOR_TOML" ) || { HAS_BODIES_TABLE_RC=$?; HAS_BODIES_TABLE="0"; }
+assert_eq "Bodies sink writes request_bodies" "1" "$HAS_BODIES_TABLE"
+
+# Both sinks authenticate as vector_rw (basic auth; password from env).
+HAS_SINK_AUTH_RC=0
+HAS_SINK_AUTH=$(grep -c 'user = "vector_rw"' "$VECTOR_TOML" ) || { HAS_SINK_AUTH_RC=$?; HAS_SINK_AUTH="0"; }
+assert_eq "Sinks authenticate as vector_rw (x2)" "2" "$HAS_SINK_AUTH"
+
+HAS_SINK_AUTH_PW_RC=0
+HAS_SINK_AUTH_PW=$(grep -c 'password = "${CH_VECTOR_PASSWORD}"' "$VECTOR_TOML" ) || { HAS_SINK_AUTH_PW_RC=$?; HAS_SINK_AUTH_PW="0"; }
+assert_eq "Sink passwords come from CH_VECTOR_PASSWORD env (x2)" "2" "$HAS_SINK_AUTH_PW"
+
+# Only ONE console/debug sink remains absent (two clickhouse sinks).
 SINK_COUNT_RC=0
 SINK_COUNT=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" ) || { SINK_COUNT_RC=$?; SINK_COUNT="0"; }
-assert_eq "Single clickhouse sink (debug sink removed)" "1" "$SINK_COUNT"
+assert_eq "Exactly two clickhouse sinks (request_log + request_bodies)" "2" "$SINK_COUNT"
 
 summary

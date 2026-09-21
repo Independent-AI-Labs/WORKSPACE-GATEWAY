@@ -34,17 +34,26 @@ setup_endpoints() {
         return 1
     fi
     ch_health_RC=0
-    ch_health=$(curl -fsS --max-time 5 "$CH_URL/?query=SELECT+1" ) || { ch_health_RC=$?; ch_health=""; }
-    if [ "$ch_health" != "1" ]; then
+    ch_health=$(curl -fsS --max-time 5 "$CH_URL/ping" ) || { ch_health_RC=$?; ch_health=""; }
+    if [ "$ch_health" != "1" ] && [ "$ch_health" != "Ok." ]; then
         echo "[SKIP] ClickHouse not reachable at $CH_URL"
+        return 1
+    fi
+    if [ -z "${CH_OPS_PASSWORD:-}" ]; then
+        echo "[SKIP] CH_OPS_PASSWORD not set (source repo .env) - queries need ops_admin auth"
         return 1
     fi
     return 0
 }
 
-ch_query() {
-    curl -fsS --max-time 15 -G "$CH_URL/" --data-urlencode "query=$1 FORMAT TabSeparated"
-}
+ch_query() (
+    cfg="$(mktemp)"
+    trap 'rm -f "$cfg"' EXIT
+    printf 'user = "%s:%s"\n' "${CH_OPS_USER:-ops_admin}" "$CH_OPS_PASSWORD" > "$cfg"
+    curl -fsS --max-time 15 -G \
+        --config "$cfg" \
+        "$CH_URL/" --data-urlencode "query=$1 FORMAT TabSeparated"
+)
 
 count_recent() {
     local table="$1" boundary="$2"

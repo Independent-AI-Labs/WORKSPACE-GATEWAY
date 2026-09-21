@@ -31,8 +31,14 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-OPENBAO_TOKEN="${OPENBAO_TOKEN:-2e22c6e00b0815bcada90dfecb03f3c0}"
-OPENBAO_ADDR="${OPENBAO_ADDR:-http://localhost:8201}"
+: "${OPENBAO_TOKEN:?OPENBAO_TOKEN not set (source repo .env)}"
+OPENBAO_ADDR="${OPENBAO_ADDR:-http://127.0.0.1:8200}"
+OPENBAO_CONTAINER="${OPENBAO_CONTAINER:-gw-openbao}"
+
+# Port 8200 is not published; reach OpenBao via podman exec (RUNBOOK-KEYS).
+bao() {
+    podman exec -i "$OPENBAO_CONTAINER" curl -sS -f "$@"
+}
 
 KEY_ID=""
 TENANT_ID="default"
@@ -103,7 +109,7 @@ echo "  Tenant:   $TENANT_ID"
 echo "  User:     $USER_ID"
 echo "  OpenBao:  $OPENBAO_ADDR"
 
-if ! curl -sS -f -X POST \
+if ! bao -X POST \
   -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "$JSON_PAYLOAD" \

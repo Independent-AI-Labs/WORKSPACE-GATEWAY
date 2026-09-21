@@ -8,6 +8,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY
 ExecStart=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY/res/scripts/crunch-usefulness.sh --days 1
+EnvironmentFile=%h/WORKSPACE-VM/projects/WORKSPACE-GATEWAY/.env
 Environment=CLICKHOUSE_HOST=localhost
 Environment=CLICKHOUSE_PORT=8123
 # journald: rate-limit friendly tag

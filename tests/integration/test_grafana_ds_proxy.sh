@@ -42,8 +42,10 @@ echo "=== Grafana Datasource Proxy Tests ==="
 echo ""
 
 # Deterministic ClickHouse rows for T1-T5 (fresh CI stacks have no telemetry).
+# Reachability via unauthenticated /ping; queries below authenticate as
+# ops_admin (default is localhost-only, unauth queries are 403 by design).
 ch_code_RC=0
-ch_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" ) || { ch_code_RC=$?; ch_code="000"; }
+ch_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/ping" ) || { ch_code_RC=$?; ch_code="000"; }
 if [ "$ch_code" = "200" ]; then
     if bash "$REPO_ROOT/res/scripts/seed-clickhouse-dashboard-data.sh" --clickhouse-url "$CH_URL"; then
         echo "[INFO] ClickHouse dashboard seed data ready"
@@ -267,8 +269,8 @@ echo ""
 # T5: Avg Response Time by Model (id=10) - ASOF JOIN, 4+ models
 # =====================================================================
 echo "--- T5: Avg Response Time by Model (ASOF JOIN usage_log) ---"
-T5_QUERY=$(get_panel_query "Avg Response Time by Model")
-T5_DS=$(get_panel_ds "Avg Response Time by Model")
+T5_QUERY=$(get_panel_query "Response Time p50 by Model")
+T5_DS=$(get_panel_ds "Response Time p50 by Model")
 
 [ "$T5_DS" = "$CH_UID" ] && rp "T5: datasource=clickhouse" || rf "T5: datasource=$T5_DS (expected clickhouse)"
 

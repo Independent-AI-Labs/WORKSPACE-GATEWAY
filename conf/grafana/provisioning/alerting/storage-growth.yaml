@@ -1,0 +1,82 @@
+# Provisioned unified-alert rule (REQ-SECURITY-HARDENING FR-4.5).
+# Retention never deletes, so the only failure mode is unbounded growth:
+# alert when total llm_gateway bytes on disk (hot + archive) cross the
+# capacity threshold. Default 1 TiB; tune to ~80% of the ClickHouse data
+# volume. Notifications ride the default contact point / policies.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: gateway-storage
+    folder: Gateway Ops
+    interval: 1h
+    rules:
+      - uid: gw-storage-total
+        title: ClickHouse storage total above threshold
+        condition: C
+        for: 1h
+        noDataState: NoData
+        execErrState: Error
+        annotations:
+          summary: "llm_gateway bytes on disk (hot + archive) crossed {{ .ThresholdParameterLabel.thresh_c }}; tiered retention never deletes - plan volume expansion or archive offload to ws-backup."
+          runbook_url: https://workspaceguardrails.com/grafana/d/gateway-ops-health
+        labels:
+          severity: warning
+          service: gateway
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: clickhouse
+            model:
+              datasource:
+                type: grafana-clickhouse-datasource
+                uid: clickhouse
+              queryType: table
+              format: table
+              rawSql: SELECT sum(bytes_on_disk) AS total FROM system.parts WHERE database = 'llm_gateway' AND active
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              type: reduce
+              reducer: lastNotNull
+              interval: 1h
+              conditions:
+                - evaluator:
+                    params: []
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: []
+                  reducer:
+                    params: []
+                    type: last
+              settings:
+                mode: dropNN
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              type: threshold
+              conditions:
+                - evaluator:
+                    params:
+                      - 1099511627776
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last

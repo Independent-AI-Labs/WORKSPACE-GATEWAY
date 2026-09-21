@@ -32,10 +32,25 @@ PROJ="workspace-gateway-prod"
 PROD_TAG="${PROD_TAG:-localhost/workspace-gateway:0.1.0}"
 
 PROD_PORT=9081
-ADMIN_PORT=9181
+# Debug ports are unpublished in prod (REQ-SECURITY-HARDENING FR-6); the
+# Admin API is reached via `podman exec gw-prod-apisix` (container IPs are
+# not host-routable under rootless podman).
 ADMIN_KEY="${ADMIN_KEY:-}"
 PROD_TMP="$(mktemp)"
 trap 'rm -f "$PROD_TMP"' EXIT
+
+# Compose interpolation and container env (CH_* passwords etc.) must see the
+# repo .env; without this, containers are created with EMPTY credentials
+# (ops_admin XML user gets a blank password and all auth fails).
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    if ! source "$REPO_ROOT/.env"; then
+        echo "ERROR: failed to load environment from $REPO_ROOT/.env" >&2
+        exit 1
+    fi
+    set +a
+fi
 
 usage() {
     printf 'Usage: %s {build|start|stop|redeploy|verify|status|logs|logs-api}\n' "$0" >&2
@@ -55,11 +70,20 @@ compose() {
 }
 
 load_admin_key() {
-    if [ -z "$ADMIN_KEY" ] && [ -f "$REPO_ROOT/.env" ]; then
-        ADMIN_KEY="$(grep -E '^ADMIN_KEY=' "$REPO_ROOT/.env" | cut -d= -f2-)"
+    if [ -f "$REPO_ROOT/.env" ]; then
+        if [ -z "$ADMIN_KEY" ]; then
+            ADMIN_KEY="$(grep -E '^ADMIN_KEY=' "$REPO_ROOT/.env" | cut -d= -f2-)"
+        fi
+        if [ -z "${CH_OPS_PASSWORD:-}" ]; then
+            CH_OPS_PASSWORD="$(grep -E '^CH_OPS_PASSWORD=' "$REPO_ROOT/.env" | cut -d= -f2-)"
+        fi
     fi
     if [ -z "$ADMIN_KEY" ]; then
         echo "ERROR: ADMIN_KEY not set and not present in $REPO_ROOT/.env" >&2
+        exit 1
+    fi
+    if [ -z "${CH_OPS_PASSWORD:-}" ]; then
+        echo "ERROR: CH_OPS_PASSWORD not set and not present in $REPO_ROOT/.env" >&2
         exit 1
     fi
 }
@@ -149,8 +173,12 @@ verify() {
     echo "-- usage logging (vector -> clickhouse)"
     sleep 2
     local rows
-    if ! rows=$(curl -sS -m 10 "http://127.0.0.1:8124/" \
-        --data-binary "SELECT count() FROM llm_gateway.request_log FORMAT TSV"); then
+    # Query in-container as ops_admin (exec-only access; the 8124 host
+    # forward is for diagnostics, and its source address is
+    # network-stack-dependent under rootless port publishing).
+    if ! rows=$("$PODMAN_PATH" exec gw-prod-clickhouse clickhouse-client \
+        --user ops_admin --password "${CH_OPS_PASSWORD:-}" \
+        -q 'SELECT count() FROM llm_gateway.request_log'); then
         rows="-1"
     fi
     echo "request_log rows: $rows"
@@ -161,8 +189,9 @@ verify() {
     echo "-- routes seeded"
     load_admin_key
     local routes
-    routes=$(curl -fsS -H "X-API-KEY: $ADMIN_KEY" \
-        "http://127.0.0.1:$ADMIN_PORT/apisix/admin/routes" | jq '.total')
+    routes=$("$PODMAN_PATH" exec gw-prod-apisix curl -sS --max-time 10 \
+        -H "X-API-KEY: $ADMIN_KEY" \
+        "http://127.0.0.1:9180/apisix/admin/routes" | jq '.total')
     echo "routes: $routes"
     if [ "${routes:-0}" -lt 1 ]; then
         echo "FAIL: no routes seeded in prod etcd"
@@ -185,23 +214,35 @@ case "${1:-}" in
         compose up -d etcd openbao clickhouse vector
         echo "Waiting for dependencies..."
         sleep 5
+        echo "Provisioning prod ClickHouse users (ops_admin)"
+        "$PODMAN_PATH" exec gw-prod-clickhouse bash /docker-entrypoint-initdb.d/00-provision.sh
         compose --profile migration run --rm migrate up
         #--force-recreate: podman-compose reuses existing containers even when
         #the image tag was rebuilt; prod must always run the current image.
+        #Remove the old container explicitly first: podman-compose does not
+        #free its static IP (10.99.110.2), which blocks recreation.
+        if "$PODMAN_PATH" ps -a --filter name=gw-prod-apisix --format '{{.Names}}' | grep -q gw-prod-apisix; then
+            "$PODMAN_PATH" rm -f gw-prod-apisix
+        fi
         compose up -d --force-recreate apisix
         wait_healthy "gw-prod-apisix"
-        echo "Seeding routes from conf/apisix.yaml (admin on $ADMIN_PORT)"
+        echo "Seeding routes from conf/apisix.yaml (admin via exec gw-prod-apisix)"
         ADMIN_KEY="$ADMIN_KEY" APISIX_YAML="$REPO_ROOT/conf/apisix.yaml" \
+            PODMAN_PATH="$PODMAN_PATH" \
             bash "$SCRIPT_DIR/seed-routes.sh" \
             --admin-key "$ADMIN_KEY" \
-            --admin-url "http://127.0.0.1:$ADMIN_PORT"
+            --admin-exec gw-prod-apisix
         echo "Prod stack started on http://127.0.0.1:$PROD_PORT"
         ;;
     stop)
         compose stop -t 30
         ;;
+    down)
+        # Removes containers + networks; volumes are kept (no -v ever).
+        compose down
+        ;;
     redeploy)
-        "$0" stop
+        "$0" down
         "$0" start
         "$0" verify
         ;;

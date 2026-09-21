@@ -4,8 +4,8 @@ apisix:
   enable_reuseport: false
 
 resolver:
+  - 10.99.10.1
   - 10.89.0.1
-  - 10.89.1.1
 
 deployment:
   role: traditional
@@ -17,12 +17,22 @@ deployment:
         key: ${{ADMIN_KEY}}
         role: admin
     allow_admin:
-      - 0.0.0.0/0
+      - 127.0.0.1/32
+      - "::1/128"
+      - 10.99.10.1/32
+      - 10.99.10.2/32
+      - 10.99.110.1/32
+      - 10.99.110.2/32
     enable_admin_ui: true
   etcd:
     host:
       - "http://etcd:2379"
     prefix: "/apisix"
+    # The runtime (core/etcd) reads `username`; the bootstrap CLI
+    # (cli/etcd.lua) reads `user`. Provide both spellings from env.
+    user: ${{ETCD_GW_USER}}
+    username: ${{ETCD_GW_USER}}
+    password: ${{ETCD_GW_PASSWORD}}
     timeout: 30
 
 plugins:
@@ -71,6 +81,7 @@ nginx_config:
   envs:
     - OPENCODE_API_KEY
     - OPENBAO_TOKEN
+    - CH_APISIX_PASSWORD
   http:
     custom_lua_shared_dict:
       redact_state: 1m

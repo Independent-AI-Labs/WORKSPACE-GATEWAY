@@ -48,7 +48,7 @@ if ! grep -qF 'PROJECT_ROOT/.env' "$REPO_ROOT/res/scripts/gateway-compose-up.sh"
     exit 1
 fi
 
-if ! grep -qF 'compose up -d clickhouse' "$REPO_ROOT/res/scripts/gateway-compose-up.sh"; then
+if ! grep -qF 'compose up -d --force-recreate clickhouse' "$REPO_ROOT/res/scripts/gateway-compose-up.sh"; then
     echo "serialized compose bootstrap does not isolate ClickHouse startup" >&2
     exit 1
 fi

@@ -38,6 +38,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-opencode-zen
     uri: /opencode_zen/*
@@ -78,6 +80,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-opencode-federated
     uri: /opencode_federated/*
@@ -125,6 +129,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-openai
     uri: /openai/*
@@ -200,6 +206,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-kimi
     uri: /kimi/*
@@ -251,6 +259,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-kimi-v1
     uri: /kimi/v1/*
@@ -302,6 +312,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-kimi-federated
     uri: /kimi-federated/*
@@ -349,6 +361,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-kimi-federated-v1
     uri: /kimi-federated/v1/*
@@ -396,6 +410,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-kimi-key
     uri: /kimi-key/*
@@ -436,6 +452,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-kimi-key-v1
     uri: /kimi-key/v1/*
@@ -476,6 +494,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-zai-key
     uri: /zai-key/*
@@ -516,6 +536,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-zai-key-v1
     uri: /zai-key/v1/*
@@ -556,6 +578,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-anthropic
     # Bare passthrough (REQ-PROVIDER-ANTHROPIC FR-2): no auth plugin. The
@@ -605,6 +629,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-anthropic-device
     # Custodial device facade (REQ-PROVIDER-ANTHROPIC FR-3): gateway-minted
@@ -675,6 +701,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: relay-llamafile
     uri: /llamafile/*
@@ -712,6 +740,8 @@ routes:
         patterns_file: "/etc/apisix/redact-patterns.json"
       sse-usage:
         clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
       limit-count:
         count: 600
         time_window: 60
@@ -719,6 +749,96 @@ routes:
         key_type: var
         key: remote_addr
         policy: local
+
+  - id: relay-alibaba-token-plan
+    uri: /token-plan/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "token-plan.ap-southeast-1.maas.aliyuncs.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/token-plan/(.*)", "/$1"]
+        headers:
+          set:
+            accept-encoding: "identity"
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
+
+  - id: relay-alibaba-token-plan-cn
+    uri: /token-plan-cn/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "token-plan.cn-beijing.maas.aliyuncs.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/token-plan-cn/(.*)", "/$1"]
+        headers:
+          set:
+            accept-encoding: "identity"
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
 
   - id: gateway-provider-sync
     uri: /gateway/providers*

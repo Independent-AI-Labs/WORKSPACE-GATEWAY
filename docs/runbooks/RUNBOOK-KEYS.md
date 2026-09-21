@@ -18,12 +18,15 @@ record schema: [KEY-MANAGEMENT](../architecture/KEY-MANAGEMENT.md).
 
 ## Prerequisites
 
-- Stack running, OpenBao reachable (default `http://localhost:8201`).
+- Stack running, OpenBao reachable. OpenBao publishes no host port
+  (REQ-SECURITY-HARDENING FR-6.2); the key scripts exec into the container
+  by default (`gw-openbao`, loopback `:8200` inside).
 - `OPENBAO_TOKEN` set in repo-root `.env` (all scripts source `.env`
   automatically; `ENV_FILE` env var overrides the path).
 - `curl` and `jq` installed.
 - Environment variables honored by all three scripts:
-  - `OPENBAO_ADDR` (default `http://localhost:8201`)
+  - `OPENBAO_ADDR` (default: exec into `gw-openbao`; set only for a remote
+    OpenBao with a published endpoint)
   - `OPENBAO_TOKEN` (falls back to a built-in dev token if unset)
   - `ENV_FILE` (default `<repo>/.env`)
 
@@ -165,8 +168,8 @@ exhausted`.
 ### 5. Inspect a key record directly
 
 ```bash
-curl -sS -H "X-Vault-Token: $OPENBAO_TOKEN" \
-  http://localhost:8201/v1/secret/data/gateway/keys/vgw-alice-01 | jq .data.data
+podman exec gw-openbao curl -sS -H "X-Vault-Token: $OPENBAO_TOKEN" \
+  http://127.0.0.1:8200/v1/secret/data/gateway/keys/vgw-alice-01 | jq .data.data
 ```
 
 ## Verification
@@ -190,7 +193,7 @@ curl -sS -H "X-Vault-Token: $OPENBAO_TOKEN" \
 |---------|--------------|-----|
 | `ERROR: OpenBao write failed` | OpenBao down or sealed | Check stack health; see [RUNBOOK-DEPLOYMENT](RUNBOOK-DEPLOYMENT.md) |
 | `curl exit 22` / 403 on any script | Wrong `OPENBAO_TOKEN` | Re-export from `.env`; token must match `conf/openbao.hcl` provisioning |
-| list-keys prints "No keys found" but keys exist | Wrong `OPENBAO_ADDR` (must be host port 8201) | `export OPENBAO_ADDR=http://localhost:8201` |
+| list-keys prints "No keys found" but keys exist | `OPENBAO_ADDR` points at the wrong endpoint (default is exec into `gw-openbao`; OpenBao publishes no host port) | Unset `OPENBAO_ADDR` or point it at a real remote endpoint |
 | Revoked key still works | `key_cache` shared dict TTL not yet expired | Wait for TTL or `restart apisix` |
 | `unknown option` from issue-key.sh | Unsupported flag | Only the flags in the table above are accepted |
 | revoke-key: `key not found` | Key ID typo or never issued | Verify with list-keys |

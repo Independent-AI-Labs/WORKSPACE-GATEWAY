@@ -42,7 +42,7 @@ compose() {
 }
 
 # Start ClickHouse without writers and require readiness before ingestion.
-compose up -d clickhouse
+compose up -d --force-recreate clickhouse
 clickhouse_ping=""
 for _ in $(seq 1 60); do
     if clickhouse_ping="$(curl -fsS --max-time 2 http://127.0.0.1:8123/ping 2>&1)"; then
@@ -57,8 +57,12 @@ if [ "${clickhouse_ready:-0}" -ne 1 ]; then
 fi
 
 # Keep this list explicit and ordered. Do not collapse it into one `up` call.
+# --force-recreate: podman-compose reuses existing containers even when the
+# image tag was rebuilt; the stack must always run the current images.
+# APISIX stays in the foreground so systemd owns it directly (stop signal
+# reaches APISIX for the clean SSE drain via stop_grace_period).
 for service in vector openbao prometheus grafana etcd; do
-    compose up -d "$service"
+    compose up -d --force-recreate "$service"
 done
 
-exec "$COMPOSE_CMD" --podman-path "$PODMAN_PATH" -f "$COMPOSE_FILE" up apisix
+exec "$COMPOSE_CMD" --podman-path "$PODMAN_PATH" -f "$COMPOSE_FILE" up --force-recreate apisix

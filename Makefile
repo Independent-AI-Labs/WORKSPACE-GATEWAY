@@ -132,7 +132,7 @@ _compose-down:
 	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
 .PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-shell gw-test \
-        gw-restart-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
+        gw-restart-service gw-recreate-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
         gw-sync-model-registry
 
 gw-update-dictionaries: ## Refresh vendored profanity/VADER dictionaries from upstream
@@ -159,10 +159,26 @@ gw-start: ## Start the gateway stack via systemd, then health checks + init + sy
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
 
-gw-stop: ## Stop the gateway stack via systemd (keep volumes)
-	$(ANSIBLE_COMPOSE) --tags stop
+# ─────────────────────────────────────────────────────────────────────────────
+# DANGER  -  AGENTS: NEVER RUN `make gw-stop`.
+# gw-stop halts the gateway systemd unit WITHOUT restarting it. The gateway is
+# the LLM data plane for EVERY agent on this network  -  stopping it kills the
+# underlying LLM service and takes all connected agents down with it.
+# Automation/agents must use `make gw-restart` (safe: stop + start + health).
+# Human operators must explicitly opt in: `make gw-stop -- --confirm`.
+# ─────────────────────────────────────────────────────────────────────────────
+.PHONY: gw-stop
+gw-stop: ## DANGER: stops gateway with NO restart (kills LLM service for ALL agents). Requires `make gw-stop -- --confirm`
+	if [[ "$(MAKECMDGOALS)" == *"--confirm"* ]]; then \
+		$(ANSIBLE_COMPOSE) --tags stop; \
+	else \
+		echo "REFUSED: gw-stop halts the gateway for the ENTIRE network without restarting it."; \
+		echo "Pass --confirm to actually stop the service without restarting (make gw-stop -- --confirm),"; \
+		echo "or use the safe make gw-restart pathway!"; \
+		exit 1; \
+	fi
 
-gw-restart: ## Restart existing containers via systemd; does not build or recreate
+gw-restart: ## Restart stack via systemd (unit force-recreates all containers from current compose)
 	$(ANSIBLE_COMPOSE) --tags restart
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(ANSIBLE_DEV) --tags start
@@ -182,6 +198,12 @@ gw-restart-service: ## Restart one existing service without recreating it
 	echo "=== Restarting existing service: $(SVC) ==="
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh restart-service "$(SVC)"
 	echo "=== $(SVC) restarted ==="
+
+gw-recreate-service: ## Recreate one service from the current compose (applies network/config changes); SVC=grafana
+	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-recreate-service SVC=grafana" >&2; exit 1; }
+	echo "=== Recreating service from compose: $(SVC) ==="
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh recreate-service "$(SVC)"
+	echo "=== $(SVC) recreated ==="
 
 gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 	$(MAKE) gw-restart-service SVC=grafana
@@ -235,6 +257,25 @@ ch-migrate-force: ## Clear a dirty migration state and re-run: make ch-migrate-f
 	test -n "$(V)" || { echo "ERROR: V required. Usage: make ch-migrate-force V=7" >&2; exit 1; }
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-force "$(V)"
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh migrate-up
+
+.PHONY: ch-provision
+ch-provision: ## (Re)apply ClickHouse users/grants from .env (idempotent; also runs on fresh volumes)
+	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	PODMAN_PATH=$${PODMAN_PATH:-/opt/workspace-ci/.boot-linux/bin/podman} \
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh exec clickhouse -- bash /docker-entrypoint-initdb.d/00-provision.sh
+
+.PHONY: etcd-auth-init
+etcd-auth-init: ## Enable etcd RBAC: root + least-privilege apisix user (idempotent; dev + prod)
+	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	bash res/scripts/etcd-auth-init.sh; \
+	if $$PODMAN_PATH ps --filter name=gw-prod-etcd --format '{{.Names}}' | grep -q gw-prod-etcd; then \
+		ETCD_CONTAINER=gw-prod-etcd bash res/scripts/etcd-auth-init.sh; \
+	fi
+
+.PHONY: gw-security-matrix
+gw-security-matrix: ## Run the live lockdown verification matrix (tests/e2e/test_security_lockdown.sh)
+	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	bash tests/e2e/test_security_lockdown.sh
 
 # =============================================================================
 # Model Sync
@@ -343,8 +384,19 @@ gw-prod-build: ## Build production image localhost/workspace-gateway:0.1.0
 gw-prod-start: ## Start prod stack on :9081 (etcd, openbao, clickhouse, vector, apisix) + seed routes
 	$(SCRIPT_BASH) res/scripts/gateway-prod.sh start
 
-gw-prod-stop: ## Stop prod stack (drains apisix)
-	$(SCRIPT_BASH) res/scripts/gateway-prod.sh stop
+# DANGER  -  AGENTS: NEVER RUN `make gw-prod-stop` (see gw-stop above): halts the
+# prod LLM data plane with NO restart and kills dependent agents network-wide.
+# Use `make gw-prod-redeploy` (safe: stop + start + verify).
+.PHONY: gw-prod-stop
+gw-prod-stop: ## DANGER: stops prod gateway with NO restart (kills LLM service for dependents). Requires `make gw-prod-stop -- --confirm`
+	if [[ "$(MAKECMDGOALS)" == *"--confirm"* ]]; then \
+		$(SCRIPT_BASH) res/scripts/gateway-prod.sh stop; \
+	else \
+		echo "REFUSED: gw-prod-stop halts the prod gateway WITHOUT restarting it."; \
+		echo "Pass --confirm to actually stop the service without restarting (make gw-prod-stop -- --confirm),"; \
+		echo "or use the safe make gw-prod-redeploy pathway!"; \
+		exit 1; \
+	fi
 
 gw-prod-redeploy: ## Stop + start + verify prod stack
 	$(SCRIPT_BASH) res/scripts/gateway-prod.sh redeploy

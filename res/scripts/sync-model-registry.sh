@@ -19,6 +19,14 @@ CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
 DATABASE="${DATABASE:-llm_gateway}"
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 
+# Authenticated ops access (REQ-SECURITY-HARDENING FR-1.3): no
+# unauthenticated access. Enforced at first query so --dry-run works
+# without credentials.
+CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+need_ch_creds() {
+    : "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
+}
+
 DRY_RUN=false
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=true
 
@@ -99,14 +107,15 @@ if $DRY_RUN; then
     cat "$TMPD/rows.tsv"
     exit 0
 fi
+need_ch_creds
 
 jq -cRn 'inputs | split("\t") as $f |
     { model: $f[0], is_local: ($f[1]|tonumber), provider: $f[2] }' \
     "$TMPD/rows.tsv" > "$TMPD/rows.jsonl"
 
-curl -sSf --max-time 30 "$CH_URL/" \
+curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" \
     --data-binary "TRUNCATE TABLE ${DATABASE}.model_registry"
 { printf 'INSERT INTO %s.model_registry (model, is_local, provider) FORMAT JSONEachRow\n' "$DATABASE"
   cat "$TMPD/rows.jsonl"; } > "$TMPD/insert.payload"
-curl -sSf --max-time 30 "$CH_URL/" --data-binary @"$TMPD/insert.payload"
+curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @"$TMPD/insert.payload"
 echo "[OK] model_registry synced: $N_ROWS models ($(awk -F'\t' '$2==1' "$TMPD/rows.tsv" | wc -l) local)"

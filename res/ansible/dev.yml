@@ -21,7 +21,9 @@
 # Makefile orchestrates multi-step flows:
 #   gw-start   = systemd unit start + post-start health (this playbook --tags start)
 #   gw-stop    = systemd unit stop (res/ansible/compose.yml --tags stop)
-#   gw-restart = drain apisix (SIGQUIT) + gw-build + systemd restart (+ health)
+#   gw-restart = systemd unit restart (unit ExecStart force-recreates all
+#                containers from the current compose) + post-start health
+#   gw-recreate-service = recreate ONE service (gateway-compose.sh recreate-service)
 #   gw-test    = bash tests/run_all.sh (no ansible needed)
 
 - name: WORKSPACE-GATEWAY dev lifecycle
@@ -37,6 +39,11 @@
     compose_cmd: "{{ venv_bin }}/podman-compose -f {{ compose_file }}"
     podman_path: "{{ ci_boot_bin }}/podman"
     admin_api_key: "{{ lookup('env', 'ADMIN_KEY') }}"
+    # Debug/ops ports are unpublished (REQ-SECURITY-HARDENING FR-6): all
+    # health checks run in-container via podman exec.
+    apisix_container: docker_apisix_1
+    clickhouse_container: docker_clickhouse_1
+    vector_container: docker_vector_1
     ansible_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/gateway-ansible"
     run_log: "{{ lookup('env', 'HOME') }}/.cache/gateway-ansible/dev-{{ ansible_date_time.epoch }}.log"
 
@@ -110,17 +117,17 @@
       tags: [start, setup]
 
     - name: Wait for OpenBao to be reachable and unsealed
-      ansible.builtin.uri:
-        url: http://localhost:8201/v1/sys/health
-        method: GET
-        # OpenBao returns 200 when active, 429 when standby, and 503 while
-        # sealed or still starting. Only 200/429 mean the API is usable.
-        status_code: [200, 429, 501, 503]
-        timeout: 5
+      # Port 8200 is not published; probe in-container (200 active / 429
+      # standby mean usable; curl -f maps 5xx to nonzero exit).
+      ansible.builtin.shell: >
+        {{ podman_path }} exec gw-openbao
+        curl -fsS --max-time 5 http://127.0.0.1:8200/v1/sys/health
+        2>>{{ run_log | quote }}
       register: bao_health
-      until: bao_health.status in [200, 429]
+      until: bao_health.rc == 0
       retries: 30
       delay: 2
+      changed_when: false
       tags: [start, health]
 
     - name: Wait for APISIX to be ready
@@ -136,39 +143,41 @@
       tags: [start, health]
 
     - name: Wait for etcd to be ready
-      ansible.builtin.uri:
-        url: http://localhost:2379/health
-        method: GET
-        status_code: [200]
-        timeout: 5
+      # Port 2379 is not published; etcdctl inside the container. The --user
+      # flag is ignored until `make etcd-auth-init` enables RBAC.
+      ansible.builtin.shell: >
+        {{ podman_path }} exec gw-etcd etcdctl
+        --user "root:{{ lookup('env', 'ETCD_ROOT_PASSWORD') }}"
+        endpoint health >>{{ run_log | quote }} 2>&1
       register: etcd_health
-      until: etcd_health.status == 200
+      until: etcd_health.rc == 0
       retries: 15
       delay: 2
+      changed_when: false
       tags: [start, health]
 
     - name: Wait for APISIX Admin API to be ready
-      ansible.builtin.uri:
-        url: http://localhost:9180/apisix/admin/routes
-        method: GET
-        headers:
-          X-API-KEY: "{{ admin_api_key }}"
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ apisix_container }} curl -sS -o /dev/null
+        -w "%{http_code}" --max-time 5
+        -H "X-API-KEY: {{ admin_api_key }}"
+        http://127.0.0.1:9180/apisix/admin/routes
+        2>>{{ run_log | quote }}
       register: admin_health
-      until: admin_health.status == 200
-      retries: 15
+      until: admin_health.stdout | default('') | trim in ['200']
+      failed_when: admin_health.rc not in [0, 7, 28]
+      retries: 30
       delay: 2
+      changed_when: false
+      no_log: true
       tags: [start, health]
 
     - name: Verify required APISIX plugins are loaded
-      ansible.builtin.uri:
-        url: http://localhost:9180/apisix/admin/plugins/list
-        method: GET
-        headers:
-          X-API-KEY: "{{ admin_api_key }}"
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ apisix_container }} curl -sS --max-time 5
+        -H "X-API-KEY: {{ admin_api_key }}"
+        http://127.0.0.1:9180/apisix/admin/plugins/list
+        2>>{{ run_log | quote }}
       register: apisix_plugins
       vars:
         required_custom_plugins:
@@ -178,7 +187,17 @@
           - provider-sync
           - redact
           - sse-usage
-      failed_when: (required_custom_plugins | difference(apisix_plugins.json | default([]))) | length > 0
+      # Cold boots can outlast the wait task; retry until the Admin API
+      # returns a JSON array, then diff the required plugin set.
+      until: (apisix_plugins.stdout | default('') | trim).startswith('[')
+      retries: 30
+      delay: 2
+      failed_when: >-
+        (not (apisix_plugins.stdout | default('') | trim).startswith('['))
+        or ((required_custom_plugins
+             | difference(apisix_plugins.stdout | default('[]') | from_json)) | length > 0)
+      changed_when: false
+      no_log: true
       tags: [start, health, status]
 
     - name: Seed routes from conf/apisix.yaml into Admin API (etcd)
@@ -200,7 +219,7 @@
         - name: Reconcile routes
           ansible.builtin.shell: >
             {{ project_root }}/res/scripts/seed-routes.sh --admin-key-file {{ admin_key_file.path | quote }}
-            >>{{ run_log | quote }} 2>&1
+            2>>{{ run_log | quote }}
           args:
             chdir: "{{ project_root }}"
           no_log: true
@@ -232,20 +251,22 @@
       tags: [start, health]
 
     - name: Wait for Vector ingest endpoint to be reachable
-      ansible.builtin.uri:
-        url: http://localhost:18080/ingest
-        method: GET
-        status_code: [200, 404, 405]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ vector_container }} curl -sS -o /dev/null
+        -w "%{http_code}" --max-time 5 http://127.0.0.1:8080/ingest
+        2>>{{ run_log | quote }}
       register: vector_health
-      until: vector_health.status in [200, 404, 405]
+      until: vector_health.stdout | default('') | trim in ['200', '404', '405']
+      failed_when: vector_health.rc not in [0, 7, 28]
       retries: 15
       delay: 2
+      changed_when: false
       tags: [start, health]
 
     - name: Run ClickHouse init SQL (idempotent)
       ansible.builtin.shell: >
-        podman exec -i docker_clickhouse_1 clickhouse-client --multiquery
+        {{ podman_path }} exec -i -e CLICKHOUSE_PASSWORD {{ clickhouse_container }}
+        bash -c 'clickhouse-client --password "$CLICKHOUSE_PASSWORD" --multiquery'
         < {{ project_root }}/conf/clickhouse-init.sql
         >>{{ run_log | quote }} 2>&1
       register: ch_init
@@ -257,10 +278,25 @@
         var: ch_init.stdout_lines
       tags: [start, setup]
 
+    - name: Apply ClickHouse users/grants (idempotent, ops_admin)
+      # MUST run before migrations: the migrate DSN authenticates as the
+      # `migrator` user this provision script creates.
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ clickhouse_container }}
+        bash /docker-entrypoint-initdb.d/00-provision.sh
+        2>>{{ run_log | quote }}
+      register: ch_provision
+      tags: [start, setup]
+
+    - name: Show ClickHouse provision output
+      ansible.builtin.debug:
+        var: ch_provision.stdout_lines
+      tags: [start, setup]
+
     - name: Run ClickHouse schema migrations (golang-migrate via compose)
       ansible.builtin.shell: >
         {{ compose_cmd }} --profile migration run --rm migrate up
-        >>{{ run_log | quote }} 2>&1
+        2>>{{ run_log | quote }}
       args:
         chdir: "{{ project_root }}"
       register: ch_migrate
@@ -273,27 +309,29 @@
       tags: [start, setup]
 
     - name: Wait for Prometheus metrics endpoint
-      ansible.builtin.uri:
-        url: http://localhost:9100/apisix/prometheus/metrics
-        method: GET
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ apisix_container }} curl -sS -o /dev/null
+        -w "%{http_code}" --max-time 5
+        http://127.0.0.1:9100/apisix/prometheus/metrics
+        2>>{{ run_log | quote }}
       register: prom_health
-      until: prom_health.status == 200
+      until: prom_health.stdout | default('') | trim in ['200']
+      failed_when: prom_health.rc not in [0, 7, 28]
       retries: 15
       delay: 2
+      changed_when: false
       tags: [start, health]
 
     - name: Wait for gateway Prometheus to be ready
-      ansible.builtin.uri:
-        url: http://localhost:9092/-/healthy
-        method: GET
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec gw-prometheus wget -qO- --timeout=5
+        http://127.0.0.1:9090/-/healthy
+        2>>{{ run_log | quote }}
       register: gw_prom_health
-      until: gw_prom_health.status == 200
+      until: gw_prom_health.rc == 0
       retries: 15
       delay: 2
+      changed_when: false
       tags: [start, health]
 
     - name: Wait for Grafana to be ready
@@ -313,15 +351,11 @@
         msg: |
           Stack is ready.
             APISIX:             http://localhost:9080
-            APISIX Admin API:   http://localhost:9180
-            APISIX Dashboard:   http://localhost:9180/ui/
-            Grafana:            http://localhost:3030
-            Prometheus:         http://localhost:9092
-            APISIX metrics:     http://localhost:9100/apisix/prometheus/metrics
-            ClickHouse:         http://localhost:8123
-            Vector:             http://localhost:18080/ingest
-            OpenBao:            http://localhost:8201
-            etcd:               http://localhost:2379
+            Grafana:            http://localhost:3030 (edge: {{ lookup('env', 'GRAFANA_ROOT_URL') }})
+            ClickHouse HTTP:    http://localhost:8123 (authenticated: ops_admin)
+            Debug surfaces (admin API 9180, metrics 9100, vector 8080,
+            openbao 8200, etcd 2379, prometheus 9090) are UNPUBLISHED;
+            reach them via `podman exec` (RUNBOOK-DEPLOYMENT).
       tags: [start, health]
 
     - name: Trigger provider model sync on the gateway
@@ -377,35 +411,34 @@
       tags: [status, never]
 
     - name: Check etcd health
-      ansible.builtin.uri:
-        url: http://localhost:2379/health
-        method: GET
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec gw-etcd etcdctl
+        --user "root:{{ lookup('env', 'ETCD_ROOT_PASSWORD') }}"
+        endpoint health >>{{ run_log | quote }} 2>&1
       register: etcd_status
-      failed_when: etcd_status.status | default(0) < 0
+      changed_when: false
+      failed_when: etcd_status.rc != 0
       tags: [status, never]
 
     - name: Check APISIX Admin API
-      ansible.builtin.uri:
-        url: http://localhost:9180/apisix/admin/routes
-        method: GET
-        headers:
-          X-API-KEY: "{{ admin_api_key }}"
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ apisix_container }} curl -sS -o /dev/null
+        -w "%{http_code}" --max-time 5
+        -H "X-API-KEY: {{ admin_api_key }}"
+        http://127.0.0.1:9180/apisix/admin/routes
+        2>>{{ run_log | quote }}
       register: admin_status
-      failed_when: admin_status.status | default(0) < 0
+      changed_when: false
+      failed_when: (admin_status.stdout | default('') | trim) != '200'
+      no_log: true
       tags: [status, never]
 
     - name: Check required APISIX plugins
-      ansible.builtin.uri:
-        url: http://localhost:9180/apisix/admin/plugins/list
-        method: GET
-        headers:
-          X-API-KEY: "{{ admin_api_key }}"
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ apisix_container }} curl -sS --max-time 5
+        -H "X-API-KEY: {{ admin_api_key }}"
+        http://127.0.0.1:9180/apisix/admin/plugins/list
+        2>>{{ run_log | quote }}
       register: apisix_plugins_status
       vars:
         required_custom_plugins:
@@ -415,17 +448,20 @@
           - provider-sync
           - redact
           - sse-usage
-      failed_when: (required_custom_plugins | difference(apisix_plugins_status.json | default([]))) | length > 0
+      changed_when: false
+      failed_when: (required_custom_plugins | difference(apisix_plugins_status.stdout | default('') | from_json | default([]))) | length > 0
+      no_log: true
       tags: [status, never]
 
     - name: Check Prometheus metrics
-      ansible.builtin.uri:
-        url: http://localhost:9100/apisix/prometheus/metrics
-        method: GET
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec {{ apisix_container }} curl -sS -o /dev/null
+        -w "%{http_code}" --max-time 5
+        http://127.0.0.1:9100/apisix/prometheus/metrics
+        2>>{{ run_log | quote }}
       register: prom_status
-      failed_when: prom_status.status | default(0) < 0
+      changed_when: false
+      failed_when: (prom_status.stdout | default('') | trim) != '200'
       tags: [status, never]
 
     - name: Check Grafana health
@@ -439,25 +475,25 @@
       tags: [status, never]
 
     - name: Check gateway Prometheus health
-      ansible.builtin.uri:
-        url: http://localhost:9092/-/healthy
-        method: GET
-        status_code: [200]
-        timeout: 5
+      ansible.builtin.shell: >
+        {{ podman_path }} exec gw-prometheus wget -qO- --timeout=5
+        http://127.0.0.1:9090/-/healthy
+        2>>{{ run_log | quote }}
       register: gw_prom_status
-      failed_when: gw_prom_status.status | default(0) < 0
+      changed_when: false
+      failed_when: gw_prom_status.rc != 0
       tags: [status, never]
 
     - name: Display health status
       ansible.builtin.debug:
         msg:
           - "APISIX:           {{ 'UP' if apisix_status.status in [200, 404] else 'DOWN' }}"
-          - "APISIX Admin:     {{ 'UP' if admin_status.status == 200 else 'DOWN' }}"
-          - "etcd:             {{ 'UP' if etcd_status.status == 200 else 'DOWN' }}"
+          - "APISIX Admin:     {{ 'UP' if (admin_status.stdout | default('') | trim) == '200' else 'DOWN' }}"
+          - "etcd:             {{ 'UP' if etcd_status.rc == 0 else 'DOWN' }}"
           - "ClickHouse:       {{ 'UP' if ch_status.status == 200 else 'DOWN' }}"
-          - "APISIX metrics:   {{ 'UP' if prom_status.status == 200 else 'DOWN' }}"
+          - "APISIX metrics:   {{ 'UP' if (prom_status.stdout | default('') | trim) == '200' else 'DOWN' }}"
           - "Grafana:          {{ 'UP' if grafana_status.status == 200 else 'DOWN' }}"
-          - "Prometheus:       {{ 'UP' if gw_prom_status.status == 200 else 'DOWN' }}"
+          - "Prometheus:       {{ 'UP' if gw_prom_status.rc == 0 else 'DOWN' }}"
       tags: [status, never]
 
 
@@ -472,7 +508,7 @@
           -H "Authorization: Bearer $OPENCODE_API_KEY" \
           -H "Content-Type: application/json" \
           -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}],"stream":false}' \
-          >>{{ run_log | quote }} 2>&1
+          2>>{{ run_log | quote }}
       args:
         chdir: "{{ project_root }}"
       register: sanity_code

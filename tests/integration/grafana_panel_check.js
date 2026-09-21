@@ -23,6 +23,12 @@ const { chromium } = require('playwright');
 
 const args = process.argv.slice(2);
 let grafanaUrl = process.env.GRAFANA_URL || 'http://localhost:3030';
+
+// Grafana API auth: basic auth (admin:admin), same as the other integration
+// tests. X-WEBAUTH-USER is rejected here because under rootless podman/pasta
+// the host's connections to the published port present as the container's own
+// gw-metrics IP, which is outside GF_AUTH_PROXY_WHITELIST.
+const basicAuth = 'Basic ' + Buffer.from('admin:admin').toString('base64');
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--url' && args[i + 1]) {
     grafanaUrl = args[i + 1];
@@ -63,7 +69,7 @@ const dashboards = [
         { kind: 'text', value: '200' },
       ]},
       { id: 9,  title: 'Latency p50 / p95 / p99 (ms)',      type: 'timeseries',  checks: [] },
-      { id: 10, title: 'Avg Response Time by Model',       type: 'bargauge',     checks: [
+      { id: 10, title: 'Response Time p50 by Model',      type: 'bargauge',     checks: [
         { kind: 'text_count_gt', value: 1 },
       ]},
       { id: 11, title: 'Bandwidth In / Out (bytes/s)',      type: 'timeseries',  checks: [] },
@@ -84,7 +90,16 @@ const dashboards = [
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  // Anonymous access is disabled (REQ-SECURITY-HARDENING). Grafana runs with
+  // GF_AUTH_PROXY_ENABLED=true and trusts X-WEBAUTH-USER only from the
+  // whitelisted edge CIDR; from this test host the source IP is not
+  // whitelisted, so we authenticate the browser via basic API auth (same path
+  // as test_grafana_ds_proxy.sh) and let the session cookie carry forward.
+  const page = await browser.newPage({
+    extraHTTPHeaders: {
+      'Authorization': basicAuth,
+    },
+  });
 
   let totalPass = 0;
   let totalFail = 0;
@@ -128,7 +143,8 @@ const dashboards = [
     const results = [];
 
     try {
-      await page.goto(`${grafanaUrl}${dash.path}`, { waitUntil: 'networkidle', timeout: 60000 });
+      // Grafana serves under the /grafana sub-path (GF_SERVER_SERVE_FROM_SUB_PATH)
+      await page.goto(`${grafanaUrl}/grafana${dash.path}`, { waitUntil: 'networkidle', timeout: 60000 });
     } catch(e) {
       console.error(`[FAIL] Failed to load dashboard ${dash.title}: ${e.message}`);
       totalFail++;
@@ -147,11 +163,23 @@ const dashboards = [
     const panelTitles = [];
     const seenTitles = new Set();
 
-    await page.waitForFunction(
-      () => Array.from(document.querySelectorAll('section[data-testid]'))
-        .some(e => (e.getAttribute('data-testid') || '').includes('Panel header')),
-      { timeout: 30000 }
-    );
+    try {
+      await page.waitForFunction(
+        () => Array.from(document.querySelectorAll('section[data-testid]'))
+          .some(e => (e.getAttribute('data-testid') || '').includes('Panel header')),
+        { timeout: 30000 }
+      );
+    } catch (e) {
+      // Diagnostics: what did we actually land on (auth/redirect/root-url bugs)?
+      console.error(`[FAIL] panel headers never appeared for ${dash.title}: url=${page.url()}`);
+      try {
+        const bodyText = await page.evaluate(() => document.body ? document.body.innerText.slice(0, 300) : '');
+        console.error(`[FAIL] page body: ${bodyText}`);
+      } catch (e2) {
+        console.error(`[FAIL] could not read page body for ${dash.title}: ${e2 && e2.message ? e2.message : e2}`);
+      }
+      throw e;
+    }
 
     const collectTitles = async () => {
       const titles = await page.evaluate(() => {

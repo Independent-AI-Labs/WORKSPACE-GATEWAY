@@ -17,6 +17,11 @@ SEED_EID_PREFIX="integration-seed-event-"
 SEED_ROW_COUNT=150
 CLEANUP_ONLY=0
 
+# Authenticated ops access (REQ-SECURITY-HARDENING FR-1.3): no
+# unauthenticated access.
+CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+: "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --clickhouse-url) CH_URL="$2"; shift 2 ;;
@@ -26,7 +31,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 ch_query() {
-    curl -sSf --max-time 30 -X POST "$CH_URL/" --data-binary "$1"
+    curl -sSf --max-time 30 -X POST --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$1"
 }
 
 ch_exec() {

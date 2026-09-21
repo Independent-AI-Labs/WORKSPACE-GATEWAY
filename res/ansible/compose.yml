@@ -126,16 +126,18 @@
         scope: user
       when: gateway_unit_refresh.changed
 
-    - name: Check OpenBao host endpoint before start
+    - name: Check OpenBao container endpoint before start
+      # 8201 is deliberately unpublished (REQ-SECURITY-HARDENING FR-5):
+      # probe in-container health instead of the old host-port forward.
       tags: [start]
-      ansible.builtin.uri:
-        url: http://127.0.0.1:8201/v1/sys/health
-        method: GET
-        status_code: [200, 429, 501, 503]
-        timeout: 3
+      ansible.builtin.shell: >
+        {{ podman_path }} exec gw-openbao
+        curl -sS -o /dev/null -w '%{http_code}' --max-time 3
+        http://127.0.0.1:8200/v1/sys/health
+        2>>{{ probe_log | quote }}
       register: gateway_host_health
       changed_when: false
-      failed_when: gateway_host_health.status is defined and gateway_host_health.status not in [200, 429, 501, 503]
+      failed_when: gateway_host_health.rc not in [0, 7, 28]
 
     - name: Start gateway compose when inactive
       tags: [start]
@@ -145,7 +147,7 @@
         scope: user
       when: gateway_active.rc != 0
 
-    - name: Recreate gateway compose when host port forwarding is stale
+    - name: Recreate gateway compose when containers are stale
       tags: [start]
       ansible.builtin.systemd:
         name: '{{ gateway_unit }}'
@@ -154,7 +156,7 @@
         enabled: true
       when:
         - gateway_active.rc == 0
-        - gateway_host_health.status | default(0) not in [200, 429, 501, 503]
+        - gateway_host_health.stdout | default('') not in ['200', '429', '501', '503']
 
     - name: Restart gateway compose
       tags: [restart]

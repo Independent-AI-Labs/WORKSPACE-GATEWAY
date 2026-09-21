@@ -400,11 +400,7 @@
       },
       "options": {
         "pieType": "pie",
-        "displayLabels": [
-          "name",
-          "percent",
-          "value"
-        ],
+        "displayLabels": [],
         "legend": {
           "displayMode": "table",
           "placement": "right",

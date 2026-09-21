@@ -141,13 +141,13 @@ OH_UID=$(jq -r '.uid' "$OPS_HEALTH_FILE")
 assert_eq "Ops & Health uid" "gateway-ops-health" "$OH_UID"
 
 OH_PANELS=$(jq '.panels | length' "$OPS_HEALTH_FILE")
-assert_eq "Ops & Health has 11 panels" "11" "$OH_PANELS"
+assert_eq "Ops & Health has 13 panels" "13" "$OH_PANELS"
 
 OH_PROM=$(jq '[.panels[] | select(.datasource.uid == "prometheus")] | length' "$OPS_HEALTH_FILE")
 assert_eq "Ops & Health Prometheus panels" "5" "$OH_PROM"
 
 OH_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$OPS_HEALTH_FILE")
-assert_eq "Ops & Health ClickHouse panels" "6" "$OH_CH"
+assert_eq "Ops & Health ClickHouse panels" "8" "$OH_CH"
 
 # ── Dashboard 3: Gateway Cost Leaderboard ─────────────────────────────
 
@@ -186,10 +186,10 @@ assert_eq "Model Performance has 5 panels" "5" "$PF_PANELS"
 PF_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$PERFORMANCE_FILE")
 assert_eq "Model Performance ClickHouse panels" "5" "$PF_CH"
 
-# ── Total panel count across all 5 dashboards (17 original + 14 usefulness = 31) ──
+# ── Total panel count across all 5 dashboards (30 + 2 storage growth) ──
 
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
-assert_eq "Total panels across 5 dashboards" "30" "$TOTAL_PANELS"
+assert_eq "Total panels across 5 dashboards" "32" "$TOTAL_PANELS"
 
 # ── Currency consistency: money tiles render exact "$x.yy" strings (SQL-
 #    formatted, 2 decimals, never SI-abbreviated); B/M/K uppercase abbrevs ─

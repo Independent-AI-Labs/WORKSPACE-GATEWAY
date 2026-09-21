@@ -65,7 +65,7 @@ request |  request-id plugin -> X-Request-Id                      |
 
 ## 4. Table Schemas
 
-From [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). All MergeTree, `PARTITION BY toYYYYMM`, `SETTINGS index_granularity = 8192`, 13-month TTL (except billing_discrepancies).
+From [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). All MergeTree, `PARTITION BY toYYYYMM`, `SETTINGS index_granularity = 8192`, no deletion TTL  -  tiered compression retention per REQ-SECURITY-HARDENING FR-4.
 
 ### 4.1 request_log (written by Vector)
 ORDER BY `(provider, model, timestamp)`. Columns: `event_id`, `provider`, `model`, `stream`, `method`, `uri`, `status`, `upstream_response_time_s`, `request_size`, `response_size`, `client_ip`, `api_key_id`, `tenant_id`, `user_id`, `key_id`, `session_id`, `request_id`, `project_id`, `parent_session_id`, `client_type`, `agent_name`, `opencode_version`, `user_agent`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `req_body`, `resp_body`, `redact_active`, `redact_token_count`, `timestamp DateTime64(3)`.

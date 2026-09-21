@@ -24,6 +24,11 @@ APISIX_CONTAINER="${APISIX_CONTAINER:-}"
 DATABASE="${DATABASE:-llm_gateway}"
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 
+# Authenticated ops access (REQ-SECURITY-HARDENING FR-1.3): no
+# unauthenticated access.
+CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+: "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
+
 DRY_RUN=false
 REBUILD=false
 LIMIT=0
@@ -76,7 +81,7 @@ CONT_CRUNCHER=/usr/local/apisix/usefulness/cruncher.lua
 
 ch() {
   local sql="$1"
-  curl -sSf --max-time 120 "$CH_URL/" --data-binary "$sql"
+  curl -sSf --max-time 120 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
 }
 
 # Resolve the apisix container: prefer APISIX_CONTAINER, then the dev compose
@@ -211,6 +216,7 @@ flush_block() {
     { printf '%s' "$INSERT_SQL"; cat "$BATCH_FILE"; } > "$TMP_DIR/insert.payload"
     INSERT_CODE=$(curl -sS --max-time 300 \
         -w '%{http_code}' -o "$TMP_DIR/insert.err" "$CH_URL/" \
+        --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
         --data-binary @"$TMP_DIR/insert.payload") || INSERT_CODE="000"
     if [ "$INSERT_CODE" != "200" ]; then
       echo "[crunch] ERROR: block insert failed for ${BLOCK_START} (HTTP ${INSERT_CODE}):" >&2
@@ -237,17 +243,17 @@ while IFS= read -r WT0; do
   [[ "$LIMIT" -gt 0 ]] && LIMIT_CLAUSE="LIMIT $LIMIT"
 
   ROWS=$(ch "
-SELECT request_id, model, toString(timestamp) AS ts, if(length(asst) > 0, 1, 0) AS is_followup,
+SELECT request_id, model, toString(ts) AS ts, if(length(asst) > 0, 1, 0) AS is_followup,
        guard_blocks, guard_rules_csv, user_rejections, rule_denials, last_msg FROM (
-    SELECT request_id, model, timestamp,
-           countMatches(req_body, 'BLOCKED: bash ') + countMatches(req_body, 'BLOCKED: ts=') AS guard_blocks,
-           arrayStringConcat(extractAll(req_body, '[(]([a-z][a-z0-9-]+)[)] [(]2[0-9]{3}-[0-9]{2}-[0-9]{2}T'), ',') AS guard_rules_csv,
-           countMatches(req_body, 'The user rejected permission to use this specific tool call') AS user_rejections,
-           countMatches(req_body, 'The user has specified a rule which prevents you from using this specific tool call') AS rule_denials,
+    SELECT r.request_id AS request_id, r.model AS model, r.timestamp AS ts,
+           countMatches(b.req_body, 'BLOCKED: bash ') + countMatches(b.req_body, 'BLOCKED: ts=') AS guard_blocks,
+           arrayStringConcat(extractAll(b.req_body, '[(]([a-z][a-z0-9-]+)[)] [(]2[0-9]{3}-[0-9]{2}-[0-9]{2}T'), ',') AS guard_rules_csv,
+           countMatches(b.req_body, 'The user rejected permission to use this specific tool call') AS user_rejections,
+           countMatches(b.req_body, 'The user has specified a rule which prevents you from using this specific tool call') AS rule_denials,
            arrayFilter(m -> JSONExtractString(m, 'role') = 'assistant',
-               JSONExtractArrayRaw(req_body, 'messages')) AS asst,
+               JSONExtractArrayRaw(b.req_body, 'messages')) AS asst,
            arrayFilter(m -> JSONExtractString(m, 'role') = 'user',
-               JSONExtractArrayRaw(req_body, 'messages')) AS usr,
+               JSONExtractArrayRaw(b.req_body, 'messages')) AS usr,
            if(length(usr) > 0, usr[length(usr)], '') AS last_raw,
            if(last_raw = '', '',
              multiIf(
@@ -259,21 +265,23 @@ SELECT request_id, model, toString(timestamp) AS ts, if(length(asst) > 0, 1, 0) 
                    arrayFilter(p -> JSONHas(p, 'text'),
                      JSONExtractArrayRaw(last_raw, 'content'))), ' '),
                '')) AS last_msg
-    FROM ${DATABASE}.request_log
-    WHERE timestamp >= '${WT0}' AND timestamp < '${WT1}'
-      AND req_body != ''
-      AND isValidJSON(req_body)
-      AND JSONType(req_body, 'messages') = 'Array'
-      AND (uri LIKE '%/chat/completions%' OR uri LIKE '%/responses%')
+    FROM ${DATABASE}.request_log AS r
+    INNER JOIN ${DATABASE}.request_bodies AS b ON r.event_id = b.event_id
+    WHERE r.timestamp >= '${WT0}' AND r.timestamp < '${WT1}'
+      AND b.req_body != ''
+      AND isValidJSON(b.req_body)
+      AND JSONType(b.req_body, 'messages') = 'Array'
+      AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%')
 )
 UNION ALL
-SELECT request_id, model, toString(timestamp) AS ts, 0 AS is_followup,
+SELECT r.request_id AS request_id, r.model AS model, toString(r.timestamp) AS ts, 0 AS is_followup,
        toUInt16(0) AS guard_blocks, '' AS guard_rules_csv, toUInt16(0) AS user_rejections, toUInt16(0) AS rule_denials, '' AS last_msg
-FROM ${DATABASE}.request_log
-WHERE timestamp >= '${WT0}' AND timestamp < '${WT1}'
-  AND (uri LIKE '%/chat/completions%' OR uri LIKE '%/responses%')
-  AND (req_body = '' OR NOT isValidJSON(req_body)
-       OR JSONType(req_body, 'messages') != 'Array')
+FROM ${DATABASE}.request_log AS r
+LEFT JOIN ${DATABASE}.request_bodies AS b ON r.event_id = b.event_id
+WHERE r.timestamp >= '${WT0}' AND r.timestamp < '${WT1}'
+  AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%')
+  AND (b.event_id = '' OR b.req_body = '' OR NOT isValidJSON(b.req_body)
+       OR JSONType(b.req_body, 'messages') != 'Array')
 ${LIMIT_CLAUSE}
 FORMAT TabSeparated") || { echo "[crunch] ERROR: fetch failed for window ${WT0}" >&2; exit 1; }
 

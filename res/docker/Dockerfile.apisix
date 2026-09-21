@@ -1,5 +1,14 @@
 FROM apache/apisix:3.17.0-debian
 
+# curl for in-container healthchecks and Admin API access through the
+# reviewed exec wrapper (admin/debug ports are unpublished). Base image
+# runs as the unprivileged `apisix` user; switch to root only for install.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+USER apisix
+
 COPY plugins/custom/key-resolver.lua /usr/local/apisix/apisix/plugins/key-resolver.lua
 COPY plugins/custom/key-meta.lua /usr/local/apisix/apisix/plugins/key-meta.lua
 COPY plugins/custom/oauth-auth.lua /usr/local/apisix/apisix/plugins/oauth-auth.lua

@@ -1,0 +1,15 @@
+<clickhouse>
+    <!-- Lock `default` to in-container localhost (REQ-SECURITY-HARDENING
+         FR-1.2). users.xml entries cannot be ALTERed at runtime
+         (ACCESS_STORAGE_READONLY), so this users.d override (loaded after
+         the image's default-user.xml) restricts its networks. Password
+         still comes from CLICKHOUSE_PASSWORD via the image's own file. -->
+    <users>
+        <default>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+        </default>
+    </users>
+</clickhouse>

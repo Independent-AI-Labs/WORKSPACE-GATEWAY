@@ -32,6 +32,11 @@ CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 DB="${DATABASE:-llm_gateway}"
 DRY_RUN=false
 
+# Authenticated ops access (REQ-SECURITY-HARDENING FR-1.3): no
+# unauthenticated access.
+CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+: "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
+
 if [ "${1:-}" = "--dry-run" ]; then
   DRY_RUN=true
 elif [ "${1:-}" != "" ]; then
@@ -44,7 +49,7 @@ source "$REPO_ROOT/tests/config/yaml_helpers.sh" || exit 1
 
 ch() {
   local sql="$1"
-  curl -sSf --max-time 300 "$CH_URL/" --data-binary "$sql"
+  curl -sSf --max-time 300 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
 }
 
 ch_value() {

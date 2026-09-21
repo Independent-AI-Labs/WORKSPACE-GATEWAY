@@ -5,7 +5,7 @@
 **Type:** Requirements
 **Specification:** [SPEC-BILLING-TELEMETRY](../specifications/SPEC-BILLING-TELEMETRY.md)
 
-> Mandates the billing telemetry pipeline: two write paths into ClickHouse (`http-logger` → Vector → `request_log`; `sse-usage` timer → `usage_log`) plus a materialized view into `billing_ledger`, canonical model identity (`model` + `model_raw`), the 4-table schema contract with 7 migrations, and a daily reconciler. Single source of truth: [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql), [`conf/migrations/`](../../conf/migrations), [`conf/vector.toml`](../../conf/vector.toml), [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua). Excluded: pricing lookup internals (REQ-COST-CALC).
+> Mandates the billing telemetry pipeline: two write paths into ClickHouse (`http-logger` → Vector → `request_log` + `request_bodies`; `sse-usage` timer → `usage_log`) plus a materialized view into `billing_ledger`, canonical model identity (`model` + `model_raw`), the 5-table schema contract with numbered migrations, and a daily reconciler. Single source of truth: [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql), [`conf/migrations/`](../../conf/migrations), [`conf/vector.toml`](../../conf/vector.toml), [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua). Excluded: pricing lookup internals (REQ-COST-CALC), authentication/grant boundaries (REQ-SECURITY-HARDENING).
 
 ---
 
@@ -49,9 +49,9 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 ### FR-1: Write Paths
 | ID | Requirement |
 |----|-------------|
-| FR-1.1 | APISIX `http-logger` MUST POST every request/response (with bodies, truncated at 256 KiB / 1 MiB) to Vector at `http://vector:8080/ingest`. |
-| FR-1.2 | Vector MUST remap each event and batch-insert into `llm_gateway.request_log` with retry (5 attempts, backoff, memory buffer with block-when-full). |
-| FR-1.3 | The `sse-usage` plugin MUST extract usage from SSE streams and JSON responses and MUST INSERT one row per tracked request into `llm_gateway.usage_log` via `POST ... INSERT INTO llm_gateway.usage_log FORMAT JSONEachRow` from an `ngx.timer.at` context (not the request path). |
+| FR-1.1 | APISIX `http-logger` MUST POST every request/response (with bodies, truncated at 256 KiB / 1 MiB) to Vector at `http://vector:8080/ingest` (gw-ingest network). |
+| FR-1.2 | Vector MUST remap each event and batch-insert metadata into `llm_gateway.request_log` AND bodies into `llm_gateway.request_bodies` (single remap, two authenticated sinks, `skip_unknown_fields` routing) with retry (5 attempts, backoff, memory buffer with block-when-full). |
+| FR-1.3 | The `sse-usage` plugin MUST extract usage from SSE streams and JSON responses and MUST INSERT one row per tracked request into `llm_gateway.usage_log` via `POST ... INSERT INTO llm_gateway.usage_log FORMAT JSONEachRow` from an `ngx.timer.at` context (not the request path), authenticating as the `apisix_rw` ClickHouse user (REQ-SECURITY-HARDENING FR-7.2). |
 | FR-1.4 | usage_log INSERTs MUST retry up to 3 times (delays 0.1s, 0.5s, 2.0s) and MUST log errors on failure; divergence data MUST NOT be discarded without a log. |
 | FR-1.5 | For SSE responses, usage_log MUST be the authoritative token source (request_log token fields may be 0 for SSE). |
 
@@ -65,12 +65,12 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 ### FR-3: ClickHouse Schema Contract
 | ID | Requirement |
 |----|-------------|
-| FR-3.1 | Database `llm_gateway` MUST contain tables `request_log`, `usage_log`, `billing_ledger`, `billing_discrepancies` as defined in [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). |
+| FR-3.1 | Database `llm_gateway` MUST contain tables `request_log`, `request_bodies`, `usage_log`, `billing_ledger`, `billing_discrepancies` as defined in [`conf/clickhouse-init.sql`](../../conf/clickhouse-init.sql). Bodies (`req_body`, `resp_body`) live in `request_bodies` only (REQ-SECURITY-HARDENING FR-3.1). |
 | FR-3.2 | `usage_log` MUST include columns: event_id, request_id, model, model_raw, prompt/completion/total/cached/reasoning tokens, key_id, api_key_id, aborted (UInt8), is_stream (UInt8), cost (Float64), cost_source (Enum8 upstream/computed/unknown), provider_id, pricing_source, pricing_snapshot, timestamp. |
 | FR-3.3 | `billing_ledger` MUST be auto-populated by materialized view `billing_ledger_mv` on every usage_log INSERT, deriving `request_mode` (stream/batch), `cache_status` (hit/miss), `success`, and `error_type`. |
 | FR-3.4 | `billing_discrepancies` MUST exist as the reconciler target (columns date, tenant_id, provider, model_name, gateway_tokens, provider_tokens, divergence, tolerance, flagged_at). |
-| FR-3.5 | Schema evolution MUST go through golang-migrate migrations `000001`-`000007` in [`conf/migrations/`](../../conf/migrations), each idempotent with `.up.sql`/`.down.sql` pairs. |
-| FR-3.6 | All MergeTree tables MUST partition by month and carry a 13-month TTL (except billing_discrepancies, which partitions by month with no TTL). |
+| FR-3.5 | Schema evolution MUST go through golang-migrate migrations in [`conf/migrations/`](../../conf/migrations), each idempotent with `.up.sql`/`.down.sql` pairs. |
+| FR-3.6 | All MergeTree tables MUST partition by month and carry NO deletion TTL: retention is tiered compression on storage policy `tiered` (REQ-SECURITY-HARDENING FR-4), not deletion. |
 
 ### FR-4: Model Canonicalization
 | ID | Requirement |
@@ -88,7 +88,7 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 ### FR-6: Reconciler
 | ID | Requirement |
 |----|-------------|
-| FR-6.1 | [`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh) MUST compute daily gateway-side per-provider/model token totals from `request_log` for the previous day. |
+| FR-6.1 | [`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh) MUST compute daily gateway-side per-provider/model token totals from `request_log` for the previous day (as `ops_admin`, REQ-SECURITY-HARDENING FR-7.4). |
 | FR-6.2 | Reconciler output MUST be logged for audit; upstream provider API comparison and insertion into `billing_discrepancies` is deferred (v2)  -  until then the table stays empty and no divergence is discarded. |
 
 ## 3. Non-Functional Requirements
@@ -131,9 +131,9 @@ Guarantee billing-grade accounting: every request leaves an auditable trail of t
 ## 8. Implementation Status
 | Item | Status | Evidence |
 |------|--------|----------|
-| FR-1.1-1.5 write paths | Implemented | conf/apisix.yaml http-logger; conf/vector.toml; plugins/custom/sse-usage.lua:140-298 |
+| FR-1.1-1.5 write paths | Implemented (auth + body-split landing with REQ-SECURITY-HARDENING) | conf/apisix.yaml http-logger; conf/vector.toml; plugins/custom/sse-usage.lua:140-298 |
 | FR-2.1-2.3 correlation | Implemented | conf/vector.toml:94-102; sse-usage.lua:193-232 |
-| FR-3.1-3.6 schema + MV | Implemented | conf/clickhouse-init.sql; conf/migrations/000001-000007 |
+| FR-3.1-3.6 schema + MV | Implemented (000010/000011 land with REQ-SECURITY-HARDENING) | conf/clickhouse-init.sql; conf/migrations/ |
 | FR-4.1-4.3 canonicalization | Implemented | conf/model-registry.yaml; vector.toml GENERATED block; sse-usage.lua:186-191 |
 | FR-5.1-5.2 cost ownership | Implemented | sse-usage.lua:166-170; clickhouse-init.sql MV |
 | FR-6.1 reconciler totals | Implemented | res/scripts/reconciler.sh |

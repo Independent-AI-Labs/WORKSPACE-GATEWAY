@@ -8,6 +8,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    source "$REPO_ROOT/.env" || exit 1
+    set +a
+fi
+
 # Test-isolated compose (no container_name fields; -p gw-test keeps prod safe)
 TEST_COMPOSE_FILE="$SCRIPT_DIR/../docker-compose.test.yml"
 TEST_PROJECT="gw-test"

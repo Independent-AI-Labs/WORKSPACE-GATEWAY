@@ -25,8 +25,12 @@ ok() { echo "[PASS] $1"; pass=$((pass + 1)); }
 ko() { echo "[FAIL] $1"; fail=$((fail + 1)); }
 
 CH_PROBE=""
-if ! CH_PROBE=$(curl -sSf --max-time 3 "$CH_URL/?query=SELECT%201"); then
+if ! CH_PROBE=$(curl -sSf --max-time 3 "$CH_URL/ping"); then
     echo "[SKIP] ClickHouse not reachable, skipping crunch idempotency test"
+    exit 0
+fi
+if [ -z "${CH_OPS_PASSWORD:-}" ]; then
+    echo "[SKIP] CH_OPS_PASSWORD not set (source repo .env), skipping crunch idempotency test"
     exit 0
 fi
 
@@ -50,10 +54,15 @@ if [ -z "$APISIX_CONTAINER" ]; then
     exit 0
 fi
 
-ch() {
-  local sql="$1"
-  curl -sSf --max-time 60 "$CH_URL/" --data-binary "$sql"
-}
+ch() (
+  sql="$1"
+  cfg="$(mktemp)"
+  trap 'rm -f "$cfg"' EXIT
+  printf 'user = "%s:%s"\n' "${CH_OPS_USER:-ops_admin}" "$CH_OPS_PASSWORD" > "$cfg"
+  curl -sSf --max-time 60 \
+      --config "$cfg" \
+      "$CH_URL/" --data-binary "$sql"
+)
 
 # Aligned window: the full hour 3 hours ago.
 NOW_S=$(( $(date +%s) - 3 * 3600 ))
@@ -72,14 +81,25 @@ FIRSTTURN_BODY='{"model":"test-model","messages":[{"role":"user","content":"hell
 PHRASE_BODY='{"model":"test-model","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"answer"},{"role":"user","content":"thats not what i asked for"}]}'
 FRICTION_BODY='{"model":"test-model","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"answer"},{"role":"tool","content":"BLOCKED: bash -c '\''rm -rf /tmp/x'\'' (rm-rootfs) (2026-09-16T00:00:00+00:00)"},{"role":"tool","content":"The user rejected permission to use this specific tool call."},{"role":"user","content":"try again please"}]}'
 
+# Bodies live in request_bodies since migration 000010; seed both tables
+# with shared event_ids (request_log keeps metadata only).
 ch "INSERT INTO llm_gateway.request_log
-(request_id, provider, model, stream, method, uri, status, req_body, timestamp)
+(event_id, request_id, provider, model, stream, method, uri, status, timestamp)
 FORMAT JSONEachRow
-{\"request_id\":\"crunch-test-a\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"req_body\":${FOLLOWUP_BODY},\"timestamp\":\"${WT0}\"}
-{\"request_id\":\"crunch-test-b\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"req_body\":${FIRSTTURN_BODY},\"timestamp\":\"${WT0}\"}
-{\"request_id\":\"crunch-test-c\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"req_body\":${PHRASE_BODY},\"timestamp\":\"${WT0}\"}
-{\"request_id\":\"crunch-test-d\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"req_body\":\"not json at all\",\"timestamp\":\"${WT0}\"}
-{\"request_id\":\"crunch-test-e\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"req_body\":${FRICTION_BODY},\"timestamp\":\"${WT0}\"}"
+{\"event_id\":\"00000000-0000-0000-0000-0000000000a1\",\"request_id\":\"crunch-test-a\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000b1\",\"request_id\":\"crunch-test-b\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000c1\",\"request_id\":\"crunch-test-c\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000d1\",\"request_id\":\"crunch-test-d\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000e1\",\"request_id\":\"crunch-test-e\",\"provider\":\"test\",\"model\":\"test-model\",\"stream\":true,\"method\":\"POST\",\"uri\":\"/v1/chat/completions\",\"status\":200,\"timestamp\":\"${WT0}\"}"
+
+ch "INSERT INTO llm_gateway.request_bodies
+(event_id, request_id, req_body, timestamp)
+FORMAT JSONEachRow
+{\"event_id\":\"00000000-0000-0000-0000-0000000000a1\",\"request_id\":\"crunch-test-a\",\"req_body\":${FOLLOWUP_BODY},\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000b1\",\"request_id\":\"crunch-test-b\",\"req_body\":${FIRSTTURN_BODY},\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000c1\",\"request_id\":\"crunch-test-c\",\"req_body\":${PHRASE_BODY},\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000d1\",\"request_id\":\"crunch-test-d\",\"req_body\":\"not json at all\",\"timestamp\":\"${WT0}\"}
+{\"event_id\":\"00000000-0000-0000-0000-0000000000e1\",\"request_id\":\"crunch-test-e\",\"req_body\":${FRICTION_BODY},\"timestamp\":\"${WT0}\"}"
 
 RUN1=$(CLICKHOUSE_HOST="$CLICKHOUSE_HOST" CLICKHOUSE_PORT="$CLICKHOUSE_PORT" \
        APISIX_CONTAINER="$APISIX_CONTAINER" \
@@ -147,9 +167,14 @@ fi
 N_ROWS_2=$(printf '%s\n' "$SIG2" | grep -c . ) || N_ROWS_2=0
 [ "$N_ROWS_2" = "5" ] && ok "no duplicate rows after re-run" || ko "row count after re-run: $N_ROWS_2"
 
-# Cleanup: remove seeded request_log rows, then re-crunch the window so any
-# REAL pre-existing signals for these hours are restored (idempotent replay).
+# Cleanup: remove seeded request_log + request_bodies rows, then re-crunch
+# the window so any REAL pre-existing signals for these hours are restored
+# (idempotent replay).
 CLEAN_DEL=$(ch "ALTER TABLE llm_gateway.request_log
+    DELETE WHERE request_id LIKE 'crunch-test-%'
+      AND timestamp >= '${WT0}' AND timestamp < '${WT1}'
+    SETTINGS mutations_sync = 2")
+CLEAN_DEL_BODIES=$(ch "ALTER TABLE llm_gateway.request_bodies
     DELETE WHERE request_id LIKE 'crunch-test-%'
       AND timestamp >= '${WT0}' AND timestamp < '${WT1}'
     SETTINGS mutations_sync = 2")

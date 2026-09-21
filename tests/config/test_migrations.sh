@@ -125,6 +125,25 @@ assert_eq "migration 000004_create_billing_ledger_mv.up.sql exists" "true" \
 assert_eq "migration 000009_add_friction_columns.up.sql exists" "true" \
     "$(if [ -f "$MIGRATIONS_DIR/000009_add_friction_columns.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
 
+assert_eq "migration 000010_split_request_bodies.up.sql exists" "true" \
+    "$(if [ -f "$MIGRATIONS_DIR/000010_split_request_bodies.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
+
+assert_eq "migration 000011_tiered_retention.up.sql exists" "true" \
+    "$(if [ -f "$MIGRATIONS_DIR/000011_tiered_retention.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
+
+# 000010: bodies split behind a parity gate, never dropped blindly.
+BODIES_UP_RC=0
+    BODIES_UP="$(cat "$MIGRATIONS_DIR/000010_split_request_bodies.up.sql")" || BODIES_UP_RC=$?
+assert_contains "000010 creates llm_gateway.request_bodies" "$BODIES_UP" "CREATE TABLE IF NOT EXISTS llm_gateway.request_bodies"
+assert_contains "000010 gates the drop on a parity check" "$BODIES_UP" "throwIf"
+
+# 000011: retention becomes tiered compression - no delete TTLs remain.
+TIERED_UP_RC=0
+    TIERED_UP="$(cat "$MIGRATIONS_DIR/000011_tiered_retention.up.sql")" || TIERED_UP_RC=$?
+assert_contains "000011 moves parts to the archive volume" "$TIERED_UP" "TO VOLUME 'archive'"
+assert_contains "000011 recompresses with ZSTD(3)" "$TIERED_UP" "RECOMPRESS CODEC(ZSTD(3))"
+assert_not_contains "000011 must not DELETE any rows" "$TIERED_UP" "DELETE WHERE"
+
 # ── (D) compose `migrate` service integration ───────────────────────────
 compose_body_rc=0
     compose_body="$(cat "$COMPOSE_FILE")" || compose_body_rc=$?
@@ -134,7 +153,8 @@ assert_contains "migrate service uses a pinned digest" "$compose_body" "migrate/
 assert_not_contains "migrate service must use a pinned tag (not the floating tag)" "$compose_body" "migrate/migrate:${floating_tag}"
 assert_contains "migrate service depends_on clickhouse" "$compose_body" "depends_on:"
 assert_contains "migrate service restart: no" "$compose_body" 'restart: "no"'
-assert_contains "migrate service on gateway network" "$compose_body" "- gateway"
+assert_contains "migrate service on gw-ch network (isolated ClickHouse boundary)" "$compose_body" "gw-ch: {}"
+assert_contains "migrate DSN authenticates as migrator (query-param form)" "$compose_body" "username=migrator&password=\${CH_MIGRATOR_PASSWORD}"
 assert_contains "migrate command has -path=/migrations/" "$compose_body" "-path=/migrations/"
 assert_contains "migrate -database connects via compose DNS clickhouse:9000 (native protocol)" "$compose_body" "clickhouse:9000"
 assert_not_contains "migrate -database does NOT use localhost" "$compose_body" "database=clickhouse://localhost"

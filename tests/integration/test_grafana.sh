@@ -7,6 +7,10 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# /proc/fd execution resolves to /proc; use the caller cwd (repo root).
+if [ ! -f "$REPO_ROOT/res/scripts/gateway-compose.sh" ] && [ -f "$PWD/res/scripts/gateway-compose.sh" ]; then
+    REPO_ROOT="$PWD"
+fi
 
 pass=0
 fail=0
@@ -42,13 +46,44 @@ echo "=== Grafana Integration Tests ==="
 echo ""
 
 # ── 1. Prometheus health ──────────────────────────────────────────────
+# 9092 is only published on the test fixture; on the live stack Prometheus
+# is checked in-container via the reviewed exec wrapper.
 
-wait_for_url "http://localhost:9092/-/healthy" "Gateway Prometheus on port 9092" 30
+prom_ready() {
+    if curl -fsS --max-time 3 "http://localhost:9092/-/healthy"; then
+        return 0
+    fi
+    PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set (the repo Makefile exports it)}" \
+        bash "$REPO_ROOT/res/scripts/gateway-compose.sh" exec prometheus -- \
+        wget -qO- --timeout=3 http://127.0.0.1:9090/-/healthy
+}
+
+prom_attempt=0
+prom_ok=0
+while [ "$prom_attempt" -lt 30 ]; do
+    if prom_ready; then
+        prom_ok=1
+        break
+    fi
+    prom_attempt=$((prom_attempt + 1))
+    sleep 3
+done
+if [ "$prom_ok" = "1" ]; then
+    record_pass "Gateway Prometheus is healthy"
+else
+    record_fail "Gateway Prometheus not healthy (host 9092 or in-container)"
+fi
 
 # ── 2. Prometheus scraping APISIX ─────────────────────────────────────
 
 PROM_TARGETS_RC=0
-PROM_TARGETS=$(curl -sS http://localhost:9092/api/v1/targets ) || { PROM_TARGETS_RC=$?; PROM_TARGETS=""; }
+PROM_TARGETS=$(curl -sS --max-time 5 http://localhost:9092/api/v1/targets ) || PROM_TARGETS_RC=$?
+PROM_TARGETS=${PROM_TARGETS:-}
+if [ -z "$PROM_TARGETS" ]; then
+    PROM_TARGETS="$(PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set (the repo Makefile exports it)}" \
+        bash "$REPO_ROOT/res/scripts/gateway-compose.sh" exec prometheus -- \
+        wget -qO- --timeout=5 http://127.0.0.1:9090/api/v1/targets)" || PROM_TARGETS=""
+fi
 if [ -z "$PROM_TARGETS" ]; then
     record_fail "Prometheus targets API returned empty"
 else

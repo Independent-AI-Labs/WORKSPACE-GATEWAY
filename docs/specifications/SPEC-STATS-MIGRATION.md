@@ -52,7 +52,7 @@ opencode runs; the migrator must never hardcode them.
 - `agent` values: `build` (46,202), `plan` (5,526), `general` (5,427),
   `explore` (3,515), `compaction` (479)
 - `cost > 0` on 33,422 assistant rows; 0 on 27,725
-- `time.created` range: 2026-06-30 → 2026-08-28 (nothing near the 13-month TTL)
+- `time.created` range: 2026-06-30 → 2026-08-28 (nothing near 13 months old)
 - Provider/model distribution (top): `workspace-gw-kimi/k3` (12,311),
   `opencode-go/glm-5.1` (11,032), `openai/gpt-5.6-luna` (8,187),
   `workspace-gw-own/glm-5.2` (8,182), `zai-coding-plan/glm-5.3` (3,623),
@@ -79,7 +79,9 @@ driving this design:
   into `request_log`; sse-usage writes its own `event_id` into `usage_log`.
   Prefixes `ocm_` / `ocr_` cannot collide.
 - Live `request_id`s are APISIX request-ids; SQLite `msg_...` ids cannot collide.
-- TTL 13 months on both tables (currently moot: oldest data is 2 months).
+- TTL: none (superseded 2026-09-20 by REQ-SECURITY-HARDENING FR-4: tiered
+  compression, indefinite retention; the migrator's "older than 13 months"
+  classification remains as a reporting bucket only).
 - `tokens.cache.write` has no destination column (live path also drops it;
   `cached_tokens` = cache read). Known, accepted loss.
 
@@ -256,9 +258,10 @@ one dedup stage file under mktemp):
 3. **Dedup**: sort by natural key then `message.id`; keep first of each
    natural key across ALL sources combined. Report `source_duplicates`.
 4. **Filter**: `--dry-run` stops here and prints: rows to insert per table,
-   source duplicates collapsed, TTL-expired count
-   (`time_created < now − 13 months`), pricing coverage of cost-0 rows,
-   and, when ClickHouse is reachable, already-present counts.
+    source duplicates collapsed, older-than-13-months count
+    (`time_created < now − 13 months`; reporting bucket only), pricing
+    coverage of cost-0 rows,
+    and, when ClickHouse is reachable, already-present counts.
 5. **Rerun gate**: if `usage_log` already holds any `ocm_%` row, abort
    unless `--force` (FR-4.6; stable event ids would otherwise keep
    stale cost/mapping values without any signal). Reset procedure:

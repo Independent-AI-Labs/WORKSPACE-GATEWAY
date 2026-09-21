@@ -1,0 +1,11 @@
+[Unit]
+Description=Run gateway-ch-backup nightly at 02:30 (REQ-SECURITY-HARDENING FR-7)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=600
+Unit=gateway-ch-backup.service
+
+[Install]
+WantedBy=timers.target

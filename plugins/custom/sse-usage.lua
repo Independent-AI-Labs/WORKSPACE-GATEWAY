@@ -23,6 +23,8 @@ local ROUTE_PROVIDERS = {
     ["relay-zai-key-v1"] = "workspace-gw-zai-api-key",
     ["relay-anthropic"] = "workspace-gw-anthropic-passthrough",
     ["relay-anthropic-device"] = "workspace-gw-anthropic-device-oauth",
+    ["relay-alibaba-token-plan"] = "workspace-gw-alibaba-token-plan-passthrough",
+    ["relay-alibaba-token-plan-cn"] = "workspace-gw-alibaba-token-plan-cn-passthrough",
     ["relay-llamafile"] = "workspace-gw-llamafile-no-auth",
 }
 
@@ -56,6 +58,14 @@ plugin.schema = {
         clickhouse_addr = {
             type = "string",
             default = "http://clickhouse:8123",
+        },
+        clickhouse_user = {
+            type = "string",
+            default = "apisix_rw",
+        },
+        clickhouse_password_env = {
+            type = "string",
+            default = "CH_APISIX_PASSWORD",
         },
     },
 }
@@ -354,6 +364,15 @@ function plugin.log(conf, ctx)
     local clickhouse_addr = conf.clickhouse_addr
     local body = entry .. "\n"
 
+    --Basic auth for the usage_log insert (REQ-SECURITY-HARDENING FR-1.1).
+    local ch_user = conf.clickhouse_user or "apisix_rw"
+    local ch_pass = os.getenv(conf.clickhouse_password_env or "CH_APISIX_PASSWORD") or ""
+    if ch_pass == "" then
+        core.log.error("sse-usage: env ", conf.clickhouse_password_env or "CH_APISIX_PASSWORD",
+                       " not set; usage_log insert will be rejected")
+    end
+    local ch_auth = "Basic " .. ngx.encode_base64(ch_user .. ":" .. ch_pass)
+
     local max_retries = 3
     local retry_delays = {0.1, 0.5, 2.0}
 
@@ -368,7 +387,10 @@ function plugin.log(conf, ctx)
             method = "POST",
             query = {query = "INSERT INTO llm_gateway.usage_log SETTINGS async_insert=1, wait_for_async_insert=1, async_insert_busy_timeout_ms=10000 FORMAT JSONEachRow"},
             body = body,
-            headers = {["Content-Type"] = "application/json"},
+            headers = {
+                ["Content-Type"] = "application/json",
+                ["Authorization"] = ch_auth,
+            },
         })
         if res and res.status ~= 200 then
             core.log.error("sse-usage: clickhouse returned status ", res.status,

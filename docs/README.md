@@ -28,12 +28,15 @@ as not implemented.
 | [`requirements/REQ-PROVIDER-OPENAI.md`](requirements/REQ-PROVIDER-OPENAI.md) | OpenAI browser/headless OAuth provider integration |
 | [`requirements/REQ-PROVIDER-SYNC.md`](requirements/REQ-PROVIDER-SYNC.md) | Provider catalog/pricing sync service |
 | [`requirements/REQ-PROVIDER-ZAI.md`](requirements/REQ-PROVIDER-ZAI.md) | Z.ai GLM provider integration (own-key passthrough) |
+| [`requirements/REQ-PROVIDER-ANTHROPIC.md`](requirements/REQ-PROVIDER-ANTHROPIC.md) | Anthropic provider integration |
+| [`requirements/REQ-PROVIDER-ALIBABA-TOKEN-PLAN.md`](requirements/REQ-PROVIDER-ALIBABA-TOKEN-PLAN.md) | Alibaba Cloud Token Plan provider integration (own-key passthrough, Implemented) |
 | [`requirements/REQ-PROVIDER-XAI.md`](requirements/REQ-PROVIDER-XAI.md) | xAI Grok provider integration (Draft) |
 | [`requirements/REQ-REDACT.md`](requirements/REQ-REDACT.md) | PII redaction plugin (v1) |
 | [`requirements/REQ-REDACT-ENGINE.md`](requirements/REQ-REDACT-ENGINE.md) | NER redaction engine (Draft, v2) |
 | [`requirements/REQ-SEMANTIC-CACHE.md`](requirements/REQ-SEMANTIC-CACHE.md) | Semantic cache (Draft, v2) |
 | [`requirements/REQ-USEFULNESS-TELEMETRY.md`](requirements/REQ-USEFULNESS-TELEMETRY.md) | Practical-usefulness metrics: TTFT, cancel/rejection signals, cruncher, dashboard (Implemented) |
 | [`requirements/REQ-STATS-MIGRATION.md`](requirements/REQ-STATS-MIGRATION.md) | opencode SQLite → ClickHouse stats migrator (Implemented) |
+| [`requirements/REQ-SECURITY-HARDENING.md`](requirements/REQ-SECURITY-HARDENING.md) | 2026-09 exposure hardening: ClickHouse authN/Z, body isolation, tiered retention, Grafana lockdown, network segmentation, etcd RBAC, edge contract |
 
 ### specifications/  -  implementation specs (SPEC-*)
 
@@ -49,12 +52,22 @@ as not implemented.
 | [`specifications/SPEC-PROVIDER-OPENAI.md`](specifications/SPEC-PROVIDER-OPENAI.md) | oauth-auth plugin and ChatGPT relay |
 | [`specifications/SPEC-PROVIDER-SYNC.md`](specifications/SPEC-PROVIDER-SYNC.md) | provider-sync plugin implementation |
 | [`specifications/SPEC-PROVIDER-ZAI.md`](specifications/SPEC-PROVIDER-ZAI.md) | Z.ai GLM passthrough routes |
+| [`specifications/SPEC-PROVIDER-ANTHROPIC.md`](specifications/SPEC-PROVIDER-ANTHROPIC.md) | Anthropic passthrough routes |
+| [`specifications/SPEC-PROVIDER-ALIBABA-TOKEN-PLAN.md`](specifications/SPEC-PROVIDER-ALIBABA-TOKEN-PLAN.md) | Alibaba Cloud Token Plan passthrough routes (Implemented) |
 | [`specifications/SPEC-PROVIDER-XAI.md`](specifications/SPEC-PROVIDER-XAI.md) | xAI provider implementation (Draft) |
 | [`specifications/SPEC-REDACT.md`](specifications/SPEC-REDACT.md) | redact plugin implementation |
 | [`specifications/SPEC-REDACT-ENGINE.md`](specifications/SPEC-REDACT-ENGINE.md) | NER engine implementation (Draft) |
 | [`specifications/SPEC-SEMANTIC-CACHE.md`](specifications/SPEC-SEMANTIC-CACHE.md) | Semantic cache implementation (Draft) |
 | [`specifications/SPEC-USEFULNESS-TELEMETRY.md`](specifications/SPEC-USEFULNESS-TELEMETRY.md) | Usefulness telemetry implementation: TTFT capture, batch cruncher, dashboard (Implemented) |
 | [`specifications/SPEC-STATS-MIGRATION.md`](specifications/SPEC-STATS-MIGRATION.md) | opencode stats migrator implementation (Implemented) |
+| [`specifications/SPEC-SECURITY-HARDENING.md`](specifications/SPEC-SECURITY-HARDENING.md) | Hardening implementation: provision script, migrations 000010/000011, network/port surface, writer auth, runbooks |
+
+### research/  -  upstream findings
+
+| Document | Scope |
+|----------|-------|
+| [`research/RES-ANTHROPIC-OAUTH.md`](research/RES-ANTHROPIC-OAUTH.md) | Anthropic OAuth findings |
+| [`research/RES-PROVIDER-ALIBABA-TOKEN-PLAN.md`](research/RES-PROVIDER-ALIBABA-TOKEN-PLAN.md) | Alibaba Cloud Token Plan endpoint catalog and verification |
 
 ### architecture/  -  deep technical reference
 
@@ -77,6 +90,8 @@ Hub: [`architecture/README.md`](architecture/README.md)  -  reading order for
 | [`runbooks/RUNBOOK-DEPLOYMENT.md`](runbooks/RUNBOOK-DEPLOYMENT.md) | Deploy and operate the stack |
 | [`runbooks/RUNBOOK-KEYS.md`](runbooks/RUNBOOK-KEYS.md) | Issue, list, revoke virtual keys; manage upstream key pools |
 | [`runbooks/RUNBOOK-CLIENT-LOGIN.md`](runbooks/RUNBOOK-CLIENT-LOGIN.md) | Client login flows (opencode provider login) |
+| [`runbooks/RUNBOOK-EDGE-PROXY.md`](runbooks/RUNBOOK-EDGE-PROXY.md) | Edge trust contract for the public Grafana endpoint |
+| [`runbooks/RUNBOOK-SECRETS.md`](runbooks/RUNBOOK-SECRETS.md) | Credential inventory, rotation, ClickHouse backups |
 
 ### TODO.md  -  tracked implementation work
 

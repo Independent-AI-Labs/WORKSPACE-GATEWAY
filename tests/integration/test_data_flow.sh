@@ -89,9 +89,11 @@ if [ "$HTTP_CODE" != "200" ] || [ -z "$LIVE_RID" ]; then
 fi
 
 # Pull extended request_log columns for THIS request_id (Vector write).
+# Bodies live in request_bodies since migration 000010; fetch the metadata
+# row and the body row separately.
 RLOG=""
 for i in $(seq 1 25); do
-    RLOG=$(ch_query "SELECT request_id, model, status, client_ip, request_size, req_body, upstream_response_time_s FROM llm_gateway.request_log WHERE request_id = '$LIVE_RID' LIMIT 1")
+    RLOG=$(ch_query "SELECT request_id, model, status, client_ip, request_size, upstream_response_time_s FROM llm_gateway.request_log WHERE request_id = '$LIVE_RID' LIMIT 1")
     [ -n "$RLOG" ] && break
     sleep 1
 done
@@ -101,15 +103,20 @@ if [ -n "$RLOG" ]; then
     R_STATUS=$(printf '%s' "$RLOG" | cut -f3)
     R_CLIENT_IP=$(printf '%s' "$RLOG" | cut -f4)
     R_REQ_SIZE=$(printf '%s' "$RLOG" | cut -f5)
-    R_REQ_BODY=$(printf '%s' "$RLOG" | cut -f6)
-    R_UPSTREAM_S=$(printf '%s' "$RLOG" | cut -f7)
+    R_UPSTREAM_S=$(printf '%s' "$RLOG" | cut -f6)
     echo "[INFO] request_log row: model=$R_MODEL status=$R_STATUS client_ip=$R_CLIENT_IP req_size=$R_REQ_SIZE upstream=${R_UPSTREAM_S}s"
     assert_eq "request_log row appears for this run's request_id" "$LIVE_RID" "$R_RID"
     assert_eq "request_log.model is populated" "yes" "$(if [ -n "$R_MODEL" ]; then printf 'yes'; else printf 'no'; fi)"
     assert_eq "request_log.status == 200" "200" "$R_STATUS"
     assert_eq "request_log.client_ip populated (default log restored)" "true" "$(if [ "$R_CLIENT_IP" != "0.0.0.0" ] && [ -n "$R_CLIENT_IP" ]; then printf 'true'; else printf 'false'; fi)"
     assert_eq "request_log.request_size > 0" "true" "$(if [ "${R_REQ_SIZE:-0}" -gt 0 ]; then printf 'true'; else printf 'false'; fi)"
-    assert_eq "request_log.req_body populated" "yes" "$(if [ -n "$R_REQ_BODY" ] && [ "$R_REQ_BODY" != "" ]; then printf 'yes'; else printf 'no'; fi)"
+    R_BODY=""
+    for i in $(seq 1 10); do
+        R_BODY=$(ch_query "SELECT req_body FROM llm_gateway.request_bodies WHERE request_id = '$LIVE_RID' AND req_body != '' LIMIT 1")
+        [ -n "$R_BODY" ] && break
+        sleep 1
+    done
+    assert_eq "request_bodies.req_body populated" "yes" "$(if [ -n "$R_BODY" ]; then printf 'yes'; else printf 'no'; fi)"
 else
     assert_eq "request_log row appears for this run's request_id" "$LIVE_RID" "(none)"
 fi

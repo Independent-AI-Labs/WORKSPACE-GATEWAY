@@ -20,7 +20,12 @@ ClickHouse, and running the reconciler. Runtime topology and service inventory:
   ```bash
   podman network create dataops_default 2>/dev/null || true
   ```
-- Repo-root `.env` file with `ADMIN_KEY`, `OPENCODE_API_KEY`, `OPENBAO_TOKEN`
+- Repo-root `.env` file (`0600`) with `ADMIN_KEY`, `OPENCODE_API_KEY`,
+  `OPENBAO_TOKEN`, `GRAFANA_ADMIN_PASSWORD`, the ClickHouse credential set
+  (`CLICKHOUSE_PASSWORD`, `CH_GRAFANA_RO_PASSWORD`, `CH_VECTOR_PASSWORD`,
+  `CH_APISIX_PASSWORD`, `CH_MIGRATOR_PASSWORD`, `CH_OPS_PASSWORD`), and the
+  etcd credential set (`ETCD_ROOT_PASSWORD`, `ETCD_GW_USER`,
+  `ETCD_GW_PASSWORD`)  -  see [RUNBOOK-SECRETS](RUNBOOK-SECRETS.md)
   (consumed via `env_file` in compose).
 
 ## Procedures
@@ -31,17 +36,20 @@ ClickHouse, and running the reconciler. Runtime topology and service inventory:
     ```bash
     make gw-start
    ```
-2. Services started: `apisix` (public 9080/9443; loopback 9180/9100),
-   `clickhouse` (loopback 8123/9000), `migrate` (one-shot golang-migrate
-   runner), `vector` (loopback 18080->8080), `openbao` (loopback
-   8201->8200), `prometheus` (loopback 9092->9090), `grafana`
-   (loopback 3030->3000), and `etcd` (loopback 2379).
+2. Services started: `apisix` (public 9080/9443), `clickhouse` (loopback
+   8123, authenticated), `migrate` (one-shot golang-migrate runner,
+   authenticates as `migrator`), `vector`, `openbao`, `prometheus`,
+   `grafana` (loopback 3030, edge-proxy auth), and `etcd` (RBAC)  -  the
+   latter five have **no published host ports**; reach them via
+   `podman exec` or compose DNS (REQ-SECURITY-HARDENING FR-6).
 3. The `migrate` service is profile-gated and is run once by Ansible after
    ClickHouse readiness. Re-run manually through the repository wrapper:
-    ```bash
-    make ch-migrate
-    make ch-migrate-status
-   ```
+     ```bash
+     make ch-provision        # (re)provision ClickHouse users + grants
+     make etcd-auth-init      # one-shot: enable etcd RBAC (first deploy)
+     make ch-migrate
+     make ch-migrate-status
+     ```
 
 ### 2. Tear the stack down
 
@@ -88,22 +96,18 @@ startup workflow; route changes do not require an APISIX restart, but do require
 ### 5. Health checks
 
 ```bash
-# APISIX status + Prometheus metrics
+# APISIX status (public data plane)
 curl -s http://localhost:9080/apisix/status
-curl -s http://localhost:9100/apisix/prometheus/metrics | head
 
-# ClickHouse
+# ClickHouse (ping needs no auth)
 curl -s http://localhost:8123/ping
 
-# Vector ingest endpoint (listening check)
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:18080/
-
-# OpenBao
-curl -s http://localhost:8201/v1/sys/health
-
-# Grafana / Prometheus UIs
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3030/api/health
-curl -s http://localhost:9092/-/ready
+# No-published-port services: exec from inside the stack
+podman exec gw-prometheus wget -qO- http://127.0.0.1:9090/-/ready
+podman exec gw-openbao     curl -fsS http://127.0.0.1:8200/v1/sys/health
+podman exec gw-vector      curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/
+podman exec gw-etcd        etcdctl --user "$ETCD_GW_USER:$ETCD_GW_PASSWORD" endpoint health
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3030/api/health   # Grafana (loopback)
 ```
 
 ### 6. Logs
@@ -116,16 +120,19 @@ curl -s http://localhost:9092/-/ready
 
 ### 7. ClickHouse access
 
-Database `llm_gateway` (tables `request_log`, `usage_log`, `billing_ledger`,
-`billing_discrepancies`; migrations 000001..000007 in `conf/migrations/`).
+Database `llm_gateway` (tables `request_log`, `request_bodies`, `usage_log`,
+`billing_ledger`, `billing_discrepancies`; migrations in `conf/migrations/`).
+All access is authenticated (RUNBOOK-SECRETS); conversation bodies live in
+`request_bodies`, readable only by `ops_admin`.
 
 ```bash
-# HTTP interface
-curl -s 'http://localhost:8123/?database=llm_gateway' --data 'SHOW TABLES'
+# HTTP interface (ops_admin basic auth)
+curl -u "$CH_OPS_USER:$CH_OPS_PASSWORD" -s \
+  'http://localhost:8123/?database=llm_gateway' --data 'SHOW TABLES'
 
-# Native client inside the container
-podman exec -it $(podman ps --format '{{.Names}}' | grep clickhouse) \
-  clickhouse-client --database llm_gateway
+# Native client inside the container (default user, localhost-only)
+podman exec -it gw-clickhouse clickhouse-client --password "$CLICKHOUSE_PASSWORD" \
+  --database llm_gateway
 ```
 
 ### 8. Reconciler ops
@@ -142,7 +149,7 @@ bash res/scripts/reconciler.sh
 Inspect flagged rows:
 
 ```bash
-curl -s 'http://localhost:8123/?database=llm_gateway' \
+curl -u "$CH_OPS_USER:$CH_OPS_PASSWORD" -s 'http://localhost:8123/?database=llm_gateway' \
   --data 'SELECT * FROM billing_discrepancies ORDER BY flagged_at DESC LIMIT 20 FORMAT TSVWithNames'
 ```
 
@@ -155,16 +162,22 @@ After bring-up, all of the following must hold:
 2. `curl http://localhost:9080/apisix/status` returns a JSON status payload.
 3. `curl http://localhost:8123/ping` returns `Ok.`.
 4. `migrate version` reports the highest applied migration.
-5. `curl http://localhost:9092/-/ready` returns `Prometheus Server is Ready.`
+5. `curl http://127.0.0.1:3030/api/health` returns 200.
+6. Security matrix (REQ-SECURITY-HARDENING V7) passes: unauthenticated
+   ClickHouse query → 401; `grafana_ro` DDL/INSERT → denied;
+   `request_bodies` invisible to `grafana_ro`; `ss -tlnp` shows only
+   9080/9081/9443/9444 public plus loopback 8123/8124/3030.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| apisix exits immediately | Missing/invalid `.env` (`ADMIN_KEY`, `OPENCODE_API_KEY`, `OPENBAO_TOKEN`) | Check `logs apisix`; fix `.env` |
+| apisix exits immediately | Missing/invalid `.env` | Check `logs apisix`; fix `.env` per RUNBOOK-SECRETS |
 | apisix up but routes 404 | etcd not seeded / stale | run the route reconciliation workflow; verify the APISIX plugin registry and etcd |
 | `network dataops_default not found` | External network missing | `podman network create dataops_default` |
 | ClickHouse tables missing | init.sql only runs on empty volume; migrations not applied | `run --rm migrate up`; check `logs migrate` |
-| Vector ingest connection refused | Vector not up or port mismatch | Endpoint is host port 18080; check `logs vector` |
-| OpenBao sealed / token rejected | Volume reset or wrong `OPENBAO_TOKEN` | See [RUNBOOK-KEYS](RUNBOOK-KEYS.md); check `logs openbao` |
-| Grafana login fails in dev | Auth-proxy enabled by default | Set `GF_AUTH_ANONYMOUS_ENABLED=true` in `.env` for dev |
+| ClickHouse 401 from scripts | `CH_OPS_USER`/`CH_OPS_PASSWORD` not exported | Source `.env` in the shell / cron unit |
+| Vector insert auth failures | `CH_VECTOR_PASSWORD` rotated but vector not restarted | `make gw-restart-service SVC=vector` |
+| OpenBao sealed / token rejected | Volume reset or wrong `OPENBAO_TOKEN` | See [RUNBOOK-KEYS](RUNBOOK-KEYS.md); `podman exec gw-openbao` to inspect |
+| Grafana datasource errors | `CH_GRAFANA_RO_PASSWORD` not set or user not provisioned | `make ch-provision`; restart grafana |
+| Grafana login rejected everywhere | Edge proxy not in `GF_AUTH_PROXY_WHITELIST` or header stripped at edge | See [RUNBOOK-EDGE-PROXY](RUNBOOK-EDGE-PROXY.md) |

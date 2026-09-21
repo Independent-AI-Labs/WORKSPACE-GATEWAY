@@ -18,7 +18,8 @@ set -euo pipefail
 #   bash res/scripts/pool-key.sh disable <pool> <key_id>
 #   bash res/scripts/pool-key.sh reset <pool>     # re-enable ALL keys (also clears gateway cooldowns on next cache miss)
 #
-# Env: OPENBAO_ADDR (default http://localhost:8201), OPENBAO_TOKEN
+# Env: OPENBAO_ADDR (default http://127.0.0.1:8200, reached via podman exec),
+#      OPENBAO_CONTAINER (default gw-openbao), OPENBAO_TOKEN
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
@@ -29,9 +30,15 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-OPENBAO_TOKEN="${OPENBAO_TOKEN:-2e22c6e00b0815bcada90dfecb03f3c0}"
-OPENBAO_ADDR="${OPENBAO_ADDR:-http://localhost:8201}"
+: "${OPENBAO_TOKEN:?OPENBAO_TOKEN not set (source repo .env)}"
+OPENBAO_ADDR="${OPENBAO_ADDR:-http://127.0.0.1:8200}"
+OPENBAO_CONTAINER="${OPENBAO_CONTAINER:-gw-openbao}"
 PREFIX="secret/data/gateway/upstream-pools"
+
+# Port 8200 is not published; reach OpenBao via podman exec (RUNBOOK-KEYS).
+bao() {
+    podman exec -i "$OPENBAO_CONTAINER" curl -sS "$@"
+}
 
 usage() {
   sed -n '2,22p' "$0" >&2
@@ -41,7 +48,7 @@ usage() {
 fetch_pool() {
   local pool="$1"
   local resp
-  resp=$(curl -sS -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
+  resp=$(bao -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
     "${OPENBAO_ADDR}/v1/${PREFIX}/${pool}") || {
     echo "ERROR: OpenBao read failed for pool $pool" >&2; exit 1; }
   local errs
@@ -59,7 +66,7 @@ put_pool() {
   # by epoch) never shadow keys after management writes like reset/enable.
   data=$(echo "$data" | jq -c '.epoch = ([(.epoch // 0) + 1, (now | floor)] | max)')
   local resp curl_status
-  resp=$(curl -sS -X POST \
+  resp=$(bao -X POST \
     -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "$(jq -nc --argjson d "$data" '{data:$d}')" \
@@ -140,7 +147,7 @@ case "$CMD" in
       echo "pool: $POOL (cooldown_s=$(echo "$DATA" | jq -r '.cooldown_s // 3600') cooldown_on=$(echo "$DATA" | jq -c '.cooldown_on // [429]') disable_on=$(echo "$DATA" | jq -c '.disable_on // [402,403]') epoch=$(echo "$DATA" | jq -r '.epoch // 0'))"
       echo "$DATA" | jq -r '.keys[] | "  \(.id)\tactive=\(.active)\t\(.key[0:4])...\(.key[-4:])"'
     else
-      curl -sS -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
+      bao -H "X-Vault-Token: ${OPENBAO_TOKEN}" \
         "${OPENBAO_ADDR}/v1/secret/metadata/gateway/upstream-pools?list=true" \
         | jq -r '.data.keys[]?'
     fi

@@ -5,7 +5,7 @@
 **Type:** Requirements
 **Specification:** [SPEC-DASHBOARD](../specifications/SPEC-DASHBOARD.md)
 
-> Mandates 4 Grafana dashboards (30 panels total) giving the gateway operator a
+> Mandates 5 Grafana dashboards (32 panels total) giving the gateway operator a
 > real-time and historical view of LLM traffic, cost, latency, errors,
 > internal health, and practical usefulness. Dashboard JSON files under
 > `conf/grafana/dashboards/` are the
@@ -41,8 +41,9 @@ performance acceptable, (5) is the gateway itself healthy.
 ### 1.2 Scope
 
 **This document OWNS the requirements for:**
-- The 3 dashboards defined here (16 panels) and their datasources; the 4th
-  dashboards (`gateway-model-experience`, 10 panels + `gateway-model-performance`, 5 panels) are owned by
+- The 3 dashboards defined here (21 panels) and their datasources; the 4th
+  and 5th dashboards (`gateway-model-experience`, 6 panels +
+  `gateway-model-performance`, 5 panels) are owned by
   [REQ-USEFULNESS-TELEMETRY](REQ-USEFULNESS-TELEMETRY.md) and inherits this
   document's FR-3 (global filters) and FR-6 (structural rules) requirements
 - Global template variables (`api_key`, `model`) and time range defaults
@@ -68,9 +69,9 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-1.1 | The system SHALL provide exactly 5 dashboards: `gateway-cost-usage` (4 CH panels: ids 3, 15, 8, 46), `gateway-ops-health` (11 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12  -  6 CH + 5 Prom), `gateway-cost-leaderboard` (4 CH stat panels: ids 20, 21 podium + 22, 23 runner-ups), `gateway-model-experience` (7 CH panels: ids 32, 34, 37, 40-43; satisfaction signals, Usefulness Score + scorecard, friction: behavioral requirements owned by REQ-USEFULNESS-TELEMETRY), and `gateway-model-performance` (5 CH panels: ids 30, 31, 36, 44, 45; speed, cancel/abort, waste: owned by REQ-USEFULNESS-TELEMETRY). |
+| FR-1.1 | The system SHALL provide exactly 5 dashboards: `gateway-cost-usage` (4 CH panels: ids 3, 15, 8, 46), `gateway-ops-health` (13 panels: ids 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12, 50, 51  -  8 CH + 5 Prom; p50 storage growth per REQ-SECURITY-HARDENING FR-4.3), `gateway-cost-leaderboard` (4 CH stat panels: ids 20, 21 podium + 22, 23 runner-ups), `gateway-model-experience` (6 CH panels: ids 34, 37, 40, 42, 43, 47; satisfaction signals, Usefulness Score + score cards, friction: behavioral requirements owned by REQ-USEFULNESS-TELEMETRY), and `gateway-model-performance` (5 CH panels: ids 30, 31, 36, 44, 45; speed, cancel/abort, waste: owned by REQ-USEFULNESS-TELEMETRY). |
 | FR-1.2 | All 5 dashboards MUST open with time range `now-90d` to `now` and a 5-second refresh. |
-| FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 46=piechart, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 20=stat, 21=stat, 22=stat, 23=stat; usefulness panels per its own REQ. |
+| FR-1.3 | Panel types MUST be: 3=stat, 15=timeseries, 8=bargauge, 46=piechart, 1=stat, 4=stat, 2=stat, 5=timeseries, 7=piechart, 13=timeseries, 14=timeseries, 9=timeseries, 10=bargauge, 11=timeseries, 12=timeseries, 50=bargauge, 51=bargauge, 20=stat, 21=stat, 22=stat, 23=stat; usefulness panels per its own REQ. |
 
 ### FR-2: Datasources
 
@@ -79,6 +80,7 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-2.1 | Token usage, cost, model distribution, total requests, error rate, status breakdown, stream stats, and per-model latency MUST use ClickHouse so `$__timeFilter` respects the dashboard time range and data survives restarts. |
 | FR-2.2 | Active connections, request rate, latency percentiles, bandwidth, and shared-dict memory MUST use Prometheus for real-time `rate()`/`histogram_quantile()` semantics. |
 | FR-2.3 | Total Requests (p1), Error Rate (p4), and Status Code Breakdown (p7) MUST NOT use Prometheus counters, which reset on container restart or use hardcoded windows. |
+| FR-2.4 | The ClickHouse datasource MUST run as the readonly `grafana_ro` account with its password injected via provisioning `secureJsonData` from environment; dashboard SQL MUST NOT reference `request_bodies` (test-enforced; REQ-SECURITY-HARDENING FR-5.5/FR-3.4). |
 
 ### FR-3: Global Filters
 
@@ -109,6 +111,7 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-4.14 | p12 (Shared Dict Memory) MUST plot `(1 - free/capacity) * 100` for the `key_cache` and `redact_state` dicts with exact `name="..."` matches, clamped to [0, 100], stepAfter interpolation. |
 | FR-4.15 | p20/p21 (Leaderboards) MUST render the top 3 as a podium panel (enlarged fixed `textSize`, medal colors gold/silver/bronze) and ranks 4-10 as a separate runner-up panel (smaller fixed `textSize`, white tiles) - p22/p23 use `LIMIT 7 OFFSET 3` over the same ranked CTE. The tile value MUST be an exact `"$x.yy"` currency string and the tile name MUST carry rank, entity, and compact uppercase B/M/K token volume (`"1. kimi-k3 - 2.41B"`). |
 | FR-4.16 | p46 (Cost by Provider) MUST be a piechart of `sum(cost)` grouped by `usage_log.provider_id` over the time range with api_key + model filters, showing vendor/credential concentration of spend. |
+| FR-4.17 | p50 (Storage Growth) MUST show bytes-on-disk per `llm_gateway` table from `system.parts` plus total/free space from `system.disks`, as a timeseries/stat pair using only `grafana_ro`-granted system tables; a unified alert on this panel MUST fire when free space drops below 20% (REQ-SECURITY-HARDENING FR-4.3). |
 
 ### FR-5: Cross-Query Consistency
 
@@ -179,7 +182,7 @@ restart-persistent metrics, Prometheus for instantaneous rates/percentiles.)
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| FR-1.1 5 dashboards / 31 panels | Implemented | conf/grafana/dashboards/*.json (4+11+4+7+5 panels; experience: score/scorecard/rejection/friction, performance: prefill/decode speeds split p30/p44 + reliability + waste + completed-response averages) |
+| FR-1.1 5 dashboards / 31 panels | Implemented | conf/grafana/dashboards/*.json (4+12+4+6+5 panels; experience: score/score-cards/rejection/friction, performance: prefill/decode speeds split p30/p44 + reliability + waste + completed-response averages; ops-health p50 storage growth lands with REQ-SECURITY-HARDENING) |
 | FR-1.2 time range & refresh | Implemented | each dashboard: `now-90d`→`now`, `5s` |
 | FR-2.x datasource split | Implemented | 11 CH + 5 Prom targets across dashboards |
 | FR-3.x template variables | Implemented | `api_key` + `model` in all 5 dashboards |

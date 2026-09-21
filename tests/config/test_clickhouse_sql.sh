@@ -259,19 +259,19 @@ FRICTION_COLS=$(grep -cE 'guard_blocks +UInt16|guard_rules +Array\(String\)|user
 assert_eq "init.sql request_signals carries all 4 friction columns" "4" "$FRICTION_COLS"
 CRUNCH="$REPO_ROOT/res/scripts/crunch-usefulness.sh"
 MARKER_BASH_RC=0
-MARKER_BASH=$(grep -c "countMatches(req_body, 'BLOCKED: bash ')" "$CRUNCH" ) || { MARKER_BASH_RC=$?; MARKER_BASH="0"; }
+MARKER_BASH=$(grep -c "countMatches(b.req_body, 'BLOCKED: bash ')" "$CRUNCH" ) || { MARKER_BASH_RC=$?; MARKER_BASH="0"; }
 assert_eq "crunch counts shell-guard BLOCKED markers" "1" "$MARKER_BASH"
 MARKER_TS_RC=0
-MARKER_TS=$(grep -c "countMatches(req_body, 'BLOCKED: ts=')" "$CRUNCH" ) || { MARKER_TS_RC=$?; MARKER_TS="0"; }
+MARKER_TS=$(grep -c "countMatches(b.req_body, 'BLOCKED: ts=')" "$CRUNCH" ) || { MARKER_TS_RC=$?; MARKER_TS="0"; }
 assert_eq "crunch counts git-guard BLOCKED markers" "1" "$MARKER_TS"
 MARKER_REJ_RC=0
-MARKER_REJ=$(grep -c "countMatches(req_body, 'The user rejected permission to use this specific tool call')" "$CRUNCH" ) || { MARKER_REJ_RC=$?; MARKER_REJ="0"; }
+MARKER_REJ=$(grep -c "countMatches(b.req_body, 'The user rejected permission to use this specific tool call')" "$CRUNCH" ) || { MARKER_REJ_RC=$?; MARKER_REJ="0"; }
 assert_eq "crunch counts opencode user-rejection markers" "1" "$MARKER_REJ"
 MARKER_RULE_RC=0
-MARKER_RULE=$(grep -c "countMatches(req_body, 'The user has specified a rule which prevents you from using this specific tool call')" "$CRUNCH" ) || { MARKER_RULE_RC=$?; MARKER_RULE="0"; }
+MARKER_RULE=$(grep -c "countMatches(b.req_body, 'The user has specified a rule which prevents you from using this specific tool call')" "$CRUNCH" ) || { MARKER_RULE_RC=$?; MARKER_RULE="0"; }
 assert_eq "crunch counts opencode rule-denial markers" "1" "$MARKER_RULE"
 RULE_RE_RC=0
-RULE_RE=$(grep -cF "extractAll(req_body, '[(]([a-z][a-z0-9-]+)[)] [(]2[0-9]{3}-[0-9]{2}-[0-9]{2}T')" "$CRUNCH" ) || { RULE_RE_RC=$?; RULE_RE="0"; }
+RULE_RE=$(grep -cF "extractAll(b.req_body, '[(]([a-z][a-z0-9-]+)[)] [(]2[0-9]{3}-[0-9]{2}-[0-9]{2}T')" "$CRUNCH" ) || { RULE_RE_RC=$?; RULE_RE="0"; }
 assert_eq "crunch extracts rule ids anchored before the ISO timestamp" "1" "$RULE_RE"
 
 # ── system log hygiene (text_log reached 143 GiB / 7.4B rows) ─────────

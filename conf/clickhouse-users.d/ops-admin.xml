@@ -1,0 +1,22 @@
+<clickhouse>
+    <!-- Bootstrap admin (REQ-SECURITY-HARDENING FR-1.2): SQL-defined users
+         and grants are managed exclusively by this account. `default` never
+         receives access management. Password from .env (CH_OPS_PASSWORD).
+         Hosts: in-container ops (exec) + host-forwarded connections from
+         the gw-ch gateway of both stacks (rootless port publishing). -->
+    <users>
+        <ops_admin>
+            <password from_env="CH_OPS_PASSWORD"/>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+                <ip>10.99.10.1</ip>
+                <ip>10.99.60.1</ip>
+                <ip>10.99.110.1</ip>
+            </networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </ops_admin>
+    </users>
+</clickhouse>

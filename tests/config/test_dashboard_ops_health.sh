@@ -5,7 +5,8 @@ set -euo pipefail
 # (conf/grafana/dashboards/gateway-ops-health.json)
 # Panels: p1 Total Requests, p4 Error Rate, p2 Active Connections, p5 Request Rate,
 #         p7 Status Code Breakdown, p13 Stream Abort Rate, p14 Stream Status,
-#         p9 Latency p50/p95/p99, p10 Avg Response Time by Model, p11 Bandwidth, p12 Shared Dict
+#         p9 Latency p50/p95/p99, p10 Response Time p50 by Model, p11 Bandwidth,
+#         p12 Shared Dict, p50 Storage hot/archive, p51 Storage by Table
 
 _SELF="${BASH_SOURCE[0]}"
 if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
@@ -28,9 +29,9 @@ assert_json_valid "$LABEL: dashboard JSON is valid" "$F"
 assert_eq "$LABEL: title is Gateway Operations & Health" "Gateway Operations & Health" "$(jq -r '.title' "$F")"
 assert_eq "$LABEL: uid is gateway-ops-health" "gateway-ops-health" "$(jq -r '.uid' "$F")"
 
-# Panel count and datasource split (11 panels: 6 ClickHouse, 5 Prometheus)
-assert_eq "$LABEL: panel count is 11" "11" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: ClickHouse panels" "6" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
+# Panel count and datasource split (13 panels: 8 ClickHouse, 5 Prometheus)
+assert_eq "$LABEL: panel count is 13" "13" "$(jq '.panels|length' "$F")"
+assert_eq "$LABEL: ClickHouse panels" "8" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "5" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
 # Generic structural checks

@@ -77,6 +77,15 @@ else
     echo "[SKIP] OPENCODE_API_KEY not set"
 fi
 
+# Live lockdown matrix only meaningful against the real stack.
+if [ "${EXTERNAL_STACK:-0}" = "1" ]; then
+    run_stage 8 "Security Lockdown Matrix" "e2e/test_security_lockdown.sh"
+else
+    echo ""
+    echo "========== Stage 8: Security Lockdown Matrix =========="
+    echo "[SKIP] external stack not running (run make gw-security-matrix against the live stack)"
+fi
+
 if [ -n "${KEEP_STACK_UP_FOR_E2E:-}" ] && [ "${EXTERNAL_STACK:-0}" != "1" ]; then
     echo ""
     echo "[INFO] Tearing down test stack after all tests..."

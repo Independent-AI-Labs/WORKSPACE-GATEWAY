@@ -76,7 +76,9 @@ Luhn check on credit card patterns.
 **Priority:** 2400 | **Phases:** access, header_filter, body_filter, log
 
 Extracts `usage` and model from SSE final chunk or JSON body. Inserts
-`usage_log` via `ngx.timer.at(0, ...)` (cosockets forbidden in log phase).
+`usage_log` via `ngx.timer.at(0, ...)` (cosockets forbidden in log phase)
+as the `apisix_rw` ClickHouse user (`clickhouse_user` +
+`clickhouse_password_env` route config; env declared in `nginx_config.envs`).
 Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 `cost_calc` (`get_pricing`, `compute_cost`, `resolve_cost`).
 

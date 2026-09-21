@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Structure tests for Dashboard: Gateway Model Experience
 # (conf/grafana/dashboards/gateway-model-experience.json)
-# Panels: score leaderboard + scorecard, rejection rate/baseline/net,
-# signals over time, top rejection strings, session depth, model switch,
-# friction rate, top guard rules.
+# Panels: score leaderboard + scorecard + score cards, rejection rate/
+# baseline/net, top rejection strings, session depth, friction rate,
+# top guard rules.
 # REQ-USEFULNESS-TELEMETRY FR-6/FR-8/FR-9/FR-10.
 
 _SELF="${BASH_SOURCE[0]}"
@@ -30,9 +30,10 @@ assert_eq "$LABEL: title is Gateway Model Experience" "Gateway Model Experience"
 assert_eq "$LABEL: uid is gateway-model-experience" "gateway-model-experience" "$(jq -r '.uid' "$F")"
 
 # Panel inventory: 7 CH panels (p35/p33/p38 removed 2026-09-17:
-# heavy per-bucket query, dubious reader value)
+# heavy per-bucket query, dubious reader value; p47 score cards added
+# 2026-09-19: score cards with hover detail)
 assert_eq "$LABEL: panel count is 6" "6" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: panel ids" "34 37 40 41 42 43" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
+assert_eq "$LABEL: panel ids" "34 37 40 42 43 47" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
 assert_eq "$LABEL: ClickHouse panels" "6" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
@@ -43,7 +44,7 @@ check_dashboard_basics "$F" "$LABEL"
 # Template variables: model + api_key shared, plus dashboard-local
 # include_local (rejection_mode and its p32 consumer removed 2026-09-17:
 # the metric was vader/frustration/profanity lexicon coverage mislabeled
-# as user rejections; explicit rejections remain in p41/p42)
+# as user rejections; explicit rejections remain in the p47 cards + p42)
 
 # Local-model toggle (2026-09-17): include_local custom variable, default
 # exclude, backed by llm_gateway.model_registry (synced from provider yamls)
@@ -80,9 +81,8 @@ printf '%s' "$P34_SQL" | grep -qF 'UNION ALL' && printf '%s' "$P34_SQL" | grep -
 assert_eq "$LABEL: p34 is a single target (no A/B tabs)" "1" "$(jq '[.panels[]|select(.id==34)][0].targets|length' "$F")"
 assert_eq "$LABEL: p34 title is censored rejection strings" "Top User Rejection Strings (censored)" "$(jq -r '[.panels[]|select(.id==34)][0].title' "$F")"
 
-# Readable display names (FR-10.5)
-P41_READABLE=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_READABLE" | grep -qF '"Rej % / n"' && printf '%s' "$P41_READABLE" | grep -qF '"Sw % / n"' && { echo "[PASS] $LABEL: p41 columns use human-readable merged aliases"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 columns keep raw identifiers"; fail=$((fail+1)); }
+# Readable display names (FR-10.5): carried by the p47 card aliases below
+# (p41 scorecard table removed 2026-09-19 -- superseded by the score cards)
 
 # Overall Score (FR-9, revised 2026-09-16): score family with fixed goalposts,
 # geometric aggregation, construct separation, >=30-request gate
@@ -99,19 +99,23 @@ printf '%s' "$P40_STEPS" | grep -q '"value":40' && printf '%s' "$P40_STEPS" | gr
 P40_DESC=$(jq -r '[.panels[]|select(.id==40)][0].description' "$F")
 printf '%s' "$P40_DESC" | grep -qi 'heuristic' && { echo "[PASS] $LABEL: p40 carries behavioral-heuristic annotation"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing heuristic annotation"; fail=$((fail+1)); }
 
-# Scorecard (FR-9.5): per-construct decomposition; each % column merged with
-# its n-index into one cell ("<rate>% / <index>") to keep the table narrow
-P41_SQL=$(jq -r '[.panels[]|select(.id==41)][0].targets[0].rawSql' "$F")
-printf '%s' "$P41_SQL" | grep -qF '"PAI"' && printf '%s' "$P41_SQL" | grep -qF '"Rej % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Abr % / n"' && printf '%s' "$P41_SQL" | grep -qF '"Overall"' && { echo "[PASS] $LABEL: p41 scorecard decomposes PAI + Overall with readable headers"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 scorecard columns missing"; fail=$((fail+1)); }
-P41_WRAP=$(jq -r '[.panels[]|select(.id==41)][0].fieldConfig.defaults.custom.wrapText // "missing"' "$F")
-assert_eq "$LABEL: p41 table wraps text instead of clipping" "true" "$P41_WRAP"
-printf '%s' "$P41_SQL" | grep -qF "'% / '" && { echo "[PASS] $LABEL: p41 merged cells render rate / index in one column"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing merged cell separator"; fail=$((fail+1)); }
-if printf '%s' "$P41_SQL" | grep -qF '"n Rejection"'; then
-    echo "[FAIL] $LABEL: p41 still carries split n-columns"; fail=$((fail+1))
-else
-    echo "[PASS] $LABEL: p41 split n-columns removed"; pass=$((pass+1))
-fi
-printf '%s' "$P41_SQL" | grep -qF '"Fric /100"' && { echo "[PASS] $LABEL: p41 shows friction as context, not merged"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing friction context column"; fail=$((fail+1)); }
+# Score cards (p47, 2026-09-19): Business Text panel (grafana/business-text,
+# Apache-2.0, community-signed, preinstalled via GF_PLUGINS_PREINSTALL --
+# test_compose.sh asserts presence; bare IDs only, the env var has no
+# version-pin syntax). Flat HTML cards from the score-family
+# query; CSS-only hover popover carries the full decomposition. Template HTML
+# passes Grafana's DOMPurify sanitizer; disable_sanitize_html stays false.
+P47_TYPE=$(jq -r '[.panels[]|select(.id==47)][0].type // "missing"' "$F")
+assert_eq "$LABEL: p47 is a Business Text panel" "marcusolsson-dynamictext-panel" "$P47_TYPE"
+P47_CONTENT=$(jq -r '[.panels[]|select(.id==47)][0].options.content' "$F")
+P47_STYLES=$(jq -r '[.panels[]|select(.id==47)][0].options.styles' "$F")
+assert_eq "$LABEL: p47 renders once over all rows (single query, no edge frame)" "allRows" "$(jq -r '[.panels[]|select(.id==47)][0].options.renderMode' "$F")"
+assert_eq "$LABEL: p47 single target (no duplicated score-family query)" "1" "$(jq '[.panels[]|select(.id==47)][0].targets|length' "$F")"
+printf '%s' "$P47_CONTENT" | grep -qF '{{#each data}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{score}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{model}}' && printf '%s' "$P47_CONTENT" | grep -qF "gw-{{verdict}}" && { echo "[PASS] $LABEL: p47 cards iterate models with verdict-colored markup"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 card markup missing"; fail=$((fail+1)); }
+printf '%s' "$P47_CONTENT" | grep -qF '{{rej}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{sw}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{canc}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{ab}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{fric}}' && { echo "[PASS] $LABEL: p47 hover popover carries the full decomposition"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 popover fields missing"; fail=$((fail+1)); }
+printf '%s' "$P47_STYLES" | grep -qF '.gw-card:hover .gw-pop' && printf '%s' "$P47_STYLES" | grep -qF '.gw-pop { display: none' && { echo "[PASS] $LABEL: p47 popover is CSS-only (hidden until hover)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 hover CSS missing"; fail=$((fail+1)); }
+P47_SQL=$(jq -r '[.panels[]|select(.id==47)][0].targets[0].rawSql' "$F")
+printf '%s' "$P47_SQL" | grep -qF 'model_registry' && printf '%s' "$P47_SQL" | grep -qF "'\${include_local}'" && printf '%s' "$P47_SQL" | grep -q 'reqs >= 30' && { echo "[PASS] $LABEL: p47 honours include_local + >=30 gate"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 missing gates"; fail=$((fail+1)); }
 
 # Friction panels (FR-8.5): three marker classes, sparse suppression, stacking
 P42_SQL=$(jq -r '[.panels[]|select(.id==42)][0].targets[].rawSql' "$F")
@@ -126,12 +130,11 @@ printf '%s' "$P42_DESC" | grep -qi 'lower bound' && { echo "[PASS] $LABEL: p42 d
 P43_SQL=$(jq -r '[.panels[]|select(.id==43)][0].targets[0].rawSql' "$F")
 printf '%s' "$P43_SQL" | grep -q 'arrayJoin(guard_rules)' && { echo "[PASS] $LABEL: p43 ranks guard_rules via arrayJoin"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p43 missing arrayJoin(guard_rules)"; fail=$((fail+1)); }
 
-# Grouping (FR-10.6): verdict -> headline stats -> detail/friction
-assert_eq "$LABEL: panels grouped top-to-bottom" "40 41 37 34 42 43" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+# Grouping (FR-10.6): verdict headline -> session depth -> cards -> detail/friction
+assert_eq "$LABEL: panels grouped top-to-bottom" "40 37 47 34 42 43" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
 
-# Local-model toggle reaches both verdict panels (p40 + p41)
+# Local-model toggle reaches both score panels (p40 + p47)
 printf '%s' "$P40_SQL" | grep -qF 'model_registry' && printf '%s' "$P40_SQL" | grep -qF "'\${include_local}'" && { echo "[PASS] $LABEL: p40 honours include_local via model_registry"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing include_local predicate"; fail=$((fail+1)); }
-printf '%s' "$P41_SQL" | grep -qF 'model_registry' && printf '%s' "$P41_SQL" | grep -qF "'\${include_local}'" && { echo "[PASS] $LABEL: p41 honours include_local via model_registry"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p41 missing include_local predicate"; fail=$((fail+1)); }
 
 # Row-keyed bargauges show one gauge per row; bars compare from zero
 assert_eq "$LABEL: bargauge panels use all-values reduce" "2/2" "$(jq -r '[.panels[]|select(.type=="bargauge")]|"\([.[]|select(.options.reduceOptions.values==true)]|length)/\(length)"' "$F")"

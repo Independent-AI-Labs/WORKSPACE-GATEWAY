@@ -62,7 +62,7 @@ that history visible in the existing Grafana cost/usage dashboards and in
 | natural key | `(session_id, role, providerID, modelID, time_created, content_hash)`; source-side duplicate identity |
 | content_hash | MD5 over the message's `text` and `reasoning` parts, ordered by `part.id` |
 | deterministic event_id | `'ocm_' || message.id` (usage_log) / `'ocr_' || message.id` (request_log); makes inserts idempotent |
-| TTL-expired | Rows older than the 13-month `TTL` on the destination tables; ClickHouse drops them post-insert |
+| TTL-expired | Rows older than 13 months  -  a reporting bucket only since retention became indefinite + tiered (REQ-SECURITY-HARDENING FR-4); ClickHouse no longer expires them |
 
 ## 3. Functional Requirements
 
@@ -98,7 +98,7 @@ that history visible in the existing Grafana cost/usage dashboards and in
 ### FR-4: Operational Interface
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | `--dry-run` MUST report, without writing: per-table row counts to insert, source duplicates collapsed, ClickHouse rows already present, rows older than the 13-month TTL that ClickHouse will expire, and pricing coverage (rows with cost = 0, how many resolve via models.dev, how many stay unknown). |
+| FR-4.1 | `--dry-run` MUST report, without writing: per-table row counts to insert, source duplicates collapsed, ClickHouse rows already present, rows older than 13 months (reporting bucket; retention is indefinite per REQ-SECURITY-HARDENING FR-4), and pricing coverage (rows with cost = 0, how many resolve via models.dev, how many stay unknown). |
 | FR-4.2 | Inserts MUST be batched (≤ 5,000 rows per HTTP INSERT, `JSONEachRow`) with per-batch failure aborting the run (no partial import without an abort log; safe to re-run). |
 | FR-4.3 | The migrator MUST NOT delete or mutate anything in ClickHouse or SQLite. Rollback is `ALTER TABLE ... DELETE WHERE event_id LIKE 'ocm_%'` / `'ocr_%'` (documented in the spec, not automated). |
 | FR-4.4 | Exit code MUST be 0 on success (including "nothing to do"), non-zero on any source/destination error. |

@@ -36,9 +36,14 @@ done
 
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 
+# Authenticated ops access (REQ-SECURITY-HARDENING FR-1.3): no
+# unauthenticated access.
+CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+: "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
+
 query_clickhouse() {
     local sql="$1"
-    curl -sSf --max-time 10 "$CH_URL/" --data-binary "$sql"
+    curl -sSf --max-time 10 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
 }
 
 GATEWAY_TOTALS=$(query_clickhouse "

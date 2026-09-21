@@ -19,6 +19,11 @@ CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
 CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 
+# Authenticated ops access (REQ-SECURITY-HARDENING FR-1.3): no
+# unauthenticated access.
+CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+: "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
+
 DRY_RUN=false
 LIMIT=0
 DAYS=7
@@ -39,7 +44,7 @@ DB="$DATABASE"
 
 ch() {
   local sql="$1"
-  curl -sSf --max-time 30 "$CH_URL/" --data-binary "$sql"
+  curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
 }
 
 esc() {

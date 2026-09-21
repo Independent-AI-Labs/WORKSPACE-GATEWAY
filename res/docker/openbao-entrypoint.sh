@@ -13,7 +13,8 @@ export BAO_ADDR="http://127.0.0.1:8200"
 
 BAO_DATA="/openbao/data"
 KEYS_DIR="${BAO_DATA}/.bootstrap"
-EXPECTED_TOKEN="${OPENBAO_TOKEN:-2e22c6e00b0815bcada90dfecb03f3c0}"
+# No hardcoded token: the fixed service token MUST come from .env.
+EXPECTED_TOKEN="${OPENBAO_TOKEN:?OPENBAO_TOKEN not set}"
 GATEWAY_SECRET="secret/gateway/keys/vgw-gateway-key"
 
 mkdir -p "$BAO_DATA" "$KEYS_DIR"

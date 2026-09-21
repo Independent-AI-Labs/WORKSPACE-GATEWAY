@@ -56,7 +56,7 @@ curl -s http://localhost:9080/opencode_federated/v1/chat/completions \
   -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}]}'
 ```
 
-Ports: 9080 (gateway), 9180 (APISIX Admin API + `/ui/`), 8123 (ClickHouse), 9100 (APISIX Prometheus metrics), 8201 (OpenBao), 3030 (Grafana), 9092 (Prometheus).
+Ports (host surface, REQ-SECURITY-HARDENING FR-6.2): **public** 9080/9443 (dev apisix; prod stack 9081/9444); **loopback only** 8123 (dev ClickHouse HTTP, authenticated), 8124 (prod), 3030 (Grafana, edge-proxy auth). etcd, OpenBao, Vector, Prometheus, the APISIX Admin API/metrics, and the ClickHouse native port publish no host ports  -  reach them with `podman exec` (see [RUNBOOK-DEPLOYMENT](docs/runbooks/RUNBOOK-DEPLOYMENT.md)).
 
 ### Prerequisites
 
@@ -65,7 +65,9 @@ Ports: 9080 (gateway), 9180 (APISIX Admin API + `/ui/`), 8123 (ClickHouse), 9100
 - `curl`, `jq`, `openssl`, `xxd` (used by tests and key scripts)
 - `uv` (for `.venv` setup)
 - A `.env` file with `ADMIN_KEY`, `OPENCODE_API_KEY`, `GATEWAY_API_KEY`,
-  `OPENBAO_TOKEN` (see [`.env.example`](.env.example), gitignored)
+  `OPENBAO_TOKEN`, `GRAFANA_ADMIN_PASSWORD`, the ClickHouse credential set,
+  and the etcd credential set (see [`.env.example`](.env.example) and
+  [RUNBOOK-SECRETS](docs/runbooks/RUNBOOK-SECRETS.md), gitignored)
 
 Run `make init` to check all system dependencies and print install
 instructions for any that are missing.
@@ -117,6 +119,8 @@ and [Supported Providers](#supported-providers)). Diagram authoring rules:
 | `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-zai-key` | `/zai-key/*` | Direct key passthrough | Z.ai GLM Coding Plan (`api.z.ai`) → `/api/coding/paas/v4/*` |
+| `relay-alibaba-token-plan` | `/token-plan/*` | Direct key passthrough | Alibaba Cloud Token Plan (`token-plan.ap-southeast-1.maas.aliyuncs.com`) |
+| `relay-alibaba-token-plan-cn` | `/token-plan-cn/*` | Direct key passthrough | Alibaba Cloud Token Plan China (`token-plan.cn-beijing.maas.aliyuncs.com`) |
 | `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile (`host.docker.internal:8765`) |
 
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
@@ -322,9 +326,10 @@ flowchart TB
     Admin -.->|route CRUD| Etcd
 ```
 
-Traditional/etcd mode: routes live in etcd, seeded from the rendered
-`conf/apisix.yaml` on stack start. Admin API and built-in dashboard:
-`http://localhost:9180/ui/`.
+Traditional/etcd mode (RBAC-enabled; APISIX authenticates as a dedicated
+etcd user): routes live in etcd, seeded from the rendered `conf/apisix.yaml`
+on stack start. Admin API and built-in dashboard are reached via
+`podman exec gw-apisix curl http://127.0.0.1:9180/ui/` (no host port).
 
 ### Key Files
 
@@ -357,6 +362,16 @@ Traditional/etcd mode: routes live in etcd, seeded from the rendered
 | `OPENBAO_TOKEN` | Root token for OpenBao KVv2 API | `2e22c6e...` |
 | `CONTEXT_LIMIT_PCT` | Context limit scaling percentage | `80` |
 | `CONTEXT_LIMIT_CEILING` | Absolute max context tokens after scaling | `128000` |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana admin login (strong value; never `admin`) | `(openssl rand)` |
+| `GRAFANA_EDGE_CIDR` | Sources Grafana trusts `X-WEBAUTH-USER` from | `10.99.10.1/32,127.0.0.1/32` |
+| `CLICKHOUSE_PASSWORD` | ClickHouse `default` user (localhost-only) | `(openssl rand)` |
+| `CH_GRAFANA_RO_PASSWORD` | Grafana datasource account (`grafana_ro`, readonly) | `(openssl rand)` |
+| `CH_VECTOR_PASSWORD` | Vector sink account (`vector_rw`, insert-only) | `(openssl rand)` |
+| `CH_APISIX_PASSWORD` | sse-usage account (`apisix_rw`, insert-only) | `(openssl rand)` |
+| `CH_MIGRATOR_PASSWORD` | golang-migrate account (`migrator`, DDL) | `(openssl rand)` |
+| `CH_OPS_PASSWORD` | Operator account (`ops_admin`, full  -  guard like root) | `(openssl rand)` |
+| `ETCD_ROOT_PASSWORD` | etcd bootstrap root credential | `(openssl rand)` |
+| `ETCD_GW_USER` / `ETCD_GW_PASSWORD` | APISIX → etcd non-root credential | `apisix` / `(openssl rand)` |
 
 ### ClickHouse Tables
 
@@ -375,15 +390,23 @@ flowchart TB
     Vector --> CH
 ```
 
-`sse-usage` writes `usage_log` directly; `http-logger` ships full
-request/response metadata to Vector, which inserts `request_log`.
+`sse-usage` writes `usage_log` directly (as `apisix_rw`); `http-logger`
+ships full request/response metadata to Vector, which inserts `request_log`
+(metadata) and `request_bodies` (bodies  -  PII-tokenized in `req_body` by the
+`redact` plugin before logging, and invisible to the Grafana datasource).
 
 | Table | Written By | Key Columns |
 |-------|-----------|-------------|
-| `request_log` | Vector (from http-logger) | `request_id`, model, status, req_body, resp_body, identity columns |
+| `request_log` | Vector (from http-logger) | `request_id`, model, status, identity columns (no bodies) |
+| `request_bodies` | Vector (from http-logger) | `event_id`, `request_id`, `req_body`, `resp_body` (`ops_admin`-only) |
 | `usage_log` | sse-usage plugin (via timer) | `request_id`, model, token breakdown, `cost`, `cost_source` |
 | `billing_ledger` | MV on `usage_log` INSERT | cost `Decimal64(6)`, rate_input/output, cache_status |
 | `billing_discrepancies` | v2 reconciler (deferred) | gateway_tokens, provider_tokens, divergence |
+
+Retention is tiered compression (storage policy `tiered`, ZSTD-recompressed
+archive volume), not deletion; growth is monitored by the ops-health storage
+panel + alert and nightly backups land on `/mnt/ws-backup`
+([REQ-SECURITY-HARDENING](docs/requirements/REQ-SECURITY-HARDENING.md)).
 
 ### Grafana Dashboards
 
@@ -560,7 +583,7 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make gw-build` | Build container images |
 | `make gw-start` | Start stack via systemd, provision keys, health checks |
 | `make gw-stop` | Stop stack via systemd (keep volumes) |
-| `make gw-restart` | Restart existing containers via systemd; does not build or recreate |
+| `make gw-restart` | Restart the stack via systemd. NOTE: the unit's ExecStart force-recreates every container from the current compose (it does NOT preserve running containers or apply compose network changes selectively) |
 | `make gw-update` | Build images, redeploy changed services via systemd, reconcile, and verify |
 | `make gw-reconcile` | Reconcile routes, schema, and provider catalog without restarting containers |
 | `make gw-verify` | Health report: status + one request through the gateway |
@@ -569,6 +592,7 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make gw-shell` | Exec into APISIX container |
 | `make gw-test` | Run full test suite against the running stack |
 | `make gw-restart-service SVC=name` | Restart one existing service without recreating it |
+| `make gw-recreate-service SVC=name` | Recreate ONE service from the current compose (applies network/env changes; grafana/clickhouse/vector/openbao/prometheus/etcd) |
 | `make gw-restart-grafana` | Restart Grafana, reload provisioning, sync dashboard defaults |
 | `make gw-deploy` | Install + enable gateway compose on boot (systemd user + linger) |
 | `make gw-undeploy` | Disable + remove gateway compose systemd unit |

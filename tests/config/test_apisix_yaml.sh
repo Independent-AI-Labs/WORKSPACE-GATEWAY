@@ -41,7 +41,7 @@ fi
 
 assert_eq "Valid YAML (parseable)" "ok" "ok"
 
-assert_eq "Exactly 16 routes" "16" "$(echo "$JSON_DATA" | jq '.routes | length')"
+assert_eq "Exactly 18 routes" "18" "$(echo "$JSON_DATA" | jq '.routes | length')"
 
 # --- relay-opencode (passthrough, no key-resolver) ---
 OC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode")][0]')
@@ -507,5 +507,6 @@ assert_eq "relay-kimi-key-v1: proxy-rewrite replacement is /coding/v1/" '/coding
 
 source "$SCRIPT_DIR/test_provider_sync_route.sh" || exit 1
 source "$SCRIPT_DIR/test_zai_provider.sh" || exit 1
+source "$SCRIPT_DIR/test_alibaba_token_plan_routes.sh" || exit 1
 source "$SCRIPT_DIR/test_oauth_auth_routes.sh" || exit 1
 summary

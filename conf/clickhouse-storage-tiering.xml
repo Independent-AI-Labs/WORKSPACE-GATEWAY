@@ -1,0 +1,36 @@
+<clickhouse>
+    <!-- Tiered storage policy (REQ-SECURITY-HARDENING FR-4.2):
+         hot = default data volume, archive = compressed cold tier on the
+         same volume (/var/lib/clickhouse/arch_store/). ws-backup (fuseblk)
+         is a BACKUP target only, never a live disk (constraint C-1).
+         NOTE: the implicit `default` disk must NOT be redefined here -
+         ClickHouse 24.8 fails startup with UNKNOWN_ELEMENT_IN_CONFIG. -->
+    <storage_configuration>
+        <disks>
+            <archive>
+                <path>/var/lib/clickhouse/arch_store/</path>
+            </archive>
+            <!-- BACKUP DATABASE llm_gateway TO Disk('backups', '<name>')
+                 target for the nightly gateway-ch-backup timer. -->
+            <backups>
+                <path>/var/lib/clickhouse/backups/</path>
+            </backups>
+        </disks>
+        <policies>
+            <tiered>
+                <volumes>
+                    <!-- Volume MUST be named `default`: ClickHouse requires
+                         the new policy to contain every volume of the old
+                         `default` policy when ALTERing storage_policy. -->
+                    <default>
+                        <disk>default</disk>
+                    </default>
+                    <archive>
+                        <disk>archive</disk>
+                    </archive>
+                </volumes>
+                <move_factor>0.2</move_factor>
+            </tiered>
+        </policies>
+    </storage_configuration>
+</clickhouse>

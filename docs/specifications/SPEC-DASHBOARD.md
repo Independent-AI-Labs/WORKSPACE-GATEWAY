@@ -16,7 +16,7 @@
 - [REQ-DASHBOARD](../requirements/REQ-DASHBOARD.md): requirements
 - [architecture/OPEN-ISSUES.md](../architecture/OPEN-ISSUES.md): known issues audit
 - [`conf/grafana/dashboards/gateway-cost-usage.json`](../../conf/grafana/dashboards/gateway-cost-usage.json): uid `gateway-cost-usage` (panels 3, 15, 8, 46)
-- [`conf/grafana/dashboards/gateway-ops-health.json`](../../conf/grafana/dashboards/gateway-ops-health.json): uid `gateway-ops-health` (panels 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12)
+- [`conf/grafana/dashboards/gateway-ops-health.json`](../../conf/grafana/dashboards/gateway-ops-health.json): uid `gateway-ops-health` (panels 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12, 50)
 - [`conf/grafana/dashboards/gateway-cost-leaderboard.json`](../../conf/grafana/dashboards/gateway-cost-leaderboard.json): uid `gateway-cost-leaderboard` (panels 20-23)
 
 ---
@@ -26,7 +26,7 @@
 | Dashboard | UID | Panels | Datasources |
 |-----------|-----|--------|-------------|
 | Gateway Cost & Usage | `gateway-cost-usage` | 3 (stat), 15 (timeseries), 8 (bargauge), 46 (piechart) | 4 CH |
-| Gateway Operations & Health | `gateway-ops-health` | 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12 | 6 CH + 5 Prom |
+| Gateway Operations & Health | `gateway-ops-health` | 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12, 50 | 7 CH + 5 Prom |
 | Gateway Cost Leaderboard | `gateway-cost-leaderboard` | 20, 21 (podium stat, top 3, enlarged) + 22, 23 (runner-up stat, 4-10) | 4 CH |
 
 All dashboards: time `now-90d`→`now`, refresh `5s`.
@@ -251,6 +251,21 @@ ingress cerulean, egress celadon.
 `(1 - apisix_shared_dict_free_space_bytes{name="key_cache"} / apisix_shared_dict_capacity_bytes{name="key_cache"}) * 100`
 and identically for `name="redact_state"`. Exact label matches, min 0 / max
 100, stepAfter interpolation. Colors: key_cache teal, redact_state bronze.
+
+### Panel 50: Storage Growth (timeseries + stat, CH, grid x:0 y:52 w:24 h:8)
+
+Bytes-on-disk per `llm_gateway` table over time:
+`SELECT sum(bytes_on_disk) FROM system.parts WHERE database = 'llm_gateway' GROUP BY table`
+plus a free-space stat from `system.disks` (`free_space_bytes` /
+`total_space_bytes`). Runs under the `grafana_ro` grants (system.parts,
+system.disks, system.tables only  -  REQ-SECURITY-HARDENING FR-2.1). A unified
+alert rule on the stat fires below 20% free or on anomalous growth
+(REQ-SECURITY-HARDENING FR-4.3). No `request_bodies` reference.
+
+Datasource identity: the ClickHouse datasource authenticates as `grafana_ro`
+with `secureJsonData.password` from `$CH_GRAFANA_RO_PASSWORD` in
+[`conf/grafana/provisioning/datasources/datasources.yml`](../../conf/grafana/provisioning/datasources/datasources.yml);
+no datasource ever carries `ops_admin` credentials (SPEC-SECURITY-HARDENING §8).
 
 ## 6. Gateway Cost Leaderboard
 

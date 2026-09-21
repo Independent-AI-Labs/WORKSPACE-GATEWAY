@@ -270,7 +270,7 @@ CREATE TABLE IF NOT EXISTS llm_gateway.request_signals (
 ) ENGINE = ReplacingMergeTree()
 ORDER BY (model, timestamp, request_id)
 PARTITION BY toYYYYMM(timestamp)
-TTL toDateTime(timestamp) + INTERVAL 13 MONTH
+-- no deletion TTL: tiered compression retention (REQ-SECURITY-HARDENING FR-4)
 SETTINGS index_granularity = 8192,
          parts_to_delay_insert = 500,
          parts_to_throw_insert = 1000,
@@ -416,20 +416,20 @@ agent-environment construct (shown as context columns and dedicated panels);
 speed is a routing input. This is the direct lesson of the v1 critique: a
 model cannot buy back rejection language or aborts with fast tokens.
 
-### 6.3 Scorecard (p41)
+### 6.3 Score decomposition (p47 cards, superseded the p41 table 2026-09-19)
 
-One row per model: Requests, raw rates (Followup Rejection %, Switches %, Cancels
-%, Aborts %), standardized indices (n Rejection, n Switches, n Cancels,
-n Reliability), PAI (0-100), Overall Score, and Friction per 100 as a context
-column (explicitly not part of either composite). Bands: ≥ 70 good (green),
-40-69 mixed (yellow), < 40 poor (red); panels carry the behavioral-heuristic
-annotation.
+Per model the hover face of each score card shows: Rejections/Switches/Cancels/Aborts
+as `rate% (idx n)` merged strings, PAI (0-100), Overall Score (the card headline),
+and Friction per 100 as context (explicitly not part of either composite). Bands:
+≥ 70 good (green), 40-69 mixed (yellow), < 40 poor (red); panels carry the
+behavioral-heuristic annotation. The former p41 scorecard table carried the same
+decomposition flat; it was removed once the cards made it redundant.
 
 ## 7. Dashboards `conf/grafana/dashboards/gateway-model-experience.json` + `gateway-model-performance.json`
 
 Split 2026-09-16 from the former monolithic `gateway-usefulness` dashboard:
-**Model Experience** (6 panels, ids 34/37/40-43: Overall Score +
-scorecard, top rejection strings, session depth, friction rate, top guard
+**Model Experience** (6 panels, ids 34/37/40/42/43/47: Overall Score +
+score cards, top rejection strings, session depth, friction rate, top guard
 rules; carries `include_local`) and **Model Performance** (5 panels, ids
 30/31/36/44/45 - prefill/decode speed p50, cancel/abort rates, wasted
 tokens & cost, cost + time per completed response). Renamed uid
@@ -439,7 +439,7 @@ Conventions: identical to SPEC-DASHBOARD §3 variables plus:
 
 - `include_local`: custom variable, options `include : yes` /
   `exclude : no` (default `exclude`, `allValue: yes` per REQ-DASHBOARD
-  FR-3.3). Both verdict panels (p40/p41) append
+  FR-3.3). Both score panels (p40/p47) append
   `AND ('${include_local}' = 'yes' OR model NOT IN (SELECT model FROM
   llm_gateway.model_registry WHERE is_local = 1))`; `model_registry` is
   materialized by `res/scripts/sync-model-registry.sh` (`make
@@ -463,18 +463,19 @@ WITH gated AS (
 |----|-------|-----------|
 | 30 | Prefill Speed by Model (bargauge, p50) | `medianExactIf(prompt_tokens / nullIf(ttft_content_ms,0) * 1000, ttft_content_ms >= 100)` over `is_stream=1`, model IN gated; avg branch removed 2026-09-17 (p50 only), full fleet coverage via migrated timing |
 | 31 | Cancel / Provider-abort rate (stat ×2) | `100 * countIf(aborted=1) / count()` over streams; same for `aborted=2` |
-| 32 | (removed 2026-09-17) | Rejection-rate stat + `rejection_mode` toggle deleted by operator order: the metric was `signal_count`/`signal_weight` lexicon coverage (vader-negative + frustration + profanity hits on follow-up messages, 37.39% window rate) presented as "User Rejection Rate" while explicit `user_rejections` events measure 1.21% on the same window; explicit rejections remain in p41 (`Rej % / n`) and p42 |
-| 33 | (removed 2026-09-17) | Baseline-vs-reactive + signed-net chart deleted: the baseline-differencing interpretation it visualized was retired with the absolute-rate rejection metric (§6.1); the scorecard's `Rej % / n` column is the decomposition now |
+| 32 | (removed 2026-09-17) | Rejection-rate stat + `rejection_mode` toggle deleted by operator order: the metric was `signal_count`/`signal_weight` lexicon coverage (vader-negative + frustration + profanity hits on follow-up messages, 37.39% window rate) presented as "User Rejection Rate" while explicit `user_rejections` events measure 1.21% on the same window; explicit rejections remain in the p47 card hover (`rej`) and p42 |
+| 33 | (removed 2026-09-17) | Baseline-vs-reactive + signed-net chart deleted: the baseline-differencing interpretation it visualized was retired with the absolute-rate rejection metric (§6.1); the p47 card hover (`rej`) is the decomposition now |
 | 34 | Top rejection terms (table) | merged profane + frustration table, `arrayJoin(profane_terms) AS term, count()` … `ORDER BY count DESC LIMIT 15`, censored |
 | 35 | (removed 2026-09-17) | Signals-over-time panel deleted: heavy per-bucket query, dubious reader value; p33 + p42 cover the time dimension |
 | 36 | Wasted tokens & cost (stat) | `sum(if(aborted>0, completion_tokens, 0))` **plus rejected tool calls**: `lagInFrame` of the generation preceding a marker-bearing request (`user_rejections + rule_denials + guard_blocks > 0`, same session) with `prev_ab = 0` so aborted generations are never double-counted; the same attribution adds `prev_cost`, so waste $ covers both sources; B/M/K compact token strings; `$` exact waste cost |
 | 37 | Session depth by model (bargauge) | messages per `session_id` from request_log, avg per model, gated |
-| 38 | (removed 2026-09-17) | Model-switch timeseries deleted: it cannot discern a mid-session switch caused by a usage limit from one caused by user decision, so the per-bucket trend carried no decision value; the switch factor itself stays in the score (§6.2) and its per-model value is visible in the scorecard `Sw % / n` column |
+| 38 | (removed 2026-09-17) | Model-switch timeseries deleted: it cannot discern a mid-session switch caused by a usage limit from one caused by user decision, so the per-bucket trend carried no decision value; the switch factor itself stays in the score (§6.2) and its per-model value is visible in the p47 card hover (`sw`) |
 | 39 | (removed 2026-09-17) | Historical decode proxy deleted: migrated `duration_ms`/`ttft_content_ms` make native per-message timing dominate |
 | 40 | **Overall Score leaderboard** (bargauge) | §6.2 composition; one row per qualifying model, verdict-colored bands ≥70/40, "behavioral heuristic" annotation; honours `include_local` |
-| 41 | **Scorecard** (table) | §6.3 un-rolled CTE; since 2026-09-17 each rate column merges its normalized index into one cell (`"26.68% / 0.47"`) under short headers (`Rej % / n`, `Sw % / n`, `Canc % / n`, `Abr % / n`, `PAI`, `Overall`, `Fric /100`) with `wrapText` so nothing clips; honours `include_local` |
+| 41 | (removed 2026-09-19) | Scorecard table deleted by operator order: the p47 score cards' hover decomposition carries the same per-construct breakdown (rates + indices + PAI + friction) in card form, making the flat table redundant; merged-cell/wrapText requirements retired with it |
 | 42 | **Friction rate** (stacked timeseries) | per model per bucket: `100 × (guard_blocks + user_rejections + rule_denials) / count()`, split by class (three series), `HAVING count() >= 5`, description notes lower-bound + quoting caveats |
 | 43 | **Top guard rules** (table/bar) | `arrayJoin(guard_rules) AS rule, count()` … `ORDER BY count DESC LIMIT 15` |
+| 47 | **Score cards** (Business Text panel `marcusolsson-dynamictext-panel`, preinstalled via `GF_PLUGINS_PREINSTALL`) | same score-family CTE as p40/p41, single query with card-friendly aliases (`model, verdict, score, pai, reqs, rej, sw, canc, ab, fric`  -  rates pre-formatted as `x% (idx y)` strings in SQL); `renderMode: allRows` + `{{#each data}}` Handlebars template emits one flat card per model: verdict-colored top accent (good `#70c1b3` / mixed `#ffe066` / poor `#f25f5c`), 32px score headline, 18px model name, `PAI x · N requests`; hovering flips the card  -  a CSS-only overlay (`.gw-card:hover .gw-pop`, `display:none` until hover, absolutely positioned `inset 0` over the card) replaces the card face with the full decomposition table, so nothing floats into the grid or clips at the panel edge; card CSS lives in the panel `styles` option **nested under `& {}`** (the option is compiled through an Emotion `css` template  -  stylis scopes nested selectors to the panel and rules compile via CSSOM, so they never appear in `textContent` of `style` tags) using Grafana theme vars (`--grafana-border-color-weak`, `--grafana-background-secondary/primary`); template HTML passes Grafana's DOMPurify sanitizer, `disable_sanitize_html` stays false; honours `include_local`; one score-family query (half the node-graph trial's cost); gridPos h=12 (two 150px card rows) |
 | 44 | Decode Speed by Model (bargauge, p50) | `medianExactIf(completion_tokens / nullIf(duration_ms − ttft_content_ms, 0) * 1000, duration_ms − ttft_content_ms >= 100)`, p50 only since 2026-09-17 |
 | 45 | Cost & Time per Completed Response (stat, avg) | `sumIf(cost, aborted=0) / countIf(aborted=0)`, `avgIf(duration_ms, aborted=0 AND duration_ms > 0) / 1000`, completed count (compact B/M/K); explicitly labeled averages (budget math needs means; p50 lives on the speed panels) |
 
@@ -539,8 +540,10 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | Tests | Implemented | tests/lua/test_usefulness_cruncher.lua; tests/integration/test_crunch_idempotency.sh; extended test_clickhouse_sql.sh, test_grafana_provisioning.sh, dashboard_assert.sh |
 | Friction telemetry (§5) | Implemented | migration 000009 + crunch INSERT expressions + panels 42-43; live backfill 2026-09-16 |
 | Usefulness Score (§6) | Implemented | panels 40-41 + weights CTE; 12 models scored live |
-| Readability refinements (REQ FR-10.2/3/4/5) + 2026-09-17 operator pass | Implemented | threshold bands (p31/p40); p50-only speed panels (p30/p44) with full fleet coverage via migrated timing; rejected-tool-call waste in p36 (lagInFrame prev-generation attribution, no double count); p45 standalone completed-response averages; scorecard %/index merged cells under short wrap-enabled headers; p35 signals-over-time, p33 baseline-vs-reactive and p38 model-switch timeseries removed (baseline differencing retired; switch cause is indiscernible); include_local toggle (p40/p41) backed by `model_registry` (`make gw-sync-model-registry`); tiered layouts: experience: 40/41 → 32/37 → 34/42/43; performance: 30/44 → 31/36/45 |
+| Readability refinements (REQ FR-10.2/3/4/5) + 2026-09-17 operator pass | Implemented | threshold bands (p31/p40); p50-only speed panels (p30/p44) with full fleet coverage via migrated timing; rejected-tool-call waste in p36 (lagInFrame prev-generation attribution, no double count); p45 standalone completed-response averages; scorecard %/index merged cells under expanded wrap-enabled headers; p35 signals-over-time, p33 baseline-vs-reactive and p38 model-switch timeseries removed (baseline differencing retired; switch cause is indiscernible); include_local toggle (p40/p47) backed by `model_registry` (`make gw-sync-model-registry`); tiered layouts: experience: 40/37 → 47 → 34/42/43; performance: 30/44 → 31/36/45 |
 | rejection_mode + p32 removal (operator order 2026-09-17) | Implemented | the mode toggle and its only consumer panel deleted from `gateway-model-experience.json` (layout: 40/41 → 37 full-width → 34/42/43): the metric was lexicon coverage (37.39% window rate) presented as "User Rejection Rate" while explicit `user_rejections` events measure 1.21% on the same window; REQ FR-5.1 struck, tests updated |
+| Score cards p47 (operator order 2026-09-19) | Implemented | flat design cards replace the same-day node-graph trial ("superbad"): Business Text panel, `renderMode: allRows`, one score-family query with pre-formatted rate/index strings; verdict-colored accent + score headline + PAI/requests per card, CSS-only hover popover with the full decomposition; sanitization left on; SQL sanity-checked live (10 models, HTTP 200); plugin preinstalled via `GF_PLUGINS_PREINSTALL` in both compose files (bare IDs  -  the env var has no `id:version` pin syntax; a colon-pinned token is treated as the whole plugin ID and the catalog 404s it); test_grafana_provisioning.sh panel-count drift (6/6/30/22) fixed to 7/7/31/23 |
+| Scorecard table p41 removed (operator order 2026-09-19) | Implemented | the p47 score cards replace the table outright; cards move full-width under the headline pair (40/37 → 47 → 34/42/43), session depth (p37) moves up beside the bargauge; 6 panels / 6 CH / 30 total / 22 api_key assertions updated; tests 68/75 renormalized (p41 blocks deleted) |
 
 ## 11. References (research grounding, 2026-09-16)
 

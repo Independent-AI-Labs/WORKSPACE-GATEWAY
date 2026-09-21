@@ -1,14 +1,33 @@
 #!/bin/bash
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# /proc/fd execution resolves to /proc; use the caller cwd (repo root).
+if [ ! -f "$REPO_ROOT/res/scripts/gateway-compose.sh" ] && [ -f "$PWD/res/scripts/gateway-compose.sh" ]; then
+    REPO_ROOT="$PWD"
+fi
+
 GATEWAY="http://localhost:9080"
 FED_ROUTE="/opencode_federated/v1/models"
 OC_ROUTE="/opencode/v1/models"
 CORRECT_KEY="${GATEWAY_API_KEY:-vgw-gateway-key}"
 WRONG_KEY="vgw-nonexistent-key-xxxxx"
 DIRECT_KEY="${OPENCODE_API_KEY:-sk-test-direct}"
-OPENBAO_ADDR="http://localhost:8201"
-OPENBAO_TOKEN="${OPENBAO_TOKEN:-2e22c6e00b0815bcada90dfecb03f3c0}"
+OPENBAO_ADDR="${OPENBAO_ADDR:-http://localhost:8201}"
+: "${OPENBAO_TOKEN:?OPENBAO_TOKEN not set (source repo .env)}"
+
+# 8201 is only published on the test fixture; on the live stack OpenBao is
+# reached in-container via the reviewed exec wrapper.
+openbao_probe() {
+    if curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 \
+        "$OPENBAO_ADDR/v1/sys/health" | grep -qE '200|429|501|503'; then
+        return 0
+    fi
+    PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set (the repo Makefile exports it)}" \
+        bash "$REPO_ROOT/res/scripts/gateway-compose.sh" exec openbao -- \
+        curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 \
+        http://127.0.0.1:8200/v1/sys/health | grep -qE '200|429|501|503'
+}
 
 pass=0
 fail=0
@@ -48,16 +67,13 @@ wait_for_openbao() {
     local max_attempts=15
     local attempt=0
     while [ "$attempt" -lt "$max_attempts" ]; do
-        local code
-        code_RC=0
-        code=$(http_code "$OPENBAO_ADDR/v1/sys/health" ) || { code_RC=$?; code=""; }
-        if [ -n "$code" ] && [ "$code" != "000" ]; then
+        if openbao_probe; then
             return 0
         fi
         attempt=$((attempt + 1))
         sleep 2
     done
-    record_fail "OpenBao not reachable at $OPENBAO_ADDR"
+    record_fail "OpenBao not reachable at $OPENBAO_ADDR (host) or in-container (exec)"
     return 1
 }
 
@@ -94,14 +110,25 @@ test_fed_correct_key_not_401() {
     return 0
 }
 
+# Write to OpenBao: host forward when published (fixture), else in-container
+# curl through the reviewed exec wrapper.
+bao_write() {
+    local body="$1" path="$2"
+    local args=(-sS -o /dev/null -X POST -H "X-Vault-Token: $OPENBAO_TOKEN" -H "Content-Type: application/json" -d "$body")
+    if curl -sS -o /dev/null --connect-timeout 2 "$OPENBAO_ADDR/v1/sys/health"; then
+        curl "${args[@]}" "$OPENBAO_ADDR$path"
+    else
+        PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set (the repo Makefile exports it)}" \
+            bash "$REPO_ROOT/res/scripts/gateway-compose.sh" exec openbao -- \
+            curl "${args[@]}" "http://127.0.0.1:8200$path"
+    fi
+}
+
 test_fed_issued_key_works() {
     local new_key
     new_key="vgw-test-$(date +%s)"
-    curl -fsS -o /dev/null -X POST \
-        -H "X-Vault-Token: $OPENBAO_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"data\":{\"virtual_key\":\"$new_key\",\"upstream_key\":\"\",\"tenant_id\":\"test-tenant\",\"user_id\":\"test-user\",\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}}" \
-        "$OPENBAO_ADDR/v1/secret/data/gateway/keys/$new_key" || {
+    bao_write "{\"data\":{\"virtual_key\":\"$new_key\",\"upstream_key\":\"\",\"tenant_id\":\"test-tenant\",\"user_id\":\"test-user\",\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}}" \
+        "/v1/secret/data/gateway/keys/$new_key" || {
         record_fail "failed to issue test key in OpenBao"
         return 1
     }
@@ -119,11 +146,8 @@ test_fed_issued_key_works() {
 test_fed_revoked_key_rejected() {
     local rev_key
     rev_key="vgw-revoked-$(date +%s)"
-    curl -fsS -o /dev/null -X POST \
-        -H "X-Vault-Token: $OPENBAO_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"data\":{\"virtual_key\":\"$rev_key\",\"upstream_key\":\"\",\"tenant_id\":\"test\",\"user_id\":\"test\",\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}}" \
-        "$OPENBAO_ADDR/v1/secret/data/gateway/keys/$rev_key" || {
+    bao_write "{\"data\":{\"virtual_key\":\"$rev_key\",\"upstream_key\":\"\",\"tenant_id\":\"test\",\"user_id\":\"test\",\"active\":true,\"created_at\":\"2026-01-01T00:00:00Z\"}}" \
+        "/v1/secret/data/gateway/keys/$rev_key" || {
         record_fail "failed to issue key for revoke test"
         return 1
     }
@@ -135,11 +159,8 @@ test_fed_revoked_key_rejected() {
         return 1
     fi
 
-    curl -fsS -o /dev/null -X POST \
-        -H "X-Vault-Token: $OPENBAO_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"data\":{\"virtual_key\":\"$rev_key\",\"upstream_key\":\"\",\"tenant_id\":\"test\",\"user_id\":\"test\",\"active\":false,\"created_at\":\"2026-01-01T00:00:00Z\",\"revoked_at\":\"2026-01-02T00:00:00Z\"}}" \
-        "$OPENBAO_ADDR/v1/secret/data/gateway/keys/$rev_key" || {
+    bao_write "{\"data\":{\"virtual_key\":\"$rev_key\",\"upstream_key\":\"\",\"tenant_id\":\"test\",\"user_id\":\"test\",\"active\":false,\"created_at\":\"2026-01-01T00:00:00Z\",\"revoked_at\":\"2026-01-02T00:00:00Z\"}}" \
+        "/v1/secret/data/gateway/keys/$rev_key" || {
         record_fail "failed to revoke key in OpenBao"
         return 1
     }

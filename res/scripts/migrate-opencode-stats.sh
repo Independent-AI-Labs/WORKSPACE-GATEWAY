@@ -9,6 +9,14 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [ ! -f "$REPO_ROOT/res/scripts/lib-opencode-stats-extract.sh" ] \
+    && [ -f "$PWD/res/scripts/lib-opencode-stats-extract.sh" ]; then
+    REPO_ROOT="$PWD"
+fi
+if ! source "$REPO_ROOT/res/scripts/lib-opencode-stats-extract.sh"; then
+    echo "[FAIL] cannot source lib-opencode-stats-extract.sh from $REPO_ROOT" >&2
+    exit 1
+fi
 
 DRY_RUN=false
 FORCE=false
@@ -19,6 +27,10 @@ DB="${DATABASE:-llm_gateway}"
 BATCH_SIZE="${BATCH_SIZE:-5000}"
 OPENCODE_DBS="${OPENCODE_DBS:-$HOME/.local/share/opencode/opencode.db:$HOME/.local/share/opencode/opencode-dev.db}"
 MODELS_DEV_URL="${MODELS_DEV_URL:-https://models.dev/api.json}"
+
+# Authenticated ops access (REQ-SECURITY-HARDENING FR-1.3); no unauthenticated access.
+CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+: "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -37,6 +49,7 @@ trap 'rm -rf "$TMPD"' EXIT
 ch() {
     local code
     if ! code=$(printf '%s' "$1" | curl -sS --max-time 300 -o "$TMPD/resp.txt" -w '%{http_code}' \
+            --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
             "$CH_URL/" --data-binary @-); then
         echo "[FAIL] ClickHouse request error" >&2; return 1
     fi
@@ -98,90 +111,7 @@ echo "[INFO] pricing entries: $(wc -l < "$TMPD/pricing.tsv")" >&2
 : > "$TMPD/usermark.tsv"
 : > "$TMPD/firstpart.tsv"
 
-IFS=':' read -ra DBS_ARR <<< "$OPENCODE_DBS"
-for SRC in "${DBS_ARR[@]}"; do
-    [ -n "$SRC" ] || continue
-    if [ ! -f "$SRC" ]; then
-        echo "[WARN] source not found, skipping: $SRC" >&2
-        continue
-    fi
-    URI="file:${SRC}?mode=ro"
-    echo "[INFO] extracting $SRC" >&2
-
-    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
-SELECT p.message_id, p.session_id, p.time_created,
-       hex(json_extract(p.data,'\$.type') || ':' || coalesce(json_extract(p.data,'\$.text'),'')),
-       length(CAST(coalesce(json_extract(p.data,'\$.text'),'') AS BLOB))
-FROM part p
-WHERE json_extract(p.data,'\$.type') IN ('text','reasoning')
-ORDER BY p.message_id, p.id;
-" | awk -F'\t' -v hashf="$TMPD/hash.tsv" -v streamf="$TMPD/partstream.tsv" '
-    function flush() {
-        if (cur == "") return
-        cmd = "printf %s \x27" buf "\x27 | md5sum"
-        cmd | getline line
-        close(cmd)
-        split(line, a, " ")
-        print cur "\t" a[1] "\t" bytes >> hashf
-    }
-    {
-        print $1 "\t" $2 "\t" $3 "\t" $5 >> streamf
-        if ($1 != cur) { flush(); cur = $1; buf = $4; bytes = $5+0 }
-        else { buf = buf "0A" $4; bytes += $5 }
-    }
-    END { flush() }
-'
-
-    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
-SELECT m.id, m.session_id, m.time_created,
-       coalesce(json_extract(m.data,'\$.providerID'),''),
-       coalesce(json_extract(m.data,'\$.modelID'),''),
-       coalesce(json_extract(m.data,'\$.cost'),0),
-       coalesce(json_extract(m.data,'\$.tokens.input'),0),
-       coalesce(json_extract(m.data,'\$.tokens.output'),0),
-       coalesce(json_extract(m.data,'\$.tokens.reasoning'),0),
-       coalesce(json_extract(m.data,'\$.tokens.cache.read'),0),
-       coalesce(json_extract(m.data,'\$.agent'), coalesce(s.agent,''), ''),
-       coalesce(s.project_id,''), coalesce(s.parent_id,''), s.version,
-        strftime('%Y-%m-%d %H:%M:%f', m.time_created/1000.0, 'unixepoch'),
-       coalesce(json_extract(m.data,'\$.error.name'),''),
-       coalesce(json_extract(m.data,'\$.time.completed'),0)
-FROM message m JOIN session s ON s.id = m.session_id
-WHERE json_extract(m.data,'\$.role')='assistant'
-ORDER BY m.id;
-" >> "$TMPD/msg.tsv"
-
-    # First visible (non-reasoning) part per message: content TTFT input.
-    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
-SELECT message_id, min(time_created) FROM part
-WHERE json_extract(data,'\$.type') != 'reasoning'
-GROUP BY message_id ORDER BY message_id;
-" >> "$TMPD/firstpart.tsv"
-
-    # Role timeline per session (req_body synthesis: prior assistant turns
-    # detect followup requests the way resent conversation history would).
-    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
-SELECT m.id, m.session_id, m.time_created, coalesce(json_extract(m.data,'\$.role'),'')
-FROM message m ORDER BY m.session_id, m.time_created;
-" >> "$TMPD/roles.tsv"
-
-    # User prompt texts plus tool/marker texts carrying guard-block and
-    # permission-rejection markers (same marker strings the usefulness
-    # cruncher counts). Text sanitized to single-line, capped at 64 KiB.
-    sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$URI" "
-SELECT p.message_id, p.session_id, p.time_created,
-       CASE WHEN json_extract(m.data,'\$.role')='user' THEN 'U' ELSE 'M' END,
-       replace(replace(replace(substr(coalesce(json_extract(p.data,'\$.text'),''),1,65536),
-         char(9),' '), char(10),' '), char(13),' ')
-FROM part p JOIN message m ON m.id = p.message_id
-WHERE (json_extract(m.data,'\$.role')='user' AND json_extract(p.data,'\$.type')='text')
-   OR json_extract(p.data,'\$.text') LIKE '%BLOCKED: bash %'
-   OR json_extract(p.data,'\$.text') LIKE '%BLOCKED: ts=%'
-   OR json_extract(p.data,'\$.text') LIKE '%The user rejected permission to use this specific tool call%'
-   OR json_extract(p.data,'\$.text') LIKE '%The user has specified a rule which prevents you from using this specific tool call%'
-ORDER BY p.session_id, p.time_created;
-" >> "$TMPD/usermark.tsv"
-done
+extract_opencode_rows "$OPENCODE_DBS" "$TMPD"
 
 EXTRACTED=$(wc -l < "$TMPD/msg.tsv")
 echo "[INFO] extracted $EXTRACTED assistant message(s)" >&2
@@ -356,6 +286,7 @@ if [ -n "$BACKUP_DIR" ]; then
         printf '%s\trows=%s\tcityHash64sum=%s\n' "$t" "$cnt" "$cks" \
             >> "$BACKUP_DIR/manifest.txt"
         if ! curl -sS --max-time 600 -o "$BACKUP_DIR/$t.native" \
+                --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
                 "$CH_URL/" --data-binary "SELECT * FROM $DB.$t FORMAT Native"; then
             echo "[FAIL] backup dump of $t failed" >&2
             exit 1
@@ -491,7 +422,7 @@ insert_table() {
             fi
             local code
             if ! code=$({ printf 'INSERT INTO %s.%s FORMAT JSONEachRow\n' "$DB" "$table"; cat "$TMPD/keep.jsonl"; } \
-                | curl -sS --max-time 300 -X POST "$CH_URL/" --data-binary @- \
+                | curl -sS --max-time 300 -X POST --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @- \
                     -o "$TMPD/resp.txt" -w '%{http_code}'); then
                 echo "[FAIL] insert request error for $table" >&2; return 1
             fi

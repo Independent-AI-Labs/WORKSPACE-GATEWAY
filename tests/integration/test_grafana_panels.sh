@@ -8,7 +8,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-GRAFANA_URL="${GRAFANA_URL:-http://localhost:3030}"
+GRAFANA_URL="${GRAFANA_URL:-http://127.0.0.1:3030}"
 
 if [ -z "${AMI_ROOT+x}" ]; then
     WORKSPACE_ROOT="$(cd "$REPO_ROOT/../.." && pwd)"

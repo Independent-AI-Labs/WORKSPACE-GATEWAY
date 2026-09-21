@@ -1,7 +1,11 @@
-# Test-isolated copy of res/docker/docker-compose.yml.
-# Used by tests/run_all.sh so podman-compose down can NEVER touch the
-# production stack.  Invoked with: podman-compose -p gw-test -f <this-file>
-# container_name fields are removed so compose generates gw-test-* names.
+# Test-isolated copy of res/docker/docker-compose.yml (hardened posture:
+# REQ-SECURITY-HARDENING). Used by tests/run_all.sh so podman-compose down
+# can NEVER touch the production stack. Invoked with:
+# podman-compose -p gw-test -f <this-file>
+# Differences from dev: container_name removed (gw-test-* names), floating
+# image tags, test subnets (10.99.60+/24) so the fixture can run beside the
+# dev stack, and loopback-only published ports so integration tests can
+# probe every service (the real stack keeps these unpublished).
 services:
   apisix:
     build:
@@ -57,13 +61,18 @@ services:
     stop_grace_period: 300s
     restart: unless-stopped
     networks:
-      - gateway
-      - dataops
+      gw-ch:
+        ipv4_address: 10.99.60.2
+      gw-etcd: {}
+      gw-secrets: {}
+      gw-metrics: {}
+      gw-ingest: {}
+      dataops: {}
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8-alpine
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      test: ["CMD-SHELL", "clickhouse-client --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -72,12 +81,21 @@ services:
       - "127.0.0.1:9000:9000"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
+      - ../../res/docker/clickhouse-provision.sh:/docker-entrypoint-initdb.d/00-provision.sh:ro
       - ../../conf/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../../conf/clickhouse-storage-tiering.xml:/etc/clickhouse-server/config.d/storage-tiering.xml:ro
+      - ../../conf/clickhouse-users.d/ops-admin.xml:/etc/clickhouse-server/users.d/ops-admin.xml:ro
+      - ../../conf/clickhouse-users.d/default-local.xml:/etc/clickhouse-server/users.d/zz-default-local.xml:ro
     environment:
-      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_PASSWORD
+      - CH_OPS_PASSWORD
+      - CH_GRAFANA_RO_PASSWORD
+      - CH_VECTOR_PASSWORD
+      - CH_APISIX_PASSWORD
+      - CH_MIGRATOR_PASSWORD
     restart: unless-stopped
     networks:
-      - gateway
+      gw-ch: {}
 
   migrate:
     profiles: [migration]
@@ -90,24 +108,27 @@ services:
     entrypoint:
       - "migrate"
       - "-path=/migrations/"
-      - "-database=clickhouse://clickhouse:9000/llm_gateway?database=llm_gateway&x-multi-statement=true&x-migrations-table-engine=MergeTree"
+      - "-database=clickhouse://clickhouse:9000?username=migrator&password=${CH_MIGRATOR_PASSWORD}&database=llm_gateway&x-multi-statement=true&x-migrations-table-engine=MergeTree"
     command: ["up"]
     restart: "no"
     networks:
-      - gateway
+      gw-ch: {}
 
   vector:
     image: timberio/vector:0.40.0-debian
     command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
+    env_file:
+      - ../../.env
     ports:
       - "127.0.0.1:18080:8080"
     depends_on:
       - clickhouse
     restart: unless-stopped
     networks:
-      - gateway
+      gw-ch: {}
+      gw-ingest: {}
 
   openbao:
     build:
@@ -129,7 +150,7 @@ services:
       - "127.0.0.1:8201:8200"
     restart: unless-stopped
     networks:
-      - gateway
+      gw-secrets: {}
 
   prometheus:
     image: prom/prometheus:v3.14.0
@@ -149,23 +170,27 @@ services:
       retries: 12
     restart: unless-stopped
     networks:
-      - gateway
+      gw-metrics: {}
 
   grafana:
     image: grafana/grafana-oss:13.0.2
+    env_file:
+      - ../../.env
     environment:
-      GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource
-      GF_AUTH_ANONYMOUS_ENABLED: "${GF_AUTH_ANONYMOUS_ENABLED:-false}"
-      GF_AUTH_PROXY_ENABLED: "${GF_AUTH_PROXY_ENABLED:-true}"
+      GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource,marcusolsson-dynamictext-panel
+      GF_AUTH_PROXY_ENABLED: "true"
       GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
       GF_AUTH_PROXY_HEADER_PROPERTY: username
       GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: "10.99.60.1/32, 127.0.0.1/32"
       GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
       GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:3030/}"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SECURE: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
     volumes:
       - ../../conf/grafana/provisioning:/etc/grafana/provisioning:ro
       - ../../conf/grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -181,7 +206,8 @@ services:
       - prometheus
     restart: unless-stopped
     networks:
-      - gateway
+      gw-ch: {}
+      gw-metrics: {}
 
   etcd:
     image: quay.io/coreos/etcd:v3.5.20
@@ -201,7 +227,7 @@ services:
       - etcd-data:/etcd-data
     restart: unless-stopped
     networks:
-      - gateway
+      gw-etcd: {}
 
 volumes:
   clickhouse-data:
@@ -210,9 +236,40 @@ volumes:
   openbao-data:
   etcd-data:
 
+# Test subnets (dev stack owns 10.99.10-50; prod 10.99.110+).
 networks:
-  gateway:
+  gw-ch:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 10.99.60.0/24
+          gateway: 10.99.60.1
+          # DHCP pool kept clear of the static apisix address (.2).
+          ip_range: 10.99.60.64/26
+  gw-etcd:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.99.70.0/24
+          gateway: 10.99.70.1
+  gw-secrets:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.99.80.0/24
+          gateway: 10.99.80.1
+  gw-metrics:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.99.90.0/24
+          gateway: 10.99.90.1
+  gw-ingest:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.99.100.0/24
+          gateway: 10.99.100.1
   dataops:
     external: true
     name: dataops_default

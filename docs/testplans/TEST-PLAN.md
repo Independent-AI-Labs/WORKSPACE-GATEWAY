@@ -76,6 +76,8 @@ harness, so direct invocation of container-using scripts relies on this order.
 | `OPENBAO_TOKEN` | Stage 5, 7 | `.env` |
 | `GATEWAY_API_KEY` | Stage 5, 7 (virtual `vgw-*` key in OpenBao) | `.env` |
 | `CONTEXT_LIMIT_PCT`, `CONTEXT_LIMIT_CEILING` | model sync tests | `.env` |
+| `CH_OPS_USER`, `CH_OPS_PASSWORD` | Stages 5, 7 (ClickHouse client auth) | `.env` |
+| `CH_VECTOR_PASSWORD`, `CH_APISIX_PASSWORD` | Stages 5, 7 (writer auth) | `.env` |
 
 ## 5. Test File Layout
 
@@ -93,11 +95,12 @@ tests/
                test_patterns_json.sh, test_clickhouse_sql.sh,
                test_vector_toml.sh, test_migrations.sh,
                test_model_registry.sh, test_cost_calc.sh,
-               test_grafana_provisioning.sh, test_dashboard_cost_usage.sh,
-               test_dashboard_ops_health.sh, test_dashboard_cost_leaderboard.sh,
-               test_dashboard_usefulness.sh,
-               test_opencode_gateway_auth.sh, test_provider_sync_route.sh,
-               dashboard_assert.sh, yaml_helpers.sh, run.sh
+                test_grafana_provisioning.sh, test_dashboard_cost_usage.sh,
+                test_dashboard_ops_health.sh, test_dashboard_cost_leaderboard.sh,
+                test_dashboard_usefulness.sh,
+                test_clickhouse_auth.sh, test_etcd_auth.sh,
+                test_opencode_gateway_auth.sh, test_provider_sync_route.sh,
+                dashboard_assert.sh, yaml_helpers.sh, run.sh
   reconciler/  test_reconciler.sh
   integration/ test_stack_up.sh, test_key_resolver.sh, test_route_relay.sh,
                test_prometheus.sh, test_grafana.sh, test_dashboard_queries.sh,
@@ -105,7 +108,7 @@ tests/
                grafana_panel_check.js, test_llamafile_e2e.sh,
                test_event_id_alignment.sh, test_data_flow.sh,
                test_cost_e2e.sh, test_reconciler_exec.sh,
-               test_crunch_idempotency.sh,
+               test_crunch_idempotency.sh, test_security_lockdown.sh,
                test_provider_sync_client.sh, lib_event_align.sh, run.sh
   ci/          test_hooks.sh
   e2e/         test_zen_chat.sh, test_zen_stream.sh, test_redact_e2e.sh,
@@ -164,28 +167,42 @@ Representative checks:
   `gateway-cache`, `quota_counters`; `nginx_config.envs` includes
   `OPENCODE_API_KEY`, `OPENBAO_TOKEN`; prometheus export on `:9100`.
 - **compose** (`test_compose.sh`): valid YAML; services apisix, clickhouse,
-  vector, openbao, prometheus, grafana, etcd, migrate; mounts, ports, networks
-  (`gateway`, `dataops`).
+  vector, openbao, prometheus, grafana, etcd, migrate; mounts, ports, the
+  five per-function networks with static subnets (`gw-ch`, `gw-etcd`,
+  `gw-secrets`, `gw-metrics`, `gw-ingest`) plus `dataops`; published-port
+  surface exactly 9080/9443/9081/9444 + loopback 8123/8124/3030; Grafana
+  auth env (proxy allowlist, anonymous off, secure cookies).
+- **ClickHouse security** (`test_clickhouse_auth.sh`): provision script
+  defines the five service users with grants/readonly/host restrictions per
+  REQ-SECURITY-HARDENING FR-1/FR-2; `default` localhost-only;
+  `CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT` absent; `request_bodies` ungranted
+  to `grafana_ro`.
+- **etcd security** (`test_etcd_auth.sh`): etcd auth bootstrap in compose/
+  Makefile; `conf/config.yaml` carries etcd credentials via env expansion.
 - **Dockerfile.apisix** (`test_dockerfile.sh`): base
   `apache/apisix:3.17.0-debian`; copies plugins, `conf/config.yaml`,
   `conf/redact-patterns.json`.
 - **redact-patterns.json**: valid JSON; 6 regex + 2 dictionary entries;
   `luhn_check` on credit_card; `kind`/`pattern` fields present.
 - **clickhouse-init.sql**: database `llm_gateway`; tables `request_log`,
-  `billing_ledger`, `billing_discrepancies`; `Decimal64(6)` cost; 13-month TTL;
-  low-cardinality ORDER BY keys.
+  `request_bodies`, `billing_ledger`, `billing_discrepancies`; `Decimal64(6)`
+  cost; no deletion TTLs (tiered retention via storage policy); low-cardinality
+  ORDER BY keys.
 - **vector.toml**: `http_server` source on `0.0.0.0:8080` path `/ingest`;
-  clickhouse sink to `http://clickhouse:8123`, database `llm_gateway`,
-  `skip_unknown_fields`; remap parses bodies and extracts token/header fields.
+  two clickhouse sinks (`request_log`, `request_bodies`) to
+  `http://clickhouse:8123`, database `llm_gateway`, `skip_unknown_fields`,
+  basic auth; remap parses bodies and extracts token/header fields.
 - **migrations** (`test_migrations.sh`): `conf/migrations/` files consistent
   with the schema documented in `docs/architecture/TELEMETRY-AND-SCHEMA.md`.
 - **model_registry / cost_calc** (`test_model_registry.sh`,
   `test_cost_calc.sh`): registry codegen output and pricing lookup API
   (`get_pricing`/`compute_cost`/`resolve_cost`) in container LuaJIT.
 - **Grafana** (`test_grafana_provisioning.sh`, `test_dashboard_*.sh`):
-  datasources (Prometheus default proxy, ClickHouse on `clickhouse:8123`,
-  `llm_gateway`), three dashboard JSONs valid with unique uids, panel
-  types/counts, templating parity, `conf/prometheus.yml` scrape targets.
+  datasources (Prometheus default proxy, ClickHouse on `clickhouse:9000` as
+  `grafana_ro` with env-injected `secureJsonData` password, `llm_gateway`),
+  three dashboard JSONs valid with unique uids, panel types/counts (incl.
+  ops-health storage-growth panel), templating parity, no `request_bodies`
+  reference in any dashboard SQL, `conf/prometheus.yml` scrape targets.
 
 ## 9. Stage 4: Reconciler Tests
 
@@ -214,6 +231,7 @@ Black-box against the full podman-compose stack; torn down via trap unless
 | `test_cost_e2e.sh` | Cost computation end-to-end via llamafile (live) |
 | `test_reconciler_exec.sh` | Reconciler executes against the stack |
 | `test_provider_sync_client.sh` | `/gateway/providers*` endpoints serve catalog/opencode blocks |
+| `test_security_lockdown.sh` | Live security matrix (REQ-SECURITY-HARDENING V7): unauthenticated ClickHouse 401; `grafana_ro` DDL/INSERT denied; `request_bodies` invisible to `grafana_ro`; spoofed `X-WEBAUTH-USER` rejected by Grafana allowlist; host port surface (`ss`) |
 
 ## 11. Stage 6: CI Hook Verification
 

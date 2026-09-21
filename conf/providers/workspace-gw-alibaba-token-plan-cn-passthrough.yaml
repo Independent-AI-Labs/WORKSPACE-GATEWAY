@@ -1,0 +1,23 @@
+---
+id: workspace-gw-alibaba-token-plan-cn-passthrough
+name: "Workspace GW (Alibaba Cloud Token Plan (China) Passthrough)"
+provider:
+  id: alibaba-token-plan-cn
+  label: Alibaba Cloud Token Plan (China)
+route: "/token-plan-cn"
+npm: "@anthropic-ai/sdk"
+auth:
+  type: passthrough
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+context_limit_ceiling: 200000
+model_source:
+  type: models_dev_provider
+  provider: alibaba-token-plan-cn
+pricing:
+  source:
+    type: models_dev
+    provider: alibaba-token-plan-cn
+  missing_policy: unknown

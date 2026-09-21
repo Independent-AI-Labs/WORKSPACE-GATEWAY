@@ -108,6 +108,11 @@ database = "llm_gateway"
 table = "request_log"
 skip_unknown_fields = true
 
+[sinks.clickhouse_request_log.auth]
+strategy = "basic"
+user = "vector_rw"
+password = "${CH_VECTOR_PASSWORD}"
+
 [sinks.clickhouse_request_log.batch]
 max_events = 1000
 timeout_secs = 10
@@ -118,6 +123,36 @@ max_events = 10000
 when_full = "block"
 
 [sinks.clickhouse_request_log.request]
+retry_attempts = 5
+retry_initial_backoff_secs = 1
+retry_max_duration_secs = 30
+timeout_secs = 30
+
+# Conversation bodies (REQ-SECURITY-HARDENING FR-3.3): same remap output;
+# skip_unknown_fields keeps only the body-table columns.
+[sinks.clickhouse_request_bodies]
+type = "clickhouse"
+inputs = ["parse_log"]
+endpoint = "http://clickhouse:8123"
+database = "llm_gateway"
+table = "request_bodies"
+skip_unknown_fields = true
+
+[sinks.clickhouse_request_bodies.auth]
+strategy = "basic"
+user = "vector_rw"
+password = "${CH_VECTOR_PASSWORD}"
+
+[sinks.clickhouse_request_bodies.batch]
+max_events = 1000
+timeout_secs = 10
+
+[sinks.clickhouse_request_bodies.buffer]
+type = "memory"
+max_events = 10000
+when_full = "block"
+
+[sinks.clickhouse_request_bodies.request]
 retry_attempts = 5
 retry_initial_backoff_secs = 1
 retry_max_duration_secs = 30

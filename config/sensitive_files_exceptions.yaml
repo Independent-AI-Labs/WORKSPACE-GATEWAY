@@ -11,3 +11,5 @@ safe_exceptions:
   - opencode-workspace-gw-opencode-zen-api-key.example.json
   - workspace-gw-zai-api-key.yaml
   - workspace-gw-anthropic-passthrough.yaml
+  - workspace-gw-alibaba-token-plan-passthrough.yaml
+  - workspace-gw-alibaba-token-plan-cn-passthrough.yaml

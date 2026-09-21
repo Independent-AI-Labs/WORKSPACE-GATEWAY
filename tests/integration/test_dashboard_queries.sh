@@ -22,6 +22,12 @@ CH_URL="http://localhost:8123"
 PROM_URL="http://localhost:9092"
 GATEWAY_URL="http://localhost:9080"
 
+# ClickHouse ops auth via a private curl config file: keeps the credential
+# out of the source literal and process args (gitleaks curl-auth-user).
+CH_CURL_CONFIG="$(mktemp)"
+printf 'user = "%s:%s"\n' "${CH_OPS_USER:-ops_admin}" "${CH_OPS_PASSWORD:-}" > "$CH_CURL_CONFIG"
+trap 'rm -f "$CH_CURL_CONFIG"' EXIT
+
 pass=0; fail=0; skip=0
 rp() { echo "[PASS] $1"; pass=$((pass+1)); }
 rf() { echo "[FAIL] $1"; fail=$((fail+1)); }
@@ -31,11 +37,30 @@ rs() { echo "[SKIP] $1"; skip=$((skip+1)); }
 curl_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$GATEWAY_URL/" )
 [ "$curl_code" = "000" ] && { echo "[SKIP] APISIX not reachable"; exit 0; }
 ch_code_RC=0
-ch_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/?query=SELECT%201" ) || { ch_code_RC=$?; ch_code="000"; }
+ch_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$CH_URL/ping" ) || { ch_code_RC=$?; ch_code="000"; }
 [ "$ch_code" != "200" ] && { echo "[SKIP] ClickHouse not reachable"; exit 0; }
 prom_code_RC=0
 prom_code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 "$PROM_URL/-/healthy" ) || { prom_code_RC=$?; prom_code="000"; }
+# 9092 is only published on the test fixture; on the live stack use
+# to the in-container health endpoint via the reviewed exec wrapper.
+if [ "$prom_code" != "200" ]; then
+    _SELF="${BASH_SOURCE[0]}"
+    case "$_SELF" in /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;; esac
+    DQ_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
+    if [ ! -f "$DQ_ROOT/res/scripts/gateway-compose.sh" ] && [ -f "$PWD/res/scripts/gateway-compose.sh" ]; then
+        DQ_ROOT="$PWD"
+    fi
+    if PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set (the repo Makefile exports it)}" \
+        bash "$DQ_ROOT/res/scripts/gateway-compose.sh" exec prometheus -- \
+        wget -qO- --timeout=3 http://127.0.0.1:9090/-/healthy; then
+        prom_code=200
+    fi
+fi
 [ "$prom_code" != "200" ] && { echo "[SKIP] Prometheus not reachable"; exit 0; }
+if [ -z "${CH_OPS_PASSWORD:-}" ]; then
+    echo "[SKIP] CH_OPS_PASSWORD not set (source repo .env) - queries need ops_admin auth"
+    exit 0
+fi
 
 echo "=== Dashboard Query Integration Tests (extracted from JSON) ==="
 echo ""
@@ -51,12 +76,12 @@ echo "[INFO] Time range: $FROM_TS to $TO_TS"
 
 # ── Fetch all key hashes and models from ClickHouse ────────────────────
 ALL_KEYS_RC=0
-ALL_KEYS=$(curl -fsS "$CH_URL/" --data-binary \
+ALL_KEYS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
     "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.usage_log ORDER BY k FORMAT TabSeparated" \
     ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
 if [ -z "$ALL_KEYS" ]; then
     ALL_KEYS_RC=0
-    ALL_KEYS=$(curl -fsS "$CH_URL/" --data-binary \
+    ALL_KEYS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
     "SELECT DISTINCT coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') AS k FROM llm_gateway.request_log ORDER BY k FORMAT TabSeparated" \
     ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
 fi
@@ -68,7 +93,7 @@ PROM_KEY_REGEX=$(echo "$ALL_KEYS" | grep '.' | paste -sd '|' -)
 echo "[INFO] Keys: $(echo "$ALL_KEYS" | grep -c '.')"
 
 ALL_MODELS_RC=0
-ALL_MODELS=$(curl -fsS "$CH_URL/" --data-binary \
+ALL_MODELS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
     "SELECT DISTINCT model FROM (SELECT model FROM llm_gateway.request_log WHERE model != '' UNION ALL SELECT model FROM llm_gateway.usage_log WHERE model != '') ORDER BY model FORMAT TabSeparated" \
     ) || { ALL_MODELS_RC=$?; ALL_MODELS=""; }
 [ -z "$ALL_MODELS" ] && ALL_MODELS="unknown"
@@ -143,18 +168,36 @@ sub_prom() {
 # ── Execution helpers ──────────────────────────────────────────────────
 exec_ch() {
     local sql; sql=$(sub_ch "$(get_ch_sql "$1" "$2")")
-    curl -fsS --max-time 30 -X POST "$CH_URL/" --data-binary "$sql"
+    curl -fsS --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$sql"
 }
 
 exec_ch_raw() {
     # $1 = already-substituted SQL
-    curl -fsS --max-time 30 -X POST "$CH_URL/" --data-binary "$1"
+    curl -fsS --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$1"
+}
+
+prom_root() {
+    [ -n "${DQ_ROOT:-}" ] && { printf '%s' "$DQ_ROOT"; return; }
+    local _self="${BASH_SOURCE[0]}"
+    case "$_self" in /proc/*) _self="${SHG_SCRIPT_PATH:-$_self}" ;; esac
+    local root; root="$(cd "$(dirname "$_self")/../.." && pwd)"
+    [ ! -f "$root/res/scripts/gateway-compose.sh" ] && [ -f "$PWD/res/scripts/gateway-compose.sh" ] && root="$PWD"
+    printf '%s' "$root"
 }
 
 exec_prom() {
     local expr; expr=$(sub_prom "$(get_prom_expr "$1" "$2")")
     local encoded; encoded=$(printf '%s' "$expr" | jq -sRr @uri)
-    curl -fsS --max-time 15 "$PROM_URL/api/v1/query?query=$encoded"
+    local resp_RC=0 resp=""
+    resp=$(curl -fsS --max-time 15 "$PROM_URL/api/v1/query?query=$encoded" ) || { resp_RC=$?; resp=""; }
+    if [ -z "$resp" ]; then
+        # 9092 is only published on the test fixture; on the live stack query
+        # Prometheus in-container via the reviewed exec wrapper.
+        resp="$(PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set (the repo Makefile exports it)}" \
+            bash "$(prom_root)/res/scripts/gateway-compose.sh" exec prometheus -- \
+            wget -qO- --timeout=15 "http://127.0.0.1:9090/api/v1/query?query=$encoded")" || resp=""
+    fi
+    printf '%s' "$resp"
 }
 
 prom_val() { echo "$1" | jq -r '.data.result[0].value[1] // empty'; }
@@ -170,7 +213,7 @@ echo "--- Q1: ClickHouse Query Execution (all panels, all targets) ---"
 while IFS=$'\t' read -r pid ref; do
     sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")")
     hc_RC=0
-    hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
+    hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
     [ "$hc" = "200" ] && rp "Q1: p${pid}-${ref} HTTP 200" || rf "Q1: p${pid}-${ref} HTTP $hc"
 done < <(for df in "${ALL_DASHBOARDS[@]}"; do
     jq -r '.panels[] | select(.datasource.uid == "clickhouse") | .id as $pid | .targets[] | [$pid, .refId] | @tsv' "$df"
@@ -412,7 +455,7 @@ SELECT total_tok FROM totals FORMAT TabSeparated"
     # p4 Error Rate: single key query returns HTTP 200 (filter doesn't break SQL)
     P4_SQL=$(sub_ch "$(get_ch_sql 4 A)" "$SKL")
     P4_HC_RC=0
-    P4_HC=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$P4_SQL" ) || { P4_HC_RC=$?; P4_HC="000"; }
+    P4_HC=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$P4_SQL" ) || { P4_HC_RC=$?; P4_HC="000"; }
     [ "$P4_HC" = "200" ] && rp "Q14: p4 single_key HTTP 200" || rf "Q14: p4 single_key HTTP $P4_HC"
 fi
 echo ""
@@ -428,7 +471,7 @@ if [ -n "$SM" ] && [ "$SM" != "unknown" ]; then
         pid="${pid_ref%%:*}"; ref="${pid_ref##*:}"
         sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")" "$CH_KEY_LIST" "$SML")
         hc_RC=0
-        hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
+        hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
         [ "$hc" = "200" ] && rp "Q15: p${pid}-${ref} single model HTTP 200" || rf "Q15: p${pid}-${ref} single model HTTP $hc"
     done
 else
