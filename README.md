@@ -468,7 +468,9 @@ This enriches the gateway catalog from `/opencode_federated/v1/models` (Go
 tier, `*-free` models filtered out), `/opencode_zen/v1/models` (all Zen/free
 models), and `/llamafile/v1/models` (local llamafile upstream), with canonical
 metadata (name, context limit, capabilities, cost, modalities) from
-[models.dev](https://models.dev).
+[models.dev](https://models.dev), including `variants` (reasoning-effort
+presets) derived from models.dev reasoning options exactly as opencode derives
+them.
 Provider entries are written into `~/.config/opencode/opencode.jsonc` by
 the login script above (fetches the ready-made block from
 `/gateway/providers/<id>/opencode`), for the

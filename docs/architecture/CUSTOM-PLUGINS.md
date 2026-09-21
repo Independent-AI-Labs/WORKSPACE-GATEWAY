@@ -49,8 +49,9 @@ plus a provider YAML, not new Lua.
 
 ## provider-sync
 
-**File:** `provider-sync.lua` (211 lines); libraries
-`provider_sync_catalog.lua` (507 lines), `provider_sync_pricing.lua` (105 lines)
+**File:** `provider-sync.lua` (235 lines); libraries
+`provider_sync_catalog.lua` (413 lines), `provider_sync_metadata.lua`
+(232 lines), `provider_sync_pricing.lua` (116 lines)
 **Priority:** 2570 | **Phase:** access (+ `plugin.init()` warmup timer)
 **Route:** `gateway-provider-sync` (`/gateway/providers*`)
 
@@ -95,8 +96,9 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 |--------|-------|---------|
 | `cost_calc.lua` | 149 | Read-only pricing consumer: `get_pricing` / `compute_cost` / `resolve_cost` |
 | `model_registry.lua` | 69 | GENERATED from `conf/model-registry.yaml` (alias map, canonical ids); regenerate via `res/scripts/gen-model-registry.sh` |
-| `provider_sync_catalog.lua` | 507 | Provider/model catalog for `provider-sync` |
-| `provider_sync_pricing.lua` | 105 | Pricing sync; sole writer of provider-scoped `pricing:*` and snapshots |
+| `provider_sync_catalog.lua` | 413 | Provider/model catalog for `provider-sync` |
+| `provider_sync_metadata.lua` | 232 | models.dev metadata join, OpenCode entry/variant builder, limit scaling (pure) |
+| `provider_sync_pricing.lua` | 116 | Pricing sync; sole writer of provider-scoped `pricing:*` and snapshots |
 | `sse_usage_lib.lua` | 116 | Pure logic for `sse-usage` |
 | `redact_lib.lua` | 100 | Pure logic for `redact` |
 | `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | 291/60/118 | `oauth-auth` helpers: protocol engines, JWT decode/hash, OpenBao CRUD |

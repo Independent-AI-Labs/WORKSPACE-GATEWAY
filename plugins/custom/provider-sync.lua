@@ -94,6 +94,18 @@ local function build_opencode_block(provider, gateway_base)
         end
     end
 
+    --Gateway-internal provenance is not part of the OpenCode model schema.
+    local models = {}
+    for model_id, model in pairs(provider.models or {}) do
+        local copy = {}
+        for k, v in pairs(model) do
+            if k ~= "pricing" then
+                copy[k] = v
+            end
+        end
+        models[model_id] = copy
+    end
+
     local auth_route = nil
     local auth_methods = nil
     if provider.auth and provider.auth.type == "oauth" then
@@ -115,7 +127,7 @@ local function build_opencode_block(provider, gateway_base)
             name = provider.name,
             npm = provider.npm,
             options = options,
-            models = provider.models or {},
+            models = models,
         },
         auth_type = provider.auth and provider.auth.type or "none",
         auth_route = auth_route,

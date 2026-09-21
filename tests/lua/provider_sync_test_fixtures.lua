@@ -33,6 +33,15 @@ M.fake_models_dev = {
                 tool_call = true, limit = { context = 204800, output = 16384 },
                 cost = { input = 0.2, output = 0.9 },
             },
+            ["minimax-m4"] = {
+                name = "MiniMax M4", family = "minimax", release_date = "2026-08-01",
+                reasoning = true, attachment = false, temperature = true,
+                tool_call = true,
+                modalities = { input = { "text", "image" }, output = { "text" } },
+                reasoning_options = { { type = "effort", values = { "low", "high" } } },
+                limit = { context = 204800, output = 500000 },
+                cost = { input = 0.2, output = 0.9 },
+            },
         },
     },
 }
@@ -40,6 +49,7 @@ M.fake_gateway_models = {
     data = {
         { id = "minimax-m3" }, { id = "deepseek-v4-flash-free" },
         { id = "glm-5.2" }, { id = "mimo-v2.5-free" },
+        { id = "minimax-m4" },
     },
 }
 

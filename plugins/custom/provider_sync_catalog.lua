@@ -4,6 +4,8 @@ local contract_ok, contract = pcall(require, "apisix.plugins.provider_sync_contr
 if not contract_ok then contract = require("provider_sync_contract") end
 local aliases_ok, aliases = pcall(require, "apisix.plugins.provider_sync_aliases")
 if not aliases_ok then aliases = require("provider_sync_aliases") end
+local metadata_ok, metadata = pcall(require, "apisix.plugins.provider_sync_metadata")
+if not metadata_ok then metadata = require("provider_sync_metadata") end
 local M = {}
 local SHARED_DICT = "gateway-cache"
 local KEY_RAW = "providers:raw"
@@ -17,7 +19,6 @@ local DEFAULT_TTL = 3600
 local DEFAULT_STALE = 86400
 local DEFAULT_SYNC_TIMEOUT = 10000
 local DEFAULT_WARMUP = true
-local DEFAULT_OUTPUT_LIMIT = 8192
 local KIMI_USER_AGENT = "Kimi CLI (Linux 6.17.0-35-generic x64)"
 local GENERIC_USER_AGENT = "WORKSPACE-GW/0.1"
 M.DEFAULT_PROVIDERS_DIR = DEFAULT_PROVIDERS_DIR
@@ -169,68 +170,6 @@ local function normalize_model_id(model_id, normalize)
     end
     return id
 end
-local function has_attachment(modalities)
-    if not modalities or type(modalities) ~= "table" then
-        return false
-    end
-    local input = modalities.input
-    if not input or type(input) ~= "table" then
-        return false
-    end
-    for _, v in ipairs(input) do
-        if v == "image" or v == "video" then
-            return true
-        end
-    end
-    return false
-end
-local function scale_limit(context, pct, ceiling)
-    local val = tonumber(context) or 0
-    if val <= 0 then
-        return 0
-    end
-    local scaled = math.floor(val * (tonumber(pct) or 100) / 100)
-    if ceiling and tonumber(ceiling) and ceiling > 0 and scaled > ceiling then
-        scaled = ceiling
-    end
-    return scaled
-end
-local function build_model_entry(model, model_id, normalize, pct, ceiling)
-    local normalized_id = normalize_model_id(model_id, normalize)
-    if normalized_id == "" then
-        return nil
-    end
-
-    local entry = {
-        name = model.name or normalized_id,
-        reasoning = model.reasoning or false,
-        attachment = model.attachment or has_attachment(model.modalities),
-        tool_call = model.tool_call ~= false,
-    }
-
-    if model.limit then
-        entry.limit = {
-            context = scale_limit(model.limit.context, pct, ceiling),
-            output = model.limit.output or DEFAULT_OUTPUT_LIMIT,
-        }
-    end
-
-    if model.cost then
-        local cost = {
-            input = model.cost.input or 0,
-            output = model.cost.output or 0,
-        }
-        if model.cost.cache_read ~= nil then
-            cost.cache_read = model.cost.cache_read
-        end
-        if model.cost.cache_write ~= nil then
-            cost.cache_write = model.cost.cache_write
-        end
-        entry.cost = cost
-    end
-
-    return normalized_id, entry
-end
 local function build_models_from_models_dev(provider, models_dev)
     local source = provider.model_source
     local provider_name = source.provider
@@ -250,9 +189,9 @@ local function build_models_from_models_dev(provider, models_dev)
 
     for model_id, model in pairs(provider_block.models) do
         if type(model) == "table" then
-            local nid, entry = build_model_entry(model, model_id, normalize, pct, ceiling)
-            if nid and entry then
-                models[nid] = entry
+            local nid = normalize_model_id(model_id, normalize)
+            if nid ~= "" then
+                models[nid] = metadata.build_entry(model, nid, pct, ceiling, provider.npm)
             end
         end
     end
@@ -282,30 +221,10 @@ local function extract_model_ids(data)
 
     return ids
 end
---Limit borrowing index (FR-2.7): model id -> models.dev limit, first
---provider in sorted-name order wins. Built once per gateway/llamafile
---provider so endpoint models without a metadata limit still get a context
---cap. Never adds models, cost, or capability flags.
-local function models_dev_limit_index(models_dev)
-    local index, names = {}, {}
-    if type(models_dev) ~= "table" then return index end
-    for name in pairs(models_dev) do names[#names + 1] = name end
-    table.sort(names)
-    for _, name in ipairs(names) do
-        local block = models_dev[name]
-        if type(block) == "table" then
-            for id, model in pairs(block.models or {}) do
-                if type(model) == "table" and model.limit and index[id] == nil then
-                    index[id] = model.limit
-                end
-            end
-        end
-    end
-    return index
-end
-local function build_models_from_endpoint(provider, data, model_metadata, limit_index)
+local function build_models_from_endpoint(provider, data, model_metadata, models_dev, source_provider)
     local pct = provider.context_limit_pct or 100
     local ceiling = provider.context_limit_ceiling
+    local normalize = provider.model_source and provider.model_source.normalize
     local models = {}
 
     local metadata_by_id = {}
@@ -317,36 +236,13 @@ local function build_models_from_endpoint(provider, data, model_metadata, limit_
         end
     end
 
+    local index = metadata.model_index(models_dev, source_provider)
     local ids = extract_model_ids(data)
 
     for _, model_id in ipairs(ids) do
-        local f = metadata_by_id[model_id] or {}
-        local entry = {
-            name = f.name or model_id,
-            reasoning = f.reasoning or false,
-            attachment = f.attachment or false,
-            tool_call = f.tool_call ~= false,
-        }
-        local src_limit = f.limit or limit_index[model_id]
-        if src_limit then
-            entry.limit = {
-                context = scale_limit(src_limit.context, pct, ceiling),
-                output = src_limit.output or DEFAULT_OUTPUT_LIMIT,
-            }
-        end
-        if f.cost then
-            entry.cost = {
-                input = f.cost.input or 0,
-                output = f.cost.output or 0,
-            }
-            if f.cost.cache_read ~= nil then
-                entry.cost.cache_read = f.cost.cache_read
-            end
-            if f.cost.cache_write ~= nil then
-                entry.cost.cache_write = f.cost.cache_write
-            end
-        end
-        models[model_id] = entry
+        local base = metadata.lookup(index, model_id, normalize)
+        local merged = metadata.overlay(base, metadata_by_id[model_id])
+        models[model_id] = metadata.build_entry(merged, model_id, pct, ceiling, provider.npm)
     end
 
     return models
@@ -403,8 +299,15 @@ local function enrich_provider_models(provider, models_dev)
                            "; provider will sync with zero models")
             return {}
         end
+        local source_provider = provider.cost_source
+        if provider.pricing and provider.pricing.source then
+            source_provider = provider.pricing.source.provider or source_provider
+        end
+        if source.provider then
+            source_provider = source.provider
+        end
         models = build_models_from_endpoint(provider, data, model_metadata,
-            models_dev_limit_index(models_dev))
+            models_dev, source_provider)
         if not next(models) then
             core.log.error("provider_sync: endpoint ", full_url,
                            " for provider ", provider.id,

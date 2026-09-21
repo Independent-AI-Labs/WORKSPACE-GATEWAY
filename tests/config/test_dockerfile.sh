@@ -40,7 +40,7 @@ assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS_RC=0
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" ) || { HAS_CUSTOM_PLUGINS_RC=$?; HAS_CUSTOM_PLUGINS="0"; }
-assert_eq "Copies plugins/custom/ (generic OAuth plugin set)" "23" "$HAS_CUSTOM_PLUGINS"
+assert_eq "Copies plugins/custom/ (generic OAuth plugin set)" "24" "$HAS_CUSTOM_PLUGINS"
 
 HAS_MODEL_REGISTRY_RC=0
 HAS_MODEL_REGISTRY=$(grep -c 'model_registry.lua' "$DOCKERFILE" ) || { HAS_MODEL_REGISTRY_RC=$?; HAS_MODEL_REGISTRY="0"; }
@@ -87,6 +87,9 @@ assert_eq "Copies provider_sync_aliases.lua" "1" "$HAS_PROVIDER_SYNC_ALIASES"
 HAS_PROVIDER_SYNC_CONTRACT_RC=0
 HAS_PROVIDER_SYNC_CONTRACT=$(grep -c 'provider_sync_contract.lua' "$DOCKERFILE" ) || { HAS_PROVIDER_SYNC_CONTRACT_RC=$?; HAS_PROVIDER_SYNC_CONTRACT="0"; }
 assert_eq "Copies provider_sync_contract.lua" "1" "$HAS_PROVIDER_SYNC_CONTRACT"
+HAS_PROVIDER_SYNC_METADATA_RC=0
+HAS_PROVIDER_SYNC_METADATA=$(grep -c 'provider_sync_metadata.lua' "$DOCKERFILE" ) || { HAS_PROVIDER_SYNC_METADATA_RC=$?; HAS_PROVIDER_SYNC_METADATA="0"; }
+assert_eq "Copies provider_sync_metadata.lua" "1" "$HAS_PROVIDER_SYNC_METADATA"
 HAS_PROVIDER_PRICING_RC=0
 HAS_PROVIDER_PRICING=$(grep -c 'provider_pricing.lua' "$DOCKERFILE" ) || { HAS_PROVIDER_PRICING_RC=$?; HAS_PROVIDER_PRICING="0"; }
 assert_eq "Copies provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING"

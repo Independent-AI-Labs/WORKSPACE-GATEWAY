@@ -242,6 +242,9 @@ assert_eq "APISIX mounts provider_sync_aliases.lua" "1" "$HAS_PROVIDER_SYNC_ALIA
 HAS_PROVIDER_SYNC_CONTRACT_MOUNT_RC=0
 HAS_PROVIDER_SYNC_CONTRACT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_contract.lua" ) || { HAS_PROVIDER_SYNC_CONTRACT_MOUNT_RC=$?; HAS_PROVIDER_SYNC_CONTRACT_MOUNT="0"; }
 assert_eq "APISIX mounts provider_sync_contract.lua" "1" "$HAS_PROVIDER_SYNC_CONTRACT_MOUNT"
+HAS_PROVIDER_SYNC_METADATA_MOUNT_RC=0
+HAS_PROVIDER_SYNC_METADATA_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_sync_metadata.lua" ) || { HAS_PROVIDER_SYNC_METADATA_MOUNT_RC=$?; HAS_PROVIDER_SYNC_METADATA_MOUNT="0"; }
+assert_eq "APISIX mounts provider_sync_metadata.lua" "1" "$HAS_PROVIDER_SYNC_METADATA_MOUNT"
 
 HAS_MODEL_REGISTRY_MOUNT_RC=0
 HAS_MODEL_REGISTRY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "model_registry.lua" ) || { HAS_MODEL_REGISTRY_MOUNT_RC=$?; HAS_MODEL_REGISTRY_MOUNT="0"; }
@@ -255,7 +258,7 @@ HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.l
 assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
-assert_eq "APISIX has 29 volume mounts (5 config + 23 plugins + usefulness)" "29" "$APISIX_VOLUME_COUNT"
+assert_eq "APISIX has 30 volume mounts (5 config + 24 plugins + usefulness)" "30" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL_RC=0

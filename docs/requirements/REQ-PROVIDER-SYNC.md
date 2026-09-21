@@ -88,7 +88,10 @@ pricing is written exactly once, in one place.
 | FR-2.4 | Model ids MUST be normalized per `model_source.normalize` (`strip_prefix`, `lowercase`). |
 | FR-2.5 | Sync MUST store `providers:raw`, `providers:enriched`, and `providers:ts` in `gateway-cache` with `stale_seconds` TTL (default 86400). |
 | FR-2.6 | On plugin init, a warmup timer MUST run one sync with schema defaults when `warmup_on_init` is true. |
-| FR-2.7 | Every model entry exposed to clients MUST carry a context limit whenever one is knowable: for `gateway`/`llamafile` sources, when neither `model_metadata` nor the endpoint supplies a limit, sync MUST borrow `limit.context`/`limit.output` from the models.dev catalog by exact normalized-id match (first models.dev provider in sorted-name order wins), then apply `context_limit_pct`/`context_limit_ceiling` as usual. Borrowing MUST NOT add models, ids, cost, or capability flags; models with no match anywhere remain without a limit. |
+| FR-2.7 | Every model entry exposed to clients MUST carry a context limit whenever one is knowable. Limits resolve from the endpoint (or `model_source.model_metadata`), then the models.dev catalog (FR-2.8); `context_limit_pct`/`context_limit_ceiling` apply last. Models with no match anywhere remain without a limit. |
+| FR-2.8 | For `gateway`/`llamafile` sources, each endpoint-reported id MUST be enriched from the models.dev catalog by normalized-id match (the declared `pricing.source.provider` is preferred; otherwise the first models.dev provider in sorted-name order wins), overlaying `name`, `family`, `release_date`, `reasoning`, `attachment`/`modalities`, `temperature`, `interleaved`, `reasoning_options`, `limit`, and `cost`. Precedence is endpoint-reported value, then `model_source.model_metadata`, then models.dev. Enrichment MUST NOT introduce ids the endpoint did not report; `model_source.filter` still applies. |
+| FR-2.9 | Model entries returned by `GET /gateway/providers/{id}/opencode` MUST carry `variants` derived from the models.dev `reasoning_options` exactly as OpenCode derives them: each `effort` value maps to the npm-specific reasoning body (`@ai-sdk/openai-compatible` → `{ reasoningEffort = <value> }`; `@ai-sdk/openai` → `{ reasoningEffort = <value>, reasoningSummary = "auto", include = ["reasoning.encrypted_content"] }`). `budget_tokens` and `toggle` options map only for packages OpenCode supports and are a no-op for `@ai-sdk/openai-compatible`/`@ai-sdk/openai`. `modalities` (input/output) MUST also be emitted so OpenCode's v1→v2 migration preserves multimodal capability; `attachment`, `reasoning`, and `temperature` remain for v1 clients. When no models.dev metadata exists for an id, no `variants` key is emitted. |
+| FR-2.10 | When `context_limit_pct`/`context_limit_ceiling` reduce `limit.context`, a known `limit.output` MUST be clamped so no entry advertises `limit.output > limit.context`. |
 
 ### FR-3: Pricing Single-Writer Ownership
 
@@ -181,7 +184,9 @@ the APISIX image; provider dir mounted into the container.)
 | FR-3.x pricing single writer | Implemented | provider_sync_pricing.lua |
 | FR-4.x endpoints | Implemented | provider-sync.lua `plugin.access` |
 | FR-5.x client script | Implemented | res/scripts/opencode-provider-login.sh (earlier device/API-key installer) |
-| FR-2.7 models.dev limit borrowing | Implemented | provider_sync_catalog.lua `build_models_from_endpoint` |
+| FR-2.7/2.8 models.dev metadata enrichment | Implemented | provider_sync_catalog.lua `build_models_from_endpoint` + `provider_sync_metadata.lua` |
+| FR-2.9 reasoning variants + modalities | Implemented | `provider_sync_metadata.lua` `variants`/`modalities` |
+| FR-2.10 output clamped to context | Implemented | `provider_sync_metadata.lua` `scale_limit` |
 | FR-5.7 plugin registration | Implemented | opencode-provider-login.sh `register_auth_plugin` |
 | FR-4.5 native OAuth plugin | Implemented | res/opencode-plugin/workspace-gateway-auth.ts |
 | FR-6.x security model | Implemented | conf/apisix.yaml `gateway-provider-sync` route (limit-count 60/60s) |

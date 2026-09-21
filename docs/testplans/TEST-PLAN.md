@@ -142,7 +142,10 @@ upstream-reported only (no estimation; unreported dimensions assert to 0).
 
 **oauth_jwt / provider_sync** (`test_oauth_jwt.lua`, `test_provider_sync.lua`):
 JWT claim decoding/expiry/token-hash helpers; provider-sync catalog/pricing
-logic.
+logic, endpoint→models.dev metadata join (name/capabilities/modalities),
+OpenCode reasoning `variants` derived from `reasoning_options`, and
+`limit.output` clamped to the scaled context. Provider entry cases live in
+`provider_sync_test_fixtures.lua`.
 
 ## 7. Stage 2: Script Tests
 

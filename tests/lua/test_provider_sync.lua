@@ -331,6 +331,10 @@ local function access_route_tests()
             assert_eq(body.provider.name, "Kimi Device OAuth", "opencode provider.name")
             assert_eq(body.provider.npm, "kimi-oauth", "opencode provider.npm")
             check(body.provider.models ~= nil, "opencode models present")
+            if body.provider.models and body.provider.models["kimi-k1"] then
+                check(body.provider.models["kimi-k1"].pricing == nil,
+                    "opencode models strip gateway-internal pricing")
+            end
             if body.provider.options and body.provider.options.baseURL then
                 assert_eq(body.provider.options.baseURL, "http://localhost:9080/kimi", "opencode baseURL")
             end
@@ -416,6 +420,39 @@ local function filter_tests()
             check(oc.models["glm-5.2"] ~= nil, "filter[5] go keeps paid glm-5.2")
             check(oc.models["deepseek-v4-flash-free"] == nil, "filter[6] go excludes deepseek-v4-flash-free")
             check(oc.models["mimo-v2.5-free"] == nil, "filter[7] go excludes mimo-v2.5-free")
+
+            local enriched_model = oc.models["minimax-m4"]
+            check(enriched_model ~= nil, "filter[17] go keeps paid minimax-m4")
+            if enriched_model then
+                assert_eq(enriched_model.name, "MiniMax M4",
+                    "filter[18] endpoint model joins models.dev name")
+                assert_eq(enriched_model.reasoning, true,
+                    "filter[19] endpoint model joins models.dev reasoning")
+                assert_eq(enriched_model.attachment, true,
+                    "filter[20] endpoint model derives attachment from modalities")
+                assert_eq(enriched_model.temperature, true,
+                    "filter[21] endpoint model joins models.dev temperature")
+                assert_eq(enriched_model.family, "minimax",
+                    "filter[22] endpoint model joins models.dev family")
+                check(enriched_model.modalities ~= nil
+                    and enriched_model.modalities.input[2] == "image",
+                    "filter[23] endpoint model carries modalities")
+                check(enriched_model.variants ~= nil, "filter[24] endpoint model carries variants")
+                if enriched_model.variants then
+                    assert_eq(enriched_model.variants.high
+                        and enriched_model.variants.high.reasoningEffort, "high",
+                        "filter[25] effort variant maps to reasoningEffort")
+                    assert_eq(enriched_model.variants.low
+                        and enriched_model.variants.low.reasoningEffort, "low",
+                        "filter[26] low effort variant present")
+                    check(enriched_model.variants.medium == nil,
+                        "filter[27] only declared efforts emitted")
+                end
+                assert_eq(enriched_model.limit.context, 204800,
+                    "filter[28] endpoint model context unscaled")
+                assert_eq(enriched_model.limit.output, 204800,
+                    "filter[29] output clamped to the exposed context")
+            end
         end
 
         local zen = enriched["workspace-gw-zen"]

@@ -19,6 +19,7 @@
 - [REQ-PROVIDER-SYNC](../requirements/REQ-PROVIDER-SYNC.md): requirements
 - [`plugins/custom/provider-sync.lua`](../../plugins/custom/provider-sync.lua): manifest, schema, `init`/`access`, OpenCode block builder
 - [`plugins/custom/provider_sync_catalog.lua`](../../plugins/custom/provider_sync_catalog.lua): YAML load, models.dev fetch, enrichment, `sync`/`get_enriched`
+- [`plugins/custom/provider_sync_metadata.lua`](../../plugins/custom/provider_sync_metadata.lua): models.dev metadata join, OpenCode reasoning variants, limit scaling
 - [`plugins/custom/provider_sync_pricing.lua`](../../plugins/custom/provider_sync_pricing.lua): provider-aware price resolution and `populate_pricing_cache`
 - [`conf/providers/`](../../conf/providers): 8 provider YAMLs
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): `gateway-provider-sync` route (`/gateway/providers*`)
@@ -94,7 +95,7 @@ One provider document per file; `id` is authoritative.
 | `model_source.normalize` | object | no | `strip_prefix`, `lowercase` |
 | `model_source.endpoint` | string | for gateway/llamafile | `/models` endpoint; relative resolves to `http://localhost:9080` |
 | `model_source.api_key` | string | no | Bearer for endpoint fetch |
-| `model_source.model_metadata` | list | no | Static metadata overlay for endpoint-reported ids (never introduces ids) |
+| `model_source.model_metadata` | list | no | Static metadata overlay for endpoint-reported ids (never introduces ids); wins over models.dev metadata |
 | `model_source.filter` | object | no | `include` / `exclude` lists of Lua patterns matched against model ids; `exclude` drops matches, `include` (when non-empty) keeps only matches. Used to hide e.g. `*-free` models on Go-tier providers |
 | `model_aliases` | map | no | alias id -> real model id (deep-copied entry) |
 | `pricing.source` | string | yes | `models_dev/<provider_id>` or `unknown` |
@@ -160,15 +161,18 @@ From `plugins/custom/provider-sync.lua:32-67`:
    - `gateway`/`llamafile`: fetch endpoint (relative paths prefixed with
      `http://localhost:9080`, `User-Agent: WORKSPACE-GW/0.1`, optional Bearer);
      on failure or empty id list, log an error and sync the provider with
-     zero models. `model_metadata` entries overlay metadata onto
-     endpoint-reported ids only. When an entry ends up without a limit,
-     `build_models_from_endpoint` borrows `limit.context`/`limit.output` from
-     the models.dev catalog by exact normalized-id match: a
-     `model_id -> limit` index is built over all models.dev providers in
-     sorted-name order (first provider to declare the id wins), the borrowed
-     context runs through `scale_limit` with the provider's
-     `context_limit_pct`/`context_limit_ceiling`, and borrowing never adds
-     models, ids, cost, or capability flags.
+     zero models. Each endpoint-reported id is then enriched from the
+     models.dev catalog by exact normalized-id match (`provider_sync_metadata`):
+     the declared `pricing.source.provider` block is preferred, otherwise a
+     `model_id -> metadata` index is built over all models.dev providers in
+     sorted-name order (first provider to declare the id wins). The overlay
+     carries `name`, `family`, `release_date`, `reasoning`, `attachment`/
+     `modalities`, `temperature`, `interleaved`, `reasoning_options`, `limit`,
+     and `cost`. Precedence is endpoint value, then `model_source.model_metadata`,
+     then models.dev. `model_metadata` and enrichment never introduce ids the
+     endpoint did not report. Context runs through `scale_limit` with the
+     provider's `context_limit_pct`/`context_limit_ceiling`, then `limit.output`
+     is clamped to the scaled context (FR-2.10).
    - Unknown source type: warn, empty model list.
 5. Apply `model_aliases`: copy the target entry under each alias id.
 6. Resolve each provider/model price from declared overrides, then the declared
@@ -187,24 +191,42 @@ it triggers one sync; if `ts` exists but the enriched blob is gone it returns
 
 ### 6.1 Model entry transformation
 
-`build_model_entry` normalizes the id (`strip_prefix`, `lowercase`) and emits:
+`provider_sync_metadata.build_entry` normalizes the id (`strip_prefix`,
+`lowercase`) and emits:
 
 ```lua
 {
-  name = model.name or normalized_id,
-  reasoning = model.reasoning or false,
-  attachment = model.attachment or has_attachment(model.modalities),
-  tool_call = model.tool_call ~= false,
+  name = meta.name or normalized_id,
+  family = meta.family,                      -- when known
+  release_date = meta.release_date,          -- when known
+  reasoning = meta.reasoning or false,
+  attachment = meta.attachment or has_attachment(meta.modalities),
+  temperature = meta.temperature,            -- when known
+  tool_call = meta.tool_call ~= false,
+  interleaved = meta.interleaved,            -- when known
+  modalities = { input = {...}, output = {...} }, -- when known (survives v1→v2)
+  variants = variants(meta.reasoning_options, npm), -- when derivable (FR-2.9)
   limit = { context = scale_limit(ctx, pct, ceiling),
-            output = model.limit.output or 8192 },   -- only if source has limit
-  cost = { input, output, cache_read?, cache_write? }, -- only if source has cost
+            output = clamp_output(out, scaled_context) }, -- only if a limit is known
+  cost = { input, output, cache_read?, cache_write? },    -- only if a cost is known
 }
 ```
 
 `has_attachment` is true when `modalities.input` contains `image` or `video`.
-`scale_limit` floors `context * pct / 100` and clamps to `ceiling` when > 0.
-Endpoint-sourced entries without a metadata limit borrow their limit from the
-models.dev index (section 6, step 4) before scaling.
+`scale_limit` floors `context * pct / 100` and clamps to `ceiling` when > 0;
+`clamp_output` caps `output` at the scaled context (FR-2.10).
+
+`variants` mirrors OpenCode's `ProviderTransform.reasoningVariants` for the
+effort case only: each `reasoning_options` value of type `effort` becomes a key
+whose body is npm-specific (`@ai-sdk/openai-compatible` →
+`{ reasoningEffort = <value> }`; `@ai-sdk/openai` adds
+`reasoningSummary = "auto"` and `include = { "reasoning.encrypted_content" }`).
+`budget_tokens` and `toggle` are no-ops for these packages, matching OpenCode.
+`reasoning_options` absent or empty yields no `variants` key.
+
+For `models_dev_provider` sources the same builder runs against the
+`models_dev[provider].models` entry. For `gateway`/`llamafile` sources the
+metadata is the models.dev overlay joined in section 6, step 4.
 
 ## 7. HTTP Endpoints (`plugin.access`)
 
@@ -238,7 +260,8 @@ Catalog unavailable (no cache and sync failed): 503
 ```
 
 `baseURL` derives from the incoming request's scheme/host/port (port omitted
-for 80/443). `auth_route` is `<route>/auth` only for `auth.type == "oauth"`.
+for 80/443). Model entries are the §6.1 shape; gateway-internal fields
+(`pricing`) MUST be stripped from the block. `auth_route` is `<route>/auth` only for `auth.type == "oauth"`.
 The current client contract exposes the headless device method; `auth_type:
 oauth` must not be interpreted as proof that browser PKCE is supported.
 Each OAuth method declares an explicit `id`, `flow`, and route; clients select a
@@ -323,6 +346,7 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 |------|---------|-------------|
 | `plugins/custom/provider-sync.lua` | Plugin: schema, init warmup, HTTP routing | thin wrapper over catalog |
 | `plugins/custom/provider_sync_catalog.lua` | YAML load, enrichment, sync, cache | owns defaults and cache keys |
+| `plugins/custom/provider_sync_metadata.lua` | models.dev metadata join, entry builder, reasoning variants, limit scaling | pure Lua; no ngx |
 | `plugins/custom/provider_sync_pricing.lua` | `pricing:*` writer + snapshot publisher | provider-aware resolution; sole writer |
 | `conf/providers/*.yaml` | 8 provider definitions | incl. `model_aliases`, `model_metadata`, pricing policy |
 | `res/opencode-plugin/workspace-gateway-auth.ts` | OpenCode auth plugin | metadata-driven device/browser methods |
@@ -338,6 +362,7 @@ and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 |-----------|--------|----------|
 | Plugin + endpoints | Implemented | plugins/custom/provider-sync.lua |
 | Catalog sync/enrichment | Implemented | provider_sync_catalog.lua |
+| models.dev metadata + OpenCode variants | Implemented | provider_sync_metadata.lua |
 | Pricing writer split | Implemented | provider_sync_pricing.lua |
 | Provider YAMLs (8) | Implemented | conf/providers/ |
 | Route + rate limit | Implemented | conf/apisix.yaml `gateway-provider-sync` |
