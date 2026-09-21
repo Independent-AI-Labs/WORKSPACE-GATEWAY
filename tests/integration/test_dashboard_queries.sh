@@ -225,7 +225,7 @@ echo ""
 # =====================================================================
 echo "--- Q2: p3 Token Consistency ---"
 # Extract the WITH totals CTE from p3 refId=A and select raw token columns
-P3_CTE=$(get_ch_sql 3 A | sed -n '/^WITH totals AS/,/^)/p')
+P3_CTE=$(get_ch_sql 3 A | sed -n '/^WITH totals AS/,/^)/p' | sed '$ s/,$//')
 P3_RAW_SQL="${P3_CTE}
 SELECT total_tok, input_tok, cached_tok, output_tok, reasoning_tok FROM totals FORMAT TabSeparated"
 P3R=$(exec_ch_raw "$(sub_ch "$P3_RAW_SQL")")
@@ -443,7 +443,7 @@ else
         || rf "Q14: p1 single($P1_SINGLE) >= all($P1_ALL) -- filter not narrowing"
 
     # p3 Token Usage: single key total tokens < all keys total tokens
-    P3_CTE=$(get_ch_sql 3 A | sed -n '/^WITH totals AS/,/^)/p')
+    P3_CTE=$(get_ch_sql 3 A | sed -n '/^WITH totals AS/,/^)/p' | sed '$ s/,$//')
     P3_RAW_SQL="${P3_CTE}
 SELECT total_tok FROM totals FORMAT TabSeparated"
     P3_SINGLE=$(exec_ch_raw "$(sub_ch "$P3_RAW_SQL" "$SKL" "$CH_MODEL_LIST")" | cut -f1)
