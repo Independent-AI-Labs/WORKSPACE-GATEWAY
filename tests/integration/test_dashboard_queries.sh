@@ -253,7 +253,8 @@ echo ""
 
 # =====================================================================
 # Q4: p3 format: token columns as compact "NN.NN B|M|K" strings (or plain
-# integers), cost column as exact "$X.YY" (never SI-abbreviated)
+# integers); the combined columns join token and spend with a middot, where
+# spend is exact "$X.YY" under 1000 and compact "$X.YY B|M|K" above it
 # =====================================================================
 echo "--- Q4: p3 Output Format ---"
 P3_FMT_ROW=$(exec_ch 3 A | sed -n '1p')
@@ -267,7 +268,7 @@ for val in "${P3_COLS[@]}"; do
             && rp "Q4: p3-${label} format valid" \
             || rf "Q4: p3-${label} format invalid: $val"
     else
-        echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)? / \$[0-9]+\.[0-9]{2}$' \
+        echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)? · \$[0-9]+(\.[0-9]{2})?(B|M|K)?$' \
             && rp "Q4: p3-${label} format valid" \
             || rf "Q4: p3-${label} format invalid: $val"
     fi
@@ -311,12 +312,12 @@ echo ""
 # Q7: p15 daily-cost sum = total cost (cross-query consistency)
 # =====================================================================
 echo "--- Q7: p15 Daily Cost Sum = Total Cost ---"
-P15S=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
-# Total cost = sum(cost) from usage_log with same filters
+P15=$(exec_ch 15 A | grep '.')  # p15 rounds each day to 2 decimals, so the series sum drifts from the raw total
+P15S=$(printf '%s' "$P15" | awk -F'\t' '{s+=$2} END{print s+0}')
 P15T_SQL=$(sql_render tests/dashboard-queries/sum-cost-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST" "MODELS=$CH_MODEL_LIST")
 P15T=$(exec_ch_raw "$P15T_SQL" | sed -n '1p'); P15T=${P15T:-0}
-P7DIFF=$(awk "BEGIN{d=$P15S-$P15T; if(d<0)d=-d; print d}")
-awk "BEGIN{exit !($P7DIFF < 0.01)}" && rp "Q7: cost_sum($P15S)~=total($P15T) diff=$P7DIFF" || rf "Q7: cost_sum($P15S)!=total($P15T) diff=$P7DIFF"
+P7DIFF=$(awk "BEGIN{d=$P15S-$P15T; if(d<0)d=-d; print d}"); P7TOL=$(printf '%s' "$P15" | awk 'END{print (NR+1)*0.005+0.01}')
+awk "BEGIN{exit !($P7DIFF < $P7TOL)}" && rp "Q7: cost_sum($P15S)~=total($P15T) diff=$P7DIFF tol=$P7TOL" || rf "Q7: cost_sum($P15S)!=total($P15T) diff=$P7DIFF tol=$P7TOL"
 echo ""
 
 # =====================================================================
