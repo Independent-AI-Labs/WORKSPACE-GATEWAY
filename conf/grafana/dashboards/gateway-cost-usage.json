@@ -116,24 +116,11 @@
                   "id": "displayName",
                   "value": "Total"
                 },
-                {
-                  "id": "color",
-                  "value": {
-                    "fixedColor": "#b7990d",
-                    "mode": "fixed"
-                  }
-                },
               {
-                "id": "textSize",
+                "id": "color",
                 "value": {
-                  "title": {
-                    "mode": "fixed",
-                    "fixed": 14
-                  },
-                  "value": {
-                    "mode": "fixed",
-                    "fixed": 30
-                  }
+                  "fixedColor": "#a88d0c",
+                  "mode": "fixed"
                 }
               }
             ]
@@ -273,9 +260,13 @@
           "values": false
         },
         "textMode": "value_and_name",
+        "text": {
+          "titleSize": 16,
+          "valueSize": 18.5
+        },
         "maxPerRow": 4
       },
-      "description": "Token volume over the selected range, split into input (uncached), cache hits, output (non-reasoning) and reasoning. Total shows overall tokens / spend on the second row, enlarged; Monthly/Weekly/Daily Average project the range total forward to a full calendar month / 7 days / 1 day (run-rate) and show the projected tokens / spend (tokens / $). Prompt caching shows up as Cached: cached input is billed at a steep discount, so a high Cached share is good."
+      "description": "Token volume over the selected range, split into input (uncached), cache hits, output (non-reasoning) and reasoning. Total shows overall tokens · spend on the second row; Monthly/Weekly/Daily Average project the range total forward to a full calendar month / 7 days / 1 day (run-rate) and show the projected tokens · spend (tokens · $). Prompt caching shows up as Cached: cached input is billed at a steep discount, so a high Cached share is good."
     },
     {
       "id": 15,

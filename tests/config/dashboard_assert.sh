@@ -121,7 +121,7 @@ check_dashboard_basics() {
     # S7: all hex colors are brand palette
     local brand_hex
     brand_hex=$(jq -r '
-      def brand: ["#50514f","#f25f5c","#ffe066","#247ba0","#70c1b3","#a5d0a8","#8cada7","#110b11","#b7990d","#f2f4cb","#ffffff","#c9a44c","#a8a9ad","#b07a3c"];
+      def brand: ["#50514f","#f25f5c","#ffe066","#247ba0","#70c1b3","#a5d0a8","#8cada7","#110b11","#b7990d","#f2f4cb","#ffffff","#c9a44c","#a8a9ad","#b07a3c","#a88d0c"];
       def is_brand(c): c as $c | brand | index($c | ascii_downcase) != null;
       def is_hex(c): (c | startswith("#"));
       [ .panels[] | . as $p |

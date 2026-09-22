@@ -5,10 +5,13 @@
 Every dashboard renders numbers with the same abbreviation rule, so a value
 reads identically wherever it appears.
 
-- **Stat tiles (exact values).** Format in SQL, never with Grafana's `short`
-  unit. Costs are exact `$x.yy` via the rollover-safe integer-cents pattern
-  (`floor(round(x * 100) / 100)` + 2-digit `leftPad(round(x * 100) % 100, ...)`),
-  never SI-abbreviated. Token volumes and other large counts are compact
+- **Stat tiles (SQL-formatted values).** Format in SQL, never with Grafana's
+  `short` unit. Standalone money tiles are exact `$x.yy` via the rollover-safe
+  integer-cents pattern (`floor(round(x * 100) / 100)` + 2-digit
+  `leftPad(round(x * 100) % 100, ...)`). The p3 combined token·spend tiles
+  instead abbreviate money K/M/B at 2 decimals (`printf('%.2f', ...)`, e.g.
+  `$4.44K`) so they read identically to the Grafana-rendered currency in the
+  graphs and legends. Token volumes and other large counts are compact
   uppercase `B`/`M`/`K` via `multiIf` (`>= 1e9 -> B`, `>= 1e6 -> M`,
   `>= 1e3 -> K`, 2 decimals, rounded not floored).
 - **Graphs, bargauges, axes and tables (rendered values).** Set the Grafana

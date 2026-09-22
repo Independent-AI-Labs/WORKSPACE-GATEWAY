@@ -61,7 +61,7 @@ performance acceptable, (5) is the gateway itself healthy.
 | CH | ClickHouse datasource (uid `clickhouse`) |
 | Prom | Prometheus datasource (uid `prometheus`) |
 | `$__timeFilter` | Grafana ClickHouse macro binding queries to the dashboard time range |
-| Brand palette | teal `#70c1b3`, cerulean `#247ba0`, muted-teal `#8cada7`, gold `#ffe066`, bronze `#b7990d`, coral `#f25f5c`, celadon `#a5d0a8`, dark `#50514f`, cream `#f2f4cb`, ink `#110b11` |
+| Brand palette | teal `#70c1b3`, cerulean `#247ba0`, muted-teal `#8cada7`, gold `#ffe066`, bronze `#b7990d`, deep bronze `#a88d0c`, coral `#f25f5c`, celadon `#a5d0a8`, dark `#50514f`, cream `#f2f4cb`, ink `#110b11` |
 
 ## 2. Functional Requirements
 
@@ -95,7 +95,7 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | p3 (Token Usage by Category) MUST display Input (uncached), Cached, Output (non-reasoning) and Reasoning token volumes as compact uppercase `B`/`M`/`K` strings, plus Total and the Monthly/Weekly/Daily run-rate averages as `tokens / $x.yy` strings (exact spend, never SI-abbreviated), single query/frame, 8 unique column aliases and 8 unique byName color overrides, no two tiles sharing a color (categories form a cool hue ramp, averages a neutral ramp). Tiles stay horizontal with `maxPerRow: 4`; Total carries a per-field `textSize` override. |
+| FR-4.1 | p3 (Token Usage by Category) MUST display Input (uncached), Cached, Output (non-reasoning) and Reasoning token volumes as compact uppercase `B`/`M`/`K` strings, plus Total and the Monthly/Weekly/Daily run-rate averages as `tokens · $x.yy` strings joined by a middot, where the spend side abbreviates K/M/B at 2 decimals (`$4.44K`) like the dashboard's Grafana-rendered currency (p8 tooltip, p46 legend), single query/frame, 8 unique column aliases and 8 unique byName color overrides, no two tiles sharing a color (categories form a cool hue ramp, averages a neutral ramp). Tiles stay horizontal with `maxPerRow: 4`; the stat `options.text` sizes titles 16 and values 18.5. |
 | FR-4.2 | p15 (Cost Over Time) MUST be a per-day bars timeseries of `round(sum(cost), 2)` bucketed by `toStartOfDay(timestamp)`; the selected models and keys are additive, so the bars sum to total range spend. |
 | FR-4.3 | p1 (Total Requests) MUST count `request_log` rows within the time filter, with thresholds teal/gold at 1000/bronze at 10000. |
 | FR-4.4 | p4 (Error Rate) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |
@@ -139,7 +139,7 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-7.1 | Currency on stat tiles MUST be an SQL-formatted exact string `"$x.yy"` (floor + left-padded cents); SI-abbreviated money (`$2.88K`) is forbidden. Timeseries axes may use `currencyUSD`. |
+| FR-7.1 | Currency on standalone money stat tiles MUST be an SQL-formatted exact string `"$x.yy"` (floor + left-padded cents); SI-abbreviated money (`$2.88K`) is forbidden there. The exception is the p3 combined token·spend tiles, whose spend side MUST abbreviate K/M/B at 2 decimals (`$4.44K`, `printf('%.2f', ...)`) to read identically to the dashboard's Grafana-rendered currency. Timeseries axes may use `currencyUSD`. |
 | FR-7.2 | Token volumes on tiles MUST be SQL-formatted compact uppercase `B`/`M`/`K` strings with 2 decimals and no unit word (Grafana `unit: short` renders "Bil"/"Mil" and is forbidden). |
 | FR-7.3 | Measured rates, costs, speeds, and scores MUST display 2 decimals (display config + SQL `round(x, 2)`); raw counts stay integers. |
 | FR-7.4 | Stat panels MUST render each tile-set from a single query/frame (multi-target stat frames drop string fields and prefix names with refIds); string-valued fields REQUIRE `textMode: value_and_name`; `reduceOptions.fields` regexes match post-override display names, so panels whose overrides rename fields MUST use `/./`. |

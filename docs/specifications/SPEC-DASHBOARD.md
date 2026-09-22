@@ -56,8 +56,9 @@ to normalize across rows that use either column.
 One logic per quantity type, identical in every panel (operator ruling
 2026-09-17; enforced by dashboard_assert S18):
 
-- **Currency on stat tiles** = SQL-formatted exact `"$x.yy"` strings via
-  rollover-safe integer cents, never a fractional-cents extraction:
+- **Currency on standalone money tiles** = SQL-formatted exact `"$x.yy"`
+  strings via rollover-safe integer cents, never a fractional-cents
+  extraction:
 
   ```sql
   concat('$', toString(floor(round(x * 100) / 100)), '.',
@@ -66,8 +67,24 @@ One logic per quantity type, identical in every panel (operator ruling
 
   `round((x - floor(x)) * 100)` is FORBIDDEN: on x like 1893.995 the
   fraction rounds to 100 cents and renders `$1893.100`. Never
-  SI-abbreviated on tiles (`$2.88K` is forbidden); the p15 timeseries
+  SI-abbreviated on these tiles (`$2.88K` is forbidden); the p15 timeseries
   axis may keep `currencyUSD` since axis abbreviation is standard.
+- **Currency on the p3 combined token·spend tiles** = compact K/M/B money
+  matching the dashboard's Grafana-rendered currency (p8 tooltip, p46
+  legend), 2 decimals with trailing zeros kept:
+
+  ```sql
+  multiIf(x >= 1000000000, concat(printf('%.2f', x / 1000000000), 'B'),
+          x >= 1000000,    concat(printf('%.2f', x / 1000000), 'M'),
+          x >= 1000,       concat(printf('%.2f', x / 1000), 'K'),
+          printf('%.2f', x))
+  ```
+
+  The value is prefixed with `$` and joined to the compact token string by
+  a middot (see Panel 3). `printf('%.2f', ...)` keeps 2 decimals
+  (`1600 -> "1.60K"`); `toString(round(x, 2))` is not used here because it
+  drops trailing zeros and would not read identically to Grafana's
+  currency formatting.
 - **Token volumes / large counts on tiles** = SQL-formatted compact
   uppercase `B`/`M`/`K`, rounded (never floored):
 
@@ -141,12 +158,13 @@ weekly `total / elapsed_days * 7`, daily `total / elapsed_days`. Because
 `"Input Tokens"`, `"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"`
 (compact uppercase `B`/`M`/`K` `multiIf` strings, e.g. `9.18B`), then
 `"Total"`, `"Monthly Average"`, `"Weekly Average"`, `"Daily Average"`, each
-formatted as compact tokens for the quantity followed by exact spend:
-`"12B / $3894.37"` (`"4.1B / $1298.12"` for the averages). The spend side is
-an exact currency string `toString(floor(round(x * 100) / 100))` + `'.'` +
-`leftPad(toString(round(x * 100) % 100), 2, '0')`, never SI-abbreviated
-(ClickHouse `toString(toDecimal64(x,2))` strips trailing zeros, so cents are
-split and left-padded manually). Colors (byName): the four token categories
+formatted as compact tokens for the quantity joined by a middot to compact
+K/M/B spend: `"12B · $3.89K"` (`"4.1B · $1.30K"` for the averages). The spend
+side mirrors the dashboard's Grafana-rendered currency (p8 tooltip, p46
+legend) via `multiIf(x >= 1e9 -> 'B', >= 1e6 -> 'M', >= 1e3 -> 'K', else '')`
+around `printf('%.2f', ...)`, so large sums abbreviate (`$4.44K`) and cents
+keep 2 decimals (`printf` pads; `toString(round(x, 2))` would drop trailing
+zeros). Colors (byName): the four token categories
 form a cool hue ramp - Input cerulean, Cached teal, Output celadon, Reasoning
 light yellow - Total takes bronze, and the three period averages form a
 neutral ramp - Monthly charcoal, Weekly grey, Daily cream. No two tiles share
@@ -360,8 +378,8 @@ medal color are computed in SQL via `row_number() OVER ()`.
 `total_cost DESC LIMIT 100`, then emits `name_str` (`"N. client - 5.76B"` -
 rank, entity, compact uppercase token volume via `multiIf` thresholds
 `>= 1e9 -> 'B'`, `>= 1e6 -> 'M'`, `>= 1e3 -> 'K'`, 2 decimals, no unit word),
-`value_str` (exact currency string `"$1893.31"`: same floor/cents formula as
-p3 Total Cost), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
+`value_str` (exact currency string `"$1893.31"`: the rollover-safe
+floor/cents formula of section 2.4, standalone money tile), and `Color` (`#C9A44C` rank 1, `#A8A9AD` rank 2,
 `#B07A3C` rank 3, `#FFFFFF` ranks 4-10), `LIMIT 3`. The `rowsToFields`
 transformation maps `name_str -> field.name`, `value_str -> field.value`,
 `Color -> color`.

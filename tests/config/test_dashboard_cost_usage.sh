@@ -53,14 +53,16 @@ done
 assert_eq "$LABEL: p3 query returns 5 token columns incl. Total" "5" "$P3_COLS"
 
 # p3: numeric columns, no string-formatted values; Total folds spend into token string
-# token categories formatted as compact uppercase B/M/K strings; cost as exact "$x.yy"
+# token categories are compact uppercase B/M/K strings; cost is compact K/M/B money
+# (2-decimal, matching the dashboard's Grafana-rendered currency), joined by a middot
 P3_STR=0
 printf '%s' "$P3_SQL" | grep -qE "multiIf" || P3_STR=1
 printf '%s' "$P3_SQL" | grep -qF ", 'B')" && printf '%s' "$P3_SQL" | grep -qF ", 'M')" && printf '%s' "$P3_SQL" | grep -qF ", 'K')" || P3_STR=1
 assert_eq "$LABEL: p3 token columns use compact B/M/K formatting" "0" "$P3_STR"
-printf '%s' "$P3_SQL" | grep -qF "' / \$'" && { echo "[PASS] $LABEL: p3 renders tokens / exact dollars (\$x.yy)"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 missing tokens/dollar formatting"; fail=$((fail+1)); }
+printf '%s' "$P3_SQL" | grep -qF "' · \$'" && { echo "[PASS] $LABEL: p3 joins tokens and cost with a middot"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 missing tokens middot cost separator"; fail=$((fail+1)); }
+printf '%s' "$P3_SQL" | grep -qF "printf('%.2f'," && { echo "[PASS] $LABEL: p3 costs abbreviate K/M/B like the dashboard currency"; pass=$((pass+1)); fail_msg=""; } || { echo "[FAIL] $LABEL: p3 costs not K/M/B-abbreviated"; fail=$((fail+1)); }
 
-# p3: horizontal tiles, Total + averages fill the second row (maxPerRow 4), Total enlarged
+# p3: horizontal tiles, Total + averages fill the second row (maxPerRow 4), title text enlarged
 P3_ORIENT=$(jq -r '[.panels[]|select(.id==3)][0].options.orientation // "missing"' "$F")
 assert_eq "$LABEL: p3 keeps horizontal tiles" "horizontal" "$P3_ORIENT"
 P3_MAXROW=$(jq -r '[.panels[]|select(.id==3)][0].options.maxPerRow // "missing"' "$F")
@@ -68,12 +70,14 @@ assert_eq "$LABEL: p3 wraps after 4 tiles (Total + averages on the bottom row)" 
 P3_LAST_COLS=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$F" | grep -o 'as "[^"]*"' | sed 's/as "//; s/"//' | paste -sd, -)
 assert_eq "$LABEL: p3 column order puts Total then period averages last" \
   "Input Tokens,Cached Tokens,Output Tokens,Reasoning Tokens,Total,Monthly Average,Weekly Average,Daily Average" "$P3_LAST_COLS"
-P3_BIG=$(jq '[ [.panels[]|select(.id==3)][0].fieldConfig.overrides[] | select(.matcher.options == "Total") | .properties[] | select(.id == "textSize") ] | length' "$F")
-assert_eq "$LABEL: p3 Total carries a textSize override (enlarged)" "1" "$P3_BIG"
+P3_TITLE_SIZE=$(jq -r '[.panels[]|select(.id==3)][0].options.text.titleSize // "missing"' "$F")
+assert_eq "$LABEL: p3 stat titles are enlarged (text.titleSize)" "16" "$P3_TITLE_SIZE"
+P3_VALUE_SIZE=$(jq -r '[.panels[]|select(.id==3)][0].options.text.valueSize // "missing"' "$F")
+assert_eq "$LABEL: p3 stat values stay pinned (text.valueSize)" "18.5" "$P3_VALUE_SIZE"
 
-# p3: Total and the period averages combine compact tokens + exact dollars
-P3_AVG_SEP=$(printf '%s' "$P3_SQL" | grep -oF "' / \$'" | wc -l | tr -d ' ')
-assert_eq "$LABEL: p3 Total + averages render tokens / exact cost (4 columns)" "4" "$P3_AVG_SEP"
+# p3: Total and the period averages combine compact tokens + compact K/M/B cost
+P3_AVG_SEP=$(printf '%s' "$P3_SQL" | grep -oF "' · \$'" | wc -l | tr -d ' ')
+assert_eq "$LABEL: p3 Total + averages render tokens middot cost (4 columns)" "4" "$P3_AVG_SEP"
 P3_PROJECTS=$(printf '%s' "$P3_SQL" | grep -oF 'elapsed_days' | wc -l | tr -d ' ')
 assert_eq "$LABEL: p3 averages project the range total (run-rate, elapsed_days)" "7" "$P3_PROJECTS"
 P3_FROMTIME=$(printf '%s' "$P3_SQL" | grep -cF '$__fromTime')

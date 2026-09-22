@@ -191,12 +191,13 @@ assert_eq "Model Performance ClickHouse panels" "5" "$PF_CH"
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
 assert_eq "Total panels across 5 dashboards" "32" "$TOTAL_PANELS"
 
-# ── Currency consistency: money tiles render exact "$x.yy" strings (SQL-
-#    formatted, 2 decimals, never SI-abbreviated); B/M/K uppercase abbrevs ─
+# ── Currency consistency: p3's combined token·spend tiles abbreviate K/M/B ─
+#    money like the dashboard's Grafana currency; standalone money tiles
+#    render exact "$x.yy" strings (SQL-formatted, 2 decimals); B/M/K uppercase
 CURRENCY_OK=0
 CURRENCY_EXPECT=5
 CU_P3=$(jq -r '[.panels[]|select(.id==3)][0].targets[0].rawSql' "$COST_USAGE_FILE")
-printf '%s' "$CU_P3" | grep -qF "' / \$'" && printf '%s' "$CU_P3" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
+printf '%s' "$CU_P3" | grep -qF "' · \$'" && printf '%s' "$CU_P3" | grep -qF "printf('%.2f'" && CURRENCY_OK=$((CURRENCY_OK+1))
 LB_SQL=$(jq -r '[.panels[]|select(.id==20 or .id==21)][0].targets[0].rawSql' "$LEADERBOARD_FILE")
 printf '%s' "$LB_SQL" | grep -qF "concat('$'" && printf '%s' "$LB_SQL" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
 U_P36=$(jq -r '[.panels[]|select(.id==36)][0].targets[].rawSql' "$PERFORMANCE_FILE")
@@ -205,7 +206,7 @@ U_P45=$(jq -r '[.panels[]|select(.id==45)][0].targets[0].rawSql // ""' "$PERFORM
 [ "$U_P36_N" = "1" ] && printf '%s' "$U_P45" | grep -qF "concat('$'" && printf '%s' "$U_P36" | grep -qF "% 100), 2, '0')" && CURRENCY_OK=$((CURRENCY_OK+1))
 printf '%s' "$LB_SQL" | grep -qF ", 'B')" && printf '%s' "$LB_SQL" | grep -qF ", 'M')" && printf '%s' "$LB_SQL" | grep -qF ", 'K')" && CURRENCY_OK=$((CURRENCY_OK+1))
 printf '%s' "$LB_SQL" | grep -q "formatReadableQuantity" || CURRENCY_OK=$((CURRENCY_OK+1))
-assert_eq "Money tiles exact \$x.yy strings + uppercase B/M/K abbrevs" "$CURRENCY_EXPECT" "$CURRENCY_OK"
+assert_eq "Money tiles formatted (p3 K/M/B, others exact \$x.yy) + uppercase B/M/K abbrevs" "$CURRENCY_EXPECT" "$CURRENCY_OK"
 
 # ── Shared templating identical across all 4 dashboards (api_key + model;
 #    usefulness adds the dashboard-local include_local) ──
@@ -371,7 +372,7 @@ assert_eq "p14 labels are Client,Completed,Provider" "Client aborted,Completed,P
 BRAND_PAL_VIOLATIONS=""
 for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE_FILE" "$PERFORMANCE_FILE"; do
     v=$(jq -r '
-      def brand: ["#50514f","#f25f5c","#ffe066","#247ba0","#70c1b3","#a5d0a8","#8cada7","#110b11","#b7990d","#f2f4cb","#ffffff","#c9a44c","#a8a9ad","#b07a3c"];
+      def brand: ["#50514f","#f25f5c","#ffe066","#247ba0","#70c1b3","#a5d0a8","#8cada7","#110b11","#b7990d","#f2f4cb","#ffffff","#c9a44c","#a8a9ad","#b07a3c","#a88d0c"];
       def is_brand(c): c as $c | brand | index($c | ascii_downcase) != null;
       def is_hex(c): (c | startswith("#"));
       [ .panels[] | . as $p |
@@ -413,7 +414,7 @@ P3_PALETTE=$(jq -r '
     )
   ) | del(.__name) | . as $got |
   {
-    "Total":                  "#b7990d",
+    "Total":                  "#a88d0c",
     "Input (uncached)":       "#247ba0",
     "Cached":                 "#70c1b3",
     "Output (non-reasoning)": "#a5d0a8",
