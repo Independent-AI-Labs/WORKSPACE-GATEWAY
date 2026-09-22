@@ -133,6 +133,9 @@
         "displayMode": "gradient",
         "orientation": "horizontal",
         "showUnfilled": true,
+        "text": {
+          "valueSize": 12
+        },
         "sizing": "auto",
         "minVizHeight": 10,
         "minVizWidth": 0,
@@ -198,6 +201,9 @@
         "displayMode": "gradient",
         "orientation": "horizontal",
         "showUnfilled": true,
+        "text": {
+          "valueSize": 12
+        },
         "sizing": "auto",
         "minVizHeight": 10,
         "minVizWidth": 0,
@@ -320,8 +326,13 @@
           "values": false
         },
         "colorMode": "value",
-        "graphMode": "area",
-        "textMode": "auto"
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 36
+        }
       }
     },
     {
@@ -447,7 +458,11 @@
         "colorMode": "value",
         "graphMode": "none",
         "textMode": "value_and_name",
-        "orientation": "horizontal"
+        "orientation": "horizontal",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 36
+        }
       }
     },
     {
@@ -460,7 +475,7 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 0,
+        "x": 12,
         "y": 20,
         "w": 12,
         "h": 10
@@ -477,7 +492,7 @@
         "defaults": {
           "color": {
             "mode": "fixed",
-            "fixedColor": "#247ba0"
+            "fixedColor": "#f25f5c"
           }
         },
         "overrides": [
@@ -495,20 +510,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Cost of Wasted Tokens"
-            },
-            "properties": []
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Cost per Completed Response"
-            },
-            "properties": []
           }
         ]
       },
@@ -523,7 +524,11 @@
         "colorMode": "value",
         "graphMode": "none",
         "textMode": "value_and_name",
-        "orientation": "horizontal"
+        "orientation": "horizontal",
+        "text": {
+          "titleSize": 18,
+          "valueSize": 36
+        }
       }
     },
     {
@@ -536,7 +541,7 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 12,
+        "x": 0,
         "y": 20,
         "w": 12,
         "h": 10
@@ -575,6 +580,10 @@
           ],
           "fields": "/./",
           "values": false
+        },
+        "text": {
+          "titleSize": 18,
+          "valueSize": 36
         }
       }
     }
