@@ -1,1 +1,7 @@
-SELECT toStartOfMinute(timestamp) as time, model as label, round(sum(cost), 6) as cost FROM llm_gateway.usage_log WHERE {{ time_filter('timestamp') }} AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ({{ gf_str_multi('api_key') }}) AND model IN ({{ gf_str_multi('model') }}) GROUP BY time, model ORDER BY time, label
+SELECT
+    toStartOfDay(timestamp) as time,
+    round(sum(cost), 2) as "Cost ($)"
+FROM llm_gateway.usage_log
+WHERE {{ time_filter('timestamp') }} AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ({{ gf_str_multi('api_key') }}) AND model IN ({{ gf_str_multi('model') }})
+GROUP BY time
+ORDER BY time

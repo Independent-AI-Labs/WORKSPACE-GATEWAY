@@ -5,23 +5,27 @@ WITH totals AS (
         toInt64(sum(cached_tokens)) as cached_tok,
         toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,
         toInt64(sum(reasoning_tokens)) as reasoning_tok,
-        round(sum(cost), 2) as total_cost,
-        uniqExact(toDate(timestamp)) as days,
-        uniqExact(toStartOfWeek(timestamp, 1)) as weeks,
-        uniqExact(toStartOfMonth(timestamp)) as months
+        sum(cost) as total_cost
     FROM llm_gateway.usage_log
     WHERE {{ time_filter('timestamp') }} AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ({{ gf_str_multi('api_key') }}) AND model IN ({{ gf_str_multi('model') }})
+),
+runrate AS (
+    SELECT
+        total_tok, input_tok, cached_tok, output_tok, reasoning_tok, total_cost,
+        greatest(dateDiff('second', $__fromTime, $__toTime) / 86400, 1) as elapsed_days, -- noqa: LXR
+        toDayOfMonth(toLastDayOfMonth(toDate($__toTime))) as days_in_month -- noqa: LXR
+    FROM totals
 ),
 avgs AS (
     SELECT
         total_tok, input_tok, cached_tok, output_tok, reasoning_tok, total_cost,
-        round(total_tok / greatest(days, 1)) as day_tok,
-        round(total_tok / greatest(weeks, 1)) as week_tok,
-        round(total_tok / greatest(months, 1)) as month_tok,
-        round(total_cost / greatest(days, 1), 2) as day_cost,
-        round(total_cost / greatest(weeks, 1), 2) as week_cost,
-        round(total_cost / greatest(months, 1), 2) as month_cost
-    FROM totals
+        round(total_tok / elapsed_days * days_in_month) as month_tok,
+        round(total_tok / elapsed_days * 7) as week_tok,
+        round(total_tok / elapsed_days) as day_tok,
+        round(total_cost / elapsed_days * days_in_month, 2) as month_cost,
+        round(total_cost / elapsed_days * 7, 2) as week_cost,
+        round(total_cost / elapsed_days, 2) as day_cost
+    FROM runrate
 )
 SELECT
     multiIf(input_tok >= 1000000000, concat(toString(round(input_tok / 1000000000, 2)), 'B'), input_tok >= 1000000, concat(toString(round(input_tok / 1000000, 2)), 'M'), input_tok >= 1000, concat(toString(round(input_tok / 1000, 2)), 'K'), toString(input_tok)) as "Input Tokens",

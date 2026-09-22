@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Structure tests for Dashboard 1: Gateway Cost & Usage
 # (conf/grafana/dashboards/gateway-cost-usage.json)
-# Panels: p3 Token Usage by Category, p15 Cost Over Time by Model, p8 Model Distribution
+# Panels: p3 Token Usage by Category, p15 Cost Over Time, p8 Model Distribution,
+#         p46 Provider Breakdown pie
 
 _SELF="${BASH_SOURCE[0]}"
 if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
@@ -73,8 +74,11 @@ assert_eq "$LABEL: p3 Total carries a textSize override (enlarged)" "1" "$P3_BIG
 # p3: Total and the period averages combine compact tokens + exact dollars
 P3_AVG_SEP=$(printf '%s' "$P3_SQL" | grep -oF "' / \$'" | wc -l | tr -d ' ')
 assert_eq "$LABEL: p3 Total + averages render tokens / exact cost (4 columns)" "4" "$P3_AVG_SEP"
-P3_AVG_PERIODS=$(printf '%s' "$P3_SQL" | grep -oF 'uniqExact(' | wc -l | tr -d ' ')
-assert_eq "$LABEL: p3 averages divide by distinct days/weeks/months" "3" "$P3_AVG_PERIODS"
+P3_PROJECTS=$(printf '%s' "$P3_SQL" | grep -oF 'elapsed_days' | wc -l | tr -d ' ')
+assert_eq "$LABEL: p3 averages project the range total (run-rate, elapsed_days)" "7" "$P3_PROJECTS"
+P3_FROMTIME=$(printf '%s' "$P3_SQL" | grep -cF '$__fromTime')
+P3_TOTIME=$(printf '%s' "$P3_SQL" | grep -cF 'toDayOfMonth(toLastDayOfMonth(toDate($__toTime)))')
+assert_eq "$LABEL: p3 run-rate uses Grafana range bounds + calendar month" "1/1" "$P3_FROMTIME/$P3_TOTIME"
 
 # p3: stat panel positioned top-left
 P3_GRID=$(jq -r '[.panels[]|select(.id==3)][0].gridPos | "y=\(.y),x=\(.x)"' "$F")
@@ -88,7 +92,7 @@ assert_eq "$LABEL S5: no stat panel has duplicate override matchers" "0" "$DUP_M
 
 # p15: title, timeseries, sums cost, filters by api_key
 P15_TITLE=$(jq -r '[.panels[]|select(.id==15)][0].title' "$F")
-assert_eq "$LABEL: p15 title is Cost Over Time by Model (\$)" "Cost Over Time by Model (\$)" "$P15_TITLE"
+assert_eq "$LABEL: p15 title is Cost Over Time" "Cost Over Time" "$P15_TITLE"
 P15_TYPE=$(jq -r '[.panels[]|select(.id==15)][0].type' "$F")
 assert_eq "$LABEL: p15 is timeseries" "timeseries" "$P15_TYPE"
 P15_COST=$(jq '[[.panels[]|select(.id==15)][0].targets[].rawSql|select(.!=null)|select(test("sum\\(cost\\)"))]|length>0' "$F")
@@ -96,22 +100,53 @@ assert_eq "$LABEL: p15 query sums cost" "true" "$P15_COST"
 P15_APIKEY=$(jq '[[.panels[]|select(.id==15)][0].targets[].rawSql|select(.!=null)|select(test("\\$\\{api_key:singlequote\\}"))]|length>0' "$F")
 assert_eq "$LABEL: p15 filters by \${api_key:singlequote}" "true" "$P15_APIKEY"
 
-# p8: bargauge, single-table usage_log query (no ASOF JOIN needed), selects model
+# p8: treemap of model token volume (colorless; spend in the tooltip), drawn
+# by the in-repo gateway-treemap plugin with min/max tile-area constraints.
 P8_TYPE=$(jq -r '[.panels[]|select(.id==8)][0].type' "$F")
-assert_eq "$LABEL: p8 is bargauge" "bargauge" "$P8_TYPE"
+assert_eq "$LABEL: p8 uses the custom gateway-treemap panel" "gateway-treemap" "$P8_TYPE"
 P8_USAGE=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("FROM llm_gateway.usage_log";"i"))]|length>0' "$F")
 assert_eq "$LABEL: p8 queries usage_log directly" "true" "$P8_USAGE"
-P8_MODEL=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("SELECT model";"i"))]|length>0' "$F")
-assert_eq "$LABEL: p8 selects model" "true" "$P8_MODEL"
+P8_MODEL=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("GROUP BY model";"i"))]|length>0' "$F")
+assert_eq "$LABEL: p8 groups by model" "true" "$P8_MODEL"
+P8_COLOR=$(jq '[[.panels[]|select(.id==8)][0].targets[].rawSql|select(.!=null)|select(test("model_color_map";"i"))]|length>0' "$F")
+assert_eq "$LABEL: p8 no longer joins the model color map" "false" "$P8_COLOR"
+P8_DIMS=$(jq -r '[.panels[]|select(.id==8)][0].options|"\(.textField) \(.sizeField)"' "$F")
+assert_eq "$LABEL: p8 labels by model, sizes by tokens" "model tokens" "$P8_DIMS"
+P8_MIN=$(jq -r '[.panels[]|select(.id==8)][0].options.minTileArea' "$F")
+assert_eq "$LABEL: p8 enforces a minimum tile area" "1200" "$P8_MIN"
+P8_MAX=$(jq -r '[.panels[]|select(.id==8)][0].options.maxTileArea' "$F")
+assert_eq "$LABEL: p8 enforces a maximum tile area" "60000" "$P8_MAX"
+P8_OTHER=$(jq -r '[.panels[]|select(.id==8)][0].options.otherLabel' "$F")
+assert_eq "$LABEL: p8 labels the overflow tile" "Other models" "$P8_OTHER"
+P8_CARD=$(jq -r '[.panels[]|select(.id==8)][0].options.cardTemplate // ""' "$F")
+assert_eq "$LABEL: p8 uses the built-in measured tile face (no card template)" "" "$P8_CARD"
+P8_TIP=$(jq -r '[.panels[]|select(.id==8)][0].options.tooltipTemplate // ""' "$F")
+printf '%s' "$P8_TIP" | grep -q '{{fields.cost}}' && printf '%s' "$P8_TIP" | grep -q '{{percent}}' && { echo "[PASS] $LABEL: p8 tooltip templates spend + share"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p8 tooltip missing fields.cost/percent"; fail=$((fail+1)); }
+printf '%s' "$P8_TIP" | grep -q 'row(s)' && { echo "[FAIL] $LABEL: p8 tooltip still shows the useless row/area line"; fail=$((fail+1)); } || { echo "[PASS] $LABEL: p8 tooltip dropped the row/area line"; pass=$((pass+1)); }
+P8_SQL=$(jq -r '[.panels[]|select(.id==8)][0].targets[0].rawSql // ""' "$F")
+printf '%s' "$P8_SQL" | grep -q 'model' && printf '%s' "$P8_SQL" | grep -q 'tokens' && printf '%s' "$P8_SQL" | grep -q 'AS cost' && { echo "[PASS] $LABEL: p8 returns model/tokens/cost"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p8 missing model/tokens/cost"; fail=$((fail+1)); }
+P8_FIXED=$(jq -r '[.panels[]|select(.id==8)][0].fieldConfig.defaults.color.fixedColor' "$F")
+assert_eq "$LABEL: p8 tiles render in a single brand color" "#247ba0" "$P8_FIXED"
+P8_UNIT=$(jq -r '[.panels[]|select(.id==8)][0].fieldConfig.defaults.unit' "$F")
+assert_eq "$LABEL: p8 token size renders compact (short)" "short" "$P8_UNIT"
 
-# p46: Cost by Provider pie (the "where does the money go" split)
+# p46: Provider Breakdown donut (spend share by provider)
 P46_TYPE=$(jq -r '[.panels[]|select(.id==46)][0].type // "missing"' "$F")
 assert_eq "$LABEL: p46 is piechart" "piechart" "$P46_TYPE"
 P46_TITLE=$(jq -r '[.panels[]|select(.id==46)][0].title // "missing"' "$F")
-assert_eq "$LABEL: p46 title is Cost by Provider" "Cost by Provider (\$)" "$P46_TITLE"
+assert_eq "$LABEL: p46 title is Provider Breakdown" "Provider Breakdown (\$)" "$P46_TITLE"
 P46_SQL=$(jq -r '[.panels[]|select(.id==46)][0].targets[0].rawSql // ""' "$F")
-printf '%s' "$P46_SQL" | grep -q 'provider_id' && printf '%s' "$P46_SQL" | grep -q 'sum(cost)' && printf '%s' "$P46_SQL" | grep -q 'GROUP BY' && { echo "[PASS] $LABEL: p46 groups cost by provider_id"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p46 missing provider cost aggregation"; fail=$((fail+1)); }
+printf '%s' "$P46_SQL" | grep -q 'provider_id' && printf '%s' "$P46_SQL" | grep -q 'sum(cost)' && printf '%s' "$P46_SQL" | grep -q 'GROUP BY' && { echo "[PASS] $LABEL: p46 groups spend by provider_id"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p46 missing provider aggregation"; fail=$((fail+1)); }
 printf '%s' "$P46_SQL" | grep -q '\${api_key:singlequote}' && printf '%s' "$P46_SQL" | grep -q '\${model:singlequote}' && { echo "[PASS] $LABEL: p46 filters by api_key + model"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p46 missing variable filters"; fail=$((fail+1)); }
+P46_RTF=$(jq -r '[.panels[]|select(.id==46)][0].transformations[]?|select(.id=="rowsToFields")|.options.mappings|map(.handlerKey)|join(",")' "$F")
+assert_eq "$LABEL: p46 binds provider name + spend (no explicit color)" "field.name,field.value" "$P46_RTF"
+P46_PALETTE=$(jq -r '[.panels[]|select(.id==46)][0].fieldConfig.defaults.color.mode' "$F")
+assert_eq "$LABEL: p46 lets Grafana palette the slices" "palette-classic" "$P46_PALETTE"
+P46_LEGEND=$(jq -r '[.panels[]|select(.id==46)][0].options.legend.showLegend' "$F")
+assert_eq "$LABEL: p46 shows the legend" "true" "$P46_LEGEND"
+P46_LABELS=$(jq '[.panels[]|select(.id==46)][0].options.displayLabels|length' "$F")
+assert_eq "$LABEL: p46 hides pie labels" "0" "$P46_LABELS"
+printf '%s' "$P46_SQL" | grep -q 'AS name_str' && printf '%s' "$P46_SQL" | grep -q 'AS value' && { echo "[PASS] $LABEL: p46 tooltip carries provider + requests + tokens"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p46 missing name_str/value"; fail=$((fail+1)); }
 
 # Cross-dashboard invariant: templating identical across all 3
 check_templating_sync

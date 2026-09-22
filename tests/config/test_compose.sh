@@ -144,7 +144,13 @@ GRAFANA_EDGE_IP=$(echo "$JSON_DATA" | jq -r '.services.grafana.networks["gw-edge
 assert_eq "Grafana pinned on gw-edge (edge proxy proxy_pass target)" "10.99.60.3" "$GRAFANA_EDGE_IP"
 
 GRAFANA_PLUGIN=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_PLUGINS_PREINSTALL')
-assert_eq "Grafana preinstalls ClickHouse + Business Text plugins (bare IDs; env var has no version-pin syntax)" "grafana-clickhouse-datasource,marcusolsson-dynamictext-panel" "$GRAFANA_PLUGIN"
+assert_eq "Grafana preinstalls ClickHouse + Business Text plugins (bare IDs; the custom treemap is bind-mounted, not preinstalled)" "grafana-clickhouse-datasource,marcusolsson-dynamictext-panel" "$GRAFANA_PLUGIN"
+
+GRAFANA_UNSIGNED=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS')
+assert_eq "Grafana allows the unsigned gateway-treemap plugin" "gateway-treemap" "$GRAFANA_UNSIGNED"
+
+GRAFANA_TREEMAP_MOUNT=$(echo "$JSON_DATA" | jq '[.services.grafana.volumes[] | select(contains("res/grafana-plugins/gateway-treemap/dist:/var/lib/grafana/plugins/gateway-treemap"))] | length')
+assert_eq "Grafana bind-mounts the built gateway-treemap dist" "1" "$GRAFANA_TREEMAP_MOUNT"
 
 GRAFANA_ANON=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_AUTH_ANONYMOUS_ENABLED // "absent"')
 assert_eq "Grafana anonymous auth removed entirely" "absent" "$GRAFANA_ANON"

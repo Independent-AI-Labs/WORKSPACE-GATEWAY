@@ -246,27 +246,30 @@ echo "$T3_CODES" | grep -qE "40[0-9]|41[0-9]|42[0-9]|43[0-9]|44[0-9]|45[0-9]|46[
 echo ""
 
 # =====================================================================
-# T4: Model Distribution (id=8) - ASOF JOIN, ~1900 total not 23
+# T4: Model Distribution (id=8) - usage_log token-volume treemap
 # =====================================================================
-echo "--- T4: Model Distribution (ASOF JOIN usage_log) ---"
+echo "--- T4: Model Distribution (usage_log treemap) ---"
 T4_QUERY=$(get_panel_query "Model Distribution")
 T4_DS=$(get_panel_ds "Model Distribution")
 
 [ "$T4_DS" = "$CH_UID" ] && rp "T4: datasource=clickhouse" || rf "T4: datasource=$T4_DS (expected clickhouse)"
 
-# Model Distribution counts usage_log rows grouped by model (not ASOF JOIN)
+# Model Distribution aggregates usage_log rows grouped by model (not ASOF JOIN)
 echo "$T4_QUERY" | grep -qi "FROM llm_gateway.usage_log" && rp "T4: queries usage_log" || rf "T4: does not query usage_log"
 echo "$T4_QUERY" | grep -q "GROUP BY model" && rp "T4: groups by model" || rf "T4: does not GROUP BY model"
 
 T4_RESP=$(ds_query "$T4_DS" "$T4_QUERY" "table" "table")
 T4_COUNT=$(ds_value_count "$T4_RESP")
-# Sum all model counts
-T4_SUM=$(echo "$T4_RESP" | jq -r '.results.A.frames[0].data.values[1][]' | awk '{s+=$1} END{print s+0}')
-if [ "$T4_SUM" -gt 0 ]; then
-    rp "T4: model_dist total=$T4_SUM (>0)"
-else
-    rf "T4: model_dist total=$T4_SUM (expected >0)"
-fi
+# Columns: model, tokens, cost
+T4_COLS=$(echo "$T4_RESP" | jq '.results.A.frames[0].data.values | length')
+T4_MODELS=$(echo "$T4_RESP" | jq -r '.results.A.frames[0].data.values[0][]' | awk 'NF{n++} END{print n+0}')
+T4_TOKENS=$(echo "$T4_RESP" | jq -r '.results.A.frames[0].data.values[1][]' | awk '/^[0-9]+$/{n++} END{print n+0}')
+T4_COST=$(echo "$T4_RESP" | jq -r '.results.A.frames[0].data.values[2][]' | awk '/^[0-9]+(\.[0-9]{1,2})?$/{n++} END{print n+0}')
+[ "$T4_COLS" -eq 3 ] && rp "T4: model_dist returns 3 columns (model/tokens/cost)" || rf "T4: model_dist columns=$T4_COLS (expected 3)"
+[ "$T4_COUNT" -gt 0 ] && rp "T4: model_dist returned $T4_COUNT rows (>0)" || rf "T4: model_dist returned $T4_COUNT rows (expected >0)"
+[ "$T4_MODELS" = "$T4_COUNT" ] && rp "T4: every tile carries a model name" || rf "T4: named rows=$T4_MODELS count=$T4_COUNT"
+[ "$T4_TOKENS" = "$T4_COUNT" ] && rp "T4: every tile carries an integer token volume (size)" || rf "T4: token rows=$T4_TOKENS count=$T4_COUNT"
+[ "$T4_COST" = "$T4_COUNT" ] && rp "T4: every tile carries a numeric spend" || rf "T4: numeric rows=$T4_COST count=$T4_COUNT"
 echo ""
 
 # =====================================================================

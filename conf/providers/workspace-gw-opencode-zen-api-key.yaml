@@ -12,7 +12,7 @@ options:
   headers:
     X-Tenant-ID: default
     X-User-ID: agent
-context_limit_ceiling: 200000
+context_limit_ceiling: 256000
 model_source:
   type: gateway
   endpoint: "/opencode_zen/v1/models"

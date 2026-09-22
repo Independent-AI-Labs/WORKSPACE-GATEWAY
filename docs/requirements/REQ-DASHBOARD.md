@@ -95,8 +95,8 @@ performance acceptable, (5) is the gateway itself healthy.
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | p3 (Token Usage by Category) MUST display Total, Input (uncached), Cached, Output (non-reasoning), and Reasoning tokens as compact uppercase `B`/`M`/`K` strings plus a Total Cost column as an exact `"$x.yy"` currency string (never SI-abbreviated), single query/frame, with 6 unique column aliases and 6 unique byName overrides. Tiles stay horizontal with `maxPerRow: 4` so Total Tokens and Total Cost wrap onto the bottom row together, enlarged via per-field `textSize` overrides. |
-| FR-4.2 | p15 (Cost Over Time by Model) MUST be a stacked-area timeseries of per-model cost per minute with a sum legend table. |
+| FR-4.1 | p3 (Token Usage by Category) MUST display Input (uncached), Cached, Output (non-reasoning) and Reasoning token volumes as compact uppercase `B`/`M`/`K` strings, plus Total and the Monthly/Weekly/Daily run-rate averages as `tokens / $x.yy` strings (exact spend, never SI-abbreviated), single query/frame, 8 unique column aliases and 8 unique byName color overrides, no two tiles sharing a color (categories form a cool hue ramp, averages a neutral ramp). Tiles stay horizontal with `maxPerRow: 4`; Total carries a per-field `textSize` override. |
+| FR-4.2 | p15 (Cost Over Time) MUST be a per-day bars timeseries of `round(sum(cost), 2)` bucketed by `toStartOfDay(timestamp)`; the selected models and keys are additive, so the bars sum to total range spend. |
 | FR-4.3 | p1 (Total Requests) MUST count `request_log` rows within the time filter, with thresholds teal/gold at 1000/bronze at 10000. |
 | FR-4.4 | p4 (Error Rate) MUST compute `countIf(status >= 400) * 100 / count()` (all 4xx + 5xx), with thresholds teal/1 gold/5 coral. |
 | FR-4.5 | p2 (Active Connections) MUST use `apisix_nginx_http_current_connections{state="active"}` with an exact (non-regex) label match. |
@@ -105,13 +105,15 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-4.8 | p13 (Stream Abort Rate) MUST compute client-aborted (`aborted=1`) and provider-aborted (`aborted=2`) percentages over `is_stream = 1` rows, clamped to [0, 100]. |
 | FR-4.9 | p14 (Stream Status) MUST show stacked absolute counts for completed/client-aborted/provider-aborted streams. |
 | FR-4.10 | p9 (Latency Percentiles) MUST plot p50/p95/p99 via `histogram_quantile` over `apisix_http_latency_bucket` multiplied by 1000 (ms), with the invariant p50 <= p95 <= p99. |
-| FR-4.11 | p10 (Avg Response Time by Model) MUST be a bargauge of `avg(upstream_response_time_s)` per model, excluding zero-latency rows, LIMIT 20. |
+| FR-4.11 | p10 (Response Time p50 by Model) MUST be a bargauge of `quantile(0.5)(upstream_response_time_s)` per model, excluding zero-latency rows, LIMIT 20, rendered colorless in a single brand color. |
 | FR-4.12 | p11 (Bandwidth) MUST use `sum(rate(apisix_bandwidth{...,type="ingress|egress"}[5m]))` (not bare `rate()`), one series per direction. |
-| FR-4.13 | p8 (Model Distribution) MUST be a bargauge of request counts per model from `usage_log`, LIMIT 20. |
+| FR-4.13 | p8 (Model Distribution) MUST be a treemap of the top 20 models by token volume from `usage_log`, drawn by the in-repo `gateway-treemap` panel (`res/grafana-plugins/gateway-treemap`): each tile is labelled with the model (`textField: model`) and sized by its token volume (`sizeField: tokens`, unit `short`), filled with the single brand color (`#247ba0`). The tile face is built in (percent share on top in the largest, thin font, then the model name, then the token volume); the tooltip MUST be templated (`tooltipTemplate`) with the model's `sum(cost)` spend (`currencyUSD`, decimals 2). The panel MUST support and configure minimum and maximum tile-area constraints (`minTileArea` / `maxTileArea`) so small tiles are merged into one overflow tile rather than rendered below one pixel, and a dominant tile is capped. After the tiles are laid out and measured, the face MUST drop lines that do not fit: if the content height cannot hold all three lines the percent line is hidden, if it cannot hold name+value the name is hidden, and if the name is wider than the tile it is hidden. The percent line MUST be the largest and thinnest, with scaled spacing between it and the name. Tile fill MUST ramp from neutral grey `#50514f` (smallest) to `#247ba0` (largest) so saturation encodes size, and auto font size MUST scale on a cube root of tile area. Per-model identity colors are NOT used. |
 | FR-4.14 | p12 (Shared Dict Memory) MUST plot `(1 - free/capacity) * 100` for the `key_cache` and `redact_state` dicts with exact `name="..."` matches, clamped to [0, 100], stepAfter interpolation. |
 | FR-4.15 | p20/p21 (Leaderboards) MUST render the top 3 as a podium panel (enlarged fixed `textSize`, medal colors gold/silver/bronze) and ranks 4-10 as a separate runner-up panel (smaller fixed `textSize`, white tiles) - p22/p23 use `LIMIT 7 OFFSET 3` over the same ranked CTE. The tile value MUST be an exact `"$x.yy"` currency string and the tile name MUST carry rank, entity, and compact uppercase B/M/K token volume (`"1. kimi-k3 - 2.41B"`). |
-| FR-4.16 | p46 (Cost by Provider) MUST be a piechart of `sum(cost)` grouped by `usage_log.provider_id` over the time range with api_key + model filters, showing vendor/credential concentration of spend. |
+| FR-4.16 | p46 (Provider Breakdown ($)) MUST be a donut piechart of `sum(cost)` grouped by `usage_log.provider_id` over the time range with api_key + model filters, showing vendor/credential spend concentration; the legend MUST be shown (`legend.showLegend: true`, placement right, `values: [value]`), on-slice labels hidden, and the hover tooltip MUST carry the provider plus its request and token volume. Slices use Grafana `palette-classic`; no explicit provider colors. |
 | FR-4.17 | p50 (Storage Growth) MUST show bytes-on-disk per `llm_gateway` table from `system.parts` plus total/free space from `system.disks`, as a timeseries/stat pair using only `grafana_ro`-granted system tables; a unified alert on this panel MUST fire when free space drops below 20% (REQ-SECURITY-HARDENING FR-4.3). |
+| FR-4.18 | Per-model panels MUST render colorless in a single brand color (`#247ba0`), not per-model identity colors. The former `model_palette`/`model_color_map` VIEWs and their deterministic alphabetical-rank coloring were retired (migration `000015_drop_model_colors`); no panel, query or test may reference them. |
+| FR-4.19 | p3's Monthly/Weekly/Daily averages MUST be run-rate projections of the whole-range total (`total / elapsed_days * {days_in_month,7,1}`, `elapsed_days = greatest(dateDiff('second', $__fromTime, $__toTime)/86400, 1)`), not per-bucket means. |
 
 ### FR-5: Cross-Query Consistency
 
@@ -120,7 +122,7 @@ performance acceptable, (5) is the gateway itself healthy.
 | FR-5.1 | p3 token conservation: total = input + cached + output + reasoning. |
 | FR-5.2 | p14 stream partition: completed + client_aborted + provider_aborted = total streams. |
 | FR-5.3 | p15: sum of per-minute cost equals total cost (tolerance 0.01). |
-| FR-5.4 | p8: sum of per-model counts equals total request count in `usage_log`. |
+| FR-5.4 | p8: sum of per-model spend equals total cost over the range (top-20 rounding tolerance). |
 | FR-5.5 | Single-key filtered totals MUST be <= unfiltered totals (p1, p3, p4). |
 
 ### FR-6: Structural Rules (All Panels)

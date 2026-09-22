@@ -1,0 +1,24 @@
+{
+  "type": "panel",
+  "name": "Gateway Treemap",
+  "id": "gateway-treemap",
+  "info": {
+    "description": "Area treemap with templated card faces and tooltips, plus min/max tile-area constraints so small tiles never collapse to an unreadable sliver.",
+    "author": {
+      "name": "Workspace Gateway"
+    },
+    "keywords": ["treemap", "area", "cards"],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [],
+    "screenshots": [],
+    "version": "1.0.6",
+    "updated": "2026-09-22"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=10.0.0",
+    "plugins": []
+  }
+}

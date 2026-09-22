@@ -174,7 +174,7 @@ assert_eq "MV targets billing_ledger table" "1" "$HAS_MV_TO"
 
 HAS_MV_FROM_USAGE_RC=0
 HAS_MV_FROM_USAGE=$(grep -c 'FROM llm_gateway.usage_log' "$SQL_FILE" ) || { HAS_MV_FROM_USAGE_RC=$?; HAS_MV_FROM_USAGE="0"; }
-assert_eq "MV selects FROM usage_log" "1" "$HAS_MV_FROM_USAGE"
+assert_eq "views/MVs select FROM usage_log (billing_ledger_mv only)" "1" "$HAS_MV_FROM_USAGE"
 
 HAS_MV_REQUEST_MODE_RC=0
 HAS_MV_REQUEST_MODE=$(grep -c "request_mode" "$SQL_FILE" ) || { HAS_MV_REQUEST_MODE_RC=$?; HAS_MV_REQUEST_MODE="0"; }

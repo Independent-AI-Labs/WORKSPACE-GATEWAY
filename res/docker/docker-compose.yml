@@ -191,6 +191,9 @@ services:
       - ../../.env
     environment:
       GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource,marcusolsson-dynamictext-panel
+      # gateway-treemap is built from res/grafana-plugins/gateway-treemap and
+      # bind-mounted below; it is unsigned, so allow it explicitly.
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: gateway-treemap
       # Prod posture by default: anonymous OFF, auth-proxy via the external
       # wiki nginx pinned on gw-edge (10.99.60.2). The proxy header is only
       # honored from the edge CIDR.
@@ -211,6 +214,7 @@ services:
     volumes:
       - ../../conf/grafana/rendered/provisioning:/etc/grafana/provisioning:ro
       - ../../conf/grafana/rendered/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../res/grafana-plugins/gateway-treemap/dist:/var/lib/grafana/plugins/gateway-treemap:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "127.0.0.1:3030:3000"

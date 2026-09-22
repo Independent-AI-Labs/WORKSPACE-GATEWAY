@@ -49,10 +49,10 @@ const dashboards = [
         { kind: 'text', value: 'B' },
         { kind: 'text', value: '$' },
       ]},
-      { id: 8,  title: 'Model Distribution',               type: 'bargauge',     checks: [
+      { id: 8,  title: 'Model Distribution',               type: 'gateway-treemap', checks: [
         { kind: 'text_count_gt', value: 1 },
       ]},
-      { id: 15, title: 'Cost Over Time by Model ($)',       type: 'timeseries',  checks: [] },
+      { id: 15, title: 'Cost Over Time',                   type: 'timeseries',  checks: [] },
     ],
   },
   {

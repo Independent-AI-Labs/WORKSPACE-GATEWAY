@@ -285,8 +285,8 @@ done
 assert_eq "No \$__conditionalAll macros in any dashboard" "0" "$COND_ALL_TOTAL"
 
 # ── ClickHouse panels use \${api_key:singlequote} directly ────────────
-# 4 in cost-usage + 6 in ops-health + 4 in leaderboard + 3 in experience
-# + 5 in performance = 22 (request_signals panels are model-scoped only
+# 5 in cost-usage + 6 in ops-health + 4 in leaderboard + 3 in experience
+# + 5 in performance = 23 (request_signals panels are model-scoped only
 # and carry no key filter)
 
 CH_APIKEY_TOTAL=0
@@ -319,7 +319,7 @@ assert_eq "p3 has 8 field overrides (4 categories + Total + 3 averages)" "8" "$P
 # ── p15 Cost Over Time by Model (in cost-usage) ───────────────────────
 
 P15_TITLE=$(jq -r '[.panels[] | select(.id == 15)][0].title' "$COST_USAGE_FILE")
-assert_eq "p15 title is Cost Over Time" "Cost Over Time by Model ($)" "$P15_TITLE"
+assert_eq "p15 title is Cost Over Time" "Cost Over Time" "$P15_TITLE"
 
 P15_TYPE=$(jq -r '[.panels[] | select(.id == 15)][0].type' "$COST_USAGE_FILE")
 assert_eq "p15 is a timeseries" "timeseries" "$P15_TYPE"
@@ -362,7 +362,7 @@ assert_eq "p14 title is Stream Status" "Stream Status (completed / client-aborte
 P14_TARGET_COUNT=$(jq '[.panels[] | select(.id == 14)][0].targets | length' "$OPS_HEALTH_FILE")
 assert_eq "p14 Stream Status has 3 targets" "3" "$P14_TARGET_COUNT"
 
-P14_LABELS=$(jq -r '[[.panels[] | select(.id == 14)][0].targets[].rawSql | select(. != null) | split("\u0027") | .[1]] | sort | join(",")' "$OPS_HEALTH_FILE")
+P14_LABELS=$(jq -r '[[.panels[] | select(.id == 14)][0].targets[].rawSql | select(. != null) | split("\u0022") | .[1]] | sort | join(",")' "$OPS_HEALTH_FILE")
 assert_eq "p14 labels are Client,Completed,Provider" "Client aborted,Completed,Provider aborted" "$P14_LABELS"
 
 # ── Brand palette enforcement across all 4 dashboards ─────────────────
@@ -413,11 +413,11 @@ P3_PALETTE=$(jq -r '
     )
   ) | del(.__name) | . as $got |
   {
-    "Total":                  "#70c1b3",
+    "Total":                  "#b7990d",
     "Input (uncached)":       "#247ba0",
-    "Cached":                 "#8cada7",
-    "Output (non-reasoning)": "#ffe066",
-    "Reasoning":              "#f25f5c"
+    "Cached":                 "#70c1b3",
+    "Output (non-reasoning)": "#a5d0a8",
+    "Reasoning":              "#ffe066"
   } as $expected |
   if $got == $expected then "OK"
   else "MISMATCH expected=\($expected|tojson) got=\($got|tojson)" end

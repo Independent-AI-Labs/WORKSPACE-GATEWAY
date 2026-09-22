@@ -109,20 +109,20 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Total"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Total"
+                "options": "Total"
               },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#70c1b3",
-                  "mode": "fixed"
-                }
-              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Total"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#b7990d",
+                    "mode": "fixed"
+                  }
+                },
               {
                 "id": "textSize",
                 "value": {
@@ -160,40 +160,40 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Cached Tokens"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Cached"
+                "options": "Cached Tokens"
               },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#8cada7",
-                  "mode": "fixed"
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cached"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#70c1b3",
+                    "mode": "fixed"
+                  }
                 }
-              }
-            ]
+              ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "Output Tokens"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Output (non-reasoning)"
+                "options": "Output Tokens"
               },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#ffe066",
-                  "mode": "fixed"
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output (non-reasoning)"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#a5d0a8",
+                    "mode": "fixed"
+                  }
                 }
-              }
-            ]
+              ]
           },
           {
             "matcher": {
@@ -203,15 +203,15 @@
             "properties": [
               {
                 "id": "displayName",
-                "value": "Reasoning"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#f25f5c",
-                  "mode": "fixed"
+                  "value": "Reasoning"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#ffe066",
+                    "mode": "fixed"
+                  }
                 }
-              }
             ]
           },
           {
@@ -223,7 +223,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#70c1b3",
+                  "fixedColor": "#50514f",
                   "mode": "fixed"
                 }
               }
@@ -238,7 +238,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#b7990d",
+                  "fixedColor": "#a8a9ad",
                   "mode": "fixed"
                 }
               }
@@ -253,7 +253,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#247ba0",
+                  "fixedColor": "#f2f4cb",
                   "mode": "fixed"
                 }
               }
@@ -275,11 +275,11 @@
         "textMode": "value_and_name",
         "maxPerRow": 4
       },
-      "description": "Token volume over the selected range, split into input (uncached), cache hits, output (non-reasoning) and reasoning. Total shows overall tokens / spend on the second row, enlarged; Monthly/Weekly/Daily Average show mean tokens per period alongside mean spend (tokens / $). Prompt caching shows up as Cached: cached input is billed at a steep discount, so a high Cached share is good."
+      "description": "Token volume over the selected range, split into input (uncached), cache hits, output (non-reasoning) and reasoning. Total shows overall tokens / spend on the second row, enlarged; Monthly/Weekly/Daily Average project the range total forward to a full calendar month / 7 days / 1 day (run-rate) and show the projected tokens / spend (tokens / $). Prompt caching shows up as Cached: cached input is billed at a steep discount, so a high Cached share is good."
     },
     {
       "id": 15,
-      "title": "Cost Over Time by Model ($)",
+      "title": "Cost Over Time",
       "type": "timeseries",
       "datasource": {
         "uid": "clickhouse",
@@ -304,13 +304,14 @@
         "defaults": {
           "unit": "currencyUSD",
           "custom": {
-            "drawStyle": "line",
+            "drawStyle": "bars",
             "lineInterpolation": "smooth",
+            "barAlignment": 0,
             "stacking": {
-              "mode": "normal",
+              "mode": "none",
               "group": "A"
             },
-            "fillOpacity": 30,
+            "fillOpacity": 80,
             "showPoints": "never",
             "spanNulls": true
           },
@@ -330,16 +331,16 @@
           ]
         },
         "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+          "mode": "single",
+          "sort": "none"
         }
       },
-      "description": "Spend per model, stacked per minute over the selected range. The legend totals each model's cost; the stack height is total burn rate. Includes migrated history."
+      "description": "Spend per day over the selected range. The selected models and keys are additive: each bar is the total spend for that day across everything filtered in. Includes migrated history."
     },
     {
       "id": 8,
       "title": "Model Distribution",
-      "type": "bargauge",
+      "type": "gateway-treemap",
       "datasource": {
         "uid": "clickhouse",
         "type": "grafana-clickhouse-datasource"
@@ -361,32 +362,53 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "decimals": 2,
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
-        }
+        "tiling": "squarify",
+        "textField": "model",
+        "sizeField": "tokens",
+        "colorField": "",
+        "defaultColor": "#247ba0",
+        "minTileArea": 1200,
+        "maxTileArea": 60000,
+        "otherLabel": "Other models",
+        "tileGap": 2,
+        "autoFontSize": true,
+        "minFontSize": 8,
+        "maxFontSize": 22,
+        "fontSize": 12,
+        "tooltipTemplate": "<div><strong>{{label}}</strong></div><div>{{value}} tokens &middot; {{fields.cost}} ({{percent}}%)</div>"
       },
-      "description": "Share of requests per model over the selected range (usage_log counts, top 20). Includes migrated history."
+      "description": "Top 20 models by token volume over the selected range: each tile is a model sized by its token volume, with its spend in the tooltip. Tiles below the minimum area are merged into an overflow tile so no model collapses to an unreadable sliver. Includes migrated history."
     },
     {
       "id": 46,
       "type": "piechart",
-      "title": "Cost by Provider ($)",
-      "description": "Where the money goes: spend split by provider/credential (usage_log.provider_id). Vendor concentration at a glance.",
+      "title": "Provider Breakdown ($)",
+      "description": "Where the money goes: spend share per provider/credential (usage_log.provider_id). Vendor concentration at a glance.",
       "datasource": {
         "type": "grafana-clickhouse-datasource",
         "uid": "clickhouse"
@@ -405,34 +427,54 @@
           "rawSql": "{{sql:grafana/queries/gateway-cost-usage-p46-A.sql}}"
         }
       ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ],
       "fieldConfig": {
         "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
           "unit": "currencyUSD",
           "decimals": 2
         },
         "overrides": []
       },
       "options": {
-        "pieType": "pie",
+        "pieType": "donut",
+        "useMaxMin": false,
         "displayLabels": [],
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "values": [
-            "value",
-            "percent"
-          ]
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
           "fields": "",
           "values": true
+        },
+        "legend": {
+          "showLegend": true,
+          "placement": "right",
+          "values": [
+            "value"
+          ]
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
         }
       }
     }

@@ -237,10 +237,28 @@
           "rawSql": "{{sql:grafana/queries/gateway-model-experience-p37-A.sql}}"
         }
       ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
           },
           "min": 0,
           "decimals": 2

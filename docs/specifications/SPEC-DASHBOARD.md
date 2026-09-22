@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-DASHBOARD](../requirements/REQ-DASHBOARD.md)
 
-> Panel-by-panel query specification for the 3 gateway dashboards (16 panels).
+> Panel-by-panel query specification for the gateway dashboards.
 > All queries below are transcribed from the deployed dashboard JSONs and
 > verified against them. Known cross-table data-quality issues are tracked in
 > [architecture/OPEN-ISSUES.md](../architecture/OPEN-ISSUES.md).
@@ -25,7 +25,7 @@
 
 | Dashboard | UID | Panels | Datasources |
 |-----------|-----|--------|-------------|
-| Gateway Cost & Usage | `gateway-cost-usage` | 3 (stat), 15 (timeseries), 8 (bargauge), 46 (piechart) | 4 CH |
+| Gateway Cost & Usage | `gateway-cost-usage` | 3 (stat), 15 (timeseries), 8 (treemap), 46 (piechart) | 4 CH |
 | Gateway Operations & Health | `gateway-ops-health` | 1, 2, 4, 5, 7, 13, 14, 9, 10, 11, 12, 50 | 7 CH + 5 Prom |
 | Gateway Cost Leaderboard | `gateway-cost-leaderboard` | 20, 21 (podium stat, top 3, enlarged) + 22, 23 (runner-up stat, 4-10) | 4 CH |
 
@@ -86,16 +86,28 @@ One logic per quantity type, identical in every panel (operator ruling
 - **Graphs, bargauges, axes and tables (rendered values)** = set the Grafana
   `unit` and let Grafana abbreviate: `short` for large counts (K / Mil / Bil),
   the domain unit otherwise (`bytes`, `s`, `ms`, `Bps`, `percent`, ...). The
-  `short` unit is allowed here (e.g. p8 Model Distribution request counts)
-  precisely because these are not exact-value stat tiles.
+  `short` unit is allowed here (e.g. p8 treemap tile token sizes and p46
+  provider legend values) precisely because these are not exact-value stat
+  tiles.
 - **Precision**: measured rates, costs, speeds and scores display 2 decimals
   (display `decimals: 2` + SQL `round(x, 2)`); raw counts stay integers.
 - **Stat panels with string fields** must use `textMode: value_and_name`
   (string fields do not render under `textMode: auto` reduce) and
   `reduceOptions.fields: "/./"` (an empty field filter restricts the
   reducer to numeric fields and renders "No data" for string values);
-  `reduceOptions.fields` regexes must match post-override display names -
-  prefer `/./` when overrides rename fields.
+   `reduceOptions.fields` regexes must match post-override display names -
+   prefer `/./` when overrides rename fields.
+
+### 2.5 Per-model panels are colorless
+
+Per-model panels render without per-model identity colors: every tile/bar takes
+the single brand color `#247ba0`. The former palette/rank system
+(`llm_gateway.model_palette` + `llm_gateway.model_color_map`, migration
+`000014_model_colors`) was retired by migration `000015_drop_model_colors`, so
+the shared color map no longer exists. Per-model SQL emits only `name_str` and
+`value` (no `color` column, no `rowsToFields` color handler); the p46 provider
+donut instead lets Grafana `palette-classic` color its slices and shows a
+legend. Panels: p8, p30, p44, p37, p10.
 
 ## 3. Template Variables
 
@@ -116,75 +128,127 @@ No `allValue`; Grafana expands `${var:singlequote}` natively.
 Single query (refId A) with a `WITH totals AS (...)` CTE over
 `llm_gateway.usage_log` computing `total_tok`, `input_tok`
 (`prompt_tokens - cached_tokens`), `cached_tok`, `output_tok`
-(`completion_tokens - reasoning_tokens`), `reasoning_tok`, and
-`round(total_cost, 2)`, plus `uniqExact(toDate / toStartOfWeek(mode 1) /
-toStartOfMonth(timestamp))` period counts; a second `avgs` CTE divides the
-totals by `greatest(period_count, 1)`. Emits 8 string columns: `"Input Tokens"`,
-`"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"` (compact uppercase
-`B`/`M`/`K` `multiIf` strings, e.g. `9.18B`), then `"Total"`, `"Monthly Average"`,
-`"Weekly Average"`, `"Daily Average"`, each formatted as compact tokens for the
-quantity followed by exact spend: `"12B / $3894.37"` (`"4.1B / $1298.12"` for
-the averages). The spend side is an exact currency string
-`toString(floor(round(x * 100) / 100))` + `'.'` +
+(`completion_tokens - reasoning_tokens`), `reasoning_tok`, and `sum(cost)`.
+Period averages are **run-rate projections**, not per-bucket means: a
+`runrate` CTE computes `elapsed_days = greatest(dateDiff('second',
+$__fromTime, $__toTime) / 86400, 1)` and
+`days_in_month = toDayOfMonth(toLastDayOfMonth(toDate($__toTime)))`
+(`toDaysInMonth()` does not exist in ClickHouse 24.8), then an `avgs` CTE
+projects the whole-range total: monthly `total / elapsed_days * days_in_month`,
+weekly `total / elapsed_days * 7`, daily `total / elapsed_days`. Because
+`$__fromTime`/`$__toTime` are Grafana range macros, those lines carry
+`-- noqa: LXR` for the SQLFluff lexer. Emits 8 string columns:
+`"Input Tokens"`, `"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"`
+(compact uppercase `B`/`M`/`K` `multiIf` strings, e.g. `9.18B`), then
+`"Total"`, `"Monthly Average"`, `"Weekly Average"`, `"Daily Average"`, each
+formatted as compact tokens for the quantity followed by exact spend:
+`"12B / $3894.37"` (`"4.1B / $1298.12"` for the averages). The spend side is
+an exact currency string `toString(floor(round(x * 100) / 100))` + `'.'` +
 `leftPad(toString(round(x * 100) % 100), 2, '0')`, never SI-abbreviated
 (ClickHouse `toString(toDecimal64(x,2))` strips trailing zeros, so cents are
-split and left-padded manually). Colors (byName): Total teal, Input cerulean,
-Cached muted-teal, Output gold, Reasoning coral, Monthly teal, Weekly gold,
-Daily cerulean. Panel contract (FR-7.4): `reduceOptions.fields` must be `/./`:
-Grafana matches that regex against post-override display names, which no longer
-contain "Tokens"/"Cost"; string fields only render with
-`textMode: value_and_name`.
+split and left-padded manually). Colors (byName): the four token categories
+form a cool hue ramp - Input cerulean, Cached teal, Output celadon, Reasoning
+light yellow - Total takes bronze, and the three period averages form a
+neutral ramp - Monthly charcoal, Weekly grey, Daily cream. No two tiles share
+a color. Panel contract (FR-7.4):
+`reduceOptions.fields` must be `/./`: Grafana matches that regex against
+post-override display names, which no longer contain "Tokens"/"Cost"; string
+fields only render with `textMode: value_and_name`.
 
-### Panel 15: Cost Over Time by Model (timeseries, CH, grid x:0 y:12 w:24 h:8)
+### Panel 15: Cost Over Time (timeseries, CH, grid x:0 y:12 w:24 h:8)
 
 ```sql
-SELECT toStartOfMinute(timestamp) as time, model as label,
-       round(sum(cost), 6) as cost
+SELECT toStartOfDay(timestamp) as time,
+       round(sum(cost), 2) as "Cost ($)"
 FROM llm_gateway.usage_log
 WHERE $__timeFilter(timestamp)
   AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})
   AND model IN (${model:singlequote})
-GROUP BY time, model ORDER BY time, label
+GROUP BY time ORDER BY time
 ```
 
-Stacked area (`stacking.mode: normal`), sum legend table at bottom.
+One bar per day for the whole filtered range. The selected models and keys are
+**additive**: each bar is that day's total spend across everything filtered in,
+so the sum over the range equals total spend. Bars (`drawStyle: bars`), legend
+table with `sum`, tooltip `single`.
 
-### Panel 8: Model Distribution (bargauge, CH, grid x:12 y:0 w:12 h:12)
+### Panel 8: Model Distribution (treemap, CH, grid x:12 y:0 w:12 h:12)
 
 ```sql
-SELECT model, count() as requests
-FROM llm_gateway.usage_log
-WHERE $__timeFilter(timestamp) AND model != ''
-  AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})
-  AND model IN (${model:singlequote})
-GROUP BY model ORDER BY requests DESC LIMIT 20
+WITH per_model AS (
+  SELECT model, toInt64(sum(total_tokens)) AS tokens, sum(cost) AS cost
+  FROM llm_gateway.usage_log
+  WHERE $__timeFilter(timestamp) AND model != ''
+    AND coalesce(...) IN (${api_key:singlequote}) AND model IN (${model:singlequote})
+  GROUP BY model ORDER BY tokens DESC LIMIT 20
+)
+SELECT model, tokens, round(cost, 2) AS cost
+FROM per_model ORDER BY tokens DESC
 ```
 
-Note: this panel queries `usage_log` directly (no ASOF join); `usage_log.model`
-is authoritative. Horizontal gradient bars, `palette-classic`, `showUnfilled`.
-Rendered request counts use Grafana `unit: short` (K / Mil / Bil) with
-`decimals: 2`, consistent with the other graphs/bargauges (SPEC §2.4).
+Rendered by the in-repo `gateway-treemap` plugin
+(`res/grafana-plugins/gateway-treemap`, unsigned, bind-mounted to
+`/var/lib/grafana/plugins/gateway-treemap` and allowed through
+`GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS`). It is a hand-written AMD panel
+(no bundler; `build.sh` concatenates `src/constraints.js` + `src/face.js` +
+`src/panel.js` into `dist/module.js`) that keeps the treemap layout but adds a
+measured tile face, templated tooltips and min/max tile-area constraints. Each tile is one model:
+`textField: model` labels it, `sizeField: tokens` sets its area, and
+`colorField: ""` with `defaultColor: #247ba0` fills every tile with the single
+brand color. The tooltip is templated and carries the model's spend via
+`{{fields.cost}}` plus `{{percent}}`.
+`minTileArea: 1200` merges models below that pixel area into one overflow tile
+(`otherLabel: "Other models"`) so no model collapses to an unreadable sliver;
+`maxTileArea: 60000` caps a dominant model and redistributes the freed area.
+The tile face is built in, not templated: percent share (largest, thin `300`),
+name, then token volume. A hidden probe copy of the three lines is measured in
+a `useLayoutEffect` after the tiles are laid out, and `lineFit` drops lines that
+do not fit - percent if the height cannot hold all three, name if it cannot
+hold name+value, name again if it is wider than the tile (value always shows).
+Font size is auto (`autoFontSize: true`, `minFontSize: 8` / `maxFontSize: 22`):
+the panel interpolates across the actual tiles on `cbrt(area)` (a cube-root /
+volume-like scale) so a 4x-area tile is ~1.59x larger and the top tiles do not
+flatten to the same size; the percent line is `1.5x` and the value `0.9x` the
+base, with scaled spacing (`0.28x` base) between the percent and name lines. Tile fill ramps from the neutral brand grey `#50514f` on the smallest tile
+to `#247ba0` on the largest so size reads as saturation.
+`tokens` renders with unit `short`; `cost` is a byName override to
+`currencyUSD` / decimals 2. The panel calls `useFieldConfig()` so Grafana
+applies the dashboard's field config (unit/decimals/color) to its frames;
+Grafana's display-value text is composed with its `prefix`/`suffix` (so
+billions read `3.90 Bil`, not `3.90`). This panel queries `usage_log` directly
+(no ASOF join); `usage_log.model` is authoritative. Tiles are colorless -
+per-model identity colors (retired, §2.5) never applied here.
 
-Layout (2026-09-17, revised 2026-09-21): p3 keeps horizontal tiles
-(`maxPerRow: 4`, w:12 h:12) so the four category tiles fill the top row; the
-bottom row is Total (carrying a per-field `textSize` override, title 14 /
-value 30) plus the three period averages; p8 sits at x:12 w:12 h:12 beside p3,
-p15 at y:12 w:24 h:8.
+Layout (2026-09-21): p3 keeps horizontal tiles (`maxPerRow: 4`, w:12 h:12) so
+the four category tiles fill the top row; the bottom row is Total (carrying a
+per-field `textSize` override, title 14 / value 30) plus the three period
+averages; p8 sits at x:12 w:12 h:12 beside p3, p15 at y:12 w:24 h:8; p46
+(donut, with legend) fills the bottom row at y:20 w:24 h:8.
 
-### Panel 46: Cost by Provider (piechart, CH, grid x:0 y:20 w:24 h:8)
+### Panel 46: Provider Breakdown ($) (piechart, CH, grid x:0 y:20 w:24 h:8)
 
 ```sql
-SELECT coalesce(nullIf(provider_id,''),'unknown') AS "provider",
-       round(sum(cost), 2) AS "usd"
-FROM llm_gateway.usage_log
-WHERE $__timeFilter(timestamp)
-  AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})
-  AND model IN (${model:singlequote})
-GROUP BY "provider" ORDER BY "usd" DESC
+WITH per_provider AS (
+  SELECT coalesce(nullIf(provider_id,''),'unknown') AS provider,
+         count() AS requests, toInt64(sum(total_tokens)) AS tokens, sum(cost) AS cost
+  FROM llm_gateway.usage_log
+  WHERE $__timeFilter(timestamp)
+    AND coalesce(...) IN (${api_key:singlequote}) AND model IN (${model:singlequote})
+  GROUP BY provider
+)
+SELECT concat(provider, ' · ', toString(requests), ' req · ',
+              <compact tokens>, ' tok') AS name_str,
+       round(cost, 2) AS value
+FROM per_provider ORDER BY cost DESC
 ```
 
-Spend split by provider/credential: vendor concentration at a glance.
-Table legend (value + percent) on the right, labels name/percent/value.
+Spend share per provider/credential: vendor concentration at a glance. Donut
+with a legend (`legend.showLegend: true`, placement right, `values: [value]`)
+and no on-slice labels (`displayLabels: []`). The hover tooltip carries the
+provider plus its request and token volume: `rowsToFields` maps
+`name_str -> field.name` (provider + request and token volume) and
+`value -> field.value`, and Grafana `palette-classic` colors the slices (no
+explicit provider colors).
 
 ## 5. Gateway Operations & Health
 
@@ -237,20 +301,22 @@ Stacked bars. Colors: completed teal, client coral, provider gold.
 Three queries: `histogram_quantile(0.NN, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~"$api_key"}[5m]))) * 1000`,
 legends `p50`/`p95`/`p99`, unit ms. Colors: p50 teal, p95 gold, p99 coral.
 
-### Panel 10: Avg Response Time by Model (bargauge, CH, grid x:12 y:20 w:12 h:8)
+### Panel 10: Response Time p50 by Model (bargauge, CH, grid x:12 y:20 w:12 h:8)
 
 ```sql
-SELECT u.model, avg(r.upstream_response_time_s) as avg_latency
+SELECT u.model AS name_str,
+       quantile(0.5)(r.upstream_response_time_s) AS value
 FROM llm_gateway.request_log r
 ASOF LEFT JOIN llm_gateway.usage_log u
   ON r.request_id = u.request_id AND r.timestamp >= u.timestamp
 WHERE $__timeFilter(r.timestamp) AND r.upstream_response_time_s > 0
   AND u.model != '' AND <key filter on r> AND u.model IN (${model:singlequote})
-GROUP BY u.model ORDER BY avg_latency DESC LIMIT 20
+GROUP BY u.model ORDER BY value DESC LIMIT 20
 ```
 
 The join key is `request_id` (see OPEN-ISSUES.md for residual correctness
-caveats). Unit seconds; horizontal gradient bars.
+caveats). Median wall time (p50), not mean. Unit seconds; horizontal gradient
+bars in a single brand color (colorless, §2.5) via `rowsToFields`.
 
 ### Panel 11: Bandwidth In / Out (timeseries, Prom, grid x:0 y:36 w:12 h:8)
 
@@ -341,9 +407,10 @@ Same shape as panel 22 over the models CTE: `LIMIT 7 OFFSET 3`.
 
 | Component | Status | Evidence |
 |-----------|--------|----------|
-| Cost & Usage dashboard (3 panels) | Implemented | gateway-cost-usage.json |
+| Cost & Usage dashboard (4 panels) | Implemented | gateway-cost-usage.json |
 | Ops & Health dashboard (11 panels) | Implemented | gateway-ops-health.json |
 | Cost Leaderboard (2 panels) | Implemented | gateway-cost-leaderboard.json |
+| Per-model panels colorless (§2.5) | Implemented | single brand color `#247ba0` on p8/p10/p30/p44/p37; model-color VIEWs dropped by migration `000015_drop_model_colors` |
 | Template variables (api_key, model) | Implemented | templating block in all 3 JSONs |
 | Structural tests | Implemented | tests/config/test_dashboard_*.sh |
 | Cross-table join correctness | Partial | p10 uses `request_id` join; residual issues tracked in architecture/OPEN-ISSUES.md |

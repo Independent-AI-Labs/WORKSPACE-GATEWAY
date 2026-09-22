@@ -150,7 +150,9 @@ sub_ch() {
     # Step 1: $__timeFilter -- handle both timestamp and r.timestamp
     sql=$(printf '%s' "$sql" | sed \
         -e "s|\$__timeFilter(r\.timestamp)|r.timestamp >= toDateTime('$FROM_TS') AND r.timestamp <= toDateTime('$TO_TS')|g" \
-        -e "s|\$__timeFilter(timestamp)|timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS')|g")
+        -e "s|\$__timeFilter(timestamp)|timestamp >= toDateTime('$FROM_TS') AND timestamp <= toDateTime('$TO_TS')|g" \
+        -e "s|\$__fromTime|toDateTime('$FROM_TS')|g" \
+        -e "s|\$__toTime|toDateTime('$TO_TS')|g")
     # Step 2: sentinel tokens for Grafana variables
     sql=$(printf '%s' "$sql" | sed \
         -e 's|\${api_key:singlequote}|APIKEYPLACEHOLDER|g' \
@@ -244,8 +246,8 @@ for pair in "PT:total" "PI:input" "PC:cached" "PO:output" "PR:reasoning"; do
     var="${pair%%:*}"; name="${pair##*:}"; val="${!var}"
     [ "$val" -ge 0 ] && rp "Q3: $name=$val (>=0)" || rf "Q3: $name=$val (negative)"
 done
-# Total cost from p15 refId=A (Cost Over Time -- sum all rows)
-TC=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}'); TC=${TC:-0}
+# Total cost from p15 refId=A (daily spend -- the series sums to the range total)
+TC=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}'); TC=${TC:-0}
 awk "BEGIN{exit !($TC >= 0)}" && rp "Q3: cost=$TC (>=0)" || rf "Q3: cost=$TC (negative)"
 echo ""
 
@@ -279,7 +281,7 @@ echo ""
 # =====================================================================
 echo "--- Q5: p13 Abort Rate Range [0,100] ---"
 for ref in A B; do
-    exec_ch 13 "$ref" | grep '.' | while IFS=$'\t' read -r t l v; do
+    exec_ch 13 "$ref" | grep '.' | while IFS=$'\t' read -r t v; do
         in_range "$v" 0 100 && rp "Q5: p13-${ref} $t rate=$v" || rf "Q5: p13-${ref} $t rate=$v out of range"
     done
 done
@@ -290,9 +292,9 @@ echo ""
 # (ASOF JOIN may miss a few rows; allow <=2% tolerance)
 # =====================================================================
 echo "--- Q6: p14 Stream Partition Consistency ---"
-P14C=$(exec_ch 14 A | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
-P14CA=$(exec_ch 14 B | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
-P14PA=$(exec_ch 14 C | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
+P14C=$(exec_ch 14 A | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
+P14CA=$(exec_ch 14 B | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
+P14PA=$(exec_ch 14 C | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
 # Total streams = count of all stream rows in usage_log
 P14T_SQL=$(sql_render tests/dashboard-queries/count-stream-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST")
 P14T=$(exec_ch_raw "$P14T_SQL" | sed -n '1p'); P14T=${P14T:-0}
@@ -306,10 +308,10 @@ P14OK=$(awk "BEGIN{print ($P14PCT <= 2.0) ? 1 : 0}")
 echo ""
 
 # =====================================================================
-# Q7: p15 cost sum = total cost (cross-query consistency)
+# Q7: p15 daily-cost sum = total cost (cross-query consistency)
 # =====================================================================
-echo "--- Q7: p15 Cost Sum = Total Cost ---"
-P15S=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$3} END{print s+0}')
+echo "--- Q7: p15 Daily Cost Sum = Total Cost ---"
+P15S=$(exec_ch 15 A | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
 # Total cost = sum(cost) from usage_log with same filters
 P15T_SQL=$(sql_render tests/dashboard-queries/sum-cost-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST" "MODELS=$CH_MODEL_LIST")
 P15T=$(exec_ch_raw "$P15T_SQL" | sed -n '1p'); P15T=${P15T:-0}
@@ -318,25 +320,27 @@ awk "BEGIN{exit !($P7DIFF < 0.01)}" && rp "Q7: cost_sum($P15S)~=total($P15T) dif
 echo ""
 
 # =====================================================================
-# Q8: p8 model dist sum ≈ total requests (ASOF JOIN may miss rows; <=2% tolerance)
-# p8 (Model Distribution) is in cost-usage; p1 (Total Requests) is in ops-health.
-# Both are ClickHouse; get_ch_sql auto-detects the correct file per panel id.
+# Q8: p8 model treemap: one row per model (token volume, spend); the
+# top-20 spend sums to the range total within rounding.
 # =====================================================================
 echo "--- Q8: p8 Model Distribution Consistency ---"
 P8D=$(exec_ch 8 A)
-P8S=$(echo "$P8D" | grep '.' | awk -F'\t' '{s+=$2} END{print s+0}')
-# Compare against usage_log row count (p8 counts usage_log rows per model)
-P8T_SQL="$(sql_render tests/dashboard-queries/count-model-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST" "MODELS=$CH_MODEL_LIST")"
+P8_ROWS=$(echo "$P8D" | awk 'NF>0 {n++} END {print n+0}')
+while IFS=$'\t' read -r m tokens cost; do
+    [ -n "$m" ] && rp "Q8: '$m' model name present" || rf "Q8: empty model name"
+    echo "$tokens" | grep -qE '^[0-9]+$' && rp "Q8: '$m' tokens integer ($tokens)" || rf "Q8: '$m' tokens malformed: $tokens"
+    echo "$cost" | grep -qE '^[0-9]+(\.[0-9]{1,2})?$' && rp "Q8: '$m' cost numeric (\$$cost)" || rf "Q8: '$m' cost malformed: $cost"
+done < <(echo "$P8D" | grep '.')
+P8_DUP=$(echo "$P8D" | grep '.' | cut -f1 | sort | uniq -d | awk 'NF>0 {n++} END {print n+0}')
+[ "$P8_DUP" = "0" ] && rp "Q8: p8 returns each model once" || rf "Q8: p8 returned duplicate models"
+P8_COST=$(echo "$P8D" | grep '.' | awk -F'\t' '{s+=$3} END{printf "%.2f", s}')
+P8T_SQL="$(sql_render tests/dashboard-queries/sum-cost-usage.sql "FROM_TS=$FROM_TS" "TO_TS=$TO_TS" "KEYS=$CH_KEY_LIST" "MODELS=$CH_MODEL_LIST")"
 P8T=$(exec_ch_raw "$P8T_SQL" | sed -n '1p'); P8T=${P8T:-0}
-P8DIFF=$((P8T - P8S))
-if [ "$P8DIFF" -lt 0 ]; then P8DIFF=$((-P8DIFF)); fi
-P8PCT=$(awk "BEGIN{if($P8T > 0) printf \"%.2f\", ($P8DIFF * 100.0 / $P8T); else print 0}")
-P8OK=$(awk "BEGIN{print ($P8PCT <= 2.0) ? 1 : 0}")
-[ "$P8OK" = "1" ] && rp "Q8: dist_sum($P8S)≈total($P8T) diff=${P8DIFF} (${P8PCT}%)" \
-    || rf "Q8: dist_sum($P8S)!=total($P8T) diff=${P8DIFF} (${P8PCT}%)"
-echo "$P8D" | grep '.' | while IFS=$'\t' read -r m c; do
-    [ "$c" -gt 0 ] && rp "Q8: '$m' count=$c (>0)" || rf "Q8: '$m' count=$c (<=0)"
-done
+P8DIFF=$(awk "BEGIN{d=$P8_COST-$P8T; if(d<0)d=-d; printf \"%.2f\", d}")
+P8OK=$(awk "BEGIN{print ($P8DIFF <= 0.25) ? 1 : 0}")
+[ "$P8OK" = "1" ] && rp "Q8: p8_spend($P8_COST)≈total($P8T) diff=$P8DIFF (top-20 rounding)" \
+    || rf "Q8: p8_spend($P8_COST)!=total($P8T) diff=$P8DIFF"
+[ "$P8_ROWS" -gt 0 ] && rp "Q8: p8 returned $P8_ROWS model rows" || rf "Q8: p8 returned no rows"
 echo ""
 
 # =====================================================================
@@ -347,7 +351,7 @@ P10R=$(exec_ch 10 A)
 if [ -z "$P10R" ]; then
     rs "Q9: p10 no latency data"
 else
-    echo "$P10R" | grep '.' | while IFS=$'\t' read -r m lat; do
+    echo "$P10R" | grep '.' | while IFS=$'\t' read -r m lat _; do
         [ -z "$m" ] && { rf "Q9: empty model name lat=$lat"; return; }
         in_range "$lat" 0.001 300 && rp "Q9: '$m' lat=${lat}s in (0,300)" || rf "Q9: '$m' lat=${lat}s out of range"
     done

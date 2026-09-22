@@ -100,7 +100,7 @@ P14_TITLE=$(jq -r '[.panels[]|select(.id==14)][0].title' "$F")
 assert_eq "$LABEL: p14 title is Stream Status" "Stream Status (completed / client-aborted / provider-aborted)" "$P14_TITLE"
 P14_TGT=$(jq '[.panels[]|select(.id==14)][0].targets|length' "$F")
 assert_eq "$LABEL: p14 has 3 targets" "3" "$P14_TGT"
-P14_LABELS=$(jq -r '[[.panels[]|select(.id==14)][0].targets[].rawSql|select(.!=null)|split("\u0027")|.[1]]|sort|join(",")' "$F")
+P14_LABELS=$(jq -r '[[.panels[]|select(.id==14)][0].targets[].rawSql|select(.!=null)|split("\u0022")|.[1]]|sort|join(",")' "$F")
 assert_eq "$LABEL: p14 labels are Client,Completed,Provider" "Client aborted,Completed,Provider aborted" "$P14_LABELS"
 
 # p14 palette: completed/client/provider brand colors

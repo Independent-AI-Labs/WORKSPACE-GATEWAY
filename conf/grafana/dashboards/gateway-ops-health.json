@@ -775,12 +775,30 @@
           "format": "table"
         }
       ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "decimals": 2,
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
           }
         },
         "overrides": []

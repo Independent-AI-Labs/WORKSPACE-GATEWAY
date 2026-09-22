@@ -1,0 +1,3 @@
+-- 000015_drop_model_colors.down.sql
+-- The per-model color feature is retired; this migration is intentionally
+-- one-way and does not recreate the dropped VIEWs.

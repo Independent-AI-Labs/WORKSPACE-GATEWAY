@@ -95,7 +95,7 @@
           "refId": "A",
           "format": "table",
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        round(sum(cost), 2) as total_cost,\n        uniqExact(toDate(timestamp)) as days,\n        uniqExact(toStartOfWeek(timestamp, 1)) as weeks,\n        uniqExact(toStartOfMonth(timestamp)) as months\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n),\navgs AS (\n    SELECT\n        total_tok, input_tok, cached_tok, output_tok, reasoning_tok, total_cost,\n        round(total_tok / greatest(days, 1)) as day_tok,\n        round(total_tok / greatest(weeks, 1)) as week_tok,\n        round(total_tok / greatest(months, 1)) as month_tok,\n        round(total_cost / greatest(days, 1), 2) as day_cost,\n        round(total_cost / greatest(weeks, 1), 2) as week_cost,\n        round(total_cost / greatest(months, 1), 2) as month_cost\n    FROM totals\n)\nSELECT\n    multiIf(input_tok >= 1000000000, concat(toString(round(input_tok / 1000000000, 2)), 'B'), input_tok >= 1000000, concat(toString(round(input_tok / 1000000, 2)), 'M'), input_tok >= 1000, concat(toString(round(input_tok / 1000, 2)), 'K'), toString(input_tok)) as \"Input Tokens\",\n    multiIf(cached_tok >= 1000000000, concat(toString(round(cached_tok / 1000000000, 2)), 'B'), cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000, 2)), 'M'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000, 2)), 'K'), toString(cached_tok)) as \"Cached Tokens\",\n    multiIf(output_tok >= 1000000000, concat(toString(round(output_tok / 1000000000, 2)), 'B'), output_tok >= 1000000, concat(toString(round(output_tok / 1000000, 2)), 'M'), output_tok >= 1000, concat(toString(round(output_tok / 1000, 2)), 'K'), toString(output_tok)) as \"Output Tokens\",\n    multiIf(reasoning_tok >= 1000000000, concat(toString(round(reasoning_tok / 1000000000, 2)), 'B'), reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000, 2)), 'M'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000, 2)), 'K'), toString(reasoning_tok)) as \"Reasoning Tokens\",\n    concat(multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok)), ' / $', toString(floor(round(total_cost * 100) / 100)), '.', leftPad(toString(round(total_cost * 100) % 100), 2, '0')) as \"Total\",\n    concat(multiIf(month_tok >= 1000000000, concat(toString(round(month_tok / 1000000000, 2)), 'B'), month_tok >= 1000000, concat(toString(round(month_tok / 1000000, 2)), 'M'), month_tok >= 1000, concat(toString(round(month_tok / 1000, 2)), 'K'), toString(month_tok)), ' / $', toString(floor(round(month_cost * 100) / 100)), '.', leftPad(toString(round(month_cost * 100) % 100), 2, '0')) as \"Monthly Average\",\n    concat(multiIf(week_tok >= 1000000000, concat(toString(round(week_tok / 1000000000, 2)), 'B'), week_tok >= 1000000, concat(toString(round(week_tok / 1000000, 2)), 'M'), week_tok >= 1000, concat(toString(round(week_tok / 1000, 2)), 'K'), toString(week_tok)), ' / $', toString(floor(round(week_cost * 100) / 100)), '.', leftPad(toString(round(week_cost * 100) % 100), 2, '0')) as \"Weekly Average\",\n    concat(multiIf(day_tok >= 1000000000, concat(toString(round(day_tok / 1000000000, 2)), 'B'), day_tok >= 1000000, concat(toString(round(day_tok / 1000000, 2)), 'M'), day_tok >= 1000, concat(toString(round(day_tok / 1000, 2)), 'K'), toString(day_tok)), ' / $', toString(floor(round(day_cost * 100) / 100)), '.', leftPad(toString(round(day_cost * 100) % 100), 2, '0')) as \"Daily Average\"\nFROM avgs"
+          "rawSql": "WITH totals AS (\n    SELECT\n        toInt64(sum(total_tokens)) as total_tok,\n        toInt64(sum(prompt_tokens - cached_tokens)) as input_tok,\n        toInt64(sum(cached_tokens)) as cached_tok,\n        toInt64(sum(completion_tokens - reasoning_tokens)) as output_tok,\n        toInt64(sum(reasoning_tokens)) as reasoning_tok,\n        sum(cost) as total_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n),\nrunrate AS (\n    SELECT\n        total_tok, input_tok, cached_tok, output_tok, reasoning_tok, total_cost,\n        greatest(dateDiff('second', $__fromTime, $__toTime) / 86400, 1) as elapsed_days, -- noqa: LXR\n        toDayOfMonth(toLastDayOfMonth(toDate($__toTime))) as days_in_month -- noqa: LXR\n    FROM totals\n),\navgs AS (\n    SELECT\n        total_tok, input_tok, cached_tok, output_tok, reasoning_tok, total_cost,\n        round(total_tok / elapsed_days * days_in_month) as month_tok,\n        round(total_tok / elapsed_days * 7) as week_tok,\n        round(total_tok / elapsed_days) as day_tok,\n        round(total_cost / elapsed_days * days_in_month, 2) as month_cost,\n        round(total_cost / elapsed_days * 7, 2) as week_cost,\n        round(total_cost / elapsed_days, 2) as day_cost\n    FROM runrate\n)\nSELECT\n    multiIf(input_tok >= 1000000000, concat(toString(round(input_tok / 1000000000, 2)), 'B'), input_tok >= 1000000, concat(toString(round(input_tok / 1000000, 2)), 'M'), input_tok >= 1000, concat(toString(round(input_tok / 1000, 2)), 'K'), toString(input_tok)) as \"Input Tokens\",\n    multiIf(cached_tok >= 1000000000, concat(toString(round(cached_tok / 1000000000, 2)), 'B'), cached_tok >= 1000000, concat(toString(round(cached_tok / 1000000, 2)), 'M'), cached_tok >= 1000, concat(toString(round(cached_tok / 1000, 2)), 'K'), toString(cached_tok)) as \"Cached Tokens\",\n    multiIf(output_tok >= 1000000000, concat(toString(round(output_tok / 1000000000, 2)), 'B'), output_tok >= 1000000, concat(toString(round(output_tok / 1000000, 2)), 'M'), output_tok >= 1000, concat(toString(round(output_tok / 1000, 2)), 'K'), toString(output_tok)) as \"Output Tokens\",\n    multiIf(reasoning_tok >= 1000000000, concat(toString(round(reasoning_tok / 1000000000, 2)), 'B'), reasoning_tok >= 1000000, concat(toString(round(reasoning_tok / 1000000, 2)), 'M'), reasoning_tok >= 1000, concat(toString(round(reasoning_tok / 1000, 2)), 'K'), toString(reasoning_tok)) as \"Reasoning Tokens\",\n    concat(multiIf(total_tok >= 1000000000, concat(toString(round(total_tok / 1000000000, 2)), 'B'), total_tok >= 1000000, concat(toString(round(total_tok / 1000000, 2)), 'M'), total_tok >= 1000, concat(toString(round(total_tok / 1000, 2)), 'K'), toString(total_tok)), ' / $', toString(floor(round(total_cost * 100) / 100)), '.', leftPad(toString(round(total_cost * 100) % 100), 2, '0')) as \"Total\",\n    concat(multiIf(month_tok >= 1000000000, concat(toString(round(month_tok / 1000000000, 2)), 'B'), month_tok >= 1000000, concat(toString(round(month_tok / 1000000, 2)), 'M'), month_tok >= 1000, concat(toString(round(month_tok / 1000, 2)), 'K'), toString(month_tok)), ' / $', toString(floor(round(month_cost * 100) / 100)), '.', leftPad(toString(round(month_cost * 100) % 100), 2, '0')) as \"Monthly Average\",\n    concat(multiIf(week_tok >= 1000000000, concat(toString(round(week_tok / 1000000000, 2)), 'B'), week_tok >= 1000000, concat(toString(round(week_tok / 1000000, 2)), 'M'), week_tok >= 1000, concat(toString(round(week_tok / 1000, 2)), 'K'), toString(week_tok)), ' / $', toString(floor(round(week_cost * 100) / 100)), '.', leftPad(toString(round(week_cost * 100) % 100), 2, '0')) as \"Weekly Average\",\n    concat(multiIf(day_tok >= 1000000000, concat(toString(round(day_tok / 1000000000, 2)), 'B'), day_tok >= 1000000, concat(toString(round(day_tok / 1000000, 2)), 'M'), day_tok >= 1000, concat(toString(round(day_tok / 1000, 2)), 'K'), toString(day_tok)), ' / $', toString(floor(round(day_cost * 100) / 100)), '.', leftPad(toString(round(day_cost * 100) % 100), 2, '0')) as \"Daily Average\"\nFROM avgs"
         }
       ],
       "fieldConfig": {
@@ -109,20 +109,20 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Total"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Total"
+                "options": "Total"
               },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#70c1b3",
-                  "mode": "fixed"
-                }
-              },
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Total"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#b7990d",
+                    "mode": "fixed"
+                  }
+                },
               {
                 "id": "textSize",
                 "value": {
@@ -160,40 +160,40 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Cached Tokens"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Cached"
+                "options": "Cached Tokens"
               },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#8cada7",
-                  "mode": "fixed"
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Cached"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#70c1b3",
+                    "mode": "fixed"
+                  }
                 }
-              }
-            ]
+              ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "Output Tokens"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Output (non-reasoning)"
+                "options": "Output Tokens"
               },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#ffe066",
-                  "mode": "fixed"
+              "properties": [
+                {
+                  "id": "displayName",
+                  "value": "Output (non-reasoning)"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#a5d0a8",
+                    "mode": "fixed"
+                  }
                 }
-              }
-            ]
+              ]
           },
           {
             "matcher": {
@@ -203,15 +203,15 @@
             "properties": [
               {
                 "id": "displayName",
-                "value": "Reasoning"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#f25f5c",
-                  "mode": "fixed"
+                  "value": "Reasoning"
+                },
+                {
+                  "id": "color",
+                  "value": {
+                    "fixedColor": "#ffe066",
+                    "mode": "fixed"
+                  }
                 }
-              }
             ]
           },
           {
@@ -223,7 +223,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#70c1b3",
+                  "fixedColor": "#50514f",
                   "mode": "fixed"
                 }
               }
@@ -238,7 +238,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#b7990d",
+                  "fixedColor": "#a8a9ad",
                   "mode": "fixed"
                 }
               }
@@ -253,7 +253,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#247ba0",
+                  "fixedColor": "#f2f4cb",
                   "mode": "fixed"
                 }
               }
@@ -275,11 +275,11 @@
         "textMode": "value_and_name",
         "maxPerRow": 4
       },
-      "description": "Token volume over the selected range, split into input (uncached), cache hits, output (non-reasoning) and reasoning. Total shows overall tokens / spend on the second row, enlarged; Monthly/Weekly/Daily Average show mean tokens per period alongside mean spend (tokens / $). Prompt caching shows up as Cached: cached input is billed at a steep discount, so a high Cached share is good."
+      "description": "Token volume over the selected range, split into input (uncached), cache hits, output (non-reasoning) and reasoning. Total shows overall tokens / spend on the second row, enlarged; Monthly/Weekly/Daily Average project the range total forward to a full calendar month / 7 days / 1 day (run-rate) and show the projected tokens / spend (tokens / $). Prompt caching shows up as Cached: cached input is billed at a steep discount, so a high Cached share is good."
     },
     {
       "id": 15,
-      "title": "Cost Over Time by Model ($)",
+      "title": "Cost Over Time",
       "type": "timeseries",
       "datasource": {
         "uid": "clickhouse",
@@ -297,20 +297,21 @@
           "refId": "A",
           "format": "timeseries",
           "timeColumn": "time",
-          "rawSql": "SELECT toStartOfMinute(timestamp) as time, model as label, round(sum(cost), 6) as cost FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY time, model ORDER BY time, label"
+          "rawSql": "SELECT\n    toStartOfDay(timestamp) as time,\n    round(sum(cost), 2) as \"Cost ($)\"\nFROM llm_gateway.usage_log\nWHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\nGROUP BY time\nORDER BY time"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
           "custom": {
-            "drawStyle": "line",
+            "drawStyle": "bars",
             "lineInterpolation": "smooth",
+            "barAlignment": 0,
             "stacking": {
-              "mode": "normal",
+              "mode": "none",
               "group": "A"
             },
-            "fillOpacity": 30,
+            "fillOpacity": 80,
             "showPoints": "never",
             "spanNulls": true
           },
@@ -330,16 +331,16 @@
           ]
         },
         "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+          "mode": "single",
+          "sort": "none"
         }
       },
-      "description": "Spend per model, stacked per minute over the selected range. The legend totals each model's cost; the stack height is total burn rate. Includes migrated history."
+      "description": "Spend per day over the selected range. The selected models and keys are additive: each bar is the total spend for that day across everything filtered in. Includes migrated history."
     },
     {
       "id": 8,
       "title": "Model Distribution",
-      "type": "bargauge",
+      "type": "gateway-treemap",
       "datasource": {
         "uid": "clickhouse",
         "type": "grafana-clickhouse-datasource"
@@ -354,39 +355,60 @@
         {
           "queryType": "table",
           "refId": "A",
-          "rawSql": "SELECT model, count() as requests FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote}) GROUP BY model ORDER BY requests DESC LIMIT 20",
+          "rawSql": "WITH per_model AS (\n    SELECT\n        model,\n        toInt64(sum(total_tokens)) AS tokens,\n        sum(cost) AS cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n    GROUP BY model\n    ORDER BY tokens DESC\n    LIMIT 20\n)\nSELECT\n    model,\n    tokens,\n    round(cost, 2) AS cost\nFROM per_model\nORDER BY tokens DESC",
           "format": "table"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "decimals": 2,
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
-        }
+        "tiling": "squarify",
+        "textField": "model",
+        "sizeField": "tokens",
+        "colorField": "",
+        "defaultColor": "#247ba0",
+        "minTileArea": 1200,
+        "maxTileArea": 60000,
+        "otherLabel": "Other models",
+        "tileGap": 2,
+        "autoFontSize": true,
+        "minFontSize": 8,
+        "maxFontSize": 22,
+        "fontSize": 12,
+        "tooltipTemplate": "<div><strong>{{label}}</strong></div><div>{{value}} tokens &middot; {{fields.cost}} ({{percent}}%)</div>"
       },
-      "description": "Share of requests per model over the selected range (usage_log counts, top 20). Includes migrated history."
+      "description": "Top 20 models by token volume over the selected range: each tile is a model sized by its token volume, with its spend in the tooltip. Tiles below the minimum area are merged into an overflow tile so no model collapses to an unreadable sliver. Includes migrated history."
     },
     {
       "id": 46,
       "type": "piechart",
-      "title": "Cost by Provider ($)",
-      "description": "Where the money goes: spend split by provider/credential (usage_log.provider_id). Vendor concentration at a glance.",
+      "title": "Provider Breakdown ($)",
+      "description": "Where the money goes: spend share per provider/credential (usage_log.provider_id). Vendor concentration at a glance.",
       "datasource": {
         "type": "grafana-clickhouse-datasource",
         "uid": "clickhouse"
@@ -402,37 +424,57 @@
           "queryType": "table",
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT\n    coalesce(nullIf(provider_id,''),'unknown') AS \"provider\",\n    round(sum(cost), 2) AS \"usd\"\nFROM llm_gateway.usage_log\nWHERE $__timeFilter(timestamp)\n  AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote})\n  AND model IN (${model:singlequote})\nGROUP BY \"provider\"\nORDER BY \"usd\" DESC"
+          "rawSql": "WITH per_provider AS (\n    SELECT\n        coalesce(nullIf(provider_id,''),'unknown') AS provider,\n        count() AS requests,\n        toInt64(sum(total_tokens)) AS tokens,\n        sum(cost) AS cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n    GROUP BY provider\n)\nSELECT\n    concat(\n        provider, ' \u00b7 ', toString(requests), ' req \u00b7 ',\n        multiIf(tokens >= 1000000000, concat(toString(round(tokens / 1000000000, 2)), 'B'),\n                tokens >= 1000000, concat(toString(round(tokens / 1000000, 2)), 'M'),\n                tokens >= 1000, concat(toString(round(tokens / 1000, 2)), 'K'),\n                toString(tokens)),\n        ' tok'\n    ) AS name_str,\n    round(cost, 2) AS value\nFROM per_provider\nORDER BY cost DESC"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
           "unit": "currencyUSD",
           "decimals": 2
         },
         "overrides": []
       },
       "options": {
-        "pieType": "pie",
+        "pieType": "donut",
+        "useMaxMin": false,
         "displayLabels": [],
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "values": [
-            "value",
-            "percent"
-          ]
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        },
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
           "fields": "",
           "values": true
+        },
+        "legend": {
+          "showLegend": true,
+          "placement": "right",
+          "values": [
+            "value"
+          ]
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
         }
       }
     }

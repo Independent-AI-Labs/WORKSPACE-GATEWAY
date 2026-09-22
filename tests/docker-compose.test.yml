@@ -182,6 +182,7 @@ services:
       - ../../.env
     environment:
       GF_PLUGINS_PREINSTALL: grafana-clickhouse-datasource,marcusolsson-dynamictext-panel
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: gateway-treemap
       GF_AUTH_PROXY_ENABLED: "true"
       GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
       GF_AUTH_PROXY_HEADER_PROPERTY: username
@@ -198,6 +199,7 @@ services:
     volumes:
       - ../../conf/grafana/rendered/provisioning:/etc/grafana/provisioning:ro
       - ../../conf/grafana/rendered/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../res/grafana-plugins/gateway-treemap/dist:/var/lib/grafana/plugins/gateway-treemap:ro
       - grafana-data:/var/lib/grafana
     ports:
       - "127.0.0.1:3030:3000"

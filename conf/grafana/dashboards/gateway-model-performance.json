@@ -100,11 +100,29 @@
           "rawSql": "{{sql:grafana/queries/gateway-model-performance-p30-A.sql}}"
         }
       ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "tok/s",
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
           },
           "min": 0,
           "decimals": 2
@@ -147,11 +165,29 @@
           "rawSql": "{{sql:grafana/queries/gateway-model-performance-p44-A.sql}}"
         }
       ],
+      "transformations": [
+        {
+          "id": "rowsToFields",
+          "options": {
+            "mappings": [
+              {
+                "fieldName": "name_str",
+                "handlerKey": "field.name"
+              },
+              {
+                "fieldName": "value",
+                "handlerKey": "field.value"
+              }
+            ]
+          }
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "tok/s",
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#247ba0"
           },
           "min": 0,
           "decimals": 2
