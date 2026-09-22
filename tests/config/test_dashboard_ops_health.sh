@@ -4,8 +4,8 @@ set -euo pipefail
 # Structure tests for Dashboard 2: Gateway Operations & Health
 # (conf/grafana/dashboards/gateway-ops-health.json)
 # Panels: p1 Total Requests, p4 Error Rate, p2 Active Connections, p5 Request Rate,
-#         p7 Status Code Breakdown, p13 Stream Abort Rate, p14 Stream Status,
-#         p9 Latency p50/p95/p99, p10 Response Time p50 by Model, p11 Bandwidth,
+#         p7 Status Code Breakdown, p14 Stream Status,
+#         p10 Response Time p50 by Model, p11 Bandwidth,
 #         p12 Shared Dict, p50 Storage hot/archive, p51 Storage by Table
 
 _SELF="${BASH_SOURCE[0]}"
@@ -29,10 +29,10 @@ assert_json_valid "$LABEL: dashboard JSON is valid" "$F"
 assert_eq "$LABEL: title is Gateway Operations & Health" "Gateway Operations & Health" "$(jq -r '.title' "$F")"
 assert_eq "$LABEL: uid is gateway-ops-health" "gateway-ops-health" "$(jq -r '.uid' "$F")"
 
-# Panel count and datasource split (13 panels: 8 ClickHouse, 5 Prometheus)
-assert_eq "$LABEL: panel count is 13" "13" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: ClickHouse panels" "8" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
-assert_eq "$LABEL: Prometheus panels" "5" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
+# Panel count and datasource split (11 panels: 7 ClickHouse, 4 Prometheus)
+assert_eq "$LABEL: panel count is 11" "11" "$(jq '.panels|length' "$F")"
+assert_eq "$LABEL: ClickHouse panels" "7" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
+assert_eq "$LABEL: Prometheus panels" "4" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
 # Generic structural checks
 check_dashboard_basics "$F" "$LABEL"
@@ -75,9 +75,9 @@ echo "$P4_SQL" | grep -q 'countIf(status >= 400)' && { echo "[PASS] $LABEL S15: 
 echo "$P4_SQL" | grep -q '\$__timeFilter' && { echo "[PASS] $LABEL S15: p4 uses \$__timeFilter"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL S15: p4 missing \$__timeFilter"; fail=$((fail+1)); }
 echo "$P4_SQL" | grep -q 'request_log' && { echo "[PASS] $LABEL S15: p4 queries request_log"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL S15: p4 not querying request_log"; fail=$((fail+1)); }
 
-# S17: p4 thresholds are null,1,5
+# S17: p4 thresholds are a single red (null) band
 P4_THRESH=$(jq -r '[.panels[]|select(.id==4)][0].fieldConfig.defaults.thresholds.steps | map(.value|if .==null then "null" else tostring end)|join(",")' "$F")
-assert_eq "$LABEL S17: p4 thresholds are null,1,5" "null,1,5" "$P4_THRESH"
+assert_eq "$LABEL S17: p4 thresholds are null" "null" "$P4_THRESH"
 
 # S18: p4 target format and queryType
 P4_FMT=$(jq -r '[.panels[]|select(.id==4)][0].targets[0].format' "$F")
@@ -85,15 +85,10 @@ assert_eq "$LABEL S18: p4 target format is table" "table" "$P4_FMT"
 P4_QT=$(jq -r '[.panels[]|select(.id==4)][0].targets[0].queryType' "$F")
 assert_eq "$LABEL S18: p4 target queryType is table" "table" "$P4_QT"
 
-# p13: Stream Abort Rate, 2 targets, is_stream=1, aborted
-P13_TITLE=$(jq -r '[.panels[]|select(.id==13)][0].title' "$F")
-assert_eq "$LABEL: p13 title is Stream Abort Rate by Direction" "Stream Abort Rate by Direction" "$P13_TITLE"
-P13_TGT=$(jq '[.panels[]|select(.id==13)][0].targets|length' "$F")
-assert_eq "$LABEL: p13 has 2 targets" "2" "$P13_TGT"
-P13_STREAM=$(jq '[[.panels[]|select(.id==13)][0].targets[].rawSql|select(.!=null)|select(test("is_stream = 1"))]|length>0' "$F")
-assert_eq "$LABEL: p13 filters is_stream = 1" "true" "$P13_STREAM"
-P13_ABT=$(jq '[[.panels[]|select(.id==13)][0].targets[].rawSql|select(.!=null)|select(test("aborted"))]|length>0' "$F")
-assert_eq "$LABEL: p13 references aborted column" "true" "$P13_ABT"
+# p13 (Stream Abort Rate) and p9 (Latency percentiles) were removed: p13 duplicated
+# p14 (same abort split, counts vs %), p9 measured only APISIX's own sub-5ms overhead.
+assert_eq "$LABEL: p13 removed" "0" "$(jq '[.panels[]|select(.id==13)]|length' "$F")"
+assert_eq "$LABEL: p9 removed" "0" "$(jq '[.panels[]|select(.id==9)]|length' "$F")"
 
 # p14: Stream Status, 3 targets, labels
 P14_TITLE=$(jq -r '[.panels[]|select(.id==14)][0].title' "$F")
@@ -124,9 +119,9 @@ assert_eq "$LABEL: p10 selects u.model" "true" "$P10_UMODEL"
 P10_LAT=$(jq '[[.panels[]|select(.id==10)][0].targets[].rawSql|select(.!=null)|select(test("r.upstream_response_time_s"))]|length>0' "$F")
 assert_eq "$LABEL: p10 uses r.upstream_response_time_s" "true" "$P10_LAT"
 
-# Prom panels with key_hash filter: 3 of 5 (p5, p9, p11; p2 and p12 are global)
+# Prom panels with key_hash filter: 2 of 4 (p5, p11; p2 and p12 are global)
 PROM_KEYHASH=$(jq '[.panels[]|select(.datasource.uid=="prometheus")|select([.targets[].expr?|select(.!=null)|select(test("key_hash"))]|length>0)]|length' "$F")
-assert_eq "$LABEL: Prometheus panels with key_hash filter" "3" "$PROM_KEYHASH"
+assert_eq "$LABEL: Prometheus panels with key_hash filter" "2" "$PROM_KEYHASH"
 
 # Cross-dashboard invariant: templating identical across all 3
 check_templating_sync

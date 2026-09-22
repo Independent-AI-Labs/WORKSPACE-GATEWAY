@@ -169,9 +169,9 @@ one schema lineage, no forked fresh-install path.
   `GF_ANALYTICS_REPORTING_ENABLED=false`, strong `GRAFANA_ADMIN_PASSWORD`;
   `GF_AUTH_ANONYMOUS_ENABLED=false` fixed (dev override removed from compose
   defaults and `tests/docker-compose.test.yml`).
-- Ops-health dashboard: new "storage growth" panel (SQL over
-  `system.parts`/`system.disks`) + unified alert rule (free space <20%,
-  growth anomaly).
+- Ops-health dashboard: storage footprint panels (p50 hot vs archive, p51 by
+  table; SQL over `system.parts`) + unified alert rule (free space <20% from
+  `system.disks`, growth anomaly).
 
 ## 9. Network / Port Surface
 

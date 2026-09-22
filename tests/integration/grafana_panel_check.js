@@ -10,7 +10,7 @@
  *
  * Dashboards (split from the original gateway-overview):
  *   - gateway-cost-usage:       p3, p8, p15 (all ClickHouse)
- *   - gateway-ops-health:       p1, p2, p4, p5, p7, p9, p10, p11, p12, p13, p14 (mixed CH + Prom)
+ *   - gateway-ops-health:       p1, p2, p4, p5, p7, p10, p11, p12, p14 (mixed CH + Prom)
  *   - gateway-cost-leaderboard: p20, p21 (ClickHouse stat panels, ranked tiles like p3)
  *
  * Usage:
@@ -68,13 +68,11 @@ const dashboards = [
       { id: 7,  title: 'Status Code Breakdown',             type: 'piechart',     checks: [
         { kind: 'text', value: '200' },
       ]},
-      { id: 9,  title: 'Latency p50 / p95 / p99 (ms)',      type: 'timeseries',  checks: [] },
       { id: 10, title: 'Response Time p50 by Model',      type: 'bargauge',     checks: [
         { kind: 'text_count_gt', value: 1 },
       ]},
       { id: 11, title: 'Bandwidth In / Out (bytes/s)',      type: 'timeseries',  checks: [] },
       { id: 12, title: 'Shared Dict Memory Usage',          type: 'timeseries',  checks: [] },
-      { id: 13, title: 'Stream Abort Rate by Direction', type: 'timeseries',  checks: [] },
       { id: 14, title: 'Stream Status (completed / client-aborted / provider-aborted)', type: 'timeseries', checks: [] },
     ],
   },

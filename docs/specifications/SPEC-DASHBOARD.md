@@ -273,26 +273,27 @@ explicit provider colors).
 
 ## 5. Gateway Operations & Health
 
-### Panel 1: Total Requests (stat, CH, grid x:0 y:8 w:8 h:4)
+### Panel 1: Total Requests (stat, CH, grid x:0 y:0 w:8 h:4)
 
 `SELECT count() as total_requests FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND <key filter>`.
 Thresholds: teal / gold at 1000 / bronze at 10000.
 
-### Panel 4: Error Rate (stat, CH, grid x:8 y:8 w:8 h:4)
+### Panel 4: Error Rate (stat, CH, grid x:8 y:0 w:8 h:4)
 
 `SELECT round(countIf(status >= 400) * 100.0 / count(), 2) as error_rate FROM llm_gateway.request_log WHERE $__timeFilter(timestamp) AND <key filter>`.
-All 4xx + 5xx count as errors. Thresholds: teal / 1 gold / 5 coral.
+All 4xx + 5xx count as errors. Thresholds: a single coral band, so the tile
+background is red at any measured rate (errors are never a "good" green).
 
-### Panel 2: Active Connections (stat, Prom, grid x:16 y:8 w:8 h:4)
+### Panel 2: Active Connections (stat, Prom, grid x:16 y:0 w:8 h:4)
 
 `apisix_nginx_http_current_connections{state="active"}` (exact label match).
 Thresholds: teal / 50 gold / 100 coral.
 
-### Panel 5: Request Rate (timeseries, Prom, grid x:0 y:12 w:12 h:8)
+### Panel 5: Request Rate (timeseries, Prom, grid x:0 y:4 w:12 h:8)
 
 `sum(rate(apisix_http_status{key_hash=~"$api_key"}[5m]))`, legend `requests/s`.
 
-### Panel 7: Status Code Breakdown (piechart, CH, grid x:12 y:12 w:12 h:8)
+### Panel 7: Status Code Breakdown (piechart, CH, grid x:12 y:4 w:12 h:8)
 
 ```sql
 SELECT toString(status) as status, count() as count
@@ -305,24 +306,18 @@ Donut, `reduceOptions.values: true`, `palette-classic` + byName overrides:
 200 teal, 401 gold, 429 bronze, 499 cerulean, 504 coral. Legend table (right)
 with value + percent.
 
-### Panel 13: Stream Abort Rate by Direction (timeseries, CH, grid x:0 y:20 w:12 h:8)
-
-Two queries (A: `'Client aborted'`, B: `'Provider aborted'`), each:
-`sum(if(aborted = N, 1, 0)) * 100.0 / count()` grouped by minute over
-`is_stream = 1`. Field min 0 / max 100. Colors: client coral, provider gold.
-
-### Panel 14: Stream Status (timeseries, CH, grid x:12 y:20 w:12 h:8)
+### Panel 14: Stream Status (timeseries, CH, grid x:0 y:12 w:24 h:8)
 
 Three queries (A/B/C: completed `aborted=0`, client `=1`, provider `=2`),
 each `sum(if(aborted = N, 1, 0))` grouped by minute over `is_stream = 1`.
 Stacked bars. Colors: completed teal, client coral, provider gold.
 
-### Panel 9: Latency p50/p95/p99 (timeseries, Prom, grid x:0 y:28 w:12 h:8)
+> Panel 13 (Stream Abort Rate by Direction) and panel 9 (Latency p50/p95/p99)
+> were removed 2026-09-22 as operator surplus: panel 13 was the same abort split
+> as panel 14 expressed as a percentage, and panel 9 plotted only APISIX's own
+> processing overhead (sub-5 ms), carrying no health signal.
 
-Three queries: `histogram_quantile(0.NN, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~"$api_key"}[5m]))) * 1000`,
-legends `p50`/`p95`/`p99`, unit ms. Colors: p50 teal, p95 gold, p99 coral.
-
-### Panel 10: Response Time p50 by Model (bargauge, CH, grid x:12 y:20 w:12 h:8)
+### Panel 10: Response Time p50 by Model (bargauge, CH, grid x:0 y:20 w:24 h:8)
 
 ```sql
 SELECT u.model AS name_str,
@@ -339,27 +334,35 @@ The join key is `request_id` (see OPEN-ISSUES.md for residual correctness
 caveats). Median wall time (p50), not mean. Unit seconds; horizontal gradient
 bars in a single brand color (colorless, §2.5) via `rowsToFields`.
 
-### Panel 11: Bandwidth In / Out (timeseries, Prom, grid x:0 y:36 w:12 h:8)
+### Panel 11: Bandwidth In / Out (timeseries, Prom, grid x:0 y:28 w:24 h:8)
 
 `sum(rate(apisix_bandwidth{key_hash=~"$api_key",type="ingress"}[5m]))` and the
 same for `type="egress"`; legends `ingress`/`egress`; unit Bps. Colors:
 ingress cerulean, egress celadon.
 
-### Panel 12: Shared Dict Memory Usage (timeseries, Prom, grid x:0 y:44 w:24 h:8)
+### Panel 12: Shared Dict Memory Usage (timeseries, Prom, grid x:0 y:36 w:24 h:8)
 
 `(1 - apisix_shared_dict_free_space_bytes{name="key_cache"} / apisix_shared_dict_capacity_bytes{name="key_cache"}) * 100`
 and identically for `name="redact_state"`. Exact label matches, min 0 / max
 100, stepAfter interpolation. Colors: key_cache teal, redact_state bronze.
 
-### Panel 50: Storage Growth (timeseries + stat, CH, grid x:0 y:52 w:24 h:8)
+### Panel 50: Storage Footprint: hot vs archive (bargauge, CH, grid x:0 y:44 w:12 h:8)
 
-Bytes-on-disk per `llm_gateway` table over time:
-`SELECT sum(bytes_on_disk) FROM system.parts WHERE database = 'llm_gateway' GROUP BY table`
-plus a free-space stat from `system.disks` (`free_space_bytes` /
-`total_space_bytes`). Runs under the `grafana_ro` grants (system.parts,
-system.disks, system.tables only  -  REQ-SECURITY-HARDENING FR-2.1). A unified
-alert rule on the stat fires below 20% free or on anomalous growth
-(REQ-SECURITY-HARDENING FR-4.3). No `request_bodies` reference.
+Bytes-on-disk per storage tier (REQ-SECURITY-HARDENING FR-4):
+`SELECT volume, sum(bytes) AS bytes FROM (SELECT if(disk_name = 'archive', 'archive', 'hot') AS volume, bytes_on_disk AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active UNION ALL SELECT 'hot' AS volume, 0 AS bytes UNION ALL SELECT 'archive' AS volume, 0 AS bytes) GROUP BY volume ORDER BY bytes DESC`.
+The two zero rows keep both tiers on the chart so the `hot`/`archive` labels
+always render (a single unlabelled bar is what made the panel look broken).
+Parts older than the tier window (bodies 6mo, metadata 12mo) move to the
+ZSTD(3) `archive` volume, so `archive` climbs from zero as data ages in.
+`archive` is colored bronze.
+
+### Panel 51: Storage Footprint by Table (bargauge, CH, grid x:12 y:44 w:12 h:8)
+
+`SELECT table AS table, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active GROUP BY table ORDER BY bytes DESC LIMIT 10`.
+`request_bodies` dominates once conversation logging is enabled. Runs under the
+`grafana_ro` grants (system.parts, system.disks, system.tables only -
+REQ-SECURITY-HARDENING FR-2.1). A unified alert rule fires below 20% free or on
+anomalous growth (REQ-SECURITY-HARDENING FR-4.3). No `request_bodies` reference.
 
 Datasource identity: the ClickHouse datasource authenticates as `grafana_ro`
 with `secureJsonData.password` from `$CH_GRAFANA_RO_PASSWORD` in

@@ -278,15 +278,9 @@ done
 echo ""
 
 # =====================================================================
-# Q5: p13 abort rates in [0, 100]
+# Q5: removed -- p13 (Stream Abort Rate) was deleted; p14 (Q6) covers the
+# same abort split as counts.
 # =====================================================================
-echo "--- Q5: p13 Abort Rate Range [0,100] ---"
-for ref in A B; do
-    exec_ch 13 "$ref" | grep '.' | while IFS=$'\t' read -r t v; do
-        in_range "$v" 0 100 && rp "Q5: p13-${ref} $t rate=$v" || rf "Q5: p13-${ref} $t rate=$v out of range"
-    done
-done
-echo ""
 
 # =====================================================================
 # Q6: p14 partition: completed + client_ab + provider_ab ≈ total streams
@@ -397,19 +391,9 @@ fi
 echo ""
 
 # =====================================================================
-# Q12: p9 latency ordering: p50 <= p95 <= p99
-# (Stack is running and APISIX is scraping -- no data = broken pipeline = FAIL)
+# Q12: removed -- p9 (Latency Percentiles) was deleted; it plotted APISIX's
+# own sub-5ms overhead, not a useful health signal.
 # =====================================================================
-echo "--- Q12: p9 Latency Percentile Ordering ---"
-P50=$(prom_val "$(exec_prom 9 A)")
-P95=$(prom_val "$(exec_prom 9 B)")
-P99=$(prom_val "$(exec_prom 9 C)")
-if [ -z "$P50" ] || [ -z "$P95" ] || [ -z "$P99" ]; then
-    rf "Q12: missing latency data (p50=$P50 p95=$P95 p99=$P99) -- APISIX histogram scraping broken"
-else
-    awk "BEGIN{exit !($P50 <= $P95 && $P95 <= $P99)}" && rp "Q12: p50($P50)<=p95($P95)<=p99($P99)" || rf "Q12: ordering broken (p50=$P50 p95=$P95 p99=$P99)"
-fi
-echo ""
 
 # =====================================================================
 # Q13: p12 shared dict usage in [0, 100]

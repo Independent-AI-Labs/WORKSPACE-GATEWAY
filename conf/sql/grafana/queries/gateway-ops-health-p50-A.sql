@@ -1,1 +1,1 @@
-SELECT disk_name AS volume, sum(bytes_on_disk) AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active GROUP BY disk_name ORDER BY bytes DESC
+SELECT volume, sum(bytes) AS bytes FROM (SELECT if(disk_name = 'archive', 'archive', 'hot') AS volume, bytes_on_disk AS bytes FROM system.parts WHERE database = 'llm_gateway' AND active UNION ALL SELECT 'hot' AS volume, 0 AS bytes UNION ALL SELECT 'archive' AS volume, 0 AS bytes) GROUP BY volume ORDER BY bytes DESC

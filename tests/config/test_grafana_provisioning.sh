@@ -141,13 +141,13 @@ OH_UID=$(jq -r '.uid' "$OPS_HEALTH_FILE")
 assert_eq "Ops & Health uid" "gateway-ops-health" "$OH_UID"
 
 OH_PANELS=$(jq '.panels | length' "$OPS_HEALTH_FILE")
-assert_eq "Ops & Health has 13 panels" "13" "$OH_PANELS"
+assert_eq "Ops & Health has 11 panels" "11" "$OH_PANELS"
 
 OH_PROM=$(jq '[.panels[] | select(.datasource.uid == "prometheus")] | length' "$OPS_HEALTH_FILE")
-assert_eq "Ops & Health Prometheus panels" "5" "$OH_PROM"
+assert_eq "Ops & Health Prometheus panels" "4" "$OH_PROM"
 
 OH_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$OPS_HEALTH_FILE")
-assert_eq "Ops & Health ClickHouse panels" "8" "$OH_CH"
+assert_eq "Ops & Health ClickHouse panels" "7" "$OH_CH"
 
 # ── Dashboard 3: Gateway Cost Leaderboard ─────────────────────────────
 
@@ -189,7 +189,7 @@ assert_eq "Model Performance ClickHouse panels" "6" "$PF_CH"
 # ── Total panel count across all 5 dashboards (30 + 2 storage growth) ──
 
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
-assert_eq "Total panels across 5 dashboards" "33" "$TOTAL_PANELS"
+assert_eq "Total panels across 5 dashboards" "31" "$TOTAL_PANELS"
 
 # ── Currency consistency: p3's combined token·spend tiles abbreviate K/M/B ─
 #    money like the dashboard's Grafana currency; standalone money tiles
@@ -286,8 +286,8 @@ done
 assert_eq "No \$__conditionalAll macros in any dashboard" "0" "$COND_ALL_TOTAL"
 
 # ── ClickHouse panels use \${api_key:singlequote} directly ────────────
-# 5 in cost-usage + 6 in ops-health + 4 in leaderboard + 3 in experience
-# + 5 in performance = 23 (request_signals panels are model-scoped only
+# 5 in cost-usage + 5 in ops-health + 4 in leaderboard + 3 in experience
+# + 5 in performance = 22 (request_signals panels are model-scoped only
 # and carry no key filter)
 
 CH_APIKEY_TOTAL=0
@@ -295,7 +295,7 @@ for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE
     c=$(jq '[.panels[] | select(.datasource.uid == "clickhouse") | select([.targets[].rawSql? | select(. != null) | select(test("\\$\\{api_key:singlequote\\}"))] | length > 0)] | length' "$df")
     CH_APIKEY_TOTAL=$((CH_APIKEY_TOTAL + c))
 done
-assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "23" "$CH_APIKEY_TOTAL"
+assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "22" "$CH_APIKEY_TOTAL"
 
 # ── p3 Token Usage stat: 5 tiles, one per category (in cost-usage) ────
 
@@ -336,24 +336,18 @@ assert_eq "p15 filters by \${api_key:singlequote}" "true" "$P15_HAS_APIKEY"
 P3_GRID_TOP=$(jq -r '[.panels[] | select(.id == 3)][0].gridPos | "y=\(.y),x=\(.x)"' "$COST_USAGE_FILE")
 assert_eq "p3 is positioned top-left (y=0,x=0)" "y=0,x=0" "$P3_GRID_TOP"
 
-# ── Prom panels: key_hash filter (3 of 5; p2 Active Connections and p12 Shared Dict are global) ──
+# ── Prom panels: key_hash filter (2 of 4; p2 Active Connections and p12 Shared Dict are global) ──
 
 PROM_KEYHASH_PANELS=$(jq '[.panels[] | select(.datasource.uid == "prometheus") | select([.targets[].expr? | select(. != null) | select(test("key_hash"))] | length > 0)] | length' "$OPS_HEALTH_FILE")
-assert_eq "Prometheus panels with key_hash filter" "3" "$PROM_KEYHASH_PANELS"
+assert_eq "Prometheus panels with key_hash filter" "2" "$PROM_KEYHASH_PANELS"
 
-# ── p13 Stream Abort Rate: 2 targets (client + provider) ─────────────
+# ── p13 and p9 removed: p13 duplicated p14's abort split, p9 showed only APISIX overhead ──
 
-P13_TITLE=$(jq -r '[.panels[] | select(.id == 13)][0].title' "$OPS_HEALTH_FILE")
-assert_eq "p13 title is Stream Abort Rate" "Stream Abort Rate by Direction" "$P13_TITLE"
+P13_EXISTS=$(jq '[.panels[] | select(.id == 13)] | length' "$OPS_HEALTH_FILE")
+assert_eq "p13 Stream Abort Rate removed" "0" "$P13_EXISTS"
 
-P13_TARGET_COUNT=$(jq '[.panels[] | select(.id == 13)][0].targets | length' "$OPS_HEALTH_FILE")
-assert_eq "p13 Abort Rate has 2 targets" "2" "$P13_TARGET_COUNT"
-
-P13_HAS_IS_STREAM=$(jq '[[.panels[] | select(.id == 13)][0].targets[].rawSql | select(. != null) | select(test("is_stream = 1"))] | length > 0' "$OPS_HEALTH_FILE")
-assert_eq "p13 filters is_stream = 1" "true" "$P13_HAS_IS_STREAM"
-
-P13_HAS_ABORTED=$(jq '[[.panels[] | select(.id == 13)][0].targets[].rawSql | select(. != null) | select(test("aborted"))] | length > 0' "$OPS_HEALTH_FILE")
-assert_eq "p13 references aborted column" "true" "$P13_HAS_ABORTED"
+P9_EXISTS=$(jq '[.panels[] | select(.id == 9)] | length' "$OPS_HEALTH_FILE")
+assert_eq "p9 Latency Percentiles removed" "0" "$P9_EXISTS"
 
 # ── p14 Stream Status: 3 stacked targets ──────────────────────────────
 

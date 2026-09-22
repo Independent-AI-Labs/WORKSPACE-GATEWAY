@@ -165,14 +165,6 @@
             "steps": [
               {
                 "value": null,
-                "color": "#70c1b3"
-              },
-              {
-                "value": 1,
-                "color": "#ffe066"
-              },
-              {
-                "value": 5,
                 "color": "#f25f5c"
               }
             ]
@@ -448,98 +440,6 @@
       "description": "Response status codes over the range. A healthy gateway is dominated by 200s; 499s mean the client hung up mid-stream."
     },
     {
-      "id": 13,
-      "title": "Stream Abort Rate by Direction",
-      "type": "timeseries",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 12
-      },
-      "targets": [
-        {
-          "queryType": "timeseries",
-          "refId": "A",
-          "format": "timeseries",
-          "timeColumn": "time",
-          "rawSql": "{{sql:grafana/queries/gateway-ops-health-p13-A.sql}}"
-        },
-        {
-          "queryType": "timeseries",
-          "refId": "B",
-          "format": "timeseries",
-          "timeColumn": "time",
-          "rawSql": "{{sql:grafana/queries/gateway-ops-health-p13-B.sql}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100,
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "stacking": {
-              "mode": "none"
-            },
-            "fillOpacity": 10,
-            "showPoints": "never"
-          },
-          "decimals": 2
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Client aborted"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#f25f5c"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Provider aborted"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#ffe066"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "description": "Stream aborts split by who cut the connection: client-side cancels (you stopped it) vs provider-side aborts (vendor dropped it). Gateway rows count each attempt."
-    },
-    {
       "id": 14,
       "title": "Stream Status (completed / client-aborted / provider-aborted)",
       "type": "timeseries",
@@ -549,8 +449,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 24,
+        "x": 0,
         "y": 12
       },
       "targets": [
@@ -652,108 +552,6 @@
       "description": "Absolute stream outcomes over the range: completed, cancelled by the client, aborted by the provider. The three stack to total streams."
     },
     {
-      "id": 9,
-      "title": "Latency p50 / p95 / p99 (ms)",
-      "type": "timeseries",
-      "datasource": {
-        "uid": "prometheus",
-        "type": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 20
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
-          "legendFormat": "p95",
-          "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(apisix_http_latency_bucket{key_hash=~\"$api_key\",type=\"apisix\"}[5m]))) * 1000",
-          "legendFormat": "p99",
-          "refId": "C"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 10,
-            "showPoints": "never"
-          },
-          "decimals": 2
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p50"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#70c1b3"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p95"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#ffe066"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "p99"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#f25f5c"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "description": "Gateway latency percentiles (p50/p95/p99) from Prometheus histograms, in milliseconds."
-    },
-    {
       "id": 10,
       "title": "Response Time p50 by Model",
       "type": "bargauge",
@@ -763,8 +561,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 24,
+        "x": 0,
         "y": 20
       },
       "targets": [
@@ -1020,13 +818,13 @@
               "options": "archive"
             },
             "properties": [
-                {
-                  "id": "color",
-                  "value": {
-                    "mode": "fixed",
-                    "fixedColor": "#b7990d"
-                  }
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#b7990d"
                 }
+              }
             ]
           }
         ]
@@ -1041,7 +839,8 @@
           ],
           "fields": "",
           "values": true
-        }
+        },
+        "namePlacement": "left"
       },
       "description": "Bytes on disk per storage volume (REQ-SECURITY-HARDENING FR-4). Retention is tiered, never deleting: parts older than the tier window (bodies 6mo, metadata 12mo) move to the ZSTD(3) `archive` volume. Growth alert fires from the provisioned alert rule when the total crosses its threshold."
     },
@@ -1087,7 +886,8 @@
           ],
           "fields": "",
           "values": true
-        }
+        },
+        "namePlacement": "left"
       },
       "description": "Bytes on disk per table (request_bodies dominates once conversation logging is enabled). Use with the volume panel above to watch archive-tier growth."
     }

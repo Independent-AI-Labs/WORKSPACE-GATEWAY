@@ -1,1 +1,0 @@
-SELECT toStartOfMinute(timestamp) as time, sum(if(aborted = 1, 1, 0)) * 100.0 / count() as "Client aborted" FROM llm_gateway.usage_log WHERE is_stream = 1 AND {{ time_filter('timestamp') }} AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN ({{ gf_str_multi('api_key') }}) AND model IN ({{ gf_str_multi('model') }}) GROUP BY time ORDER BY time
