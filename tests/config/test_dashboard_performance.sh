@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Structure tests for Dashboard: Gateway Model Performance
 # (conf/grafana/dashboards/gateway-model-performance.json)
-# Panels: prefill/decode speed (content-TTFT, avg + p50), cancel/abort rate,
-# wasted tokens & cost, historical decode proxy (estimate).
+# Panels: prefill/decode speed (content-TTFT, p50), stream reliability
+# (completed/cancel/abort), stream responsiveness (TTFT p50/p95 + goodput),
+# wasted tokens & cost, completed-response cost/time.
 # REQ-USEFULNESS-TELEMETRY FR-3/FR-6/FR-10.
 
 _SELF="${BASH_SOURCE[0]}"
@@ -28,10 +29,10 @@ assert_json_valid "$LABEL: dashboard JSON is valid" "$F"
 assert_eq "$LABEL: title is Gateway Model Performance" "Gateway Model Performance" "$(jq -r '.title' "$F")"
 assert_eq "$LABEL: uid is gateway-model-performance" "gateway-model-performance" "$(jq -r '.uid' "$F")"
 
-# Panel inventory: 5 CH panels
-assert_eq "$LABEL: panel count is 5" "5" "$(jq '.panels|length' "$F")"
-assert_eq "$LABEL: panel ids" "30 31 36 44 45" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
-assert_eq "$LABEL: ClickHouse panels" "5" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
+# Panel inventory: 6 CH panels
+assert_eq "$LABEL: panel count is 6" "6" "$(jq '.panels|length' "$F")"
+assert_eq "$LABEL: panel ids" "30 31 36 44 45 48" "$(jq -r '[.panels[].id] | sort | map(tostring) | join(" ")' "$F")"
+assert_eq "$LABEL: ClickHouse panels" "6" "$(jq '[.panels[]|select(.datasource.uid=="clickhouse")]|length' "$F")"
 assert_eq "$LABEL: Prometheus panels" "0" "$(jq '[.panels[]|select(.datasource.uid=="prometheus")]|length' "$F")"
 
 # Generic structural checks
@@ -41,7 +42,7 @@ check_dashboard_basics "$F" "$LABEL"
 
 # Every per-model rawSql gates on >= 100 responses and never scans req_body
 GATED_PANELS=$(jq '[.panels[] | select((([.targets[].rawSql | test("count\\(\\) >= 100")]) | all) and ((.targets | length) > 0))] | length' "$F")
-assert_eq "$LABEL: every panel query carries the >=100 relevance gate" "5" "$GATED_PANELS"
+assert_eq "$LABEL: every panel query carries the >=100 relevance gate" "6" "$GATED_PANELS"
 ALL_SQL=$(jq -r '[.panels[].targets[].rawSql] | join("\n")' "$F")
 if printf '%s' "$ALL_SQL" | grep -q 'req_body'; then
     echo "[FAIL] $LABEL: rawSql references req_body (forbidden at refresh time)"; fail=$((fail+1))
@@ -64,6 +65,9 @@ if printf '%s' "$P30_ALL_SQL$P44_ALL_SQL" | grep -qF "' (avg)'"; then
 else
     echo "[PASS] $LABEL: p30/p44 avg branch removed (p50 only)"; pass=$((pass+1))
 fi
+# count:tok/s scales K/M/B and keeps the unit word (77788.86 -> 77.79K tok/s)
+assert_eq "$LABEL: p30 prefill abbreviates tok/s (count:tok/s)" "count:tok/s" "$(jq -r '[.panels[]|select(.id==30)][0].fieldConfig.defaults.unit' "$F")"
+assert_eq "$LABEL: p44 decode abbreviates tok/s (count:tok/s)" "count:tok/s" "$(jq -r '[.panels[]|select(.id==44)][0].fieldConfig.defaults.unit' "$F")"
 
 # p45: Cost & Time per Completed Response (standalone, explicitly averages)
 P45_TYPE=$(jq -r '[.panels[]|select(.id==45)][0].type // "missing"' "$F")
@@ -93,12 +97,24 @@ fi
 printf '%s' "$P36_SQL" | grep -qF "concat('$'" && { echo "[PASS] $LABEL: p36 renders exact dollar values ($, forced 2 decimals)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p36 missing dollar formatting"; fail=$((fail+1)); }
 printf '%s' "$P45_SQL" | grep -qF "n >= 1000, concat(toString(round(n / 1000, 2)), 'K')" && { echo "[PASS] $LABEL: p45 abbreviates completed-response count (B/M/K, rounded)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p45 missing count abbreviation"; fail=$((fail+1)); }
 
+# Stream reliability (p31): completed + cancel + abort as shares of streams
+P31_ALL_SQL=$(jq -r '[.panels[]|select(.id==31)][0] | [.targets[].rawSql] | join("\n")' "$F")
+printf '%s' "$P31_ALL_SQL" | grep -qF 'aborted = 0 AND is_stream = 1' && { echo "[PASS] $LABEL: p31 completed rate excludes non-stream rows"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p31 completed numerator must AND is_stream = 1"; fail=$((fail+1)); }
+printf '%s' "$P31_ALL_SQL" | grep -qF 'countIf(is_stream = 1)' && { echo "[PASS] $LABEL: p31 shares use the stream cohort as denominator"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p31 missing stream denominator"; fail=$((fail+1)); }
+
+# Stream responsiveness (p48): TTFT p50/p95 + goodput within 2s
+P48_ALL_SQL=$(jq -r '[.panels[]|select(.id==48)][0] | [.targets[].rawSql] | join("\n")' "$F")
+printf '%s' "$P48_ALL_SQL" | grep -qF 'quantile(0.5)(ttft_content_ms)' && printf '%s' "$P48_ALL_SQL" | grep -qF 'quantile(0.95)(ttft_content_ms)' && { echo "[PASS] $LABEL: p48 shows TTFT p50 + p95"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p48 missing TTFT percentiles"; fail=$((fail+1)); }
+printf '%s' "$P48_ALL_SQL" | grep -qF 'ttft_content_ms <= 2000' && { echo "[PASS] $LABEL: p48 goodput counts streams starting within 2s"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p48 missing 2s goodput"; fail=$((fail+1)); }
+printf '%s' "$P48_ALL_SQL" | grep -qF 'ttft_content_ms > 0' && { echo "[PASS] $LABEL: p48 excludes streams with no recorded TTFT"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p48 must exclude zero-TTFT rows"; fail=$((fail+1)); }
+assert_eq "$LABEL: p48 goodput rendered as percent" "percent" "$(jq -r '[.panels[]|select(.id==48)][0].fieldConfig.overrides[]|select(.matcher.options=="Goodput <=2s (%)")|.properties[]|select(.id=="unit")|.value' "$F")"
+
 # Readable display names (FR-10.5): no raw refId/column identifiers on stats
 P31_NAMES=$(jq -c '[.panels[]|select(.id==31)][0].fieldConfig.overrides[].properties[]|select(.id=="displayName")|.value' "$F")
-printf '%s' "$P31_NAMES" | grep -qF 'Client Cancel Rate' && printf '%s' "$P31_NAMES" | grep -qF 'Provider Abort Rate' && { echo "[PASS] $LABEL: p31 series carry human-readable display names"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p31 missing readable display names"; fail=$((fail+1)); }
+printf '%s' "$P31_NAMES" | grep -qF 'Client Cancel Rate' && printf '%s' "$P31_NAMES" | grep -qF 'Provider Abort Rate' && printf '%s' "$P31_NAMES" | grep -qF 'Completed Rate' && { echo "[PASS] $LABEL: p31 series carry human-readable display names"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p31 missing readable display names"; fail=$((fail+1)); }
 
-# Grouping (FR-10.6): speeds first, then reliability/waste/proxy
-assert_eq "$LABEL: panels grouped top-to-bottom" "30 44 31 36 45" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+# Grouping (FR-10.6): speeds, then reliability/responsiveness, waste/cost
+assert_eq "$LABEL: panels grouped top-to-bottom" "30 44 31 48 36 45" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
 
 # Row-keyed bargauges show one gauge per row; bars compare from zero
 assert_eq "$LABEL: bargauge panels use all-values reduce" "2/2" "$(jq -r '[.panels[]|select(.type=="bargauge")]|"\([.[]|select(.options.reduceOptions.values==true)]|length)/\(length)"' "$F")"

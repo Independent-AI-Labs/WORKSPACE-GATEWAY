@@ -103,9 +103,12 @@ One logic per quantity type, identical in every panel (operator ruling
 - **Graphs, bargauges, axes and tables (rendered values)** = set the Grafana
   `unit` and let Grafana abbreviate: `short` for large counts (K / Mil / Bil),
   the domain unit otherwise (`bytes`, `s`, `ms`, `Bps`, `percent`, ...). The
-  `short` unit is allowed here (e.g. p8 treemap tile token sizes and p46
-  provider legend values) precisely because these are not exact-value stat
-  tiles.
+   `short` unit is allowed here (e.g. p8 treemap tile token sizes and p46
+   provider legend values) precisely because these are not exact-value stat
+   tiles. Where the abbreviation must carry a unit word, use the
+   `count:<suffix>` compound unit (e.g. `count:tok/s`): Grafana scales
+   K/M/B/T uppercase and appends the suffix, so `77788.86` renders
+   `77.79K tok/s`.
 - **Precision**: measured rates, costs, speeds and scores display 2 decimals
   (display `decimals: 2` + SQL `round(x, 2)`); raw counts stay integers.
 - **Stat panels with string fields** must use `textMode: value_and_name`

@@ -181,15 +181,15 @@ PF_UID=$(jq -r '.uid' "$PERFORMANCE_FILE")
 assert_eq "Model Performance uid" "gateway-model-performance" "$PF_UID"
 
 PF_PANELS=$(jq '.panels | length' "$PERFORMANCE_FILE")
-assert_eq "Model Performance has 5 panels" "5" "$PF_PANELS"
+assert_eq "Model Performance has 6 panels" "6" "$PF_PANELS"
 
 PF_CH=$(jq '[.panels[] | select(.datasource.uid == "clickhouse")] | length' "$PERFORMANCE_FILE")
-assert_eq "Model Performance ClickHouse panels" "5" "$PF_CH"
+assert_eq "Model Performance ClickHouse panels" "6" "$PF_CH"
 
 # ── Total panel count across all 5 dashboards (30 + 2 storage growth) ──
 
 TOTAL_PANELS=$((CU_PANELS + OH_PANELS + LB_PANELS + EX_PANELS + PF_PANELS))
-assert_eq "Total panels across 5 dashboards" "32" "$TOTAL_PANELS"
+assert_eq "Total panels across 5 dashboards" "33" "$TOTAL_PANELS"
 
 # ── Currency consistency: p3's combined token·spend tiles abbreviate K/M/B ─
 #    money like the dashboard's Grafana currency; standalone money tiles
@@ -295,7 +295,7 @@ for df in "$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE" "$EXPERIENCE
     c=$(jq '[.panels[] | select(.datasource.uid == "clickhouse") | select([.targets[].rawSql? | select(. != null) | select(test("\\$\\{api_key:singlequote\\}"))] | length > 0)] | length' "$df")
     CH_APIKEY_TOTAL=$((CH_APIKEY_TOTAL + c))
 done
-assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "22" "$CH_APIKEY_TOTAL"
+assert_eq "ClickHouse panels with \${api_key:singlequote} (all 5 dashboards)" "23" "$CH_APIKEY_TOTAL"
 
 # ── p3 Token Usage stat: 5 tiles, one per category (in cost-usage) ────
 

@@ -119,7 +119,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "tok/s",
+          "unit": "count:tok/s",
           "color": {
             "mode": "fixed",
             "fixedColor": "#247ba0"
@@ -184,7 +184,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "tok/s",
+          "unit": "count:tok/s",
           "color": {
             "mode": "fixed",
             "fixedColor": "#247ba0"
@@ -209,8 +209,8 @@
     },
     {
       "id": 31,
-      "title": "Cancel / Provider-Abort Rate (streams)",
-      "description": "Stream outcomes over the selected range: cancels are streams you stopped (client abort), provider aborts are streams the vendor dropped. Gateway-era rows count each attempt; migrated rows count the final outcome of a generation.",
+      "title": "Stream Reliability (share of streams)",
+      "description": "Stream outcomes over the selected range as a share of streams from models with at least 100 requests: completed, cancels (streams you stopped) and provider aborts (streams the vendor dropped). The three shares sum to 100. Gateway-era rows count each attempt; migrated rows count the final outcome of a generation.",
       "type": "stat",
       "datasource": {
         "uid": "clickhouse",
@@ -219,7 +219,7 @@
       "gridPos": {
         "x": 0,
         "y": 10,
-        "w": 8,
+        "w": 12,
         "h": 10
       },
       "targets": [
@@ -253,6 +253,38 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Completed %"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Completed Rate"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#f25f5c",
+                      "value": null
+                    },
+                    {
+                      "color": "#ffe066",
+                      "value": 90
+                    },
+                    {
+                      "color": "#70c1b3",
+                      "value": 97
+                    }
+                  ]
+                }
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byRegexp",
@@ -293,6 +325,132 @@
       }
     },
     {
+      "id": 48,
+      "title": "Stream Responsiveness (TTFT)",
+      "description": "How quickly a model starts answering: median and 95th-percentile time to first visible content, plus the share of streams that start within 2 seconds. Streams with no recorded TTFT are excluded; models with under 100 requests are hidden.",
+      "type": "stat",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "refId": "A",
+          "format": "table",
+          "rawSql": "{{sql:grafana/queries/gateway-model-performance-p48-A.sql}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#70c1b3",
+                "value": null
+              },
+              {
+                "color": "#ffe066",
+                "value": 2000
+              },
+              {
+                "color": "#f25f5c",
+                "value": 5000
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "TTFT p50 (ms)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "TTFT p50"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "TTFT p95 (ms)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "TTFT p95"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Goodput <=2s (%)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Goodput (TTFT ≤2s)"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#f25f5c",
+                      "value": null
+                    },
+                    {
+                      "color": "#ffe066",
+                      "value": 50
+                    },
+                    {
+                      "color": "#70c1b3",
+                      "value": 80
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/./",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal"
+      }
+    },
+    {
       "id": 36,
       "title": "Wasted Tokens & Cost",
       "description": "Tokens that bought nothing: generated on streams that got aborted, plus the full output of any generation whose tool call was rejected (guard block, your manual rejection, or a rule denial) - attributed to the generation that made the rejected call, never counted twice. Shown absolute (B/M/K), as a share of all completion tokens, and the dollars spent on them.",
@@ -302,9 +460,9 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 8,
-        "y": 10,
-        "w": 8,
+        "x": 0,
+        "y": 20,
+        "w": 12,
         "h": 10
       },
       "targets": [
@@ -378,9 +536,9 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 16,
-        "y": 10,
-        "w": 8,
+        "x": 12,
+        "y": 20,
+        "w": 12,
         "h": 10
       },
       "targets": [

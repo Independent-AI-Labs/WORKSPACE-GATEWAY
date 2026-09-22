@@ -431,9 +431,10 @@ Split 2026-09-16 from the former monolithic `gateway-usefulness` dashboard:
 **Model Experience** (6 panels, ids 34/37/40/42/43/47, laid out top-to-bottom
 as score cards (p47), then Overall Score (p40) + session depth (p37), then
 friction rate (p42) on its own full-width row, then top rejection strings
-(p34) + top guard rules (p43); carries `include_local`) and **Model Performance** (5 panels, ids
-30/31/36/44/45 - prefill/decode speed p50, cancel/abort rates, wasted
-tokens & cost, cost + time per completed response). Renamed uid
+(p34) + top guard rules (p43); carries `include_local`) and **Model Performance** (6 panels, ids
+30/31/36/44/45/48 - prefill/decode speed p50, stream reliability
+(completed/cancel/abort) + TTFT responsiveness (p48), wasted tokens & cost,
+cost + time per completed response). Renamed uid
 `gateway-model-experience` / `gateway-model-performance`.
 
 Conventions: identical to SPEC-DASHBOARD §3 variables plus:
@@ -458,12 +459,12 @@ WITH gated AS (
 )
 ```
 
-### Panel-by-panel (ids 30-45)
+### Panel-by-panel (ids 30-48)
 
 | ID | Panel | Query core |
 |----|-------|-----------|
-| 30 | Prefill Speed by Model (bargauge, p50) | `medianExactIf(prompt_tokens / nullIf(ttft_content_ms,0) * 1000, ttft_content_ms >= 100)` over `is_stream=1`, model IN gated; avg branch removed 2026-09-17 (p50 only), full fleet coverage via migrated timing |
-| 31 | Cancel / Provider-abort rate (stat ×2) | `100 * countIf(aborted=1) / count()` over streams; same for `aborted=2` |
+| 30 | Prefill Speed by Model (bargauge, p50) | `medianExactIf(prompt_tokens / nullIf(ttft_content_ms,0) * 1000, ttft_content_ms >= 100)` over `is_stream=1`, model IN gated; avg branch removed 2026-09-17 (p50 only), full fleet coverage via migrated timing; rendered with the `count:tok/s` unit so `77788.86` reads `77.79K tok/s` |
+| 31 | Stream Reliability (stat ×3) | three shares of streams from gated models, all over the `is_stream=1` cohort: completed `100 * countIf(aborted=0 AND is_stream=1) / countIf(is_stream=1)`, cancels `aborted=1`, provider aborts `aborted=2`; the three sum to 100 (the completed count excludes non-stream rows, which would otherwise inflate the share) |
 | 32 | (removed 2026-09-17) | Rejection-rate stat + `rejection_mode` toggle deleted by operator order: the metric was `signal_count`/`signal_weight` lexicon coverage (vader-negative + frustration + profanity hits on follow-up messages, 37.39% window rate) presented as "User Rejection Rate" while explicit `user_rejections` events measure 1.21% on the same window; explicit rejections remain in the p47 card hover (`rej`) and p42 |
 | 33 | (removed 2026-09-17) | Baseline-vs-reactive + signed-net chart deleted: the baseline-differencing interpretation it visualized was retired with the absolute-rate rejection metric (§6.1); the p47 card hover (`rej`) is the decomposition now |
 | 34 | Top rejection terms (table) | merged profane + frustration table, `arrayJoin(profane_terms) AS term, count()` … `ORDER BY count DESC LIMIT 15`, censored |
@@ -477,8 +478,9 @@ WITH gated AS (
 | 42 | **Friction rate** (stacked timeseries) | per model per day (`toStartOfDay`): `100 × (guard_blocks + user_rejections + rule_denials) / count()`, split by class (three series), volume-weighted within the day so quiet hours do not inflate the rate, `HAVING count() >= 5`, description notes lower-bound + quoting caveats; the three refIds carry `byFrameRefID` `displayName` overrides (Guard blocks / User rejections / Rule denials) so neither legend nor tooltip leaks the raw `A`/`B`/`C` prefixes |
 | 43 | **Top guard rules** (table/bar) | `arrayJoin(guard_rules) AS rule, count()` … `ORDER BY count DESC LIMIT 15` |
 | 47 | **Score cards** (Business Text panel `marcusolsson-dynamictext-panel`, preinstalled via `GF_PLUGINS_PREINSTALL`) | same score-family CTE as p40/p41, single query with card-friendly aliases (`model, verdict, score, pai, reqs, rej, sw, canc, ab, fric`  -  rates pre-formatted as `x% (idx y)` strings in SQL); `renderMode: allRows` + `{{#each data}}` Handlebars template emits one flat card per model: 32px verdict-colored score headline (good `#70c1b3` / mixed `#ffe066` / poor `#f25f5c`), 18px model name, `PAI x · N requests`, plain 1px card border (no per-verdict colored accent); hovering flips the card  -  a CSS-only overlay (`.gw-card:hover .gw-pop`, `display:none` until hover, absolutely positioned `inset 0` over the card) replaces the card face with the full decomposition table, so nothing floats into the grid or clips at the panel edge; card CSS lives in the panel `styles` option **nested under `& {}`** (the option is compiled through an Emotion `css` template  -  stylis scopes nested selectors to the panel and rules compile via CSSOM, so they never appear in `textContent` of `style` tags); the card border/background use their `rgba(128,128,128,0.35)`/transparent fallbacks and the hover overlay's dark `#161616` gets a white-theme variant via `body.theme-light & .gw-pop { background: #ffffff; }`, because Grafana exposes no theme CSS variables (the `--grafana-*` tokens never resolve, so the fallbacks always apply); above the cards sits a full-width how-to-read intro card (`.gw-intro`) explaining Overall = 100 * sqrt(PAI * Reliability), what PAI and Reliability cover, the 70/40 verdict bands, the 30-request gate and "hover for the per-factor breakdown"; the hover table labels each factor in plain words (`PAI (adherence)`, `Your rejections`, `Switched away`, `Your cancels`, `Provider aborts`, `Friction /100`) with the formula repeated in the header and an `Index 1 = best` footer, and the card is sized (min-height 205px) so the full breakdown fits without clipping; template HTML passes Grafana's DOMPurify sanitizer, `disable_sanitize_html` stays false; honours `include_local`; one score-family query (half the node-graph trial's cost); gridPos h=18 (intro + two 205px card rows) |
-| 44 | Decode Speed by Model (bargauge, p50) | `medianExactIf(completion_tokens / nullIf(duration_ms − ttft_content_ms, 0) * 1000, duration_ms − ttft_content_ms >= 100)`, p50 only since 2026-09-17 |
+| 44 | Decode Speed by Model (bargauge, p50) | `medianExactIf(completion_tokens / nullIf(duration_ms − ttft_content_ms, 0) * 1000, duration_ms − ttft_content_ms >= 100)`, p50 only since 2026-09-17; rendered with the `count:tok/s` unit so the rate is abbreviated like the graphs |
 | 45 | Cost & Time per Completed Response (stat, avg) | `sumIf(cost, aborted=0) / countIf(aborted=0)`, `avgIf(duration_ms, aborted=0 AND duration_ms > 0) / 1000`, completed count (compact B/M/K); explicitly labeled averages (budget math needs means; p50 lives on the speed panels) |
+| 48 | Stream Responsiveness (stat ×3) | over `is_stream=1 AND ttft_content_ms > 0`, model IN gated: `round(quantile(0.5)(ttft_content_ms))` and `round(quantile(0.95)(ttft_content_ms))` (ms) plus goodput `round(countIf(ttft_content_ms <= 2000) * 100.0 / count(), 1)` (%); streams with no recorded TTFT are excluded so the goodput share is honest |
 
 All queries filter `${api_key:singlequote}` where key-scoped and
 `${model:singlequote}` where model-scoped, per REQ-DASHBOARD FR-3.4. New
@@ -547,6 +549,7 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | Scorecard table p41 removed (operator order 2026-09-19) | Implemented | the p47 score cards replace the table outright; cards move full-width under the headline pair (40/37 → 47 → 34/42/43), session depth (p37) moves up beside the bargauge; 6 panels / 6 CH / 30 total / 22 api_key assertions updated; tests 68/75 renormalized (p41 blocks deleted) |
 | Score cards to top (operator order 2026-09-21) | Implemented | p47 moved to the very top, full-width and alone above the score / session-depth pair (layout: 47 → 40/37 → 34/42/43) so it leads the dashboard; card width 232px → 244px (~5% wider); panel-order/grouping test updated |
 | Friction row + readable score cards (operator order 2026-09-22) | Implemented | p42 friction rate moved to its own full-width row between the score/session-depth pair and the detail tables (layout: 47 → 40/37 → 42 → 34/43; p34/p43 widened 8 → 12 columns); p47 gains a how-to-read intro card defining Overall, PAI and Reliability, the verdict bands and the request gate; the hover popover labels are spelled out (PAI (adherence), Your rejections, Switched away, Your cancels, Provider aborts, Friction /100) with the formula in the header and an index footer, and cards grow to 205px (h=18) so the full popover fits unclipped; hover overlay gets a white-theme background via `body.theme-light & .gw-pop` since the `--grafana-*` tokens never resolve; p42's friction legend/tooltip gets `byFrameRefID` display names so the raw `A`/`B`/`C` refIds no longer show; panel-order/grouping, intro, hover-theme and legend-name assertions added; intro reworded as a short scannable definition list and the per-verdict colored borders (card top accents, intro left accent) removed for the plain-border aesthetic; p42 buckets switched from hourly to daily (`toStartOfDay`, volume-weighted) so sparse hours no longer pin the axis; daily-bucket and no-colored-border assertions added |
+| Stream reliability + TTFT (operator order 2026-09-22) | Implemented | p31 renamed "Stream Reliability" and gains a completed share (`aborted=0 AND is_stream=1` over the `is_stream=1` cohort) so the three outcomes read as one 100% split; new p48 "Stream Responsiveness (TTFT)" stat added (TTFT p50/p95 + goodput within 2s); p30/p44 token speeds now use the `count:tok/s` unit so `77788.86` renders `77.79K tok/s`; layout 30/44 → 31/48 → 36/45; panel-count assertions 5→6 (total 32→33, api_key 22→23) |
 
 ## 11. References (research grounding, 2026-09-16)
 

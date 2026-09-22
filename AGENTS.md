@@ -17,7 +17,8 @@ reads identically wherever it appears.
 - **Graphs, bargauges, axes and tables (rendered values).** Set the Grafana
   `unit` field and let Grafana abbreviate: `short` for large counts
   (K / Mil / Bil), the domain unit otherwise (`bytes`, `s`, `ms`, `Bps`,
-  `percent`, ...).
+  `percent`, ...). Token rates keep their unit word via the compound
+  `count:<suffix>` form (`count:tok/s` reads `77.79K tok/s`).
 - Round measured values to 2 decimals (`decimals: 2`); raw integer counts stay
   integers.
 
