@@ -114,6 +114,10 @@ assert_eq "$LABEL: p47 single target (no duplicated score-family query)" "1" "$(
 printf '%s' "$P47_CONTENT" | grep -qF '{{#each data}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{score}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{model}}' && printf '%s' "$P47_CONTENT" | grep -qF "gw-{{verdict}}" && { echo "[PASS] $LABEL: p47 cards iterate models with verdict-colored markup"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 card markup missing"; fail=$((fail+1)); }
 printf '%s' "$P47_CONTENT" | grep -qF '{{rej}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{sw}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{canc}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{ab}}' && printf '%s' "$P47_CONTENT" | grep -qF '{{fric}}' && { echo "[PASS] $LABEL: p47 hover popover carries the full decomposition"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 popover fields missing"; fail=$((fail+1)); }
 printf '%s' "$P47_STYLES" | grep -qF '.gw-card:hover .gw-pop' && printf '%s' "$P47_STYLES" | grep -qF '.gw-pop { display: none' && { echo "[PASS] $LABEL: p47 popover is CSS-only (hidden until hover)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 hover CSS missing"; fail=$((fail+1)); }
+printf '%s' "$P47_STYLES" | grep -qF 'body.theme-light & .gw-pop' && { echo "[PASS] $LABEL: p47 hover popover has a white-theme background"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 hover popover lacks a white-theme override"; fail=$((fail+1)); }
+printf '%s' "$P47_CONTENT" | grep -qF 'gw-intro' && printf '%s' "$P47_CONTENT" | grep -qF 'How to read this dashboard' && printf '%s' "$P47_CONTENT" | grep -qF 'Prompt Adherence Index' && { echo "[PASS] $LABEL: p47 leads with a how-to-read explanation card"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 explanation card missing"; fail=$((fail+1)); }
+printf '%s' "$P47_CONTENT" | grep -qF 'PAI (adherence)' && printf '%s' "$P47_CONTENT" | grep -qF 'Overall = 100 * sqrt(PAI * Reliability)' && printf '%s' "$P47_CONTENT" | grep -qF 'Index 1 = best' && { echo "[PASS] $LABEL: p47 hover popover labels and formula are self-explanatory"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 popover labels/formula missing"; fail=$((fail+1)); }
+! printf '%s' "$P47_STYLES" | grep -qE 'border-(top|left): 3px' && { echo "[PASS] $LABEL: p47 uses plain borders (no per-verdict colored accents)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 still has colored border accents"; fail=$((fail+1)); }
 P47_SQL=$(jq -r '[.panels[]|select(.id==47)][0].targets[0].rawSql' "$F")
 printf '%s' "$P47_SQL" | grep -qF 'model_registry' && printf '%s' "$P47_SQL" | grep -qF "'\${include_local}'" && printf '%s' "$P47_SQL" | grep -q 'reqs >= 30' && { echo "[PASS] $LABEL: p47 honours include_local + >=30 gate"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 missing gates"; fail=$((fail+1)); }
 
@@ -121,17 +125,31 @@ printf '%s' "$P47_SQL" | grep -qF 'model_registry' && printf '%s' "$P47_SQL" | g
 P42_SQL=$(jq -r '[.panels[]|select(.id==42)][0].targets[].rawSql' "$F")
 printf '%s' "$P42_SQL" | grep -q 'sum(guard_blocks)' && printf '%s' "$P42_SQL" | grep -q 'sum(user_rejections)' && printf '%s' "$P42_SQL" | grep -q 'sum(rule_denials)' && { echo "[PASS] $LABEL: p42 charts all three friction classes"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p42 missing a friction class"; fail=$((fail+1)); }
 printf '%s' "$P42_SQL" | grep -q 'HAVING count() >= 5' && { echo "[PASS] $LABEL: p42 suppresses sparse buckets (<5)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p42 missing sparse-bucket HAVING"; fail=$((fail+1)); }
+printf '%s' "$P42_SQL" | grep -q 'toStartOfDay' && ! printf '%s' "$P42_SQL" | grep -q 'toStartOfHour' && { echo "[PASS] $LABEL: p42 uses daily volume-weighted buckets"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p42 still buckets hourly"; fail=$((fail+1)); }
 P42_STACK=$(jq -r '[.panels[]|select(.id==42)][0].fieldConfig.defaults.custom.stacking' "$F")
 assert_eq "$LABEL: p42 stacks the three classes" "normal" "$P42_STACK"
 P42_DESC=$(jq -r '[.panels[]|select(.id==42)][0].description' "$F")
 printf '%s' "$P42_DESC" | grep -qi 'lower bound' && { echo "[PASS] $LABEL: p42 documents the lower-bound caveat"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p42 missing lower-bound caveat"; fail=$((fail+1)); }
+P42_NAMES=$(jq -r '[.panels[]|select(.id==42)][0].fieldConfig.overrides[].properties[]|select(.id=="displayName")|.value' "$F" | sort | tr '\n' ',')
+assert_eq "$LABEL: p42 legend shows friendly class names (no A/B/C refIds)" "Guard blocks,Rule denials,User rejections," "$P42_NAMES"
 
 # Top guard rules (FR-8.5): arrayJoin over stored rule ids
 P43_SQL=$(jq -r '[.panels[]|select(.id==43)][0].targets[0].rawSql' "$F")
 printf '%s' "$P43_SQL" | grep -q 'arrayJoin(guard_rules)' && { echo "[PASS] $LABEL: p43 ranks guard_rules via arrayJoin"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p43 missing arrayJoin(guard_rules)"; fail=$((fail+1)); }
 
-# Grouping (FR-10.6): score cards first, then verdict -> session depth -> detail/friction
-assert_eq "$LABEL: panels grouped top-to-bottom" "47 40 37 34 42 43" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+# Grouping (FR-10.6): score cards first, then verdict -> session depth,
+# then friction-rate on its own full-width row, then the detail tables
+assert_eq "$LABEL: panels grouped top-to-bottom" "47 40 37 42 34 43" "$(jq -r '[.panels[].id] | map(tostring) | join(" ")' "$F")"
+P42_GRID=$(jq -r '[.panels[]|select(.id==42)][0].gridPos | "\(.x),\(.w),\(.y)"' "$F")
+P34_Y=$(jq -r '[.panels[]|select(.id==34)][0].gridPos.y' "$F")
+P37_Y=$(jq -r '[.panels[]|select(.id==37)][0].gridPos.y' "$F")
+P42_Y=$(jq -r '[.panels[]|select(.id==42)][0].gridPos.y' "$F")
+assert_eq "$LABEL: p42 friction rate owns a full-width row" "0,24,28" "$P42_GRID"
+if [ "$P37_Y" -lt "$P42_Y" ] && [ "$P34_Y" -gt "$P42_Y" ]; then
+    echo "[PASS] $LABEL: friction row sits between session depth and the detail tables"; pass=$((pass+1))
+else
+    echo "[FAIL] $LABEL: friction row is not between session depth (y=$P37_Y) and detail tables (y=$P34_Y)"; fail=$((fail+1))
+fi
 
 # Local-model toggle reaches both score panels (p40 + p47)
 printf '%s' "$P40_SQL" | grep -qF 'model_registry' && printf '%s' "$P40_SQL" | grep -qF "'\${include_local}'" && { echo "[PASS] $LABEL: p40 honours include_local via model_registry"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing include_local predicate"; fail=$((fail+1)); }

@@ -118,7 +118,7 @@
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 12
+        "h": 18
       },
       "targets": [
         {
@@ -133,7 +133,7 @@
         "overrides": []
       },
       "options": {
-        "content": "<div class='gw-cards'>\n{{#each data}}\n<div class='gw-card gw-{{verdict}}'>\n<div class='gw-score'>{{score}}</div>\n<div class='gw-name'>{{model}}</div>\n<div class='gw-sub'>PAI {{pai}} &middot; {{reqs}} requests</div>\n<div class='gw-pop'>\n<div class='gw-pop-h'>{{model}}</div>\n<table class='gw-pop-t'>\n<tr><td>Rejections</td><td>{{rej}}</td></tr>\n<tr><td>Switches</td><td>{{sw}}</td></tr>\n<tr><td>Cancels</td><td>{{canc}}</td></tr>\n<tr><td>Aborts</td><td>{{ab}}</td></tr>\n<tr><td>PAI</td><td>{{pai}}</td></tr>\n<tr><td>Friction /100</td><td>{{fric}}</td></tr>\n</table>\n</div>\n</div>\n{{/each}}\n</div>",
+        "content": "<div class='gw-intro'>\n<div class='gw-intro-h'>How to read this dashboard</div>\n<div class='gw-intro-b'>Each card is one model. Overall is a 0-100 score built from your own reactions, and only models with 30+ requests are scored.<ul class='gw-intro-l'><li><b>PAI (Prompt Adherence Index)</b>: your follow-up rejections, sessions you abandoned, and cancels.</li><li><b>Reliability</b>: provider aborts.</li></ul>Overall = 100 * sqrt(PAI * Reliability), so a weak factor cannot be hidden by a strong one. Bands: 70+ good, 40-69 mixed, below 40 poor. <b>Hover a card</b> for the full breakdown; the panels below cover session depth, friction, and the exact rejection and guard reasons. This is a behavioural heuristic, not a benchmark.</div>\n</div>\n<div class='gw-cards'>\n{{#each data}}\n<div class='gw-card gw-{{verdict}}'>\n<div class='gw-score'>{{score}}</div>\n<div class='gw-name'>{{model}}</div>\n<div class='gw-sub'>PAI {{pai}} &middot; {{reqs}} requests</div>\n<div class='gw-pop'>\n<div class='gw-pop-h'>{{model}} &middot; Overall {{score}}</div>\n<div class='gw-pop-sub'>Overall = 100 * sqrt(PAI * Reliability)</div>\n<table class='gw-pop-t'>\n<tr><td>PAI (adherence)</td><td>{{pai}}</td></tr>\n<tr><td>Your rejections</td><td>{{rej}}</td></tr>\n<tr><td>Switched away</td><td>{{sw}}</td></tr>\n<tr><td>Your cancels</td><td>{{canc}}</td></tr>\n<tr><td>Provider aborts</td><td>{{ab}}</td></tr>\n<tr><td>Friction /100</td><td>{{fric}}</td></tr>\n</table>\n<div class='gw-pop-foot'>Index 1 = best; friction is context.</div>\n</div>\n</div>\n{{/each}}\n</div>",
         "defaultContent": "No models with at least 30 requests in the selected range.",
         "renderMode": "allRows",
         "wrap": true,
@@ -145,7 +145,7 @@
           "styles"
         ],
         "helpers": "",
-        "styles": "& {\n.gw-cards { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px; }\n.gw-card { position: relative; width: 244px; min-height: 150px; padding: 16px 18px 14px; border: 1px solid var(--grafana-border-color-weak, rgba(128, 128, 128, 0.35)); border-radius: 8px; background: var(--grafana-background-secondary, transparent); }\n.gw-good { border-top: 3px solid #70c1b3; }\n.gw-mixed { border-top: 3px solid #ffe066; }\n.gw-poor { border-top: 3px solid #f25f5c; }\n.gw-score { font-size: 32px; font-weight: 600; line-height: 1.1; letter-spacing: -0.5px; }\n.gw-good .gw-score { color: #70c1b3; }\n.gw-mixed .gw-score { color: #ffe066; }\n.gw-poor .gw-score { color: #f25f5c; }\n.gw-name { margin-top: 8px; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.gw-sub { margin-top: 2px; font-size: 12px; opacity: 0.65; }\n.gw-pop { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 10; padding: 10px 14px; border-radius: 7px; background: var(--grafana-background-primary, #161616); overflow: hidden; }\n.gw-card:hover .gw-pop { display: block; }\n.gw-pop-h { font-size: 12px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.gw-pop-t { width: 100%; border-collapse: collapse; }\n.gw-pop-t td { padding: 1px 0; font-size: 11px; line-height: 1.4; }\n.gw-pop-t td:first-child { opacity: 0.65; padding-right: 10px; white-space: nowrap; }\n.gw-pop-t td:last-child { text-align: right; }\n}",
+        "styles": "& {\n.gw-intro { width: 100%; margin-bottom: 12px; padding: 12px 16px; border: 1px solid var(--grafana-border-color-weak, rgba(128, 128, 128, 0.35)); border-radius: 8px; }\n.gw-intro-h { font-size: 14px; font-weight: 600; margin-bottom: 4px; }\n.gw-intro-b { font-size: 12px; line-height: 1.5; opacity: 0.85; }\n.gw-intro-l { margin: 6px 0; padding-left: 18px; }\n.gw-intro-l li { margin: 2px 0; }\n.gw-cards { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px; }\n.gw-card { position: relative; width: 244px; min-height: 205px; padding: 16px 18px 14px; border: 1px solid var(--grafana-border-color-weak, rgba(128, 128, 128, 0.35)); border-radius: 8px; background: var(--grafana-background-secondary, transparent); }\n.gw-score { font-size: 32px; font-weight: 600; line-height: 1.1; letter-spacing: -0.5px; }\n.gw-good .gw-score { color: #70c1b3; }\n.gw-mixed .gw-score { color: #ffe066; }\n.gw-poor .gw-score { color: #f25f5c; }\n.gw-name { margin-top: 8px; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.gw-sub { margin-top: 2px; font-size: 12px; opacity: 0.65; }\n.gw-pop { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 10; padding: 10px 14px; border-radius: 7px; background: var(--grafana-background-primary, #161616); overflow: hidden; }\nbody.theme-light & .gw-pop { background: #ffffff; }\n.gw-card:hover .gw-pop { display: block; }\n.gw-pop-h { font-size: 12px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.gw-pop-t { width: 100%; border-collapse: collapse; }\n.gw-pop-t td { padding: 1px 0; font-size: 11px; line-height: 1.4; }\n.gw-pop-t td:first-child { opacity: 0.65; padding-right: 10px; white-space: nowrap; }\n.gw-pop-t td:last-child { text-align: right; }\n.gw-pop-sub { font-size: 11px; opacity: 0.75; margin-bottom: 6px; }\n.gw-pop-foot { margin-top: 6px; font-size: 10px; line-height: 1.4; opacity: 0.65; }\n}",
         "status": "",
         "externalStyles": [],
         "afterRender": "",
@@ -163,7 +163,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 18,
         "w": 12,
         "h": 10
       },
@@ -225,7 +225,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 12,
+        "y": 18,
         "w": 12,
         "h": 10
       },
@@ -279,6 +279,106 @@
       }
     },
     {
+      "id": 42,
+      "title": "Friction Rate (per 100 requests, per day, stacked)",
+      "description": "How often tool actions hit friction, per 100 requests: guard-blocked commands, tool calls you rejected by hand, and calls denied by your own rules. Rates are daily and volume-weighted (a day's friction events divided by that day's requests), stacked by class so the stack top is your total friction per 100 requests and the bands show which kind dominates. Days with under 5 requests are hidden. These counts are a lower bound: a rejection can end a turn without producing another logged request.",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "clickhouse",
+        "type": "grafana-clickhouse-datasource"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "queryType": "timeseries",
+          "refId": "A",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfDay(timestamp) AS time, round(100 * sum(guard_blocks) / count(), 3) AS \"guard blocks\" FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "B",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfDay(timestamp) AS time, round(100 * sum(user_rejections) / count(), 3) AS \"user rejections\" FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
+        },
+        {
+          "queryType": "timeseries",
+          "refId": "C",
+          "format": "timeseries",
+          "timeColumn": "time",
+          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfDay(timestamp) AS time, round(100 * sum(rule_denials) / count(), 3) AS \"rule denials\" FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never",
+            "stacking": "normal",
+            "fillOpacity": 30
+          },
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Guard blocks"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "User rejections"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Rule denials"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
       "id": 34,
       "title": "Top User Rejection Strings (censored)",
       "description": "The exact words that fired rejection detection, ranked by how often they occurred. Profanity is censored to first/last letter; frustration phrases are shown as written. Every occurrence counts, so one ranting session can dominate a term.",
@@ -289,8 +389,8 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 22,
-        "w": 8,
+        "y": 37,
+        "w": 12,
         "h": 9
       },
       "targets": [
@@ -310,69 +410,6 @@
       }
     },
     {
-      "id": 42,
-      "title": "Friction Rate (per 100 requests, stacked)",
-      "description": "How often tool actions hit friction, per 100 requests: guard-blocked commands, tool calls you rejected by hand, and calls denied by your own rules. Stacked by class so you can see which kind dominates. Buckets with under 5 requests are hidden. These counts are a lower bound: a rejection can end a turn without producing another logged request.",
-      "type": "timeseries",
-      "datasource": {
-        "uid": "clickhouse",
-        "type": "grafana-clickhouse-datasource"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 22,
-        "w": 8,
-        "h": 9
-      },
-      "targets": [
-        {
-          "queryType": "timeseries",
-          "refId": "A",
-          "format": "timeseries",
-          "timeColumn": "time",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, round(100 * sum(guard_blocks) / count(), 3) AS \"guard blocks\" FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
-        },
-        {
-          "queryType": "timeseries",
-          "refId": "B",
-          "format": "timeseries",
-          "timeColumn": "time",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, round(100 * sum(user_rejections) / count(), 3) AS \"user rejections\" FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
-        },
-        {
-          "queryType": "timeseries",
-          "refId": "C",
-          "format": "timeseries",
-          "timeColumn": "time",
-          "rawSql": "WITH gated AS (SELECT model FROM llm_gateway.usage_log WHERE $__timeFilter(timestamp) AND model != '' GROUP BY model HAVING count() >= 100) SELECT toStartOfHour(timestamp) AS time, round(100 * sum(rule_denials) / count(), 3) AS \"rule denials\" FROM llm_gateway.request_signals WHERE $__timeFilter(timestamp) AND model IN (${model:singlequote}) AND model IN (SELECT model FROM gated) GROUP BY time HAVING count() >= 5 ORDER BY time"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "custom": {
-            "lineInterpolation": "smooth",
-            "showPoints": "never",
-            "stacking": "normal",
-            "fillOpacity": 30
-          },
-          "decimals": 2
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      }
-    },
-    {
       "id": 43,
       "title": "Top Guard Rules (ranked by blocked occurrences)",
       "description": "Which shell-guard rules fire most often, extracted from BLOCKED markers in stored conversations. If a rule you actually need keeps appearing here, consider narrowing it. Models with under 100 responses are excluded.",
@@ -382,9 +419,9 @@
         "type": "grafana-clickhouse-datasource"
       },
       "gridPos": {
-        "x": 16,
-        "y": 22,
-        "w": 8,
+        "x": 12,
+        "y": 37,
+        "w": 12,
         "h": 9
       },
       "targets": [
