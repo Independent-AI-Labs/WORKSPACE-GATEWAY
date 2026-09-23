@@ -5,13 +5,16 @@
 Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
 **spend limits**, and **PII redaction**.
 
-Cloud backends run through `ai-proxy` or relay routes (OpenAI, Anthropic,
-Gemini, Bedrock, and others), with usage, cost, and health tracked in
-ClickHouse and Grafana. This repo ships sample routes to OpenCode and
+Cloud backends are reached through provider-passthrough relay routes
+(`proxy-rewrite` plus the custom `sse-usage` telemetry layer), with usage, cost,
+and health tracked in ClickHouse and Grafana. APISIX's native `ai-proxy`
+normalization is deliberately **not** adopted (see
+[`SPEC-AI-PROXY`](docs/specifications/SPEC-AI-PROXY.md)). This repo ships sample
+routes to OpenCode, Moonshot Kimi, Z.ai, Alibaba Token Plan, and a local
 llamafile, and the default deployment sends cloud traffic to OpenCode Go
-(`opencode.ai`). The gateway is provider-agnostic: add a relay route or switch
-to single-target `ai-proxy` for any OpenAI-compatible backend (see
-[Supported Providers](#supported-providers)).
+(`opencode.ai`). The gateway is provider-agnostic: a new provider is a relay
+route plus an upstream node, for OpenAI-compatible or provider-native backends
+(see [Supported Providers](#supported-providers)).
 
 > Full technical reference: [`docs/architecture/README.md`](docs/architecture/README.md)
 
@@ -108,9 +111,9 @@ Deeper flows are diagrammed in the section that owns each concern:
 [Plugins](#plugins) (request path), [Configuration](#configuration)
 (telemetry, metrics, route config), [Key Management](#key-management) (auth).
 
-Each new provider is a relay route + upstream node (or single-target
-`ai-proxy`; see [`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md)
-and [Supported Providers](#supported-providers)).
+Each new provider is a relay route plus an upstream node; see
+[`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md) and
+[Supported Providers](#supported-providers).
 
 ### Sample deployments in this repo
 
@@ -127,6 +130,9 @@ and [Supported Providers](#supported-providers)).
 | `relay-alibaba-token-plan-cn` | `/token-plan-cn/*` | Direct key passthrough | Alibaba Cloud Token Plan China (`token-plan.cn-beijing.maas.aliyuncs.com`) |
 | `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile on port 8765 (`host.docker.internal:8765`) |
 
+Representative samples; the complete route table (18 routes, including
+`/openai/*` and `/anthropic/*`) is [`conf/apisix.yaml`](conf/apisix.yaml).
+
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
 (`*-free` + pay-as-you-go) via the `/opencode_zen/*` relay. Swap the
@@ -141,24 +147,28 @@ for the Z.ai GLM spec.
 
 ## Supported Providers
 
-APISIX's built-in `ai-proxy` plugin supports the following LLM provider
-backends. Swap the plain upstream proxy in `conf/apisix.yaml` for
-single-target `ai-proxy`. Each route binds to one explicit upstream;
-upstream API-key quota exhaustion is handled by upstream key pools (see
-[Key Management](#key-management)).
+Providers are integrated as **passthrough relay routes**: APISIX rewrites the
+path, injects provider credentials, and forwards the provider-native payload,
+while the custom `sse-usage` layer extracts token usage for ClickHouse.
+APISIX's built-in `ai-proxy` is deliberately **not** adopted; see
+[`SPEC-AI-PROXY`](docs/specifications/SPEC-AI-PROXY.md).
 
-| Provider | Value | Default Endpoint | Since |
-|----------|-------|------------------|-------|
-| OpenAI | `openai` | `api.openai.com/chat/completions` | 3.0 |
-| DeepSeek | `deepseek` | `api.deepseek.com/chat/completions` | 3.0 |
-| Azure OpenAI | `azure-openai` | custom (via `override.endpoint`) | 3.0 |
-| AIMLAPI | `aimlapi` | `api.aimlapi.com/v1/chat/completions` | 3.14 |
-| Anthropic | `anthropic` | `api.anthropic.com/v1/chat/completions` | 3.15 |
-| OpenRouter | `openrouter` | `openrouter.ai/api/v1/chat/completions` | 3.15 |
-| Google Gemini | `gemini` | `generativelanguage.googleapis.com/v1beta/openai` | 3.15 |
-| Google Vertex AI | `vertex-ai` | `aiplatform.googleapis.com` (needs `project_id` + `region`) | 3.15 |
-| AWS Bedrock | `bedrock` | `bedrock-runtime.{region}.amazonaws.com` (SigV4 signed) | 3.17 |
-| Any OpenAI-compatible | `openai-compatible` | custom (via `override.endpoint`) | 3.0 |
+| Provider | Routes | Auth | Spec |
+|----------|--------|------|------|
+| OpenCode Go | `/opencode/*`, `/opencode_federated/*` | direct key, virtual keys (`vgw-*`) | [`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md) |
+| OpenCode Zen | `/opencode_zen/*` | direct key | [`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md) |
+| OpenAI (ChatGPT device OAuth) | `/openai/*` | `provider-oauth` device authorization | [`SPEC-PROVIDER-OPENAI`](docs/specifications/SPEC-PROVIDER-OPENAI.md) |
+| Moonshot Kimi | `/kimi/*`, `/kimi-federated/*`, `/kimi-key/*` (+ `/v1` variants) | `provider-oauth`, virtual keys (`vgw-*`), direct key | [`SPEC-PROVIDER-KIMI`](docs/specifications/SPEC-PROVIDER-KIMI.md) |
+| Anthropic | `/anthropic/*` | passthrough, custodial device facade | [`SPEC-PROVIDER-ANTHROPIC`](docs/specifications/SPEC-PROVIDER-ANTHROPIC.md) |
+| Z.ai GLM Coding Plan | `/zai-key/*` (+ `/v1`) | direct key | [`SPEC-PROVIDER-ZAI`](docs/specifications/SPEC-PROVIDER-ZAI.md) |
+| Alibaba Cloud Token Plan | `/token-plan/*`, `/token-plan-cn/*` | direct key | [`SPEC-PROVIDER-ALIBABA-TOKEN-PLAN`](docs/specifications/SPEC-PROVIDER-ALIBABA-TOKEN-PLAN.md) |
+| llamafile (local) | `/llamafile/*` | none |  -  |
+| xAI Grok | draft, not implemented |  -  | [`SPEC-PROVIDER-XAI`](docs/specifications/SPEC-PROVIDER-XAI.md) |
+
+Provider definitions live in [`conf/providers/`](conf/providers/); the full
+route table (18 routes) is [`conf/apisix.yaml`](conf/apisix.yaml). Upstream
+API-key quota exhaustion is handled by upstream key pools (see
+[Key Management](#key-management)).
 
 ---
 
