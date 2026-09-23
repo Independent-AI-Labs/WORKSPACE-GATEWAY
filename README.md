@@ -105,8 +105,7 @@ Deeper flows are diagrammed in the section that owns each concern:
 
 Each new provider is a relay route + upstream node (or single-target
 `ai-proxy`; see [`docs/specifications/SPEC-ENTERPRISE-AUTH.md`](docs/specifications/SPEC-ENTERPRISE-AUTH.md)
-and [Supported Providers](#supported-providers)). Diagram authoring rules:
-`WORKFLOW-CREATING-DIAGRAMS.md` (in WORKSPACE-CI's `workflows/`).
+and [Supported Providers](#supported-providers)).
 
 ### Sample deployments in this repo
 
@@ -185,27 +184,6 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 **Status:** WIP. Target: APISIX plugins on the federated request path that score
 assistant behavior and enforce moderation policy before or after upstream relay,
 alongside existing `redact` and `key-resolver` policy plugins.
-
-**POC benchmark (WORKSPACE-VM):** the
-[`llamafile transcript classifier`](../../benchmarks/llamafile/transcript_classifier/README.md)
-benchmark replays OpenCode SQLite sessions turn-by-turn against a local llamafile
-server. Each step sends a rolling 32K transcript window to a small classifier model
-and expects YAML-only scores across seven behavioral categories (instruction
-adherence, task understanding, sincerity, malicious intent, competence, safety
-boundaries, clarity). KV cache reuse via pinned `id_slot` and `cache_prompt` keeps
-incremental moderation affordable at gateway latency budgets.
-
-Run the POC from the WORKSPACE-VM repo root (llamafile server must be up):
-
-```bash
-make -f Makefile.llamafile benchmark-llamafile-transcript-classifier
-```
-
-Config and categories:
-[`benchmarks/llamafile/transcript_classifier/benchmark.yaml`](../../benchmarks/llamafile/transcript_classifier/benchmark.yaml).
-This repo already exposes llamafile via `relay-llamafile` (`/llamafile/*`); the WIP
-work wires the classifier/moderator call pattern into APISIX as first-class plugins
-with ClickHouse audit rows alongside `usage_log`.
 
 ---
 
@@ -719,7 +697,6 @@ is the consumer-side required-hooks manifest consumed by
 
 ## Documentation
 
-- **`WORKFLOW-CREATING-DIAGRAMS.md`** (in WORKSPACE-CI's `workflows/`): How we author and review architecture diagrams
 - **[`docs/README.md`](docs/README.md)** : Documentation hub: full tree and reading order
 - **[`docs/architecture/README.md`](docs/architecture/README.md)** : Architecture hub: components, plugins, data flows, schema
 - **[`docs/requirements/`](docs/requirements/)** : Functional/non-functional requirements (REQ-*, RFC 2119)
