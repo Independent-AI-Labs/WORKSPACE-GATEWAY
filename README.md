@@ -11,10 +11,8 @@ and health tracked in ClickHouse and Grafana. Passthrough is transparent: the
 provider's own request and response shapes pass through unmodified, so
 provider-native fields, streaming semantics, and error payloads survive the
 gateway, and every route carries its own credential handling, path rewrite,
-rate limit, and telemetry. The gateway is therefore provider-agnostic: a new
-provider is a relay route plus an upstream node, whether the backend is
-OpenAI-compatible or provider-native. This repo ships sample routes to OpenCode,
-Moonshot Kimi, Z.ai, Alibaba Token Plan, and a local llamafile, and the default
+rate limit, and telemetry. This repo ships sample routes to OpenCode, Moonshot
+Kimi, Z.ai, Alibaba Token Plan, and a local llamafile, and the default
 deployment sends cloud traffic to OpenCode Go (`opencode.ai`).
 
 ---
@@ -101,13 +99,11 @@ flowchart TB
     Gateway -.->|usage and request logs| Store
 ```
 
-The gateway is provider-agnostic: clients hit APISIX, which relays to cloud
-or local LLM APIs, resolves virtual keys via OpenBao, and persists usage data.
-Deeper flows are diagrammed in the section that owns each concern:
-[Plugins](#plugins) (request path), [Configuration](#configuration)
-(telemetry, metrics, route config), [Key Management](#key-management) (auth).
-
-Each new provider is a relay route plus an upstream node.
+Clients hit APISIX, which relays to cloud or local LLM APIs, resolves virtual
+keys via OpenBao, and persists usage data. Deeper flows are diagrammed in the
+section that owns each concern: [Plugins](#plugins) (request path),
+[Configuration](#configuration) (telemetry, metrics, route config),
+[Key Management](#key-management) (auth).
 
 ### Sample deployments in this repo
 
@@ -121,8 +117,7 @@ In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
 (`*-free` + pay-as-you-go) via the `/opencode_zen/*` relay. Swap the
 upstream node in `apisix.yaml.j2` to point at any other compatible API.
-Additional providers = new relay route + upstream node. Upstream API-key quota
-exhaustion is handled by upstream key pools (see
+Upstream API-key quota exhaustion is handled by upstream key pools (see
 [Key Management](#key-management)).
 
 ---
