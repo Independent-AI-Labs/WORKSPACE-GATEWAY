@@ -12,6 +12,21 @@ files:
   res/LOGO.svg:
     class: binary
     owner: workspace-ci
-  res/gateway-screenshot.jpg:
+  res/dashboard-cost-usage-token-breakdown.png:
+    class: binary
+    owner: workspace-ci
+  res/dashboard-cost-usage.png:
+    class: binary
+    owner: workspace-ci
+  res/dashboard-model-experience.png:
+    class: binary
+    owner: workspace-ci
+  res/dashboard-model-performance-speed.png:
+    class: binary
+    owner: workspace-ci
+  res/dashboard-model-performance-streams.png:
+    class: binary
+    owner: workspace-ci
+  res/dashboard-ops-health.png:
     class: binary
     owner: workspace-ci

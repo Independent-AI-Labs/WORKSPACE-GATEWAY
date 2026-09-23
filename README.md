@@ -1,6 +1,6 @@
 # Multi-tenant LLM Gateway on APISIX
 
-![Gateway routes screenshot](res/gateway-screenshot.jpg)
+![Gateway Cost & Usage dashboard: token usage by category and the per-model treemap](res/dashboard-cost-usage-token-breakdown.png)
 
 Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
 **spend limits**, **PII redaction**, and built-in **safety and moderation**
@@ -173,7 +173,7 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 | Request/response logging | `http-logger` to Vector to ClickHouse | Built-in |
 | Prometheus metrics | `prometheus` at `:9100` | Built-in |
 | SSE streaming support | `proxy-buffering` disabled per-route | Config |
-| Grafana dashboards (4) | Cost & Usage, Ops & Health, Cost Leaderboard, Usefulness: 90d lookback, 5s refresh | Config |
+| Grafana dashboards (5) | Cost & Usage, Ops & Health, Cost Leaderboard, Model Experience, Model Performance: 90d lookback, 5s refresh | Config |
 | Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL |
 
 ---
@@ -233,18 +233,25 @@ run after the upstream responds; see [ClickHouse Tables](#clickhouse-tables).
 `/opencode/*` skips `key-resolver`; `/llamafile/*` skips auth and targets a
 local upstream (see [sample deployments](#sample-deployments-in-this-repo)).
 
-Eight plugins on the passthrough and llamafile routes, nine on the federated
-route (federated adds `key-resolver`), ordered by Nginx phase priority:
+Nine plugins on a keyed passthrough route, ten on a federated route
+(federated adds `key-resolver`), and eight on the llamafile route; kimi
+routes add `oauth-auth` instead of `key-resolver`. Ordered by Nginx phase
+priority:
 
 - **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Strips route prefix; opencode relays → `/zen/go/*`, opencode zen relay → `/zen/*`, llamafile → upstream root
+- **`oauth-auth`** (2560, Custom Lua, `access`, kimi routes) : Upstream device/browser OAuth with transparent token refresh
 - **`key-resolver`** (2555, Custom Lua, `access`, federated only) : Resolve `vgw-*` keys via OpenBao; pass through others
 - **`key-meta`** (2530, Custom Lua, `access`) : Compute key hash for per-key scoping (`X-Key-Hash`)
 - **`redact`** (2500, Custom Lua, `access`/`header_filter`/`body_filter`/`log`) : PII anonymization + re-hydration
 - **`sse-usage`** (2400, Custom Lua, `header_filter`/`body_filter`/`log`) : Extract token usage; increment budget counter
 - **`limit-count`** (2002, Built-in, `access`) : Per-key RPM; federated route uses variable limits from OpenBao headers
+- **`request-id`** (N/A, Built-in, `rewrite`/`log`) : Add `X-Request-Id` and echo it in the response
 - **`http-logger`** (410, Built-in, `log`) : Send req/resp metadata to Vector
 - **`proxy-buffering`** (300, Built-in, `filter`) : Disable buffering for SSE
 - **`prometheus`** (N/A, Built-in, `log`) : Export metrics at `:9100`
+
+A `semantic-cache` plugin (2450, pgvector-backed response reuse) is in
+progress and not yet attached to any route.
 
 ### Extract-Testable-Core Pattern
 
@@ -334,13 +341,13 @@ on stack start. Admin API and built-in dashboard are reached via
 ### Key Files
 
 - `conf/config.yaml`: APISIX traditional/etcd mode: plugin list, shared dicts, env vars, Admin API, Prometheus port
-- `conf/apisix.yaml`: Committed route render (3 routes); drift-checked against `conf/apisix.yaml.j2`
+- `conf/apisix.yaml`: Committed route render (18 routes); drift-checked against `conf/apisix.yaml.j2`
 - `conf/apisix.yaml.j2`: Jinja2 route template rendered at deploy from `.env`
 - `res/scripts/seed-routes.sh`: Seeds etcd from rendered `apisix.yaml` on stack start
 - `conf/openbao.hcl`: OpenBao production config (file-storage backend)
 - `conf/prometheus.yml`: Prometheus scrape config (APISIX `:9100`)
 - `conf/profanity/`: vendored rejection-language dictionaries (refresh: `make gw-update-dictionaries`)
-- `conf/grafana/`: Grafana datasources + 4 provisioned dashboards
+- `conf/grafana/`: Grafana datasources + 5 provisioned dashboards
 - `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
 - `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff` (`docs/specifications/SPEC-SQL-STRUCTURE.md`)
 - `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink
@@ -429,13 +436,34 @@ scrapes every 15s (`conf/prometheus.yml`). Grafana uses **Prometheus** for
 ops panels (latency, error rate) and **ClickHouse** for cost and usage.
 Grafana only queries data; it does not write.
 
-Three provisioned dashboards (default: `now-90d` lookback, `5s` refresh):
+Five provisioned dashboards (default: `now-90d` lookback, `5s` refresh):
 
 | Dashboard | URL |
 |-----------|-----|
 | Gateway Cost & Usage | `http://localhost:3030/d/gateway-cost-usage?from=now-90d&to=now&refresh=5s` |
 | Gateway Operations & Health | `http://localhost:3030/d/gateway-ops-health?from=now-90d&to=now&refresh=5s` |
 | Gateway Cost Leaderboard | `http://localhost:3030/d/gateway-cost-leaderboard?from=now-90d&to=now&refresh=5s` |
+| Gateway Model Experience | `http://localhost:3030/d/gateway-model-experience?from=now-90d&to=now&refresh=5s` |
+| Gateway Model Performance | `http://localhost:3030/d/gateway-model-performance?from=now-90d&to=now&refresh=5s` |
+
+Cost & Usage breaks spend down by token category and model:
+
+![Gateway Cost & Usage dashboard: token usage by category and cost over time](res/dashboard-cost-usage.png)
+
+Operations & Health covers live traffic, error rate, and status codes:
+
+![Gateway Operations & Health dashboard: request totals, error rate, and status code breakdown](res/dashboard-ops-health.png)
+
+Model Experience ranks each model by a behavioural usefulness score built from
+satisfaction, friction, and abandonment signals:
+
+![Gateway Model Experience dashboard: per-model usefulness score cards](res/dashboard-model-experience.png)
+
+Model Performance tracks speed, stream reliability, and time to first token:
+
+![Gateway Model Performance dashboard: prefill and decode speed, stream reliability, and TTFT](res/dashboard-model-performance-speed.png)
+
+![Gateway Model Performance dashboard: stream status timeline and response time p50 by model](res/dashboard-model-performance-streams.png)
 
 The leaderboard shows top clients (p20) and top models (p21) by cost and
 tokens. After editing dashboard JSON, run `make gw-restart-grafana` to
