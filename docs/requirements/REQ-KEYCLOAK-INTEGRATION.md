@@ -5,7 +5,7 @@
 **Type:** Requirements
 **Specification:** [SPEC-KEYCLOAK-INTEGRATION](../specifications/SPEC-KEYCLOAK-INTEGRATION.md)
 
-> Defines how the gateway consumes the **existing** WORKSPACE Keycloak domain
+> Defines how the gateway consumes the **existing** WORKSPACE Keycloak realm
 > (`workspace`, client `workspace-portal`, deployed by WORKSPACE-DATAOPS) for
 > inbound user/service identity and authorization, using APISIX's native
 > `openid-connect` and `authz-keycloak` plugins  -  never a home-grown OIDC
@@ -38,7 +38,7 @@
 
 ### 1.1 Purpose
 
-Let the gateway trust the Keycloak domain already operated by WORKSPACE-DATAOPS
+Let the gateway trust the Keycloak realm already operated by WORKSPACE-DATAOPS
 as the single source of user and service identity, so that gateway operators and
 API callers authenticate against one corporate identity  -  with authorization
 enforced at the gateway using native APISIX plugins and no custom identity
@@ -52,7 +52,7 @@ code.
   existing `X-Gateway-*` context headers
 - Fine-grained authorization for control/governance endpoints (`authz-keycloak`)
 - Binding of long-lived virtual keys (`vgw-*`) to a Keycloak identity
-- Consumption of DATAOPS as the sole Keycloak provisioner (no local Keycloak export JSON)
+- Consumption of DATAOPS as the sole Keycloak provisioner (no local realm JSON)
 - Gateway use of Keycloak-issued JWTs to authenticate to OpenBao
 
 **This document DOES NOT:**
@@ -79,7 +79,7 @@ code.
 
 | ID | Requirement |
 |----|-------------|
-| FR-1.1 | Inbound user/service authentication MUST use the native `openid-connect` plugin in `bearer_only: true` mode against the DATAOPS domain discovery URL. No custom JWT validator may be added. |
+| FR-1.1 | Inbound user/service authentication MUST use the native `openid-connect` plugin in `bearer_only: true` mode against the DATAOPS realm discovery URL. No custom JWT validator may be added. |
 | FR-1.2 | The plugin MUST validate signature (JWKS from discovery, cached), expiry, issuer, audience, and scope. |
 | FR-1.3 | Claims MUST map onto the existing context headers: `sub` -> `X-Gateway-User-Id`, `azp` -> `X-Gateway-Client-Id`, selected organization/`groups` claim -> `X-Gateway-Tenant-Id`, `realm_access.roles` -> authorization input. |
 | FR-1.4 | The inbound access token MUST NOT be forwarded upstream (`access_token_in_authorization_header: false`); the gateway always injects the resolved upstream provider credential. |
@@ -108,7 +108,7 @@ code.
 | ID | Requirement |
 |----|-------------|
 | FR-4.1 | The gateway MUST consume a Keycloak OIDC client provisioned by WORKSPACE-DATAOPS (request: `llm-gateway`), per DATAOPS `REQ-IAM` FR-15. |
-| FR-4.2 | The gateway repository MUST NOT ship a Keycloak export JSON, a Keycloak container, or a Keycloak compose service. |
+| FR-4.2 | The gateway repository MUST NOT ship a realm JSON export, a Keycloak container, or a Keycloak compose service. |
 | FR-4.3 | Gateway software MUST reach Keycloak over the external `dataops_default` network already joined by `apisix`; no new host port is published. |
 | FR-4.4 | Client secret / JWKS requirements MUST be delivered via the existing env/OpenBao mechanisms, never committed. |
 
@@ -152,7 +152,7 @@ code.
 | ID | Assumption |
 |----|------------|
 | A-1 | WORKSPACE-DATAOPS will provision the gateway OIDC client and expose discovery on `dataops_default`. |
-| A-2 | Keycloak emits `groups`/`realm_access.roles`/organization claims sufficient for tenant mapping. |
+| A-2 | The realm emits `groups`/`realm_access.roles`/organization claims sufficient for tenant mapping. |
 | A-3 | The native APISIX build ships `openid-connect` and `authz-keycloak` (verified present in 3.18.0). |
 | A-4 | Operators can reach the Admin Console; end users can reach the Account Console. |
 
@@ -174,7 +174,7 @@ code.
 | V3 | Claims appear as `X-Gateway-User-Id`/`X-Gateway-Client-Id`/`X-Gateway-Tenant-Id`; inbound token stripped | FR-1.3, FR-1.4 |
 | V4 | `authz-keycloak` denies a role without the required permission; allows one with it | FR-2.1, FR-2.3 |
 | V5 | Issued virtual key record carries a bound Keycloak identity; telemetry reflects it | FR-3.1, FR-3.3 |
-| V6 | No Keycloak export JSON / Keycloak service in the gateway repo; Keycloak reachable via `dataops_default` | FR-4.2, FR-4.3 |
+| V6 | No realm JSON / Keycloak service in the gateway repo; Keycloak reachable via `dataops_default` | FR-4.2, FR-4.3 |
 | V7 | No custom identity UI or JWT-validator code present | FR-6.1, NFR-1.1 |
 
 ## 8. Implementation Status
@@ -184,7 +184,7 @@ code.
 | FR-1.x `openid-connect` routes | Not implemented | no `openid-connect` in `conf/apisix.yaml` or registered plugin list |
 | FR-2.x `authz-keycloak` | Not implemented | no `authz-keycloak` in `conf/` |
 | FR-3.x virtual-key identity binding | Not implemented | OpenBao key record has `tenant_id`/`user_id` but no Keycloak `sub`/`azp` |
-| FR-4.x DATAOPS client provisioning | Not requested | no `llm-gateway` client; gateway repo has no Keycloak export JSON |
+| FR-4.x DATAOPS client provisioning | Not requested | no `llm-gateway` client; gateway repo has no realm JSON |
 | FR-5.x OpenBao JWT auth | Not implemented | `OPENBAO_TOKEN` service token only |
 | FR-6.x use native consoles | Design decision | no identity UI in repo |
 | Tests | Not implemented | no `tests/**` referencing openid/keycloak |

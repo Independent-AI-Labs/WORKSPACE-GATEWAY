@@ -24,7 +24,7 @@ as not implemented.
 | [`requirements/REQ-COST-CALC.md`](requirements/REQ-COST-CALC.md) | Cost calculation and pricing ownership |
 | [`requirements/REQ-DASHBOARD.md`](requirements/REQ-DASHBOARD.md) | Grafana dashboards and panels |
 | [`requirements/REQ-ENTERPRISE-AUTH.md`](requirements/REQ-ENTERPRISE-AUTH.md) | Enterprise auth (OIDC/LDAP) requirements (Retired 2026-09-23) |
-| [`requirements/REQ-KEYCLOAK-INTEGRATION.md`](requirements/REQ-KEYCLOAK-INTEGRATION.md) | Inbound identity: native `openid-connect`/`authz-keycloak` against the Keycloak `workspace` domain (Draft) |
+| [`requirements/REQ-KEYCLOAK-INTEGRATION.md`](requirements/REQ-KEYCLOAK-INTEGRATION.md) | Inbound identity: native `openid-connect`/`authz-keycloak` against Keycloak realm `workspace` (Draft) |
 | [`requirements/REQ-GATEWAY-GOVERNANCE.md`](requirements/REQ-GATEWAY-GOVERNANCE.md) | Control surface: delegated administration and control-action audit (Draft) |
 | [`requirements/REQ-AI-PROXY.md`](requirements/REQ-AI-PROXY.md) | Native AI protocol normalization decision and duplication record (Draft, Not Adopted) |
 | [`requirements/REQ-PROVIDER-KIMI.md`](requirements/REQ-PROVIDER-KIMI.md) | Moonshot Kimi provider integration |

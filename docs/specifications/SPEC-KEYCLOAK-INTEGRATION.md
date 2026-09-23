@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-KEYCLOAK-INTEGRATION](../requirements/REQ-KEYCLOAK-INTEGRATION.md)
 
-> Intended configuration for consuming the DATAOPS Keycloak domain `workspace`
+> Intended configuration for consuming the DATAOPS Keycloak realm `workspace`
 > for inbound identity: native `openid-connect` (bearer-only) and
 > `authz-keycloak`, declarative claim mapping, and virtual-key identity binding.
 > Configuration-only, using built-in plugins  -  no custom identity code. Nothing
@@ -38,7 +38,7 @@ Browser / operator / service
   |  Authorization: Bearer <Keycloak JWT>       (control surface)
   v
 APISIX route (governance / pilot)
-  |-- openid-connect (bearer_only, native)  --> domain "workspace" (DATAOPS)
+  |-- openid-connect (bearer_only, native)  --> realm "workspace" (DATAOPS)
   |      claims_to_header: sub->X-Gateway-User-Id,
   |                        azp->X-Gateway-Client-Id,
   |                        groups->X-Gateway-Tenant-Id
@@ -78,6 +78,7 @@ plugins:
     discovery: "http://keycloak:8080/realms/workspace/.well-known/openid-configuration"
     scope: "openid profile email"
     bearer_only: true
+    realm: "workspace"
     access_token_in_authorization_header: false
     claims_to_header:
       - { claim: "sub",  header: "X-Gateway-User-Id" }
@@ -96,7 +97,7 @@ Failure modes (all fail closed):
 
 | Failure | Behavior |
 |---------|----------|
-| No `Authorization: Bearer` | 401 `WWW-Authenticate: Bearer` challenge |
+| No `Authorization: Bearer` | 401 `WWW-Authenticate: Bearer realm="workspace"` |
 | Expired / invalid token | 401 `error="invalid_token"` |
 | JWKS unreachable (cold start) | 401 `error="key_material_unavailable"` |
 | Wrong audience / scope | 403 `error="insufficient_scope"` |
@@ -171,12 +172,12 @@ Convergence onto DATAOPS `workspace-openbao` is a separate target-state
 Gateway repo                         WORKSPACE-DATAOPS
 -----------                          -----------------
 request client "llm-gateway"  ---->  res/ansible/compose.yml provisions
-                                     domain workspace + OIDC client
+                                     realm workspace + OIDC client
                                      (REQ-IAM FR-15, idempotent)
 accept KEYCLOAK_CLIENT_ID     <----  prints client id/secret/issuer
 KEYCLOAK_CLIENT_SECRET
 ```
-No Keycloak export JSON, no Keycloak container, no published port in this repository.
+No realm JSON, no Keycloak container, no published port in this repository.
 
 ## 8. Edge Cases & Decisions
 
@@ -207,5 +208,5 @@ No Keycloak export JSON, no Keycloak container, no published port in this reposi
 | Claim-to-header mapping | Not implemented | no `claims_to_header` in `conf/` |
 | Virtual-key identity binding | Not implemented | no `identity_sub`/`identity_azp` in key schema |
 | OpenBao OIDC auth method | Not implemented | service token only |
-| DATAOPS `llm-gateway` client | Not requested | no client; no Keycloak export JSON in repo |
+| DATAOPS `llm-gateway` client | Not requested | no client; no realm JSON in repo |
 | Tests | Not implemented | no `tests/**` referencing keycloak/openid |

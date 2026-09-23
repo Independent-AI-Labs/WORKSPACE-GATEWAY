@@ -39,7 +39,7 @@ flowchart LR
     end
 
     subgraph ext [External]
-      KC["workspace-keycloak<br/>domain workspace"]
+      KC["workspace-keycloak<br/>realm workspace"]
       BAO["gw-openbao<br/>(authoritative now)"]
       PROV["LLM providers"]
     end
