@@ -62,7 +62,19 @@ expect_port "dev data plane TLS 9443"    0.0.0.0 9443 open
 expect_port "loopback ClickHouse 8123"   127.0.0.1 8123 open
 expect_port "loopback Grafana 3030"      127.0.0.1 3030 open
 
-expect_port "apisix admin 9180 unpublished"      0.0.0.0 9180 closed
+expect_port "loopback apisix Admin API/Dashboard UI 9180" 127.0.0.1 9180 open
+# Admin UI must stay off the external interface: probe a non-loopback,
+# non-podman-bridge host IP.
+host_ip=""
+for _ip in $(hostname -I); do
+    case "$_ip" in
+        127.*|10.99.*) ;;
+        *) host_ip="$_ip"; break ;;
+    esac
+done
+if [ -n "$host_ip" ]; then
+    expect_port "apisix admin 9180 off external interface" "$host_ip" 9180 closed
+fi
 expect_port "apisix metrics 9100 unpublished"    0.0.0.0 9100 closed
 expect_port "prometheus 9092 unpublished"        0.0.0.0 9092 closed
 expect_port "etcd 2379 unpublished"              0.0.0.0 2379 closed

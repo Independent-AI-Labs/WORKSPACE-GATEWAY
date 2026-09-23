@@ -1,4 +1,4 @@
---Unit tests for the generic oauth-auth plugin (mocked APISIX/OpenBao/http).
+--Unit tests for the generic provider-oauth plugin (mocked APISIX/OpenBao/http).
 local set_headers = {}
 local body_override = nil
 local raw_body = "{}"
@@ -97,7 +97,7 @@ package.loaded["resty.http"] = {
 }
 package.loaded["apisix.plugins.oauth_device"] = require("oauth_device")
 
-local plugin = dofile("/plugins/custom/oauth-auth.lua")
+local plugin = dofile("/plugins/custom/provider-oauth.lua")
 
 local pass = 0
 local fail = 0
@@ -393,7 +393,7 @@ call("/test/api/chat", { Authorization = "Bearer " .. fresh_an })
 check(#set_uri_args_log == 0, "no beta argument on other paths")
 
 if fail > 0 then
-    io.stderr:write("test_oauth_auth: " .. fail .. " failed\n")
+    io.stderr:write("test_provider_oauth: " .. fail .. " failed\n")
     os.exit(1)
 end
-print("test_oauth_auth: " .. pass .. " passed")
+print("test_provider_oauth: " .. pass .. " passed")

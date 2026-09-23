@@ -177,7 +177,7 @@ restart-persistent metrics, Prometheus for instantaneous rates/percentiles.)
 | V1 | [`tests/config/test_dashboard_cost_usage.sh`](../../tests/config/test_dashboard_cost_usage.sh) | FR-1.1, FR-4.1, FR-4.2, FR-4.13 |
 | V2 | [`tests/config/test_dashboard_ops_health.sh`](../../tests/config/test_dashboard_ops_health.sh) | FR-4.3-FR-4.12, FR-4.14 |
 | V3 | [`tests/config/test_dashboard_cost_leaderboard.sh`](../../tests/config/test_dashboard_cost_leaderboard.sh) | FR-4.15 |
-| V4 | [`tests/config/dashboard_assert.sh`](../../tests/config/dashboard_assert.sh) | FR-6.x |
+| V4 | [`tests/config/dashboard_assert.sh`](../../tests/config/dashboard_assert.sh) | FR-6.x, FR-7.x (S18 formatting) |
 | V5 | [`tests/integration/test_dashboard_queries.sh`](../../tests/integration/test_dashboard_queries.sh), [`test_grafana_panels.sh`](../../tests/integration/test_grafana_panels.sh) | FR-5.x |
 
 ## 8. Implementation Status

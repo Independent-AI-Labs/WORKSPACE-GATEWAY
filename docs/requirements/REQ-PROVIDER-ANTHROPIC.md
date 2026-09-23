@@ -24,7 +24,7 @@
 - [SPEC-PROVIDER-ANTHROPIC](../specifications/SPEC-PROVIDER-ANTHROPIC.md): companion specification
 - [RES-ANTHROPIC-OAUTH](../research/RES-ANTHROPIC-OAUTH.md): feasibility evidence
 - [REQ-PROVIDER-KIMI](REQ-PROVIDER-KIMI.md): custodial OAuth provider pattern (device facade shape)
-- [`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua): auth endpoints, session relay
+- [`plugins/custom/provider-oauth.lua`](../../plugins/custom/provider-oauth.lua): auth endpoints, session relay
 - [`conf/apisix.yaml.j2`](../../conf/apisix.yaml.j2): relay routes
 - [`res/scripts/claude-gw.sh`](../../res/scripts/claude-gw.sh): client wrapper
 
@@ -49,7 +49,7 @@ cannot run a browser login (custody mode).
 - The `claude-gw.sh` wrapper contract
 
 **This document DOES NOT:**
-- Define oauth-auth plugin internals (owned by SPEC-PROVIDER-ANTHROPIC
+- Define provider-oauth plugin internals (owned by SPEC-PROVIDER-ANTHROPIC
   implementation notes and the existing oauth engine family)
 - Cover model catalog/pricing sync internals (owned by REQ-PROVIDER-SYNC)
 - Cover the zai/openai/kimi providers
@@ -70,7 +70,7 @@ cannot run a browser login (custody mode).
 | ID | Requirement |
 |----|-------------|
 | FR-1.1 | The gateway SHALL expose `relay-anthropic` (`/anthropic/*`) proxying to `api.anthropic.com:443` over HTTPS with path rewrite `^/anthropic/(.*)` to `/$1`. |
-| FR-1.2 | The gateway SHALL expose `relay-anthropic-device` (`/anthropic-device/*`) proxying to the same upstream with the same rewrite, plus the `oauth-auth` plugin with an `anthropic` protocol engine. |
+| FR-1.2 | The gateway SHALL expose `relay-anthropic-device` (`/anthropic-device/*`) proxying to the same upstream with the same rewrite, plus the `provider-oauth` plugin with an `anthropic` protocol engine. |
 | FR-1.3 | Query strings (including `?beta=true`), request bodies, and response streams MUST pass through both routes unmodified. |
 
 ### FR-2: Provider A, transparent passthrough (`workspace-gw-anthropic`)

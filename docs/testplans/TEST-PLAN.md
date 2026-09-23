@@ -9,7 +9,7 @@
 ## 1. Overview
 
 End-to-end testing and verification plan for WORKSPACE-GATEWAY: Apache APISIX
-3.17.0 in etcd/traditional mode acting as an LLM relay (OpenCode Go, Moonshot
+3.18.0 in etcd/traditional mode acting as an LLM relay (OpenCode Go, Moonshot
 Kimi, local llamafile) with PII redaction, virtual-key resolution, rate
 limiting, telemetry logging, and billing-grade token accounting.
 
@@ -165,7 +165,7 @@ Representative checks:
   `test_apisix_yaml_render.sh` validates env substitution.
 - **config.yaml** (`test_config_yaml.sh`, 30+): `role: traditional`,
   `config_provider: etcd`, etcd host `http://etcd:2379`; custom plugins
-  registered (`key-resolver`, `key-meta`, `oauth-auth`, `provider-sync`,
+  registered (`key-resolver`, `key-meta`, `provider-oauth`, `provider-sync`,
   `sse-usage`, `redact`); shared dicts `redact_state`, `key_cache`,
   `gateway-cache`, `quota_counters`; `nginx_config.envs` includes
   `OPENCODE_API_KEY`, `OPENBAO_TOKEN`; prometheus export on `:9100`.
@@ -183,7 +183,7 @@ Representative checks:
 - **etcd security** (`test_etcd_auth.sh`): etcd auth bootstrap in compose/
   Makefile; `conf/config.yaml` carries etcd credentials via env expansion.
 - **Dockerfile.apisix** (`test_dockerfile.sh`): base
-  `apache/apisix:3.17.0-debian`; copies plugins, `conf/config.yaml`,
+  `apache/apisix:3.18.0-debian`; copies plugins, `conf/config.yaml`,
   `conf/redact-patterns.json`.
 - **redact-patterns.json**: valid JSON; 6 regex + 2 dictionary entries;
   `luhn_check` on credit_card; `kind`/`pattern` fields present.

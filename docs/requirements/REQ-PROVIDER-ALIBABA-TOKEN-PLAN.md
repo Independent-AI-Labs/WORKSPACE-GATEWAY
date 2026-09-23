@@ -75,7 +75,7 @@ work without client-side gateway configuration beyond a base URL.
 | FR-1.1 | The gateway SHALL expose `relay-alibaba-token-plan` (`/token-plan/*`) proxying to `token-plan.ap-southeast-1.maas.aliyuncs.com:443` (International/Singapore plan) over HTTPS with path rewrite `^/token-plan/(.*)` to `/$1`. |
 | FR-1.2 | The gateway SHALL expose `relay-alibaba-token-plan-cn` (`/token-plan-cn/*`) proxying to `token-plan.cn-beijing.maas.aliyuncs.com:443` (China/Beijing plan) over HTTPS with path rewrite `^/token-plan-cn/(.*)` to `/$1`. |
 | FR-1.3 | Both routes MUST be path-transparent: the client's `/apps/anthropic/v1/messages` and `/compatible-mode/v1/chat/completions` paths, query strings, and request bodies MUST reach upstream unmodified except for the route-prefix strip. |
-| FR-1.4 | Both routes MUST NOT attach `oauth-auth` or `key-resolver`; the client `Authorization` header MUST be forwarded as-is. |
+| FR-1.4 | Both routes MUST NOT attach `provider-oauth` or `key-resolver`; the client `Authorization` header MUST be forwarded as-is. |
 | FR-1.5 | Both routes MUST force `accept-encoding: identity` upstream so SSE usage telemetry reads plaintext. |
 | FR-1.6 | Both routes MUST attach the common relay plugin stack (`key-meta`, `limit-count` 100/60s keyed on `http_x_key_hash`, `prometheus`, `request-id`, `http-logger`, `proxy-buffering` disabled, `redact`, `sse-usage`). |
 | FR-1.7 | The two route blocks MUST be committed identically in `conf/apisix.yaml` and `conf/apisix.yaml.j2`. |
@@ -141,9 +141,9 @@ work without client-side gateway configuration beyond a base URL.
 
 | # | Test | Maps to |
 |---|------|---------|
-| V1 | `tests/config/test_alibaba_token_plan_routes.sh` (new) | FR-1.1-FR-1.6 (route ids, URIs, nodes, no auth plugin, rewrite, identity encoding) |
+| V1 | `tests/config/test_alibaba_token_plan_routes.sh` (new) | FR-1.1-FR-1.6 (route ids, URIs, nodes, no auth plugin, rewrite, identity encoding), FR-2.x (protocol paths) |
 | V2 | `tests/config/test_apisix_yaml_render.sh` | FR-1.7 (.j2/.yaml drift) |
-| V3 | `tests/config/test_oauth_auth_routes.sh` route-provider guard | FR-1.6 (route→provider map in `cost_calc`) |
+| V3 | `tests/config/test_provider_oauth_routes.sh` route-provider guard | FR-1.6 (route→provider map in `cost_calc`) |
 | V4 | `tests/config/test_apisix_yaml.sh` route count | FR-1.1/FR-1.2 (exactly 2 new routes) |
 | V5 | `tests/config/test_zai_provider.sh` per-provider loop | FR-3.1 (provider file schema) |
 
@@ -154,5 +154,6 @@ work without client-side gateway configuration beyond a base URL.
 | FR-1.x 2 routes | Implemented | conf/apisix.yaml + conf/apisix.yaml.j2 (`relay-alibaba-token-plan`, `relay-alibaba-token-plan-cn`); seeded live via `res/scripts/seed-routes.sh` (18/18 routes) |
 | FR-3.x provider YAMLs | Implemented | conf/providers/workspace-gw-alibaba-token-plan{-cn,}-passthrough.yaml; provider sync reports 28 enriched models each |
 | Route-provider map | Implemented | plugins/custom/cost_calc.lua `ROUTE_PROVIDERS` (single source, required by sse-usage.lua); activated via a clean `apisix reload` (no container restart) - usage_log `provider_id` now resolves to `workspace-gw-alibaba-token-plan-passthrough` |
+| FR-4.x security (no credential custody) | Implemented | redact pipeline active on both routes (SPEC-REDACT); no credential logged or rewritten |
 | Config tests | Implemented | tests/config/test_alibaba_token_plan_routes.sh; `test_apisix_yaml.sh` (18 routes) and `test_apisix_yaml_render.sh` (11/11) pass |
 | E2E live passthrough | Verified | `POST /token-plan/compatible-mode/v1/chat/completions` (200) and `/token-plan/apps/anthropic/v1/messages` (200); SSE stream 200; `/token-plan-cn` forwards to CN and returns upstream 401 without a CN key; usage_log rows show qwen3.8-max with `pricing_source=models_dev` |

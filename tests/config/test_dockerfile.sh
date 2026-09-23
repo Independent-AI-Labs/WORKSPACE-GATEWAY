@@ -35,8 +35,8 @@ summary() {
 DOCKERFILE="$REPO_ROOT/res/docker/Dockerfile.apisix"
 
 HAS_BASE_IMAGE_RC=0
-HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.17.0-debian' "$DOCKERFILE" ) || { HAS_BASE_IMAGE_RC=$?; HAS_BASE_IMAGE="0"; }
-assert_eq "Base image is apache/apisix:3.17.0-debian" "1" "$HAS_BASE_IMAGE"
+HAS_BASE_IMAGE=$(grep -c 'FROM apache/apisix:3.18.0-debian' "$DOCKERFILE" ) || { HAS_BASE_IMAGE_RC=$?; HAS_BASE_IMAGE="0"; }
+assert_eq "Base image is apache/apisix:3.18.0-debian" "1" "$HAS_BASE_IMAGE"
 
 HAS_CUSTOM_PLUGINS_RC=0
 HAS_CUSTOM_PLUGINS=$(grep -c 'plugins/custom/' "$DOCKERFILE" ) || { HAS_CUSTOM_PLUGINS_RC=$?; HAS_CUSTOM_PLUGINS="0"; }
@@ -55,8 +55,8 @@ HAS_KEY_META=$(grep -c 'key-meta.lua' "$DOCKERFILE" ) || { HAS_KEY_META_RC=$?; H
 assert_eq "Copies key-meta.lua" "1" "$HAS_KEY_META"
 
 HAS_OAUTH_AUTH_RC=0
-HAS_OAUTH_AUTH=$(grep -c 'oauth-auth.lua' "$DOCKERFILE" ) || { HAS_OAUTH_AUTH_RC=$?; HAS_OAUTH_AUTH="0"; }
-assert_eq "Copies oauth-auth.lua" "1" "$HAS_OAUTH_AUTH"
+HAS_OAUTH_AUTH=$(grep -c 'provider-oauth.lua' "$DOCKERFILE" ) || { HAS_OAUTH_AUTH_RC=$?; HAS_OAUTH_AUTH="0"; }
+assert_eq "Copies provider-oauth.lua" "1" "$HAS_OAUTH_AUTH"
 
 HAS_OAUTH_JWT_RC=0
 HAS_OAUTH_JWT=$(grep -c 'oauth_jwt.lua' "$DOCKERFILE" ) || { HAS_OAUTH_JWT_RC=$?; HAS_OAUTH_JWT="0"; }
@@ -125,5 +125,13 @@ assert_eq "Copies conf/redact-patterns.json" "1" "$HAS_REDACT_PATTERNS"
 HAS_PROVIDERS_RC=0
 HAS_PROVIDERS=$(grep -c 'conf/providers' "$DOCKERFILE" ) || { HAS_PROVIDERS_RC=$?; HAS_PROVIDERS="0"; }
 assert_eq "Copies conf/providers" "1" "$HAS_PROVIDERS"
+
+HAS_UI_PATCH_RC=0
+HAS_UI_PATCH=$(grep -c 'patch-apisix-ui.sh' "$DOCKERFILE" ) || { HAS_UI_PATCH_RC=$?; HAS_UI_PATCH="0"; }
+assert_eq "Patches the embedded dashboard UI on build" "2" "$HAS_UI_PATCH"
+
+HAS_UI_LOGO_RC=0
+HAS_UI_LOGO=$(grep -c 'workspace-ci-logo.svg' "$DOCKERFILE" ) || { HAS_UI_LOGO_RC=$?; HAS_UI_LOGO="0"; }
+assert_eq "Vendors the workspace-ci logo for the dashboard" "1" "$HAS_UI_LOGO"
 
 summary

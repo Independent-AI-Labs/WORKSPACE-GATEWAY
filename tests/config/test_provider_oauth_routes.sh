@@ -1,55 +1,55 @@
 #!/bin/bash
-# Generic oauth-auth plugin config assertions sourced by test_apisix_yaml.sh.
+# Generic provider-oauth plugin config assertions sourced by test_apisix_yaml.sh.
 
-# --- relay-kimi: oauth-auth bound with the Kimi config set ---
-KIMI_OA_BASE=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["oauth-auth"].auth_base')
-assert_eq "relay-kimi: oauth-auth auth_base is /kimi/auth" "/kimi/auth" "$KIMI_OA_BASE"
+# --- relay-kimi: provider-oauth bound with the Kimi config set ---
+KIMI_OA_BASE=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["provider-oauth"].auth_base')
+assert_eq "relay-kimi: provider-oauth auth_base is /kimi/auth" "/kimi/auth" "$KIMI_OA_BASE"
 
-KIMI_OA_CLIENT=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["oauth-auth"].client_id')
-assert_eq "relay-kimi: oauth-auth client_id is the Kimi CLI id" "17e5f671-d194-4dfb-9706-5516cb48c098" "$KIMI_OA_CLIENT"
+KIMI_OA_CLIENT=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["provider-oauth"].client_id')
+assert_eq "relay-kimi: provider-oauth client_id is the Kimi CLI id" "17e5f671-d194-4dfb-9706-5516cb48c098" "$KIMI_OA_CLIENT"
 
-KIMI_OA_PROTOCOL=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["oauth-auth"].protocol // "rfc8628"')
-assert_eq "relay-kimi: oauth-auth protocol is rfc8628" "rfc8628" "$KIMI_OA_PROTOCOL"
+KIMI_OA_PROTOCOL=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["provider-oauth"].protocol // "rfc8628"')
+assert_eq "relay-kimi: provider-oauth protocol is rfc8628" "rfc8628" "$KIMI_OA_PROTOCOL"
 
-KIMI_OA_REJECT=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["oauth-auth"].reject_key_prefix')
-assert_eq "relay-kimi: oauth-auth rejects sk- keys" "sk-" "$KIMI_OA_REJECT"
+KIMI_OA_REJECT=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["provider-oauth"].reject_key_prefix')
+assert_eq "relay-kimi: provider-oauth rejects sk- keys" "sk-" "$KIMI_OA_REJECT"
 
-KIMI_OA_PREFIX=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["oauth-auth"].token_prefix')
-assert_eq "relay-kimi: oauth-auth token_prefix preserves kimi sessions" "secret/data/gateway/kimi-tokens/" "$KIMI_OA_PREFIX"
+KIMI_OA_PREFIX=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi")][0].plugins["provider-oauth"].token_prefix')
+assert_eq "relay-kimi: provider-oauth token_prefix preserves kimi sessions" "secret/data/gateway/kimi-tokens/" "$KIMI_OA_PREFIX"
 
-KIMI_V1_OA_BASE=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi-v1")][0].plugins["oauth-auth"].auth_base')
-assert_eq "relay-kimi-v1: oauth-auth auth_base is /kimi/auth" "/kimi/auth" "$KIMI_V1_OA_BASE"
+KIMI_V1_OA_BASE=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-kimi-v1")][0].plugins["provider-oauth"].auth_base')
+assert_eq "relay-kimi-v1: provider-oauth auth_base is /kimi/auth" "/kimi/auth" "$KIMI_V1_OA_BASE"
 
-# --- relay-openai: oauth-auth bound with the chatgpt_device config set ---
-OPENAI_OA=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-openai")][0].plugins["oauth-auth"]')
+# --- relay-openai: provider-oauth bound with the chatgpt_device config set ---
+OPENAI_OA=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-openai")][0].plugins["provider-oauth"]')
 
 OPENAI_OA_PROTOCOL=$(echo "$OPENAI_OA" | jq -r '.protocol')
-assert_eq "relay-openai: oauth-auth protocol is chatgpt_device" "chatgpt_device" "$OPENAI_OA_PROTOCOL"
+assert_eq "relay-openai: provider-oauth protocol is chatgpt_device" "chatgpt_device" "$OPENAI_OA_PROTOCOL"
 
 OPENAI_OA_BASE=$(echo "$OPENAI_OA" | jq -r '.auth_base')
-assert_eq "relay-openai: oauth-auth auth_base is /openai/auth" "/openai/auth" "$OPENAI_OA_BASE"
+assert_eq "relay-openai: provider-oauth auth_base is /openai/auth" "/openai/auth" "$OPENAI_OA_BASE"
 
 OPENAI_OA_BROWSER=$(echo "$OPENAI_OA" | jq -r '.browser_flow')
-assert_eq "relay-openai: oauth-auth browser_flow enabled" "true" "$OPENAI_OA_BROWSER"
+assert_eq "relay-openai: provider-oauth browser_flow enabled" "true" "$OPENAI_OA_BROWSER"
 
 OPENAI_OA_UA=$(echo "$OPENAI_OA" | jq -r '.user_agent')
-assert_eq "relay-openai: oauth-auth pins opencode UA" "opencode/1.18.3" "$OPENAI_OA_UA"
+assert_eq "relay-openai: provider-oauth pins opencode UA" "opencode/1.18.3" "$OPENAI_OA_UA"
 
 OPENAI_OA_ROTATION=$(echo "$OPENAI_OA" | jq -r '.refresh_rotation_required')
-assert_eq "relay-openai: oauth-auth tolerates non-rotating refresh" "false" "$OPENAI_OA_ROTATION"
+assert_eq "relay-openai: provider-oauth tolerates non-rotating refresh" "false" "$OPENAI_OA_ROTATION"
 
 OPENAI_OA_ACCOUNT_HEADER=$(echo "$OPENAI_OA" | jq -r '.account_header')
-assert_eq "relay-openai: oauth-auth maps account claim to header" "ChatGPT-Account-Id" "$OPENAI_OA_ACCOUNT_HEADER"
+assert_eq "relay-openai: provider-oauth maps account claim to header" "ChatGPT-Account-Id" "$OPENAI_OA_ACCOUNT_HEADER"
 
 OPENAI_OA_USERCODE=$(echo "$OPENAI_OA" | jq -r '.device_authorize_path')
-assert_eq "relay-openai: oauth-auth device usercode path" "/api/accounts/deviceauth/usercode" "$OPENAI_OA_USERCODE"
+assert_eq "relay-openai: provider-oauth device usercode path" "/api/accounts/deviceauth/usercode" "$OPENAI_OA_USERCODE"
 
 # --- provider YAML contract: OAuth providers name the generic plugin ---
 KIMI_YAML_PLUGIN=$(yaml_to_json "$REPO_ROOT/conf/providers/workspace-gw-kimi-device-oauth.yaml" | jq -r '.auth.plugin // empty')
-assert_eq "kimi provider YAML binds oauth-auth" "oauth-auth" "$KIMI_YAML_PLUGIN"
+assert_eq "kimi provider YAML binds provider-oauth" "provider-oauth" "$KIMI_YAML_PLUGIN"
 
 OPENAI_YAML_PLUGIN=$(yaml_to_json "$REPO_ROOT/conf/providers/workspace-gw-openai-device-oauth.yaml" | jq -r '.auth.plugin // empty')
-assert_eq "openai provider YAML binds oauth-auth" "oauth-auth" "$OPENAI_YAML_PLUGIN"
+assert_eq "openai provider YAML binds provider-oauth" "provider-oauth" "$OPENAI_YAML_PLUGIN"
 
 # --- relay-anthropic (bare passthrough, NO auth plugin) ---
 ANT_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-anthropic")][0]')
@@ -57,8 +57,8 @@ ANT_URI=$(echo "$ANT_ROUTE" | jq -r '.uri')
 assert_eq "relay-anthropic: uri is /anthropic/*" "/anthropic/*" "$ANT_URI"
 ANT_NODE=$(echo "$ANT_ROUTE" | jq -r '.upstream.nodes | keys[]')
 assert_eq "relay-anthropic: upstream node is api.anthropic.com:443" "api.anthropic.com:443" "$ANT_NODE"
-ANT_HAS_OA=$(echo "$ANT_ROUTE" | jq 'has("plugins") and (.plugins | has("oauth-auth"))')
-assert_eq "relay-anthropic: NO oauth-auth (client credentials pass through)" "false" "$ANT_HAS_OA"
+ANT_HAS_OA=$(echo "$ANT_ROUTE" | jq 'has("plugins") and (.plugins | has("provider-oauth"))')
+assert_eq "relay-anthropic: NO provider-oauth (client credentials pass through)" "false" "$ANT_HAS_OA"
 ANT_HAS_KR=$(echo "$ANT_ROUTE" | jq '.plugins | has("key-resolver")')
 assert_eq "relay-anthropic: NO key-resolver" "false" "$ANT_HAS_KR"
 ANT_REWRITE=$(echo "$ANT_ROUTE" | jq -c '.plugins["proxy-rewrite"].regex_uri')
@@ -71,7 +71,7 @@ ANT_HAS_SSE=$(echo "$ANT_ROUTE" | jq '.plugins | has("sse-usage")')
 assert_eq "relay-anthropic: sse-usage plugin present" "true" "$ANT_HAS_SSE"
 
 # --- relay-anthropic-device (custodial device facade, anthropic engine) ---
-ANTD_OA=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-anthropic-device")][0].plugins["oauth-auth"]')
+ANTD_OA=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-anthropic-device")][0].plugins["provider-oauth"]')
 ANTD_URI=$(echo "$JSON_DATA" | jq -r '[.routes[] | select(.id == "relay-anthropic-device")][0].uri')
 assert_eq "relay-anthropic-device: uri is /anthropic-device/*" "/anthropic-device/*" "$ANTD_URI"
 ANTD_PROTOCOL=$(echo "$ANTD_OA" | jq -r '.protocol')
@@ -122,7 +122,7 @@ assert_eq "anthropic passthrough YAML npm" "@anthropic-ai/sdk" "$(echo "$ANT_YAM
 ANTD_YAML=$(yaml_to_json "$REPO_ROOT/conf/providers/workspace-gw-anthropic-device-oauth.yaml")
 assert_eq "anthropic device YAML id follows contract" "workspace-gw-anthropic-device-oauth" "$(echo "$ANTD_YAML" | jq -r '.id')"
 assert_eq "anthropic device YAML auth type" "oauth" "$(echo "$ANTD_YAML" | jq -r '.auth.type')"
-assert_eq "anthropic device YAML binds oauth-auth" "oauth-auth" "$(echo "$ANTD_YAML" | jq -r '.auth.plugin // empty')"
+assert_eq "anthropic device YAML binds provider-oauth" "provider-oauth" "$(echo "$ANTD_YAML" | jq -r '.auth.plugin // empty')"
 assert_eq "anthropic device YAML method flow" "device_authorization" "$(echo "$ANTD_YAML" | jq -r '.auth.methods[0].flow')"
 assert_eq "anthropic device YAML method route" "/anthropic-device/auth" "$(echo "$ANTD_YAML" | jq -r '.auth.methods[0].route')"
 assert_eq "anthropic device YAML route" "/anthropic-device" "$(echo "$ANTD_YAML" | jq -r '.route')"

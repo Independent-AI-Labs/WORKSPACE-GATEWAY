@@ -23,6 +23,6 @@ for file in "$REPO_ROOT"/plugins/custom/*.lua "$REPO_ROOT"/res/scripts/usefulnes
     -v "$REPO_ROOT/res/scripts/usefulness:/usefulness:ro" \
     -v "$REPO_ROOT/res/scripts/cost:/cost:ro" \
     --entrypoint /usr/bin/resty \
-    apache/apisix:3.17.0-debian \
+    apache/apisix:3.18.0-debian \
     -e "local f, err = loadfile('$container_path'); if not f then error(err) end"
 done

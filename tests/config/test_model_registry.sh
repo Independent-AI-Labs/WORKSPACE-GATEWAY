@@ -25,7 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=yaml_helpers.sh
 source "$SCRIPT_DIR/yaml_helpers.sh" || exit 1
-IMAGE="apache/apisix:3.17.0-debian"
+IMAGE="apache/apisix:3.18.0-debian"
 
 pass=0
 fail=0

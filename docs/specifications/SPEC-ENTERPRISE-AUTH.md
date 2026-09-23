@@ -1,9 +1,16 @@
-# SPEC-ENTERPRISE-AUTH: Enterprise Auth and AI Routing Implementation
+# SPEC-ENTERPRISE-AUTH: Enterprise Auth and AI Routing Implementation (Retired)
 
 **Date:** 2026-07-17
-**Status:** Draft
+**Status:** Retired (2026-09-23)
 **Type:** Specification
 **Requirements:** [REQ-ENTERPRISE-AUTH](../requirements/REQ-ENTERPRISE-AUTH.md)
+
+> **Retired 2026-09-23.** Split three ways; kept for history only:
+> - OIDC -> [SPEC-KEYCLOAK-INTEGRATION](SPEC-KEYCLOAK-INTEGRATION.md)
+> - `ai-proxy` -> [SPEC-AI-PROXY](SPEC-AI-PROXY.md) (Not Adopted)
+> - LDAP/AD/Kerberos -> delegated to WORKSPACE-DATAOPS / WORKSPACE-PORTAL IAM.
+>
+> Content below is preserved verbatim and is **no longer authoritative**.
 
 > Intended APISIX plugin configurations for optional enterprise hardening:
 > `openid-connect` (bearer-only OIDC), `ldap-auth` (earlier AD, Kerberos in v2
@@ -35,7 +42,7 @@ The enterprise profile adds a corporate identity layer and single-provider
 AI translation on top of the gateway using only APISIX built-in plugins. It
 replaces what earlier architectures did with Kong Enterprise plugins and
 custom Rust Proxy-Wasm filters. The deployed gateway's routes and auth model
-(`key-resolver`, `oauth-auth`, shared-key passthrough) are unchanged; this
+(`key-resolver`, `provider-oauth`, shared-key passthrough) are unchanged; this
 profile defines additional routes for enterprise environments.
 
 ## 2. Architectural Principles

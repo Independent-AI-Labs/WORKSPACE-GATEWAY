@@ -183,7 +183,7 @@
         required_custom_plugins:
           - key-resolver
           - key-meta
-          - oauth-auth
+          - provider-oauth
           - provider-sync
           - redact
           - sse-usage
@@ -446,7 +446,7 @@
         required_custom_plugins:
           - key-resolver
           - key-meta
-          - oauth-auth
+          - provider-oauth
           - provider-sync
           - redact
           - sse-usage

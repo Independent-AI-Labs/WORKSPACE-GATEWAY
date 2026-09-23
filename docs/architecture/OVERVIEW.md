@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-17
 
-WORKSPACE-GATEWAY is a multi-tenant LLM gateway on **Apache APISIX 3.17.0**
+WORKSPACE-GATEWAY is a multi-tenant LLM gateway on **Apache APISIX 3.18.0**
 (traditional/etcd mode). Six registered custom Lua plugins plus shared Lua
 library modules, OpenBao virtual keys, Kimi OAuth device auth, PII redaction,
 billing-grade ClickHouse accounting, and Prometheus metrics.
@@ -28,14 +28,14 @@ Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 | `relay-opencode` | `/opencode/*` | `/zen/go/$1` | Direct key passthrough (`key-meta`) |
 | `relay-opencode-federated` | `/opencode_federated/*` | `/zen/go/$1` | `vgw-*` via `key-resolver` + OpenBao |
 | `relay-opencode-zen` | `/opencode_zen/*` | `/zen/$1` | Direct key passthrough (`key-meta`) |
-| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT headless OAuth (`oauth-auth`) |
+| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT headless OAuth (`provider-oauth`) |
 
 ### Kimi (`api.kimi.com:443`, rewrite to `/coding/v1/`)
 
 | Route id | Prefix | Auth |
 |----------|--------|------|
-| `relay-kimi` | `/kimi/*` | `oauth-auth` OAuth device flow |
-| `relay-kimi-v1` | `/kimi/v1/*` | `oauth-auth` |
+| `relay-kimi` | `/kimi/*` | `provider-oauth` OAuth device flow |
+| `relay-kimi-v1` | `/kimi/v1/*` | `provider-oauth` |
 | `relay-kimi-federated` | `/kimi-federated/*` | `key-resolver` + OpenBao |
 | `relay-kimi-federated-v1` | `/kimi-federated/v1/*` | `key-resolver` + OpenBao |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough (`key-meta`) |
@@ -61,7 +61,7 @@ Registered in `conf/config.yaml`:
 |--------|------|
 | `key-resolver` | Virtual keys via OpenBao; passthrough for non-`vgw-` |
 | `key-meta` | `X-Key-Hash` header for per-key `limit-count` scoping |
-| `oauth-auth` | Kimi OAuth device-code auth and token lifecycle |
+| `provider-oauth` | Kimi OAuth device-code auth and token lifecycle |
 | `provider-sync` | Read-only `/gateway/providers` catalog + pricing API |
 | `sse-usage` | SSE/JSON token extraction; ClickHouse `usage_log` INSERT |
 | `redact` | PII anonymize + re-hydrate |
@@ -76,7 +76,7 @@ Registered in `conf/config.yaml`:
 | `provider_sync_pricing.lua` | `provider-sync`  -  sole writer of `pricing:*` in `gateway-cache` |
 | `sse_usage_lib.lua` | `sse-usage` pure logic core |
 | `redact_lib.lua` | `redact` pure logic core |
-| `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | `oauth-auth` |
+| `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | `provider-oauth` |
 
 ## Built-in plugins (on routes)
 

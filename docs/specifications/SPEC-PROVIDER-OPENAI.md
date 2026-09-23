@@ -16,7 +16,7 @@ Bun manifest and lockfile).
 
 | Component | Responsibility |
 |-----------|----------------|
-| `oauth-auth` (generic plugin, OpenAI config set: `protocol: chatgpt_device`) | APISIX access-phase device flow, session lookup, refresh, and header injection |
+| `provider-oauth` (generic plugin, OpenAI config set: `protocol: chatgpt_device`) | APISIX access-phase device flow, session lookup, refresh, and header injection |
 | `oauth_device.lua` | Protocol engines; `chatgpt_device` covers OpenAI device authorization, poll, authorization-code exchange, and refresh HTTP calls |
 | `oauth_jwt.lua` | Token hashing, expiry checks, and JWT claim decoding |
 | `oauth_store.lua` | OpenBao KVv2 device/session CRUD |
@@ -58,7 +58,7 @@ opens `/oauth/authorize` with `scope=openid profile email offline_access`,
 `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`, and
 `originator=opencode`, then receives the code at
 `http://localhost:1455/auth/callback`. The gateway-owned plugin exposes this
-method through `oauth-auth`; the plugin submits the callback code and state to
+method through `provider-oauth`; the plugin submits the callback code and state to
 the gateway, which performs the upstream exchange. This upstream contract was
 verified against OpenCode source on 2026-08-06.
 
@@ -97,17 +97,17 @@ a possibly-lost rotated refresh token.
 
 | Route | URI | Rewrite | Auth |
 |-------|-----|---------|------|
-| `relay-openai` | `/openai/*` | `^/openai/(.*)` -> `/backend-api/codex/responses` | `oauth-auth` |
+| `relay-openai` | `/openai/*` | `^/openai/(.*)` -> `/backend-api/codex/responses` | `provider-oauth` |
 
 The provider file `workspace-gw-openai-device-oauth.yaml` declares
 `workspace-gw-openai-device-oauth`, route `/openai`, `@ai-sdk/openai`, OAuth auth via
-`oauth-auth`, and models.dev namespace `openai`.
+`provider-oauth`, and models.dev namespace `openai`.
 
 ## 5. Failure Behavior
 
 | Condition | Status | Result |
 |-----------|--------|--------|
-| Missing device code | 400 | `oauth-auth: missing device_code` |
+| Missing device code | 400 | `provider-oauth: missing device_code` |
 | Missing/expired device record | 400 | Device session error |
 | OpenAI poll still pending | 202 | `authorization_pending` |
 | Device/token upstream failure | 502 | OpenAI auth error |

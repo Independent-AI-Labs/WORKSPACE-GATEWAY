@@ -4,7 +4,7 @@
 
 Extract-testable-core pattern: `*_lib.lua` (pure logic) + `*.lua` (APISIX
 adapter). Six plugins are registered in `conf/config.yaml`:
-`key-resolver`, `key-meta`, `oauth-auth`, `provider-sync`, `sse-usage`,
+`key-resolver`, `key-meta`, `provider-oauth`, `provider-sync`, `sse-usage`,
 `redact`. All sources live in [`plugins/custom/`](../../plugins/custom/).
 
 ## key-resolver
@@ -35,9 +35,9 @@ Computes hash of request identity for `limit-count` scoping via header
 `X-Key-Hash` (`http_x_key_hash`). Not enabled on llamafile or
 `gateway-provider-sync` (those use `remote_addr` for rate limiting).
 
-## oauth-auth
+## provider-oauth
 
-**File:** `oauth-auth.lua`; libraries `oauth_device.lua`, `oauth_jwt.lua`,
+**File:** `provider-oauth.lua`; libraries `oauth_device.lua`, `oauth_jwt.lua`,
 `oauth_store.lua`
 **Priority:** 2560 | **Phase:** access | **Routes:** `relay-kimi*`, `relay-openai`
 
@@ -102,4 +102,4 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 | `sse_usage_lib.lua` | 116 | Pure logic for `sse-usage` |
 | `redact_lib.lua` | 101 | Pure logic for `redact` |
 | `redact_walk.lua` | 61 | Request-body schema traversal for `redact` (Chat Completions + Responses) |
-| `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | 291/60/118 | `oauth-auth` helpers: protocol engines, JWT decode/hash, OpenBao CRUD |
+| `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | 291/60/118 | `provider-oauth` helpers: protocol engines, JWT decode/hash, OpenBao CRUD |

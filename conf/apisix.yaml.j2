@@ -143,7 +143,7 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/openai/(.*)", "/backend-api/codex/responses"]
-      oauth-auth:
+      provider-oauth:
         auth_base: /openai/auth
         protocol: chatgpt_device
         oauth_host: "https://auth.openai.com"
@@ -220,7 +220,7 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/kimi/(.*)", "/coding/v1/$1"]
-      oauth-auth:
+      provider-oauth:
         auth_base: /kimi/auth
         oauth_host: "https://auth.kimi.com"
         client_id: "17e5f671-d194-4dfb-9706-5516cb48c098"
@@ -273,7 +273,7 @@ routes:
     plugins:
       proxy-rewrite:
         regex_uri: ["^/kimi/v1/(.*)", "/coding/v1/$1"]
-      oauth-auth:
+      provider-oauth:
         auth_base: /kimi/auth
         oauth_host: "https://auth.kimi.com"
         client_id: "17e5f671-d194-4dfb-9706-5516cb48c098"
@@ -651,7 +651,7 @@ routes:
         headers:
           set:
             accept-encoding: "identity"
-      oauth-auth:
+      provider-oauth:
         auth_base: /anthropic-device/auth
         protocol: anthropic
         oauth_host: "https://claude.ai"

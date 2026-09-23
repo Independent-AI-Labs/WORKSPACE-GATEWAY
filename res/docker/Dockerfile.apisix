@@ -1,4 +1,4 @@
-FROM apache/apisix:3.17.0-debian
+FROM apache/apisix:3.18.0-debian
 
 # curl for in-container healthchecks and Admin API access through the
 # reviewed exec wrapper (admin/debug ports are unpublished). Base image
@@ -11,7 +11,7 @@ USER apisix
 
 COPY plugins/custom/key-resolver.lua /usr/local/apisix/apisix/plugins/key-resolver.lua
 COPY plugins/custom/key-meta.lua /usr/local/apisix/apisix/plugins/key-meta.lua
-COPY plugins/custom/oauth-auth.lua /usr/local/apisix/apisix/plugins/oauth-auth.lua
+COPY plugins/custom/provider-oauth.lua /usr/local/apisix/apisix/plugins/provider-oauth.lua
 COPY plugins/custom/oauth_verify.lua /usr/local/apisix/apisix/plugins/oauth_verify.lua
 COPY plugins/custom/oauth_broker.lua /usr/local/apisix/apisix/plugins/oauth_broker.lua
 COPY plugins/custom/oauth_session.lua /usr/local/apisix/apisix/plugins/oauth_session.lua
@@ -37,5 +37,13 @@ COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
 COPY conf/redact-patterns.json /etc/apisix/redact-patterns.json
 COPY conf/sql /etc/apisix/sql
 COPY conf/providers /usr/local/apisix/conf/providers
+
+# Rebrand the embedded Admin Dashboard. APISIX has no config knob for this: the
+# Dashboard is a prebuilt static bundle, so patch it in place at build time
+# (swap the logo asset, retitle "APISIX Dashboard"). The script fails the build
+# if the upstream bundle layout changes, so an un-rebranded image cannot ship.
+COPY res/docker/apisix-ui/workspace-ci-logo.svg /opt/apisix-ui/workspace-ci-logo.svg
+COPY res/scripts/patch-apisix-ui.sh /opt/apisix-ui/patch-apisix-ui.sh
+RUN bash /opt/apisix-ui/patch-apisix-ui.sh
 
 EXPOSE 9080 9443 9100

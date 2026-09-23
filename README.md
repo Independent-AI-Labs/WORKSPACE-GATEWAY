@@ -3,18 +3,14 @@
 ![Gateway Cost & Usage dashboard: token usage by category and the per-model treemap](res/dashboard-cost-usage-token-breakdown.png)
 
 Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
-**spend limits**, **PII redaction**, and built-in **safety and moderation**
-pipelines.
+**spend limits**, and **PII redaction**.
 
-Cloud backends run through ai-proxy or relay configuration, including OpenAI,
-Anthropic, Gemini, Bedrock, and others, with usage, cost, and health tracked
-in ClickHouse and Grafana.
-
-This repo ships sample routes to OpenCode and llamafile.
-
-**Default deployment** routes cloud traffic to OpenCode Go (`opencode.ai`).
-The gateway itself is provider-agnostic: add relay routes or swap to
-single-target `ai-proxy` for any OpenAI-compatible backend (see
+Cloud backends run through `ai-proxy` or relay routes (OpenAI, Anthropic,
+Gemini, Bedrock, and others), with usage, cost, and health tracked in
+ClickHouse and Grafana. This repo ships sample routes to OpenCode and
+llamafile, and the default deployment sends cloud traffic to OpenCode Go
+(`opencode.ai`). The gateway is provider-agnostic: add a relay route or switch
+to single-target `ai-proxy` for any OpenAI-compatible backend (see
 [Supported Providers](#supported-providers)).
 
 > Full technical reference: [`docs/architecture/README.md`](docs/architecture/README.md)
@@ -56,7 +52,16 @@ curl -s http://localhost:9080/opencode_federated/v1/chat/completions \
   -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}]}'
 ```
 
-Ports (host surface, REQ-SECURITY-HARDENING FR-6.2): **public** 9080/9443 (dev apisix; prod stack 9081/9444); **loopback only** 8123 (dev ClickHouse HTTP, authenticated), 8124 (prod), 3030 (Grafana, edge-proxy auth). etcd, OpenBao, Vector, Prometheus, the APISIX Admin API/metrics, and the ClickHouse native port publish no host ports  -  reach them with `podman exec` (see [RUNBOOK-DEPLOYMENT](docs/runbooks/RUNBOOK-DEPLOYMENT.md)).
+Host port surface ([RUNBOOK-DEPLOYMENT](docs/runbooks/RUNBOOK-DEPLOYMENT.md)):
+
+| Service | Dev | Prod | Exposure |
+|---------|-----|------|----------|
+| APISIX HTTP / HTTPS | 9080 / 9443 | 9081 / 9444 | public |
+| ClickHouse HTTP | 8123 | 8124 | loopback, authenticated |
+| Grafana | 3030 | 3030 | loopback, edge-proxy auth |
+
+etcd, OpenBao, Vector, Prometheus, the APISIX Admin API and metrics, and the
+ClickHouse native port publish no host ports; reach them with `podman exec`.
 
 ### Prerequisites
 
@@ -104,7 +109,7 @@ Deeper flows are diagrammed in the section that owns each concern:
 (telemetry, metrics, route config), [Key Management](#key-management) (auth).
 
 Each new provider is a relay route + upstream node (or single-target
-`ai-proxy`; see [`docs/specifications/SPEC-ENTERPRISE-AUTH.md`](docs/specifications/SPEC-ENTERPRISE-AUTH.md)
+`ai-proxy`; see [`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md)
 and [Supported Providers](#supported-providers)).
 
 ### Sample deployments in this repo
@@ -114,13 +119,13 @@ and [Supported Providers](#supported-providers)).
 | `relay-opencode` | `/opencode/*` | Direct key passthrough | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-federated` | `/opencode_federated/*` | Virtual keys (`vgw-*`) via OpenBao | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
 | `relay-opencode-zen` | `/opencode_zen/*` | Direct key passthrough | OpenCode Zen (`opencode.ai`) → `/zen/*` |
-| `relay-kimi` | `/kimi/*` | `oauth-auth` headless device authorization | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
+| `relay-kimi` | `/kimi/*` | `provider-oauth` headless device authorization | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
 | `relay-zai-key` | `/zai-key/*` | Direct key passthrough | Z.ai GLM Coding Plan (`api.z.ai`) → `/api/coding/paas/v4/*` |
 | `relay-alibaba-token-plan` | `/token-plan/*` | Direct key passthrough | Alibaba Cloud Token Plan (`token-plan.ap-southeast-1.maas.aliyuncs.com`) |
 | `relay-alibaba-token-plan-cn` | `/token-plan-cn/*` | Direct key passthrough | Alibaba Cloud Token Plan China (`token-plan.cn-beijing.maas.aliyuncs.com`) |
-| `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile (`host.docker.internal:8765`) |
+| `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile on port 8765 (`host.docker.internal:8765`) |
 
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
@@ -165,7 +170,7 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 | Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
 | Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
 | Upstream key pool rotation | `key-resolver` + `upstream_pool_lib.lua`: sticky selection, auto-rotate on 429/402/403 | Custom |
-| OAuth device/browser flows (any provider) | `oauth-auth` + `oauth_device`/`oauth_jwt`/`oauth_store`: protocol engines + per-route config, OpenBao session storage, transparent refresh | Custom |
+| OAuth device/browser flows (any provider) | `provider-oauth` + `oauth_device`/`oauth_jwt`/`oauth_store`: protocol engines + per-route config, OpenBao session storage, transparent refresh | Custom |
 | SSE token extraction | `sse-usage`: buffers SSE, extracts usage, writes ClickHouse | Custom |
 | Per-key rate limiting (RPM) | `limit-count` + `key-meta` | Built-in + custom Lua |
 | Per-key token/cost budget | `key-resolver` + `sse-usage` + `ngx.shared` | Custom Lua |
@@ -173,7 +178,7 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 | Prometheus metrics | `prometheus` at `:9100` | Built-in |
 | SSE streaming support | `proxy-buffering` disabled per-route | Config |
 | Grafana dashboards (5) | Cost & Usage, Ops & Health, Cost Leaderboard, Model Experience, Model Performance: 90d lookback, 5s refresh | Config |
-| Billing-grade schema | ClickHouse `Decimal64(6)`, 13-month TTL, `LowCardinality` keys | SQL |
+| Billing-grade schema | ClickHouse `Decimal64(6)`, tiered retention (archive volume, no deletion), `LowCardinality` keys | SQL |
 
 ---
 
@@ -184,6 +189,11 @@ upstream API-key quota exhaustion is handled by upstream key pools (see
 **Status:** WIP. Target: APISIX plugins on the federated request path that score
 assistant behavior and enforce moderation policy before or after upstream relay,
 alongside existing `redact` and `key-resolver` policy plugins.
+
+### Semantic response cache
+
+**Status:** WIP. A `semantic-cache` plugin (pgvector-backed response reuse) is
+not attached to any route; it needs a pgvector store added to the stack.
 
 ---
 
@@ -211,13 +221,11 @@ run after the upstream responds; see [ClickHouse Tables](#clickhouse-tables).
 `/opencode/*` skips `key-resolver`; `/llamafile/*` skips auth and targets a
 local upstream (see [sample deployments](#sample-deployments-in-this-repo)).
 
-Nine plugins on a keyed passthrough route, ten on a federated route
-(federated adds `key-resolver`), and eight on the llamafile route; kimi
-routes add `oauth-auth` instead of `key-resolver`. Ordered by Nginx phase
-priority:
+Plugins on the request path, in Nginx phase-priority order (`provider-oauth`
+replaces `key-resolver` on the kimi routes):
 
 - **`proxy-rewrite`** (N/A, Built-in, `rewrite`) : Strips route prefix; opencode relays → `/zen/go/*`, opencode zen relay → `/zen/*`, llamafile → upstream root
-- **`oauth-auth`** (2560, Custom Lua, `access`, kimi routes) : Upstream device/browser OAuth with transparent token refresh
+- **`provider-oauth`** (2560, Custom Lua, `access`, kimi routes) : Upstream device/browser OAuth with transparent token refresh
 - **`key-resolver`** (2555, Custom Lua, `access`, federated only) : Resolve `vgw-*` keys via OpenBao; pass through others
 - **`key-meta`** (2530, Custom Lua, `access`) : Compute key hash for per-key scoping (`X-Key-Hash`)
 - **`redact`** (2500, Custom Lua, `access`/`header_filter`/`body_filter`/`log`) : PII anonymization + re-hydration
@@ -227,9 +235,6 @@ priority:
 - **`http-logger`** (410, Built-in, `log`) : Send req/resp metadata to Vector
 - **`proxy-buffering`** (300, Built-in, `filter`) : Disable buffering for SSE
 - **`prometheus`** (N/A, Built-in, `log`) : Export metrics at `:9100`
-
-A `semantic-cache` plugin (2450, pgvector-backed response reuse) is in
-progress and not yet attached to any route.
 
 ### Extract-Testable-Core Pattern
 
@@ -327,7 +332,7 @@ on stack start. Admin API and built-in dashboard are reached via
 - `conf/profanity/`: vendored rejection-language dictionaries (refresh: `make gw-update-dictionaries`)
 - `conf/grafana/`: Grafana datasources + 5 provisioned dashboards
 - `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
-- `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff` (`docs/specifications/SPEC-SQL-STRUCTURE.md`)
+- `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff`; see [SPEC-SQL-STRUCTURE](docs/specifications/SPEC-SQL-STRUCTURE.md)
 - `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink
 - `res/docker/docker-compose.yml`: 8 services: apisix, etcd, clickhouse, migrate, vector, openbao, prometheus, grafana
 - `res/docker/Dockerfile.apisix`: Custom APISIX image: Lua plugins + config copied in
@@ -354,7 +359,7 @@ on stack start. Admin API and built-in dashboard are reached via
 | `CH_VECTOR_PASSWORD` | Vector sink account (`vector_rw`, insert-only) | `(openssl rand)` |
 | `CH_APISIX_PASSWORD` | sse-usage account (`apisix_rw`, insert-only) | `(openssl rand)` |
 | `CH_MIGRATOR_PASSWORD` | golang-migrate account (`migrator`, DDL) | `(openssl rand)` |
-| `CH_OPS_PASSWORD` | Operator account (`ops_admin`, full  -  guard like root) | `(openssl rand)` |
+| `CH_OPS_PASSWORD` | Operator account (`ops_admin`, full access; guard like root) | `(openssl rand)` |
 | `ETCD_ROOT_PASSWORD` | etcd bootstrap root credential | `(openssl rand)` |
 | `ETCD_GW_USER` / `ETCD_GW_PASSWORD` | APISIX → etcd non-root credential | `apisix` / `(openssl rand)` |
 
@@ -377,8 +382,8 @@ flowchart TB
 
 `sse-usage` writes `usage_log` directly (as `apisix_rw`); `http-logger`
 ships full request/response metadata to Vector, which inserts `request_log`
-(metadata) and `request_bodies` (bodies  -  PII-tokenized in `req_body` by the
-`redact` plugin before logging, and invisible to the Grafana datasource).
+(metadata) and `request_bodies` (bodies; `req_body` is PII-tokenized by the
+`redact` plugin before logging, and is invisible to the Grafana datasource).
 
 | Table | Written By | Key Columns |
 |-------|-----------|-------------|
@@ -388,10 +393,10 @@ ships full request/response metadata to Vector, which inserts `request_log`
 | `billing_ledger` | MV on `usage_log` INSERT | cost `Decimal64(6)`, rate_input/output, cache_status |
 | `billing_discrepancies` | v2 reconciler (deferred) | gateway_tokens, provider_tokens, divergence |
 
-Retention is tiered compression (storage policy `tiered`, ZSTD-recompressed
-archive volume), not deletion; growth is monitored by the ops-health storage
-panel + alert and nightly backups land on `/mnt/ws-backup`
-([REQ-SECURITY-HARDENING](docs/requirements/REQ-SECURITY-HARDENING.md)).
+Retention moves old parts to a tiered, ZSTD-recompressed archive volume rather
+than deleting them ([REQ-SECURITY-HARDENING](docs/requirements/REQ-SECURITY-HARDENING.md)).
+The ops-health storage panel monitors growth, and nightly backups land on
+`/mnt/ws-backup`.
 
 ### Grafana Dashboards
 
@@ -477,10 +482,9 @@ metadata (name, context limit, capabilities, cost, modalities) from
 [models.dev](https://models.dev), including `variants` (reasoning-effort
 presets) derived from models.dev reasoning options exactly as opencode derives
 them.
-Provider entries are written into `~/.config/opencode/opencode.jsonc` by
-the login script above (fetches the ready-made block from
-`/gateway/providers/<id>/opencode`), for the
-OpenCode and Kimi access modes, plus llamafile:
+Provider entries are written into `~/.config/opencode/opencode.jsonc` by the
+login script above, which fetches each ready-made block from
+`/gateway/providers/<id>/opencode`:
 
 - `workspace-gw-opencode-go-virtual-key`: virtual-key mode, Go tier
 - `workspace-gw-opencode-go-api-key`: API-key passthrough, Go tier
@@ -490,21 +494,25 @@ OpenCode and Kimi access modes, plus llamafile:
 - `workspace-gw-kimi-virtual-key`: virtual-key mode for Kimi (`vgw-*`)
 - `workspace-gw-kimi-api-key`: API-key passthrough for Kimi
 - `workspace-gw-zai-api-key`: API-key passthrough for Z.ai GLM (Coding Plan endpoint)
+- `workspace-gw-anthropic-passthrough`: API-key passthrough for Anthropic
+- `workspace-gw-anthropic-device-oauth`: device OAuth for Anthropic
+- `workspace-gw-openai-device-oauth`: device OAuth for OpenAI (ChatGPT)
+- `workspace-gw-alibaba-token-plan-passthrough`: API-key passthrough, Alibaba Token Plan
+- `workspace-gw-alibaba-token-plan-cn-passthrough`: API-key passthrough, Alibaba Token Plan (China)
 
 For the OAuth providers, use the login script in
-[`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)
+[`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md),
 which starts the device flow and prints the verification URL.
 
-The opencode providers receive the full enriched model catalog so opencode
-does not drop them (opencode deletes providers with zero models). The Go
-providers (`workspace-gw-own` / `workspace-gw-private`) filter out `*-free`
-models because their relay rewrites to `/zen/go/` (paid only); free models
-are served exclusively through `workspace-gw-zen-own`, which proxies
-`/opencode_zen/v1` → `https://opencode.ai/zen/v1`. The llamafile provider
-receives the model list from `/llamafile/v1/models`
-(or a default model id if the llamafile server is not running). MiniCPM5
-uses context `131072` (scaled to `104857` at 80%) with `tool_call: true`.
-The script runs automatically on `make gw-start` and `make gw-restart`
+Each provider receives the full enriched catalog, because opencode drops
+providers that expose zero models. The two Go providers
+(`workspace-gw-opencode-go-virtual-key` and `workspace-gw-opencode-go-api-key`)
+filter out `*-free` models, since their relay rewrites to `/zen/go/` (paid
+only); free models are served only through
+`workspace-gw-opencode-zen-api-key`. The llamafile provider takes its model
+list from `/llamafile/v1/models` (or a default id when the server is down);
+MiniCPM5 uses context `131072` (scaled to `104857` at 80%) with `tool_call:
+true`. The script runs automatically on `make gw-start` and `make gw-restart`
 via the Ansible playbook.
 
 Context limits are scaled by `CONTEXT_LIMIT_PCT` (default 80) from `.env`,
@@ -518,7 +526,7 @@ Result in opencode config:
 ```json
 {
   "provider": {
-    "workspace-gw-private": {
+    "workspace-gw-opencode-go-virtual-key": {
       "api": "http://localhost:9080/opencode_federated/v1",
       "npm": "@ai-sdk/openai-compatible",
       "options": {
@@ -542,14 +550,14 @@ Result in opencode config:
         }
       }
     },
-    "workspace-gw-own": {
+    "workspace-gw-opencode-go-api-key": {
       "api": "http://localhost:9080/opencode/v1",
       "npm": "@ai-sdk/openai-compatible",
       "options": {
         "baseURL": "http://localhost:9080/opencode/v1",
         "headers": { "X-Tenant-ID": "default", "X-User-ID": "agent" }
       },
-      "models": { "...": "same enriched models as workspace-gw-private" }
+      "models": { "...": "same enriched models as workspace-gw-opencode-go-virtual-key" }
     }
   }
 }
@@ -566,11 +574,11 @@ make gw-test       # Same as test, against the running stack
 ```
 
 1. Lua unit tests via `resty` CLI inside the APISIX container
-2. Config validation: 14 scripts (YAML, SQL, TOML, JSON, dashboard structure, migrations)
+2. Config validation: 25 scripts (YAML, SQL, TOML, JSON, dashboard structure, migrations)
 3. Reconciler static analysis: syntax, strict mode, error handling
 4. Integration: black-box HTTP against the running stack (llamafile e2e,
    event_id alignment, data flow, cost e2e, Grafana panel checks)
-5. CI hook verification: pre-commit and pre-push hooks present and wired
+5. Repository hooks: pre-commit and pre-push hooks present and wired
 6. E2E: real Go API calls (gated behind `RUN_LIVE_API_TESTS=1`)
 
 See [`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md) for the full strategy.
@@ -636,63 +644,6 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make plugin-type-check` | TypeScript check of the OpenCode plugin via Bun |
 | `make plugin-test` | Run the OpenCode plugin's Bun test suite |
 
-### Git Hook Lifecycle (root operation on locked repos)
-
-Native git hooks (`.git/hooks/pre-commit`, `commit-msg`, `pre-push`) are
-root-owned and carry the `chattr +i` immutable flag per
-WORKSPACE-GUARD REQ-GGUARD-178: hooks are untracked, auto-executed code, and
-immutability is the only attribute the guard never loans out.
-
-`make install-hooks` therefore delegates to WORKSPACE-CI's
-`reinstall-hooks`, NOT to `generate-hooks` directly. `reinstall-hooks` is the
-sanctioned entrypoint because it:
-
-1. stages generated hooks aside and holds the exclusive deploy lock,
-2. clears `+i` per-inode only for the duration of the install syscall,
-3. restores `+i` immediately and fail-closed verifies it with `lsattr`.
-
-On a repo with root-owned hooks, run regeneration as root:
-
-```bash
-sudo make install-hooks
-```
-
-Never hand-run `chattr -i` on hooks; a failed or interrupted manual cycle
-leaves the enforcement surface mutable. If `install-hooks` reports
-permission errors, the invariant (not the tooling) is intact: rerun it as
-root.
-
-### CI Provenance
-
-This repository consumes the **deployed** CI artifact at `/opt/workspace-ci`
-(`CI_DIR` in the Makefile). Both hook enforcement and hook configuration
-generation resolve `/opt/workspace-ci` directly (REQ-DEPLOYMENT §25):
-config via `make -C /opt/workspace-ci scaffold-ci ARGS="--consumer <repo>
---force-precommit --yes"`, native hooks via `make install-hooks` →
-`reinstall-hooks`.
-
-`scaffold-ci` was restored to the deployed artifact in the 2026-08-24/25
-WORKSPACE-CI remediation (commit `a0efdec`, capability-loss backlog), closing
-the drift window during which only the stale `../CI` clone could generate
-consumer config. Hook-entry integrity gates (`80089d2`) now abort generation
-when a catalog entry has no implementation, preventing the generator/checker
-skew class.
-
-| Tree | Status | Role |
-|------|--------|------|
-| `/opt/workspace-ci` | deployed, sealed | sole generation + enforcement source |
-| `../WORKSPACE-CI` | source checkout | development only; needs redeploy to take effect |
-| `../CI` | stale (2026-08-06, pre-migration) | unreferenced by anything live; removal is an open operator decision |
-
-If a generated config's embedded CI paths disagree with `CI_DIR`, the config
-was generated from the wrong tree; regenerate from `/opt/workspace-ci`.
-
-`.gitleaksignore` holds fingerprint-scoped exceptions for the gitignored
-local `.env` only (see `docs/TODO.md` P3.4 for the open investigation into
-the deployed gitleaks wrapper's ignore propagation). `config/required_hooks.yaml`
-is the consumer-side required-hooks manifest consumed by
-`check-required-hooks-present`.
-
 ---
 
 ## Documentation
@@ -712,7 +663,7 @@ is the consumer-side required-hooks manifest consumed by
 
 ## License
 
-- **Apache APISIX 3.17.0**: Apache 2.0
+- **Apache APISIX 3.18.0**: Apache 2.0
 - **OpenBao 2.4.4**: MPL 2.0
 - **ClickHouse 24.8**: Apache 2.0
 - **Vector 0.40**: MPL 2.0

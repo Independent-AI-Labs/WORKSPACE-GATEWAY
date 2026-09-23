@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=../config/yaml_helpers.sh
 source "$REPO_ROOT/tests/config/yaml_helpers.sh" || exit 1
 
-IMAGE="apache/apisix:3.17.0-debian"
+IMAGE="apache/apisix:3.18.0-debian"
 
 # Custom modules require each other by their deployed dotted name
 # (apisix.plugins.<module>). Expose the repo's flat plugins/custom tree under
@@ -30,7 +30,7 @@ echo "[run.sh] running Lua unit tests via podman..."
 
 OVERALL_RET=0
 
-for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_oauth_jwt.lua test_oauth_broker.lua test_oauth_session.lua test_oauth_device.lua test_oauth_auth.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua test_usefulness_cruncher.lua test_cost_recalc.lua; do
+for test_file in test_redact_lib.lua test_sse_usage_lib.lua test_oauth_jwt.lua test_oauth_broker.lua test_oauth_session.lua test_oauth_device.lua test_provider_oauth.lua test_provider_pricing.lua test_provider_sync.lua test_upstream_pool_lib.lua test_usefulness_cruncher.lua test_cost_recalc.lua; do
   echo ""
   echo "[run.sh] running $test_file..."
   ret=0

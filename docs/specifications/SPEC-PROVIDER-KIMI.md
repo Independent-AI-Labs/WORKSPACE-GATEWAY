@@ -6,7 +6,7 @@
 **Requirements:** [REQ-PROVIDER-KIMI](../requirements/REQ-PROVIDER-KIMI.md)
 
 > Implements the Moonshot Kimi provider: RFC 8628 device-code OAuth via the
-> `oauth-auth` plugin (priority 2560), OpenBao-backed session storage with
+> `provider-oauth` plugin (priority 2560), OpenBao-backed session storage with
 > transparent refresh, and 6 relay routes to `api.kimi.com/coding/v1` covering
 > three access modes (OAuth, federated virtual key, own API key). Architecture
 > context: [architecture/README.md](../architecture/README.md).
@@ -16,7 +16,7 @@
 **Cross-references:**
 - [REQ-PROVIDER-KIMI](../requirements/REQ-PROVIDER-KIMI.md): requirements
 - [architecture/README.md](../architecture/README.md): gateway architecture hub
-- [`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua): plugin phases
+- [`plugins/custom/provider-oauth.lua`](../../plugins/custom/provider-oauth.lua): plugin phases
 - [`plugins/custom/oauth_device.lua`](../../plugins/custom/oauth_device.lua): OAuth HTTP helpers (`request_device_authorization`, `poll_device_token`, `refresh_access_token`)
 - [`plugins/custom/oauth_jwt.lua`](../../plugins/custom/oauth_jwt.lua): `decode_claims`, `expires_at`, `is_expiring`, `subject`, `token_hash`
 - [`plugins/custom/oauth_store.lua`](../../plugins/custom/oauth_store.lua): OpenBao CRUD for device + session records
@@ -30,7 +30,7 @@
 ```mermaid
 graph TB
     U[User browser] --> AUTH[auth.kimi.com]
-    C[Client] -->|Bearer access_token| KA[oauth-auth 2560]
+    C[Client] -->|Bearer access_token| KA[provider-oauth 2560]
     KA --> OB[(OpenBao kimi-tokens/ kimi-device/)]
     KA -->|refresh if near exp| AUTH
     KA --> PRW[proxy-rewrite /kimi/* -> /coding/v1/*]
@@ -39,7 +39,7 @@ graph TB
     C -->|sk-...| PK[/kimi-key/* passthrough] --> API
 ```
 
-No new containers: `oauth-auth` runs in the APISIX Lua worker; OpenBao stores
+No new containers: `provider-oauth` runs in the APISIX Lua worker; OpenBao stores
 device and session records.
 
 ## 2. Architectural Principles
@@ -48,7 +48,7 @@ device and session records.
 
 | Mode | Route | Auth plugin | Secret custody | OpenCode id |
 |------|-------|-------------|----------------|-------------|
-| Device OAuth (managed) | `/kimi/*`, `/kimi/v1/*` | `oauth-auth` | Gateway (OpenBao holds refresh_token) | `workspace-gw-kimi-device-oauth` |
+| Device OAuth (managed) | `/kimi/*`, `/kimi/v1/*` | `provider-oauth` | Gateway (OpenBao holds refresh_token) | `workspace-gw-kimi-device-oauth` |
 | Virtual key | `/kimi-federated/*`, `/kimi-federated/v1/*` | `key-resolver` (`KIMI_API_KEY`) | Gateway | `workspace-gw-kimi-virtual-key` |
 | API key | `/kimi-key/*`, `/kimi-key/v1/*` | none | Client | `workspace-gw-kimi-api-key` |
 
@@ -93,9 +93,9 @@ upstream pending state -> user authorizes at `verification_uri` ->
 -> gateway polls Kimi -> token exchange -> session stored ->
 `{ access_token, expires_in, account, session_id }`.
 
-## 4. Plugin: oauth-auth (generic; Kimi config set)
+## 4. Plugin: provider-oauth (generic; Kimi config set)
 
-`oauth-auth` is the single generic OAuth plugin shared by every OAuth
+`provider-oauth` is the single generic OAuth plugin shared by every OAuth
 provider; Kimi is a per-route config set in `conf/apisix.yaml` (protocol
 `rfc8628`). Plugin-wide defaults: priority 2560, `refresh_threshold` 300,
 `ssl_verify` true, `user_agent` neutral. Kimi route config:
@@ -190,8 +190,8 @@ rewrite to `/coding/v1/*`:
 
 | Route id | URI | Rewrite | Auth |
 |----------|-----|---------|------|
-| `relay-kimi` | `/kimi/*` | `^/kimi/(.*)` -> `/coding/v1/$1` | `oauth-auth` |
-| `relay-kimi-v1` | `/kimi/v1/*` | `^/kimi/v1/(.*)` -> `/coding/v1/$1` | `oauth-auth` |
+| `relay-kimi` | `/kimi/*` | `^/kimi/(.*)` -> `/coding/v1/$1` | `provider-oauth` |
+| `relay-kimi-v1` | `/kimi/v1/*` | `^/kimi/v1/(.*)` -> `/coding/v1/$1` | `provider-oauth` |
 | `relay-kimi-federated` | `/kimi-federated/*` | `^/kimi-federated/(.*)` -> `/coding/v1/$1` | `key-resolver` (`KIMI_API_KEY`, `vgw-`) |
 | `relay-kimi-federated-v1` | `/kimi-federated/v1/*` | `^/kimi-federated/v1/(.*)` -> `/coding/v1/$1` | `key-resolver` (same) |
 | `relay-kimi-key` | `/kimi-key/*` | `^/kimi-key/(.*)` -> `/coding/v1/$1` | none |
@@ -205,18 +205,18 @@ Common route plugins: `proxy-rewrite`, `key-meta`, `limit-count` (100/60s per
 
 | Condition | Status | Body |
 |-----------|--------|------|
-| Missing `device_code` | 400 | `oauth-auth: missing device_code` |
-| Device record absent | 400 | `oauth-auth: device session expired or invalid` |
-| Device record past expiry | 400 | `oauth-auth: device session expired` |
+| Missing `device_code` | 400 | `provider-oauth: missing device_code` |
+| Device record absent | 400 | `provider-oauth: device session expired or invalid` |
+| Device record past expiry | 400 | `provider-oauth: device session expired` |
 | Authorization still pending | 202 | `authorization_pending` |
-| Device code expired upstream | 400 | `oauth-auth: device code expired` |
-| Token exchange failure | 502 | `oauth-auth: token exchange failed: ...` |
-| Missing Authorization header | 401 | `oauth-auth: missing Authorization header` |
-| `sk-` bearer on `/kimi/*` | 401 | `oauth-auth: API keys are not accepted on /kimi/auth; use /kimi-key` |
-| No session for bearer | 401 | `oauth-auth: session not found; run device flow first` |
-| Refresh `invalid_grant` | 401 | `oauth-auth: re-authenticate` (session deleted) |
-| Transient refresh failure | 503 | `oauth-auth: token refresh failed` |
-| OpenBao down/unwritable | 503 | `oauth-auth: cannot reach token store` |
+| Device code expired upstream | 400 | `provider-oauth: device code expired` |
+| Token exchange failure | 502 | `provider-oauth: token exchange failed: ...` |
+| Missing Authorization header | 401 | `provider-oauth: missing Authorization header` |
+| `sk-` bearer on `/kimi/*` | 401 | `provider-oauth: API keys are not accepted on /kimi/auth; use /kimi-key` |
+| No session for bearer | 401 | `provider-oauth: session not found; run device flow first` |
+| Refresh `invalid_grant` | 401 | `provider-oauth: re-authenticate` (session deleted) |
+| Transient refresh failure | 503 | `provider-oauth: token refresh failed` |
+| OpenBao down/unwritable | 503 | `provider-oauth: cannot reach token store` |
 
 Security: HTTPS-only upstreams on `kimi.com`; tokens never logged (redact
 plugin active on relay routes); device codes single-use with 900s TTL; the
@@ -237,7 +237,7 @@ client-held access token is a session secret treated like an API key.
 
 | File | Purpose | Key Changes |
 |------|---------|-------------|
-| `plugins/custom/oauth-auth.lua` | Plugin: device start/poll/proxy | priority 2560 |
+| `plugins/custom/provider-oauth.lua` | Plugin: device start/poll/proxy | priority 2560 |
 | `plugins/custom/oauth_device.lua` | OAuth HTTP helpers | Kimi CLI User-Agent |
 | `plugins/custom/oauth_jwt.lua` | JWT decode/expiry/hash | no signature verify |
 | `plugins/custom/oauth_store.lua` | OpenBao KVv2 CRUD | device + session records |
@@ -249,7 +249,7 @@ client-held access token is a session secret treated like an API key.
 
 | Component | Status | Evidence |
 |-----------|--------|----------|
-| oauth-auth plugin (device + proxy) | Implemented | plugins/custom/oauth-auth.lua |
+| provider-oauth plugin (device + proxy) | Implemented | plugins/custom/provider-oauth.lua |
 | OAuth helpers / JWT / OpenBao modules | Implemented | oauth_device.lua, oauth_jwt.lua, oauth_store.lua |
 | 6 relay routes | Implemented | conf/apisix.yaml |
 | 3 provider YAMLs | Implemented | conf/providers/workspace-gw-kimi-*.yaml |

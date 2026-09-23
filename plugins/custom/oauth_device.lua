@@ -1,4 +1,4 @@
--- Generic OAuth device/browser protocol engines for oauth-auth.
+-- Generic OAuth device/browser protocol engines for provider-oauth.
 --
 -- Three engines, selected by conf.protocol:
 --   rfc8628       - pure RFC 8628: form/JSON POSTs, standard error codes in
@@ -355,7 +355,7 @@ end
 
 function engines.anthropic.poll_device_token()
     --Approval is written on the device record by the verify page and
-    --short-circuited in oauth-auth before the engine is consulted, so
+    --short-circuited in provider-oauth before the engine is consulted, so
     --reaching here means the user has not finished yet.
     return { pending = true, error_code = "authorization_pending" }, nil
 end

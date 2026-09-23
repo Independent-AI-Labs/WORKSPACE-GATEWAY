@@ -52,10 +52,10 @@ yaml_to_json() {
 
   "$PODMAN_BIN" run --rm \
     -e 'LUA_PATH=/usr/local/apisix/deps/share/lua/5.1/?.lua;/usr/local/apisix/deps/share/lua/5.1/?/init.lua;;' \
-    -e 'LUA_CPATH=/usr/local/apisix/deps/lib/lua/5.1/?.so;;' \
+    -e 'LUA_CPATH=/usr/local/apisix/deps/lib/lua/5.1/?.so;/usr/local/openresty/lualib/?.so;;' \
     -v "$tmp_dir:/yaml-tmp:ro" \
     --entrypoint /usr/local/openresty/luajit/bin/luajit \
-    apache/apisix:3.17.0-debian \
+    apache/apisix:3.18.0-debian \
     -e 'local y=require("lyaml"); local c=require("cjson.safe"); local f=io.open("/yaml-tmp/input.yaml"); if not f then io.stderr:write("cannot open\n"); os.exit(1) end; local data=y.load(f:read("*a")); f:close(); local j=c.encode(data); if not j then io.stderr:write("encode failed\n"); os.exit(1) end; io.write(j); io.write("\n")'
 
   local ret=$?

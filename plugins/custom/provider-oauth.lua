@@ -21,7 +21,7 @@ local oauth_broker = require("apisix.plugins.oauth_broker")
 local session = require("apisix.plugins.oauth_session")
 local verify = require("apisix.plugins.oauth_verify")
 
-local plugin_name = "oauth-auth"
+local plugin_name = "provider-oauth"
 
 local plugin = {
     version = 0.1,

@@ -1,4 +1,4 @@
--- Shared OAuth session behavior for oauth-auth (all OAuth providers).
+-- Shared OAuth session behavior for provider-oauth (all OAuth providers).
 -- Only identical session/refresh/header logic lives here; provider protocol
 -- differences stay in oauth_device.lua engines and per-route plugin config.
 local core = require("apisix.core")

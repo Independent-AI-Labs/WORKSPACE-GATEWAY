@@ -204,7 +204,7 @@ check(auth.verification_uri:find("^https://gw%.example%.com/anthropic%-device/au
 check(auth.user_code_index == "uc-" .. auth.user_code, "anthropic user_code index key")
 check(auth.expires_in == 900 and auth.interval == 5, "anthropic device ttl defaults")
 
--- anthropic: poll is always pending (approval short-circuits in oauth-auth).
+-- anthropic: poll is always pending (approval short-circuits in provider-oauth).
 r = device.engine(anthropic_conf).poll_device_token(anthropic_conf, auth.device_code, auth.user_code)
 check(r.pending == true and r.error_code == "authorization_pending", "anthropic poll pending")
 

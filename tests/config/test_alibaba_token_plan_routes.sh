@@ -22,8 +22,8 @@ assert_eq "relay-alibaba-token-plan: pass_host is node" "node" "$ATP_PASS_HOST"
 ATP_HAS_KR=$(echo "$ATP_ROUTE" | jq '.plugins | has("key-resolver")')
 assert_eq "relay-alibaba-token-plan: no key-resolver (passthrough)" "false" "$ATP_HAS_KR"
 
-ATP_HAS_OA=$(echo "$ATP_ROUTE" | jq '.plugins | has("oauth-auth")')
-assert_eq "relay-alibaba-token-plan: no oauth-auth (passthrough)" "false" "$ATP_HAS_OA"
+ATP_HAS_OA=$(echo "$ATP_ROUTE" | jq '.plugins | has("provider-oauth")')
+assert_eq "relay-alibaba-token-plan: no provider-oauth (passthrough)" "false" "$ATP_HAS_OA"
 
 ATP_HAS_KM=$(echo "$ATP_ROUTE" | jq '.plugins | has("key-meta")')
 assert_eq "relay-alibaba-token-plan: key-meta present" "true" "$ATP_HAS_KM"
@@ -55,8 +55,8 @@ assert_eq "relay-alibaba-token-plan-cn: upstream node is token-plan.cn-beijing.m
 ATPC_HAS_KR=$(echo "$ATPC_ROUTE" | jq '.plugins | has("key-resolver")')
 assert_eq "relay-alibaba-token-plan-cn: no key-resolver (passthrough)" "false" "$ATPC_HAS_KR"
 
-ATPC_HAS_OA=$(echo "$ATPC_ROUTE" | jq '.plugins | has("oauth-auth")')
-assert_eq "relay-alibaba-token-plan-cn: no oauth-auth (passthrough)" "false" "$ATPC_HAS_OA"
+ATPC_HAS_OA=$(echo "$ATPC_ROUTE" | jq '.plugins | has("provider-oauth")')
+assert_eq "relay-alibaba-token-plan-cn: no provider-oauth (passthrough)" "false" "$ATPC_HAS_OA"
 
 ATPC_REWRITE=$(echo "$ATPC_ROUTE" | jq -c '.plugins["proxy-rewrite"].regex_uri')
 assert_eq "relay-alibaba-token-plan-cn: rewrite strips /token-plan-cn/ only" '["^/token-plan-cn/(.*)","/$1"]' "$ATPC_REWRITE"

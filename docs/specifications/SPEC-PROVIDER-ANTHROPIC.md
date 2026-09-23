@@ -16,7 +16,7 @@
 **Cross-references:**
 - [REQ-PROVIDER-ANTHROPIC](../requirements/REQ-PROVIDER-ANTHROPIC.md): requirements
 - [SPEC-PROVIDER-KIMI](SPEC-PROVIDER-KIMI.md): device facade pattern this follows
-- [`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua), [`oauth_device.lua`](../../plugins/custom/oauth_device.lua), [`oauth_session.lua`](../../plugins/custom/oauth_session.lua), [`oauth_store.lua`](../../plugins/custom/oauth_store.lua)
+- [`plugins/custom/provider-oauth.lua`](../../plugins/custom/provider-oauth.lua), [`oauth_device.lua`](../../plugins/custom/oauth_device.lua), [`oauth_session.lua`](../../plugins/custom/oauth_session.lua), [`oauth_store.lua`](../../plugins/custom/oauth_store.lua)
 - [`conf/apisix.yaml.j2`](../../conf/apisix.yaml.j2)
 - [`res/scripts/claude-gw.sh`](../../res/scripts/claude-gw.sh)
 
@@ -69,7 +69,7 @@ anthropic_oauth:
 ```
 
 Notes:
-- No `oauth-auth`, no `key-resolver`, no header rewrites besides the
+- No `provider-oauth`, no `key-resolver`, no header rewrites besides the
   path. `pass_host: node` sends `Host: api.anthropic.com`; every other
   header, the query string, and the body are client-authored and
   untouched (REQ FR-2.1). This mirrors `relay-zai-key` minus any auth
@@ -80,11 +80,11 @@ Notes:
 
 ### 2.2 `relay-anthropic-device` (custodial, provider B)
 
-Same upstream/rewrite/observability as 2.1, plus `oauth-auth` before
+Same upstream/rewrite/observability as 2.1, plus `provider-oauth` before
 `key-meta`:
 
 ```yaml
-      oauth-auth:
+      provider-oauth:
         auth_base: /anthropic-device/auth
         protocol: anthropic            # new engine (section 3)
         oauth_host: "https://claude.ai"
@@ -106,7 +106,7 @@ Same upstream/rewrite/observability as 2.1, plus `oauth-auth` before
 
 ## 3. Plugin work
 
-### 3.1 `oauth-auth` schema additions
+### 3.1 `provider-oauth` schema additions
 
 | Field | Purpose |
 |-------|---------|
@@ -143,12 +143,12 @@ Browser PKCE flow, GW-driven:
   interval: 5, expires_in: 900}`.
 - `POST {auth_base}/device/poll`: on approval completes the session
   write and returns the gateway session bearer per the existing
-  oauth-auth session contract (`authorization_pending`/`slow_down`
+  provider-oauth session contract (`authorization_pending`/`slow_down`
   202 semantics, `expired_token`/`access_denied` terminal).
 - The verification page: static HTML shell + one fetch call; it starts
   the browser flow (3.2 step 1), collects the pasted `CODE#STATE`, and
   submits it. No third-party assets; served by the `oauth_verify.lua`
-  module wired into `oauth-auth` (gated by `verify_page`). The pending
+  module wired into `provider-oauth` (gated by `verify_page`). The pending
   device record is also indexed under `uc-{user_code}` so the page can
   find it; the index is deleted on completion and expiry.
 
@@ -160,7 +160,7 @@ overwrite `Authorization: Bearer <live access token>`, apply
 `fixed_upstream_headers` (the `anthropic-beta: oauth-2025-04-20`
 header), append `?beta=true` when the path ends with
 `beta_query_path` and the query is absent, then proxy.
-`/anthropic/*` never enters this phase (no oauth-auth on the route).
+`/anthropic/*` never enters this phase (no provider-oauth on the route).
 
 ## 4. Provider definitions
 
@@ -183,7 +183,7 @@ route: "/anthropic-device"
 npm: "@anthropic-ai/sdk"
 auth:
   type: oauth
-  plugin: oauth-auth
+  plugin: provider-oauth
   methods:
     - id: anthropic-device-oauth
       flow: device_authorization
@@ -209,9 +209,9 @@ No credential env is set or unset by the wrapper.
 
 | Test | What |
 |------|------|
-| `tests/config/test_oauth_auth_routes.sh` (sourced by `test_apisix_yaml.sh`) | relay-anthropic + relay-anthropic-device present; passthrough route has NO auth plugin and rewrites only the path; device route carries oauth-auth with the section 1 constants; both provider YAMLs follow the id contract |
+| `tests/config/test_provider_oauth_routes.sh` (sourced by `test_apisix_yaml.sh`) | relay-anthropic + relay-anthropic-device present; passthrough route has NO auth plugin and rewrites only the path; device route carries provider-oauth with the section 1 constants; both provider YAMLs follow the id contract |
 | `tests/lua/test_oauth_device.lua` (anthropic engine block) | minted codes make no upstream call; authorize URL quirks (state == verifier, `code=true`, scopes); JSON token/refresh bodies on `token_host`; refresh-without-rotation keeps old token; poll pending |
-| `tests/lua/test_oauth_auth.lua` (facade block) | device start + `uc-` index; verify page served; verify start via query `user_code`; `CODE#STATE` split + single-use state; approval marks the record; poll short-circuit hands out the stored bearer without rewriting the session; `?beta=true` appended only on the messages path |
+| `tests/lua/test_provider_oauth.lua` (facade block) | device start + `uc-` index; verify page served; verify start via query `user_code`; `CODE#STATE` split + single-use state; approval marks the record; poll short-circuit hands out the stored bearer without rewriting the session; `?beta=true` appended only on the messages path |
 | e2e (local capture server) | passthrough relays headers/query verbatim (byte compare at the capture server); device end-to-end against real claude.ai; deferred until live credentials |
 
 ## 7. Rollout

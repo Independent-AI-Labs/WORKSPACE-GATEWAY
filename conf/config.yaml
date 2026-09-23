@@ -23,6 +23,12 @@ deployment:
       - 10.99.10.2/32
       - 10.99.110.1/32
       - 10.99.110.2/32
+      # Rootless podman port-forwarding sources host-published connections
+      # from a random one of the container's own networks (observed on
+      # gw-ingest and gw-metrics), not 127.0.0.1. Admit the stack's private
+      # range so the loopback Admin API + embedded Dashboard UI work
+      # (FR-6.2); Admin operations still require the API key.
+      - 10.99.0.0/16
     enable_admin_ui: true
   etcd:
     host:
@@ -38,7 +44,7 @@ deployment:
 plugins:
   - key-resolver
   - key-meta
-  - oauth-auth
+  - provider-oauth
   - provider-sync
   - ai-rate-limiting
   - proxy-buffering

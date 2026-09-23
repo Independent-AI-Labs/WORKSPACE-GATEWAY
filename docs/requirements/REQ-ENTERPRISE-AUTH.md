@@ -1,16 +1,25 @@
-# REQ-ENTERPRISE-AUTH: Enterprise Auth and AI Routing (Aspirational)
+# REQ-ENTERPRISE-AUTH: Enterprise Auth and AI Routing (Retired)
 
 **Date:** 2026-07-17
-**Status:** Draft
+**Status:** Retired (2026-09-23)
 **Type:** Requirements
 **Specification:** [SPEC-ENTERPRISE-AUTH](../specifications/SPEC-ENTERPRISE-AUTH.md)
+
+> **Retired 2026-09-23.** This aspirational document has been split three ways
+> and is kept for history only:
+> - OIDC / inbound identity -> [REQ-KEYCLOAK-INTEGRATION](REQ-KEYCLOAK-INTEGRATION.md)
+> - `ai-proxy` translation -> [REQ-AI-PROXY](REQ-AI-PROXY.md) (Not Adopted)
+> - LDAP/AD/Kerberos -> delegated to WORKSPACE-DATAOPS / WORKSPACE-PORTAL IAM
+>   (Keycloak federation); no gateway requirements.
+>
+> The content below is preserved verbatim and is **no longer authoritative**.
 
 > This document captures optional enterprise hardening features mined from the
 > original design docs: OIDC bearer-only authentication (`openid-connect`),
 > earlier AD authentication (`ldap-auth`, Kerberos via `forward-auth` in v2),
 > and canonical provider translation (`ai-proxy`). These features are **not
 > part of the deployed gateway**; the current deployment authenticates via
-> `key-resolver` virtual keys, `oauth-auth`, and shared-key passthrough. They
+> `key-resolver` virtual keys, `provider-oauth`, and shared-key passthrough. They
 > are recorded here as an opt-in target configuration for enterprise
 > environments. Nothing in this document is implemented in the current
 > codebase.
@@ -51,7 +60,7 @@ single-provider AI translation, using only APISIX built-in plugins
 - Single-provider `ai-proxy` translation and `stream_options.include_usage` enforcement
 
 **This document DOES NOT:**
-- Replace the deployed auth model (`key-resolver` + OpenBao virtual keys, `oauth-auth`)
+- Replace the deployed auth model (`key-resolver` + OpenBao virtual keys, `provider-oauth`)
 - Mandate any of these features; each is independently opt-in
 - Cover custom Lua glue beyond the small header-injection filters noted in the spec
 

@@ -21,7 +21,7 @@
 
 ## 1. Overview
 
-All request-time logic is pure Lua running in-process inside the APISIX nginx worker (LuaJIT, OpenResty cosockets). No Wasm, no Rust sidecar. Six registered plugins plus shared libraries cover auth (oauth-auth, key-resolver), key scoping (key-meta), PII redaction (redact), usage accounting (sse-usage), and provider catalog/pricing sync (provider-sync).
+All request-time logic is pure Lua running in-process inside the APISIX nginx worker (LuaJIT, OpenResty cosockets). No Wasm, no Rust sidecar. Six registered plugins plus shared libraries cover auth (provider-oauth, key-resolver), key scoping (key-meta), PII redaction (redact), usage accounting (sse-usage), and provider catalog/pricing sync (provider-sync).
 
 ## 2. Architectural Principles
 
@@ -29,7 +29,7 @@ All request-time logic is pure Lua running in-process inside the APISIX nginx wo
 
 | Component | Value |
 |-----------|-------|
-| APISIX | 3.17.0 (`apache/apisix:3.17.0-debian`) |
+| APISIX | 3.18.0 (`apache/apisix:3.18.0-debian`) |
 | Deployment | `role: traditional`, `config_provider: etcd` (`http://etcd:2379`, prefix `/apisix`)  -  routes seeded to etcd, NOT standalone YAML |
 | Lua | LuaJIT 2.1 (bundled with the image) |
 
@@ -37,7 +37,7 @@ All request-time logic is pure Lua running in-process inside the APISIX nginx wo
 The old doc's `extra_lua_path` + `apisix/plugins/custom/` layout is NOT used. The Dockerfile COPYs each `plugins/custom/*.lua` flat to `/usr/local/apisix/apisix/plugins/<name>.lua`; plugins are required as `apisix.plugins.<name>` and enabled by listing the name under `plugins:` in `conf/config.yaml`.
 
 ### 2.3 Plugins vs libraries
-Registered APISIX plugins (manifest + schema + phases): `key-resolver`, `key-meta`, `oauth-auth`, `provider-sync`, `redact`, `sse-usage`. Pure Lua modules required by them (not registered): `cost_calc`, `model_registry`, `sse_usage_lib`, `redact_lib`, `provider_sync_catalog`, `provider_sync_pricing`, `oauth_device`, `oauth_jwt`, `oauth_store`.
+Registered APISIX plugins (manifest + schema + phases): `key-resolver`, `key-meta`, `provider-oauth`, `provider-sync`, `redact`, `sse-usage`. Pure Lua modules required by them (not registered): `cost_calc`, `model_registry`, `sse_usage_lib`, `redact_lib`, `provider_sync_catalog`, `provider_sync_pricing`, `oauth_device`, `oauth_jwt`, `oauth_store`.
 
 ## 3. Plugin Contracts
 
@@ -50,13 +50,13 @@ Every plugin returns a table with `version`, `priority`, `name`:
 | redact | 2500 | access, header_filter, body_filter, log |
 | key-meta | 2530 | access, log |
 | key-resolver | 2555 | access |
-| oauth-auth | 2560 | access |
+| provider-oauth | 2560 | access |
 | provider-sync | 2570 | init, access |
 
-Higher priority runs earlier: auth (`oauth-auth` 2560, `key-resolver` 2555) precedes key scoping (`key-meta` 2530), redaction (2500), and usage logging (2400).
+Higher priority runs earlier: auth (`provider-oauth` 2560, `key-resolver` 2555) precedes key scoping (`key-meta` 2530), redaction (2500), and usage logging (2400).
 
 ### 3.2 Schema
-Each plugin defines `plugin.schema` (Lua table, APISIX schema DSL) and `plugin.check_schema(conf)` delegating to `core.schema.check`. Examples: `sse-usage` has `clickhouse_addr` (default `http://clickhouse:8123`); `redact` has `patterns_file`; `key-resolver` has `openbao_addr`, `openbao_token_env`, `upstream_key_env`, `key_prefix`, `cache_ttl`, `virtual_key_prefix`; `key-meta` accepts an empty object `{}`; `oauth-auth` requires explicit per-route config (`auth_base`, `oauth_host`, `client_id`, endpoint paths, OpenBao prefixes) so provider wiring is config, never code.
+Each plugin defines `plugin.schema` (Lua table, APISIX schema DSL) and `plugin.check_schema(conf)` delegating to `core.schema.check`. Examples: `sse-usage` has `clickhouse_addr` (default `http://clickhouse:8123`); `redact` has `patterns_file`; `key-resolver` has `openbao_addr`, `openbao_token_env`, `upstream_key_env`, `key_prefix`, `cache_ttl`, `virtual_key_prefix`; `key-meta` accepts an empty object `{}`; `provider-oauth` requires explicit per-route config (`auth_base`, `oauth_host`, `client_id`, endpoint paths, OpenBao prefixes) so provider wiring is config, never code.
 
 ### 3.3 Phase semantics
 - `access`  -  auth resolution, key scoping, request-body model capture, PII anonymization.
@@ -73,7 +73,7 @@ Each plugin defines `plugin.schema` (Lua table, APISIX schema DSL) and `plugin.c
 |------|------|------|
 | key-resolver.lua | plugin | `vgw-*` virtual keys via OpenBao; passthrough otherwise |
 | key-meta.lua | plugin | emits `X-Key-Hash` for per-key scoping |
-| oauth-auth.lua | plugin | Generic OAuth device/browser auth; provider differences are per-route config (uses oauth_device/oauth_jwt/oauth_store) |
+| provider-oauth.lua | plugin | Generic OAuth device/browser auth; provider differences are per-route config (uses oauth_device/oauth_jwt/oauth_store) |
 | provider-sync.lua | plugin | `/gateway/providers*` endpoint + catalog/pricing sync |
 | redact.lua | plugin | PII anonymize + re-hydrate (uses redact_lib) |
 | sse-usage.lua | plugin | SSE/JSON usage extraction, usage_log INSERT, quota counters |

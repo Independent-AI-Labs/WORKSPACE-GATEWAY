@@ -8,7 +8,7 @@ route: "/anthropic-device"
 npm: "@anthropic-ai/sdk"
 auth:
   type: oauth
-  plugin: oauth-auth
+  plugin: provider-oauth
   methods:
     - id: anthropic-device-oauth
       flow: device_authorization

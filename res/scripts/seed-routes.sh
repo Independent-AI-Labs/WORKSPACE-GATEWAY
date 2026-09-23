@@ -104,7 +104,7 @@ print(f'Found {len(routes)} route(s) to seed')
 
 # Fail before mutating etcd when APISIX has not loaded the custom plugins
 # that route definitions require. HTTP readiness alone is not sufficient.
-REQUIRED_PLUGIN_RE='^(key-resolver|key-meta|oauth-auth|provider-sync|redact|sse-usage)$'
+REQUIRED_PLUGIN_RE='^(key-resolver|key-meta|provider-oauth|provider-sync|redact|sse-usage)$'
 export REQUIRED_PLUGIN_RE
 required_plugins="$(jq -r '[.[] | .plugins // {} | keys[]] | unique | map(select(test(env.REQUIRED_PLUGIN_RE))) | join(" ")' "$TMPD/routes.json")"
 

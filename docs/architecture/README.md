@@ -15,11 +15,12 @@ For the doc hub see [`docs/README.md`](../README.md).
 | 2 | [`RUNTIME-TOPOLOGY.md`](RUNTIME-TOPOLOGY.md) | Compose services, networks, volumes |
 | 3 | [`LLAMAFILE-UPSTREAM.md`](LLAMAFILE-UPSTREAM.md) | VM-hosted local LLM for zero-cost e2e |
 | 4 | [`PLUGIN-PIPELINE.md`](PLUGIN-PIPELINE.md) | Phase priorities, per-route plugin matrix |
-| 5 | [`CUSTOM-PLUGINS.md`](CUSTOM-PLUGINS.md) | key-resolver, key-meta, oauth-auth, provider-sync, sse-usage, redact + libs |
+| 5 | [`CUSTOM-PLUGINS.md`](CUSTOM-PLUGINS.md) | key-resolver, key-meta, provider-oauth, provider-sync, sse-usage, redact + libs |
 | 6 | [`BUILTIN-PLUGINS.md`](BUILTIN-PLUGINS.md) | request-id, limit-count, http-logger, prometheus, proxy-* |
 | 7 | [`REQUEST-LIFECYCLE.md`](REQUEST-LIFECYCLE.md) | Federated request sequence diagram |
 | 8 | [`KEY-MANAGEMENT.md`](KEY-MANAGEMENT.md) | OpenBao KV, scripts, entrypoint |
-| 9 | [`TELEMETRY-AND-SCHEMA.md`](TELEMETRY-AND-SCHEMA.md) | Vector, ClickHouse tables, migrations |
+| 9 | [`AUTH-MODEL.md`](AUTH-MODEL.md) | Credential classes, Keycloak vs OpenBao, provider-OAuth boundary |
+| 10 | [`TELEMETRY-AND-SCHEMA.md`](TELEMETRY-AND-SCHEMA.md) | Vector, ClickHouse tables, migrations |
 
 ## Related docs
 

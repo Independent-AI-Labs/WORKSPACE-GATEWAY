@@ -176,8 +176,11 @@ assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
 APISIX_PORT_9100=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(contains("9100"))] | length')
 assert_eq "APISIX metrics port 9100 unpublished" "0" "$APISIX_PORT_9100"
 
-APISIX_PORT_9180=$(echo "$JSON_DATA" | jq '.services.apisix.ports | length')
-assert_eq "APISIX publishes only data-plane ports (9080/9443)" "2" "$APISIX_PORT_9180"
+APISIX_ADMIN_LOOPBACK=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "127.0.0.1:9180:9180")] | length')
+assert_eq "APISIX publishes Admin API/Dashboard UI on loopback 9180" "1" "$APISIX_ADMIN_LOOPBACK"
+
+APISIX_PORT_COUNT=$(echo "$JSON_DATA" | jq '.services.apisix.ports | length')
+assert_eq "APISIX publishes data-plane ports + loopback admin (3)" "3" "$APISIX_PORT_COUNT"
 
 APISIX_STATIC_IP=$(echo "$JSON_DATA" | jq -r '.services.apisix.networks["gw-ch"].ipv4_address')
 assert_eq "APISIX has static gw-ch address for Admin API seeding" "10.99.10.2" "$APISIX_STATIC_IP"
@@ -212,8 +215,8 @@ HAS_SSE_USAGE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "sse-usage.lua" ) || { HAS
 assert_eq "APISIX mounts sse-usage.lua" "1" "$HAS_SSE_USAGE_MOUNT"
 
 HAS_OAUTH_AUTH_MOUNT_RC=0
-HAS_OAUTH_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth-auth.lua" ) || { HAS_OAUTH_AUTH_MOUNT_RC=$?; HAS_OAUTH_AUTH_MOUNT="0"; }
-assert_eq "APISIX mounts oauth-auth.lua" "1" "$HAS_OAUTH_AUTH_MOUNT"
+HAS_OAUTH_AUTH_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider-oauth.lua" ) || { HAS_OAUTH_AUTH_MOUNT_RC=$?; HAS_OAUTH_AUTH_MOUNT="0"; }
+assert_eq "APISIX mounts provider-oauth.lua" "1" "$HAS_OAUTH_AUTH_MOUNT"
 
 HAS_OAUTH_JWT_MOUNT_RC=0
 HAS_OAUTH_JWT_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_jwt.lua" ) || { HAS_OAUTH_JWT_MOUNT_RC=$?; HAS_OAUTH_JWT_MOUNT="0"; }

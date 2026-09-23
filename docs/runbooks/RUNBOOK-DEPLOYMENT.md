@@ -36,8 +36,9 @@ ClickHouse, and running the reconciler. Runtime topology and service inventory:
     ```bash
     make gw-start
    ```
-2. Services started: `apisix` (public 9080/9443), `clickhouse` (loopback
-   8123, authenticated), `migrate` (one-shot golang-migrate runner,
+2. Services started: `apisix` (public 9080/9443; loopback 9180 Admin API +
+   embedded Dashboard UI), `clickhouse` (loopback 8123, authenticated),
+   `migrate` (one-shot golang-migrate runner,
    authenticates as `migrator`), `vector`, `openbao`, `prometheus`,
    `grafana` (loopback 3030, edge-proxy auth), and `etcd` (RBAC)  -  the
    latter five have **no published host ports**; reach them via
@@ -62,7 +63,7 @@ Gateway lifecycle operations preserve all persistent volumes.
 ### 3. Build the APISIX image only
 
 [`res/docker/Dockerfile.apisix`](../../res/docker/Dockerfile.apisix) is based on
-`apache/apisix:3.17.0-debian` and COPYs the 15 custom plugin/lib files from
+`apache/apisix:3.18.0-debian` and COPYs the 15 custom plugin/lib files from
 `plugins/custom/` flat into `/usr/local/apisix/apisix/plugins/`, plus
 `conf/config.yaml`, `conf/redact-patterns.json`, and `conf/providers/`.
 
@@ -153,6 +154,30 @@ curl -u "$CH_OPS_USER:$CH_OPS_PASSWORD" -s 'http://localhost:8123/?database=llm_
   --data 'SELECT * FROM billing_discrepancies ORDER BY flagged_at DESC LIMIT 20 FORMAT TSVWithNames'
 ```
 
+### 9. APISIX Dashboard UI
+
+APISIX 3.13+ ships an embedded Dashboard UI (`conf/config.yaml`:
+`deployment.admin.enable_admin_ui: true`). No separate `apisix-dashboard`
+container is used. It is served by the Admin API on loopback only
+(REQ-SECURITY-HARDENING FR-6.2), so open:
+
+```
+http://127.0.0.1:9180/ui/
+```
+
+When prompted, authenticate with the Admin API key (`ADMIN_KEY` in `.env`);
+the UI reads/writes the same etcd config store the gateway serves from.
+Rootless podman sources forwarded connections from one of the container's own
+networks, so `conf/config.yaml` `allow_admin` admits `10.99.0.0/16` alongside
+loopback; the API key is still required for every admin operation.
+
+> **Reconciler caveat:** routes created in the UI MUST NOT use the `relay-`
+> prefix. `res/scripts/seed-routes.sh` treats every `relay-*` route as
+> gateway-owned and deletes any that are absent from `conf/apisix.yaml`.
+
+Prod (`docker-compose.prod.yml`) does not publish the admin port: reach it
+via `podman exec gw-prod-apisix curl ...`.
+
 ## Verification
 
 After bring-up, all of the following must hold:
@@ -166,7 +191,7 @@ After bring-up, all of the following must hold:
 6. Security matrix (REQ-SECURITY-HARDENING V7) passes: unauthenticated
    ClickHouse query → 401; `grafana_ro` DDL/INSERT → denied;
    `request_bodies` invisible to `grafana_ro`; `ss -tlnp` shows only
-   9080/9081/9443/9444 public plus loopback 8123/8124/3030.
+   9080/9081/9443/9444 public plus loopback 8123/8124/3030/9180.
 
 ## Troubleshooting
 

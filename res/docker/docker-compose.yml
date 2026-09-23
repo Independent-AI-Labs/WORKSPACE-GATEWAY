@@ -6,6 +6,11 @@ services:
     ports:
       - "9080:9080"
       - "9443:9443"
+      # Loopback-only Admin API + embedded Dashboard UI (`/ui`, enabled by
+      # deployment.admin.enable_admin_ui). Never bound to an external
+      # interface; reach it at http://127.0.0.1:9180/ui/ with ADMIN_KEY.
+      # REQ-SECURITY-HARDENING FR-6.2.
+      - "127.0.0.1:9180:9180"
     volumes:
       - ../../conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
       - ../../conf/config.yaml:/usr/local/apisix/conf/config.yaml:ro
@@ -16,7 +21,7 @@ services:
       - ../../res/scripts/usefulness:/usr/local/apisix/usefulness:ro
       - ../../plugins/custom/key-resolver.lua:/usr/local/apisix/apisix/plugins/key-resolver.lua:ro
       - ../../plugins/custom/key-meta.lua:/usr/local/apisix/apisix/plugins/key-meta.lua:ro
-      - ../../plugins/custom/oauth-auth.lua:/usr/local/apisix/apisix/plugins/oauth-auth.lua:ro
+      - ../../plugins/custom/provider-oauth.lua:/usr/local/apisix/apisix/plugins/provider-oauth.lua:ro
       - ../../plugins/custom/oauth_verify.lua:/usr/local/apisix/apisix/plugins/oauth_verify.lua:ro
       - ../../plugins/custom/oauth_broker.lua:/usr/local/apisix/apisix/plugins/oauth_broker.lua:ro
       - ../../plugins/custom/oauth_session.lua:/usr/local/apisix/apisix/plugins/oauth_session.lua:ro

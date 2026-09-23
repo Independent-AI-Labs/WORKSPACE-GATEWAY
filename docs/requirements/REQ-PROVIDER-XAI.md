@@ -17,7 +17,7 @@
 
 **Cross-references:**
 - [SPEC-PROVIDER-XAI](../specifications/SPEC-PROVIDER-XAI.md): companion specification
-- REQ-PROVIDER-KIMI: implemented analog provider ([`plugins/custom/oauth-auth.lua`](../../plugins/custom/oauth-auth.lua)). Since the generic `oauth-auth` consolidation, implementing xAI is a provider YAML + an `oauth-auth` config set on the relay route (no new Lua plugin), unless xAI's upstream contract needs a third protocol engine in `oauth_device.lua`.
+- REQ-PROVIDER-KIMI: implemented analog provider ([`plugins/custom/provider-oauth.lua`](../../plugins/custom/provider-oauth.lua)). Since the generic `provider-oauth` consolidation, implementing xAI is a provider YAML + an `provider-oauth` config set on the relay route (no new Lua plugin), unless xAI's upstream contract needs a third protocol engine in `oauth_device.lua`.
 - Earlier PROVIDER-XAI-GROK design (AMI-PROP-LLMGW-PROVIDER-XAI-GROK-v1.1, absorbed)
 - [`docs/architecture/README.md`](../architecture/README.md): architecture hub
 

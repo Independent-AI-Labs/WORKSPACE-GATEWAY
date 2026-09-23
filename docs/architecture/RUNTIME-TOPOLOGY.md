@@ -39,7 +39,7 @@ Source of truth: [`res/docker/docker-compose.yml`](../../res/docker/docker-compo
 
 | Service | Image | Container ports | Host ports | Networks | Purpose |
 |---------|-------|-----------------|------------|----------|---------|
-| APISIX | custom `Dockerfile.apisix` | 9080, 9180, 9443, 9100 | **9080, 9443 (public)** | gw-ch, gw-etcd, gw-secrets, gw-metrics, gw-ingest, dataops | Data plane, Admin API, metrics export |
+| APISIX | custom `Dockerfile.apisix` | 9080, 9180, 9443, 9100 | **9080, 9443 (public)**; **127.0.0.1:9180** (Admin API + embedded `/ui` Dashboard) | gw-ch, gw-etcd, gw-secrets, gw-metrics, gw-ingest, dataops | Data plane, Admin API, metrics export |
 | etcd | `quay.io/coreos/etcd:v3.5.20` | 2379 | *(none  -  podman exec)* | gw-etcd | Route/config store (RBAC) |
 | ClickHouse | `clickhouse/clickhouse-server:24.8-alpine` | 8123, 9000 | **127.0.0.1:8123** | gw-ch | Telemetry and billing schema (per-service users) |
 | migrate | `migrate/migrate:v4.19.1` | n/a | n/a | gw-ch | golang-migrate one-shot (`make ch-migrate`) |
@@ -56,9 +56,10 @@ it runs no Prometheus/Grafana.
 
 - **Public (0.0.0.0):** 9080/9443 (dev apisix), 9081/9444 (prod apisix)
 - **Loopback only:** 8123 (dev ClickHouse HTTP, `ops_admin` auth),
-  8124 (prod), 3030 (Grafana, edge-proxy auth)
+  8124 (prod), 3030 (Grafana, edge-proxy auth), 9180 (dev APISIX Admin API +
+  embedded Dashboard UI `/ui`, `ADMIN_KEY` auth)
 - **Unpublished (podman exec only):** etcd, OpenBao, Vector, APISIX
-  Admin/metrics, ClickHouse native protocol
+  metrics, ClickHouse native protocol, prod APISIX admin (9181)
 
 ## Networks
 
