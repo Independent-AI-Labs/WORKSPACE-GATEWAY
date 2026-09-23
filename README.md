@@ -108,22 +108,9 @@ Each new provider is a relay route plus an upstream node.
 
 ### Sample deployments in this repo
 
-| Route | Prefix | Auth | Sample upstream |
-|-------|--------|------|-----------------|
-| `relay-opencode` | `/opencode/*` | Direct key passthrough | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
-| `relay-opencode-federated` | `/opencode_federated/*` | Virtual keys (`vgw-*`) via OpenBao | OpenCode Go (`opencode.ai`) → `/zen/go/*` |
-| `relay-opencode-zen` | `/opencode_zen/*` | Direct key passthrough | OpenCode Zen (`opencode.ai`) → `/zen/*` |
-| `relay-kimi` | `/kimi/*` | `provider-oauth` headless device authorization | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
-| `relay-kimi-federated` | `/kimi-federated/*` | Virtual keys (`vgw-*`) via OpenBao | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
-| `relay-kimi-key` | `/kimi-key/*` | Direct key passthrough | Moonshot Kimi (`api.kimi.com`) → `/coding/v1/*` |
-| `relay-zai-key` | `/zai-key/*` | Direct key passthrough | Z.ai GLM Coding Plan (`api.z.ai`) → `/api/coding/paas/v4/*` |
-| `relay-alibaba-token-plan` | `/token-plan/*` | Direct key passthrough | Alibaba Cloud Token Plan (`token-plan.ap-southeast-1.maas.aliyuncs.com`) |
-| `relay-alibaba-token-plan-cn` | `/token-plan-cn/*` | Direct key passthrough | Alibaba Cloud Token Plan China (`token-plan.cn-beijing.maas.aliyuncs.com`) |
-| `relay-llamafile` | `/llamafile/*` | None (local dev) | VM-hosted llamafile on port 8765 (`host.docker.internal:8765`) |
-
-Representative samples; the complete route table (18 routes, including
-`/openai/*` and `/anthropic/*`) is [`conf/apisix.yaml`](conf/apisix.yaml).
-All routes as registered in APISIX:
+All 18 relay routes as registered in APISIX (definitions in
+[`conf/apisix.yaml`](conf/apisix.yaml), provider config in
+[`conf/providers/`](conf/providers/)):
 
 ![APISIX dashboard: all 18 relay routes registered by the gateway](res/apisix-dashboard-routes.png)
 
@@ -131,8 +118,7 @@ In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
 (`*-free` + pay-as-you-go) via the `/opencode_zen/*` relay. Swap the
 upstream node in `apisix.yaml.j2` to point at any other compatible API.
-Additional providers = new relay route + upstream node. Provider definitions
-live in [`conf/providers/`](conf/providers/); upstream API-key quota
+Additional providers = new relay route + upstream node. Upstream API-key quota
 exhaustion is handled by upstream key pools (see
 [Key Management](#key-management)).
 
