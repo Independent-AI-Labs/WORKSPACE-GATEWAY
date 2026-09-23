@@ -30,3 +30,9 @@ files:
   res/dashboard-ops-health.png:
     class: binary
     owner: workspace-ci
+  res/apisix-dashboard-routes.png:
+    class: binary
+    owner: workspace-ci
+  res/apisix-dashboard-services.png:
+    class: binary
+    owner: workspace-ci

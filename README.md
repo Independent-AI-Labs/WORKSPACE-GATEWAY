@@ -8,15 +8,11 @@ Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
 Cloud backends are reached through provider-passthrough relay routes
 (`proxy-rewrite` plus the custom `sse-usage` telemetry layer), with usage, cost,
 and health tracked in ClickHouse and Grafana. APISIX's native `ai-proxy`
-normalization is deliberately **not** adopted (see
-[`SPEC-AI-PROXY`](docs/specifications/SPEC-AI-PROXY.md)). This repo ships sample
+normalization is deliberately **not** adopted. This repo ships sample
 routes to OpenCode, Moonshot Kimi, Z.ai, Alibaba Token Plan, and a local
 llamafile, and the default deployment sends cloud traffic to OpenCode Go
 (`opencode.ai`). The gateway is provider-agnostic: a new provider is a relay
-route plus an upstream node, for OpenAI-compatible or provider-native backends
-(see [Supported Providers](#supported-providers)).
-
-> Full technical reference: [`docs/architecture/README.md`](docs/architecture/README.md)
+route plus an upstream node, for OpenAI-compatible or provider-native backends.
 
 ---
 
@@ -24,7 +20,6 @@ route plus an upstream node, for OpenAI-compatible or provider-native backends
 
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
-- [Supported Providers](#supported-providers)
 - [Features](#features)
 - [Work in progress](#work-in-progress)
 - [Plugins](#plugins)
@@ -33,7 +28,6 @@ route plus an upstream node, for OpenAI-compatible or provider-native backends
 - [opencode Integration](#opencode-integration)
 - [Testing](#testing)
 - [Make Targets](#make-targets)
-- [Documentation](#documentation)
 - [License](#license)
 
 ---
@@ -55,7 +49,7 @@ curl -s http://localhost:9080/opencode_federated/v1/chat/completions \
   -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}]}'
 ```
 
-Host port surface ([RUNBOOK-DEPLOYMENT](docs/runbooks/RUNBOOK-DEPLOYMENT.md)):
+Host port surface:
 
 | Service | Dev | Prod | Exposure |
 |---------|-----|------|----------|
@@ -74,8 +68,7 @@ ClickHouse native port publish no host ports; reach them with `podman exec`.
 - `uv` (for `.venv` setup)
 - A `.env` file with `ADMIN_KEY`, `OPENCODE_API_KEY`, `GATEWAY_API_KEY`,
   `OPENBAO_TOKEN`, `GRAFANA_ADMIN_PASSWORD`, the ClickHouse credential set,
-  and the etcd credential set (see [`.env.example`](.env.example) and
-  [RUNBOOK-SECRETS](docs/runbooks/RUNBOOK-SECRETS.md), gitignored)
+  and the etcd credential set (see [`.env.example`](.env.example), gitignored)
 
 Run `make init` to check all system dependencies and print install
 instructions for any that are missing.
@@ -111,9 +104,7 @@ Deeper flows are diagrammed in the section that owns each concern:
 [Plugins](#plugins) (request path), [Configuration](#configuration)
 (telemetry, metrics, route config), [Key Management](#key-management) (auth).
 
-Each new provider is a relay route plus an upstream node; see
-[`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md) and
-[Supported Providers](#supported-providers).
+Each new provider is a relay route plus an upstream node.
 
 ### Sample deployments in this repo
 
@@ -132,42 +123,17 @@ Each new provider is a relay route plus an upstream node; see
 
 Representative samples; the complete route table (18 routes, including
 `/openai/*` and `/anthropic/*`) is [`conf/apisix.yaml`](conf/apisix.yaml).
+All routes as registered in APISIX:
+
+![APISIX dashboard: all 18 relay routes registered by the gateway](res/apisix-dashboard-routes.png)
 
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
 (`*-free` + pay-as-you-go) via the `/opencode_zen/*` relay. Swap the
 upstream node in `apisix.yaml.j2` to point at any other compatible API.
-Additional providers = new relay route + upstream node; see
-[`docs/specifications/SPEC-PROVIDER-XAI.md`](docs/specifications/SPEC-PROVIDER-XAI.md)
-for the xAI Grok draft spec, [`docs/specifications/SPEC-PROVIDER-KIMI.md`](docs/specifications/SPEC-PROVIDER-KIMI.md)
-for the Moonshot Kimi spec, and [`docs/specifications/SPEC-PROVIDER-ZAI.md`](docs/specifications/SPEC-PROVIDER-ZAI.md)
-for the Z.ai GLM spec.
-
----
-
-## Supported Providers
-
-Providers are integrated as **passthrough relay routes**: APISIX rewrites the
-path, injects provider credentials, and forwards the provider-native payload,
-while the custom `sse-usage` layer extracts token usage for ClickHouse.
-APISIX's built-in `ai-proxy` is deliberately **not** adopted; see
-[`SPEC-AI-PROXY`](docs/specifications/SPEC-AI-PROXY.md).
-
-| Provider | Routes | Auth | Spec |
-|----------|--------|------|------|
-| OpenCode Go | `/opencode/*`, `/opencode_federated/*` | direct key, virtual keys (`vgw-*`) | [`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md) |
-| OpenCode Zen | `/opencode_zen/*` | direct key | [`SPEC-GATEWAY-CORE`](docs/specifications/SPEC-GATEWAY-CORE.md) |
-| OpenAI (ChatGPT device OAuth) | `/openai/*` | `provider-oauth` device authorization | [`SPEC-PROVIDER-OPENAI`](docs/specifications/SPEC-PROVIDER-OPENAI.md) |
-| Moonshot Kimi | `/kimi/*`, `/kimi-federated/*`, `/kimi-key/*` (+ `/v1` variants) | `provider-oauth`, virtual keys (`vgw-*`), direct key | [`SPEC-PROVIDER-KIMI`](docs/specifications/SPEC-PROVIDER-KIMI.md) |
-| Anthropic | `/anthropic/*` | passthrough, custodial device facade | [`SPEC-PROVIDER-ANTHROPIC`](docs/specifications/SPEC-PROVIDER-ANTHROPIC.md) |
-| Z.ai GLM Coding Plan | `/zai-key/*` (+ `/v1`) | direct key | [`SPEC-PROVIDER-ZAI`](docs/specifications/SPEC-PROVIDER-ZAI.md) |
-| Alibaba Cloud Token Plan | `/token-plan/*`, `/token-plan-cn/*` | direct key | [`SPEC-PROVIDER-ALIBABA-TOKEN-PLAN`](docs/specifications/SPEC-PROVIDER-ALIBABA-TOKEN-PLAN.md) |
-| llamafile (local) | `/llamafile/*` | none |  -  |
-| xAI Grok | draft, not implemented |  -  | [`SPEC-PROVIDER-XAI`](docs/specifications/SPEC-PROVIDER-XAI.md) |
-
-Provider definitions live in [`conf/providers/`](conf/providers/); the full
-route table (18 routes) is [`conf/apisix.yaml`](conf/apisix.yaml). Upstream
-API-key quota exhaustion is handled by upstream key pools (see
+Additional providers = new relay route + upstream node. Provider definitions
+live in [`conf/providers/`](conf/providers/); upstream API-key quota
+exhaustion is handled by upstream key pools (see
 [Key Management](#key-management)).
 
 ---
@@ -290,9 +256,7 @@ has no `Authorization` flow.
    more virtual keys. The `key-resolver` plugin selects keys sticky-style and
    rotates on upstream quota/rate-limit responses (429 parks a key in cooldown,
    402/403 hard-disables it in OpenBao). Create and attach pools via
-   `make pool-key` and `make issue-key POOL=...`. Details:
-   [`docs/runbooks/RUNBOOK-KEYS.md`](docs/runbooks/RUNBOOK-KEYS.md) +
-   [`docs/architecture/KEY-MANAGEMENT.md`](docs/architecture/KEY-MANAGEMENT.md).
+   `make pool-key` and `make issue-key POOL=...`.
 
 ### Commands
 
@@ -331,6 +295,8 @@ etcd user): routes live in etcd, seeded from the rendered `conf/apisix.yaml`
 on stack start. Admin API and built-in dashboard are reached via
 `podman exec gw-apisix curl http://127.0.0.1:9180/ui/` (no host port).
 
+![APISIX built-in dashboard: services, routes, upstreams, and plugin configuration](res/apisix-dashboard-services.png)
+
 ### Key Files
 
 - `conf/config.yaml`: APISIX traditional/etcd mode: plugin list, shared dicts, env vars, Admin API, Prometheus port
@@ -342,7 +308,7 @@ on stack start. Admin API and built-in dashboard are reached via
 - `conf/profanity/`: vendored rejection-language dictionaries (refresh: `make gw-update-dictionaries`)
 - `conf/grafana/`: Grafana datasources + 5 provisioned dashboards
 - `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
-- `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff`; see [SPEC-SQL-STRUCTURE](docs/specifications/SPEC-SQL-STRUCTURE.md)
+- `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff`
 - `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink
 - `res/docker/docker-compose.yml`: 8 services: apisix, etcd, clickhouse, migrate, vector, openbao, prometheus, grafana
 - `res/docker/Dockerfile.apisix`: Custom APISIX image: Lua plugins + config copied in
@@ -404,7 +370,7 @@ ships full request/response metadata to Vector, which inserts `request_log`
 | `billing_discrepancies` | v2 reconciler (deferred) | gateway_tokens, provider_tokens, divergence |
 
 Retention moves old parts to a tiered, ZSTD-recompressed archive volume rather
-than deleting them ([REQ-SECURITY-HARDENING](docs/requirements/REQ-SECURITY-HARDENING.md)).
+than deleting them.
 The ops-health storage panel monitors growth, and nightly backups land on
 `/mnt/ws-backup`.
 
@@ -460,7 +426,7 @@ Model Performance tracks speed, stream reliability, and time to first token:
 
 The leaderboard shows top clients (p20) and top models (p21) by cost and
 tokens. After editing dashboard JSON, run `make gw-restart-grafana` to
-reload provisioning. See [`docs/specifications/SPEC-DASHBOARD.md`](docs/specifications/SPEC-DASHBOARD.md).
+reload provisioning.
 
 ---
 
@@ -510,9 +476,8 @@ login script above, which fetches each ready-made block from
 - `workspace-gw-alibaba-token-plan-passthrough`: API-key passthrough, Alibaba Token Plan
 - `workspace-gw-alibaba-token-plan-cn-passthrough`: API-key passthrough, Alibaba Token Plan (China)
 
-For the OAuth providers, use the login script in
-[`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md),
-which starts the device flow and prints the verification URL.
+For the OAuth providers, the login script starts the device flow and prints
+the verification URL.
 
 Each provider receives the full enriched catalog, because opencode drops
 providers that expose zero models. The two Go providers
@@ -591,8 +556,6 @@ make gw-test       # Same as test, against the running stack
 5. Repository hooks: pre-commit and pre-push hooks present and wired
 6. E2E: real Go API calls (gated behind `RUN_LIVE_API_TESTS=1`)
 
-See [`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md) for the full strategy.
-
 ---
 
 ## Make Targets
@@ -653,21 +616,6 @@ systemctl so an unmanaged compose stack never fights the unit's
 | `make plugin-install` | Install the gateway OpenCode plugin's Bun deps (`BUN=` overridable) |
 | `make plugin-type-check` | TypeScript check of the OpenCode plugin via Bun |
 | `make plugin-test` | Run the OpenCode plugin's Bun test suite |
-
----
-
-## Documentation
-
-- **[`docs/README.md`](docs/README.md)** : Documentation hub: full tree and reading order
-- **[`docs/architecture/README.md`](docs/architecture/README.md)** : Architecture hub: components, plugins, data flows, schema
-- **[`docs/requirements/`](docs/requirements/)** : Functional/non-functional requirements (REQ-*, RFC 2119)
-- **[`docs/specifications/`](docs/specifications/)** : Implementation specifications (SPEC-*), one per REQ
-- **[`docs/runbooks/RUNBOOK-DEPLOYMENT.md`](docs/runbooks/RUNBOOK-DEPLOYMENT.md)** : Deployment and operations runbook
-- **[`docs/runbooks/RUNBOOK-KEYS.md`](docs/runbooks/RUNBOOK-KEYS.md)** : Gateway key lifecycle (issue/list/revoke) and upstream key pool management
-- **[`docs/runbooks/RUNBOOK-CLIENT-LOGIN.md`](docs/runbooks/RUNBOOK-CLIENT-LOGIN.md)** : Client provider login script usage
-- **[`docs/testplans/TEST-PLAN.md`](docs/testplans/TEST-PLAN.md)** : Testing strategy with extract-testable-core pattern
-- **[`docs/reference/OPENCODE-SERVER-API.md`](docs/reference/OPENCODE-SERVER-API.md)** : Upstream opencode server API reference
-- **[`docs/proposals/ADR-001-APISIX-PIVOT.md`](docs/proposals/ADR-001-APISIX-PIVOT.md)** : Architecture rationale, Kong-to-APISIX pivot
 
 ---
 
