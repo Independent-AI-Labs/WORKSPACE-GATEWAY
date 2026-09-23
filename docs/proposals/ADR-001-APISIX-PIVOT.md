@@ -49,8 +49,7 @@ Adopt **Apache APISIX 3.17.0** as the gateway platform, replacing Kong:
 | `openid-connect` | `openid-connect` | No |
 | `ldap-auth-advanced` | `ldap-auth` / `forward-auth` | No |
 | `ai-proxy-advanced` | `ai-proxy-multi` | No |
-| `ai-semantic-cache` | Custom Lua `semantic-cache` (v2) | Yes |
-| Rate limiting | `ai-rate-limiting` | No |
+| `ai-semantic-cache` | Custom Lua `semantic-cache` (v2) | Yes || Rate limiting | `ai-rate-limiting` | No |
 | Telemetry | `http-logger` + `prometheus` | No |
 | SSE buffering control | `proxy-buffering` | No |
 | PII redaction (no Kong equivalent) | Custom Lua `redact` | Yes |
@@ -64,7 +63,10 @@ Adopt **Apache APISIX 3.17.0** as the gateway platform, replacing Kong:
   rate limiting, AI proxy, and telemetry become configuration-only.
 - No Rust Wasm toolchain, no `dispatch_http_call` state machines, no
   `meta.json` schemas.
-- Zero sidecars required for v1 (NER + embedding sidecars optional in v2).
+- Zero sidecars required for v1 (NER and embedding services optional in v2).
+  The v2 semantic cache adds a stock `llama-server` (llama.cpp) embedding
+  service and PostgreSQL + pgvector, not hand-written sidecar code; see
+  [SPEC-SEMANTIC-CACHE](../specifications/SPEC-SEMANTIC-CACHE.md).
 - Config management via standalone YAML mode (file-driven hot reload) or ADC
   (`adc sync`) for GitOps; no decK/PostgreSQL dependency.
 

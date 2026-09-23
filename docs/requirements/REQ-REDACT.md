@@ -84,7 +84,7 @@ the original values are restored in the client-facing response.
 | ID | Requirement |
 |----|-------------|
 | FR-3.1 | In `body_filter`, the plugin MUST buffer response chunks until EOF and restore tokens in a single pass (no cosocket I/O is permitted in this phase). |
-| FR-3.2 | For non-streaming responses, the plugin SHOULD parse the JSON body and restore within `choices[].message.content`, else whole-body substitution on parse failure. |
+| FR-3.2 | The plugin MUST restore tokens by whole-body substitution over the buffered response body, independent of response schema (JSON or SSE); restoration MUST NOT require response JSON structure. |
 | FR-3.3 | For streaming (SSE) responses in default `buffer` mode, the plugin MUST substitute across the whole concatenated buffer on EOF. |
 | FR-3.4 | Restoration MUST escape Lua pattern metacharacters in tokens and escape `%` in original replacement strings to prevent double-substitution. |
 | FR-3.5 | When any redaction occurred, `header_filter` MUST clear `Content-Length` (forcing chunked transfer) and set `X-Redact-Active: 1`. |
@@ -153,12 +153,12 @@ None. (Resolved: JSON patterns format; shared-dict 60s cache instead of per-requ
 | Item | Status | Evidence |
 |------|--------|----------|
 | FR-1.1 patterns loading | Implemented | `redact_lib.load_patterns` in plugins/custom/redact_lib.lua:21 |
-| FR-1.4 shared-dict cache (60s) | Implemented | plugins/custom/redact.lua:44-74 |
+| FR-1.4 shared-dict cache (60s) | Implemented | plugins/custom/redact.lua:44-75 |
 | FR-1.5 Luhn check | Implemented | plugins/custom/redact_lib.lua:5-19 |
 | FR-1.6 ipv4 gate | Implemented (latent; no ipv4 pattern shipped) | plugins/custom/redact_lib.lua:49 |
-| FR-2.x token minting + ctx stash | Implemented | plugins/custom/redact_lib.lua:45-88, redact.lua:101-137 |
-| FR-3.x re-hydration | Implemented | plugins/custom/redact.lua:146-185 |
-| FR-4.x stream modes | Implemented | plugins/custom/redact.lua:97-99, 151-153 |
-| FR-5.x fail modes | Implemented | plugins/custom/redact.lua:75-81, 87-95, 122-129 |
-| FR-6.1 log metadata | Implemented | plugins/custom/redact.lua:187-194 |
+| FR-2.x token minting + ctx stash | Implemented | plugins/custom/redact_lib.lua:45-88, redact.lua:101-132 |
+| FR-3.x re-hydration | Implemented | plugins/custom/redact.lua:140-164 |
+| FR-4.x stream modes | Implemented | plugins/custom/redact.lua:98-100, 145-153 |
+| FR-5.x fail modes | Implemented | plugins/custom/redact.lua:76-82, 88-96, 116-123 |
+| FR-6.1 log metadata | Implemented | plugins/custom/redact.lua:166-173 |
 | NER sidecar (v2) | Not implemented | No `ner_sidecar_url` in plugin schema; separate Draft spec |

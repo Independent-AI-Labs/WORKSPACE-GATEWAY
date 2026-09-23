@@ -64,7 +64,7 @@ metadata and pricing, and serves read-only HTTP endpoints (including
 
 ## redact
 
-**Files:** `redact.lua` (195 lines), `redact_lib.lua` (100 lines)
+**Files:** `redact.lua` (175 lines), `redact_lib.lua` (101 lines), `redact_walk.lua` (61 lines)
 **Priority:** 2500 | **Phases:** access, header_filter, body_filter, log
 
 Loads `conf/redact-patterns.json`. Replaces PII in request `messages[]`
@@ -100,5 +100,6 @@ Retries ClickHouse INSERT 3x with backoff. Cost fields come from
 | `provider_sync_metadata.lua` | 232 | models.dev metadata join, OpenCode entry/variant builder, limit scaling (pure) |
 | `provider_sync_pricing.lua` | 116 | Pricing sync; sole writer of provider-scoped `pricing:*` and snapshots |
 | `sse_usage_lib.lua` | 116 | Pure logic for `sse-usage` |
-| `redact_lib.lua` | 100 | Pure logic for `redact` |
+| `redact_lib.lua` | 101 | Pure logic for `redact` |
+| `redact_walk.lua` | 61 | Request-body schema traversal for `redact` (Chat Completions + Responses) |
 | `oauth_device.lua` / `oauth_jwt.lua` / `oauth_store.lua` | 291/60/118 | `oauth-auth` helpers: protocol engines, JWT decode/hash, OpenBao CRUD |

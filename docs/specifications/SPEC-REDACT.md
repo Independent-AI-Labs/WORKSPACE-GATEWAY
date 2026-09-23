@@ -77,7 +77,7 @@ checks.
 
 ## 4. Plugin Manifest & Schema
 
-From `plugins/custom/redact.lua:7-35`:
+From `plugins/custom/redact.lua:8-40`:
 
 | Property | Value |
 |----------|-------|
@@ -224,7 +224,7 @@ Populates `ctx.redact_log = { active, token_count, stream }` for the
 |-----------|--------|----------|
 | Plugin phases (access/header_filter/body_filter/log) | Implemented | plugins/custom/redact.lua |
 | Detection library + Luhn | Implemented | plugins/custom/redact_lib.lua |
-| Shared-dict 60s pattern cache | Implemented | redact.lua:44-74 |
+| Shared-dict 60s pattern cache | Implemented | redact.lua:44-75 |
 | Shipped patterns file | Implemented | conf/redact-patterns.json |
 | Unit + config tests | Implemented | tests/lua/test_redact_lib.lua, tests/config/test_patterns_json.sh |
 | NER sidecar (v2) | Not implemented | separate Draft spec; no schema fields present |

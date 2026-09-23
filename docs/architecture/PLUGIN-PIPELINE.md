@@ -15,6 +15,7 @@ graph LR
         KR["key-resolver 2555 (federated)"]
         KM["key-meta 2530"]
         RD["redact 2500"]
+        SC["semantic-cache 2450 (planned)"]
         SU0["sse-usage 2400"]
         LC["limit-count 2002"]
     end
@@ -31,7 +32,7 @@ graph LR
         KM2["key-meta log"]
         PM["prometheus"]
     end
-    KA --> KR --> KM --> RD --> SU0 --> LC --> PRW --> RD2 --> HL
+    KA --> KR --> KM --> RD --> SC --> SU0 --> LC --> PRW --> RD2 --> HL
 ```
 
 ## Priority table
@@ -43,6 +44,7 @@ graph LR
 | `key-resolver` | 2555 | Custom | access |
 | `key-meta` | 2530 | Custom | access, log |
 | `redact` | 2500 | Custom | access, header_filter, body_filter, log |
+| `semantic-cache` | 2450 | Custom (planned) | access, body_filter, log |
 | `sse-usage` | 2400 | Custom | access, header_filter, body_filter, log |
 | `limit-count` | 2002 | Built-in | access |
 | `http-logger` | 410 | Built-in | log |
@@ -63,6 +65,7 @@ Source: [`conf/apisix.yaml`](../../conf/apisix.yaml). Legend: y = enabled.
 | `key-meta` | y | y | y | y | y | y | y | y | - | - |
 | `provider-sync` | - | - | - | - | - | - | - | - | - | y |
 | `redact` | y | y | y | y | y | y | y | y | y | - |
+| `semantic-cache` | - | - | - | - | - | - | - | - | - | - |
 | `sse-usage` | y | y | y | y | y | y | y | y | y | - |
 | `limit-count` | y | y | y | y | y | y | y | y | y | y |
 | `request-id` | y | y | y | y | y | y | y | y | y | y |
@@ -73,6 +76,14 @@ Source: [`conf/apisix.yaml`](../../conf/apisix.yaml). Legend: y = enabled.
 `limit-count`: 100/60s keyed on `http_x_key_hash` for all keyed routes;
 600/60s on `remote_addr` for llamafile; 60/60s on `remote_addr` for
 provider-sync.
+
+`semantic-cache` is a planned v2 plugin (no route enables it yet). It sits at
+2450, immediately after `redact`, so it embeds the already-tokenized prompt and
+stores the tokenized response; `redact`'s `body_filter` rehydrates on cache
+HITs. Because a HIT short-circuits in `access`, `sse-usage` (2400) and
+`limit-count` (2002) do not run for HITs: there is no upstream token usage to
+bill and no provider load to rate-limit. See
+[SPEC-SEMANTIC-CACHE](../specifications/SPEC-SEMANTIC-CACHE.md).
 
 ## Route-specific behavior
 
