@@ -7,12 +7,15 @@ Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
 
 Cloud backends are reached through provider-passthrough relay routes
 (`proxy-rewrite` plus the custom `sse-usage` telemetry layer), with usage, cost,
-and health tracked in ClickHouse and Grafana. APISIX's native `ai-proxy`
-normalization is deliberately **not** adopted. This repo ships sample
-routes to OpenCode, Moonshot Kimi, Z.ai, Alibaba Token Plan, and a local
-llamafile, and the default deployment sends cloud traffic to OpenCode Go
-(`opencode.ai`). The gateway is provider-agnostic: a new provider is a relay
-route plus an upstream node, for OpenAI-compatible or provider-native backends.
+and health tracked in ClickHouse and Grafana. Passthrough is transparent: the
+provider's own request and response shapes pass through unmodified, so
+provider-native fields, streaming semantics, and error payloads survive the
+gateway, and every route carries its own credential handling, path rewrite,
+rate limit, and telemetry. The gateway is therefore provider-agnostic: a new
+provider is a relay route plus an upstream node, whether the backend is
+OpenAI-compatible or provider-native. This repo ships sample routes to OpenCode,
+Moonshot Kimi, Z.ai, Alibaba Token Plan, and a local llamafile, and the default
+deployment sends cloud traffic to OpenCode Go (`opencode.ai`).
 
 ---
 
