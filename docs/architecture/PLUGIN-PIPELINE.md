@@ -11,7 +11,7 @@ Plugins run in **priority order** (highest first) per Nginx phase. See
 ```mermaid
 graph LR
     subgraph access [access phase]
-        KA["provider-oauth 2560 (kimi routes)"]
+        KA["provider-oauth 2560 (oauth routes)"]
         KR["key-resolver 2555 (federated)"]
         KM["key-meta 2530"]
         RD["redact 2500"]
@@ -57,25 +57,26 @@ graph LR
 
 Source: [`conf/apisix.yaml`](../../conf/apisix.yaml). Legend: y = enabled.
 
-| Plugin | opencode | opencode-federated | kimi | kimi-v1 | kimi-federated | kimi-federated-v1 | kimi-key | kimi-key-v1 | llamafile | provider-sync |
-|--------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| `proxy-rewrite` | y | y | y | y | y | y | y | y | y | - |
-| `key-resolver` | - | y | - | - | y | y | - | - | - | - |
-| `provider-oauth` | - | - | y | y | - | - | - | - | - | - |
-| `key-meta` | y | y | y | y | y | y | y | y | - | - |
-| `provider-sync` | - | - | - | - | - | - | - | - | - | y |
-| `redact` | y | y | y | y | y | y | y | y | y | - |
-| `semantic-cache` | - | - | - | - | - | - | - | - | - | - |
-| `sse-usage` | y | y | y | y | y | y | y | y | y | - |
-| `limit-count` | y | y | y | y | y | y | y | y | y | y |
-| `request-id` | y | y | y | y | y | y | y | y | y | y |
-| `http-logger` | y | y | y | y | y | y | y | y | y | - |
-| `proxy-buffering` | y | y | y | y | y | y | y | y | y | - |
-| `prometheus` | y | y | y | y | y | y | y | y | y | y |
+| Plugin | opencode | opencode-zen | opencode-federated | openai | kimi | kimi-v1 | kimi-federated | kimi-federated-v1 | kimi-key | kimi-key-v1 | zai-key | zai-key-v1 | anthropic | anthropic-device | llamafile | alibaba | alibaba-cn | provider-sync |
+|--------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| `proxy-rewrite` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `key-resolver` | - | - | y | - | - | - | y | y | - | - | - | - | - | - | - | - | - | - |
+| `provider-oauth` | - | - | - | y | y | y | - | - | - | - | - | - | - | y | - | - | - | - |
+| `key-meta` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - | y | y | - |
+| `provider-sync` | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | y |
+| `redact` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `semantic-cache` | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| `sse-usage` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `limit-count` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
+| `request-id` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
+| `http-logger` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `proxy-buffering` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `prometheus` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
 
-`limit-count`: 100/60s keyed on `http_x_key_hash` for all keyed routes;
-600/60s on `remote_addr` for llamafile; 60/60s on `remote_addr` for
-provider-sync.
+`limit-count`: 100/60s keyed on `http_x_key_hash` for the keyed passthrough and
+federated routes; the provider-oauth routes `relay-openai` and
+`relay-anthropic-device` key on `http_x_gateway_key_id`; 600/60s on
+`remote_addr` for llamafile; 60/60s on `remote_addr` for provider-sync.
 
 `semantic-cache` is a planned v2 plugin (no route enables it yet). It sits at
 2450, immediately after `redact`, so it embeds the already-tokenized prompt and
@@ -95,5 +96,13 @@ bill and no provider load to rate-limit. See
   `key-resolver` on federated routes; `kimi-key*` routes pass keys through
   with `key-meta` only. All rewrite to `/coding/v1/`.
 - **llamafile:** no auth plugins; per-IP rate limit; rewrite to `/`.
+- **openai route:** `provider-oauth` (ChatGPT device flow) on `relay-openai`;
+  proxy-rewrite sends every path to `/backend-api/codex/responses`.
+- **anthropic routes:** `relay-anthropic` is a bare passthrough (no auth
+  plugin); `relay-anthropic-device` adds the `provider-oauth` custodial
+  device facade. Both rewrite to `/$1`.
+- **zai routes:** own-key passthrough with `key-meta`; rewrite to
+  `/api/coding/paas/v4/`.
+- **alibaba routes:** own-key passthrough with `key-meta`; rewrite to `/$1`.
 - **gateway-provider-sync:** served entirely by `provider-sync` in the
   access phase; no proxy-rewrite, logging, redaction, or usage tracking.

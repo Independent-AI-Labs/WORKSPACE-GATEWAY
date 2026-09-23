@@ -5,13 +5,13 @@
 **Type:** Requirements
 **Specification:** [SPEC-GATEWAY-CORE](../specifications/SPEC-GATEWAY-CORE.md)
 
-> Mandates the APISIX gateway core: deployment in traditional/etcd mode, the 10 relay routes and their auth modes, upstreams (OpenCode relay, Moonshot Kimi, llamafile VM, local Admin API), and the built-in/custom plugin configuration per route. Single source of truth: [`conf/apisix.yaml`](../../conf/apisix.yaml) (routes) and [`conf/config.yaml`](../../conf/config.yaml) (deployment + plugin registration). Excluded: telemetry schema, cost calculation, and plugin-internal contracts (owned by REQ-BILLING-TELEMETRY, REQ-COST-CALC, SPEC-PLUGIN-FOUNDATION).
+> Mandates the APISIX gateway core: deployment in traditional/etcd mode, the 17 relay routes and their auth modes, upstreams (OpenCode, OpenAI, Moonshot Kimi, Anthropic, Z.ai, Alibaba Cloud Token Plan, llamafile VM, local Admin API), and the built-in/custom plugin configuration per route. Single source of truth: [`conf/apisix.yaml`](../../conf/apisix.yaml) (routes) and [`conf/config.yaml`](../../conf/config.yaml) (deployment + plugin registration). Excluded: telemetry schema, cost calculation, and plugin-internal contracts (owned by REQ-BILLING-TELEMETRY, REQ-COST-CALC, SPEC-PLUGIN-FOUNDATION).
 
 ---
 
 **Cross-references:**
 - [SPEC-GATEWAY-CORE](../specifications/SPEC-GATEWAY-CORE.md): companion specification
-- [`conf/apisix.yaml`](../../conf/apisix.yaml): owns the 10 route definitions
+- [`conf/apisix.yaml`](../../conf/apisix.yaml): owns the 18 route definitions
 - [`conf/config.yaml`](../../conf/config.yaml): owns deployment mode and plugin registration
 - [`docs/runbooks/RUNBOOK-DEPLOYMENT.md`](../runbooks/RUNBOOK-DEPLOYMENT.md): compose stack and operational commands
 - [`docs/architecture/OVERVIEW.md`](../../docs/architecture/OVERVIEW.md): system overview
@@ -26,7 +26,7 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 ### 1.2 Scope
 **This document OWNS the requirements for:**
 - Deployment mode (traditional, etcd config provider)
-- The 12 routes: ids, URI prefixes, upstreams, auth modes
+- The 18 routes: ids, URI prefixes, upstreams, auth modes
 - Per-route plugin attachment (built-in and custom)
 - Plugin registration in the APISIX config
 
@@ -56,7 +56,7 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 ### FR-2: Routes
 | ID | Requirement |
 |----|-------------|
-| FR-2.1 | The gateway MUST define exactly 12 routes, including `relay-openai` for ChatGPT/Codex OAuth. |
+| FR-2.1 | The gateway MUST define exactly 18 routes, including `relay-openai` for ChatGPT/Codex OAuth. |
 | FR-2.2 | `relay-opencode` (`/opencode/*`) MUST proxy-rewrite to `/zen/go/$1` on upstream `opencode.ai:443` (https, pass_host node) and MUST NOT attach `key-resolver` (direct key passthrough). |
 | FR-2.3 | `relay-opencode-federated` (`/opencode_federated/*`) MUST rewrite to `/zen/go/$1` on `opencode.ai:443` and MUST attach `key-resolver` with `upstream_key_env: OPENCODE_API_KEY` and `virtual_key_prefix: vgw-`. |
 | FR-2.4 | `relay-opencode-zen` (`/opencode_zen/*`) MUST rewrite to `/zen/$1` on `opencode.ai:443` (the OpenCode Zen/free upstream) and MUST NOT attach `key-resolver` (own-key passthrough). |
@@ -130,7 +130,7 @@ None.
 | Item | Status | Evidence |
 |------|--------|----------|
 | FR-1.1-FR-1.4 | Implemented | conf/config.yaml:5-21 |
-| FR-2.1-FR-2.9 | Implemented | conf/apisix.yaml (12 routes) |
+| FR-2.1-FR-2.9 | Implemented | conf/apisix.yaml (18 routes) |
 | FR-3.1-FR-3.7 | Implemented | conf/apisix.yaml plugin blocks |
 | FR-4.1-FR-4.5 | Implemented | conf/config.yaml:23-75 |
 | FR-5.1-FR-5.4 | Implemented | Makefile gw-prod-*; res/docker/docker-compose.prod.yml |

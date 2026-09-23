@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-GATEWAY-CORE](../requirements/REQ-GATEWAY-CORE.md)
 
-> Implements the gateway data plane on APISIX 3.18.0 in traditional/etcd mode. Key invariants: 12 routes in etcd (seeded from `conf/apisix.yaml`), pure-Lua request path (no sidecars), custom plugins registered in `conf/config.yaml`, per-route auth via `provider-oauth`/`provider-oauth` (OAuth) or `key-resolver` (OpenBao virtual keys).
+> Implements the gateway data plane on APISIX 3.18.0 in traditional/etcd mode. Key invariants: 18 routes in etcd (seeded from `conf/apisix.yaml`), pure-Lua request path (no sidecars), custom plugins registered in `conf/config.yaml`, per-route auth via `provider-oauth` (OAuth device flows) or `key-resolver` (OpenBao virtual keys).
 
 ---
 
@@ -20,7 +20,7 @@
 
 ## 1. Overview
 
-The gateway fronts three upstreams  -  the OpenCode relay (`opencode.ai`), Moonshot Kimi (`api.kimi.com`), and a local llamafile VM (`host.docker.internal:8765`)  -  plus an internal provider-sync endpoint. Routes live in etcd; `conf/apisix.yaml` is the seed document. All relay routes share a common plugin pipeline (rewrite → auth → key-meta → limit-count → redact → proxy) with telemetry plugins (`http-logger`, `prometheus`, `request-id`, `sse-usage`) attached.
+The gateway fronts the configured provider upstreams  -  OpenCode (`opencode.ai`), OpenAI (`chatgpt.com`), Moonshot Kimi (`api.kimi.com`), Anthropic (`api.anthropic.com`), Z.ai (`api.z.ai`), Alibaba Cloud Token Plan, and a local llamafile VM (`host.docker.internal:8765`)  -  plus an internal provider-sync endpoint. Routes live in etcd; `conf/apisix.yaml` is the seed document. All relay routes share a common plugin pipeline (rewrite → auth → key-meta → limit-count → redact → proxy) with telemetry plugins (`http-logger`, `prometheus`, `request-id`, `sse-usage`) attached.
 
 ## 2. Architectural Principles
 
@@ -38,28 +38,28 @@ Auth, redaction, usage accounting, and rate limiting run as Lua plugins inside t
 
 ## 3. System Diagram
 
-```
-client
-  |  :9080
-  v
-+-------------------------------------------+
-| APISIX (traditional, etcd-backed)         |
-|  proxy-rewrite -> auth (provider-oauth |       |
-|  key-resolver) -> key-meta ->             |
-|  limit-count -> redact -> upstream        |
-|  telemetry: http-logger  prometheus       |
-|             request-id    sse-usage       |
-+----+--------------+----------------+------+
-     |              |                |
-     v              v                v
- upstreams    Vector :8080      ClickHouse :8123
- (opencode    /ingest  -->      request_log /
-  kimi,       request_log      usage_log
-  llamafile)                     ^
-     |                           |
-     +-- sse-usage timer INSERT -+
-OpenBao :8200 (key-resolver)  etcd :2379 (config)
-Prometheus scrapes apisix:9100
+**Legend (all diagrams in this doc):** solid arrows = request/response data
+path; dashed arrows = config, key lookup, or read-only observability.
+
+```mermaid
+flowchart TB
+    Client["Client"]
+    APISIX["APISIX (traditional, etcd-backed)<br/>proxy-rewrite → auth → key-meta → limit-count → redact → upstream"]
+    Upstreams["Provider upstreams<br/>OpenCode · OpenAI · Kimi · Anthropic · Z.ai · Alibaba · llamafile"]
+    Vector["Vector :8080 /ingest"]
+    ClickHouse[("ClickHouse :8123<br/>request_log / usage_log")]
+    Etcd[("etcd :2379")]
+    OpenBao[("OpenBao :8200")]
+    Prometheus["Prometheus :9100"]
+
+    Client -->|":9080"| APISIX
+    APISIX -->|"relay"| Upstreams
+    APISIX -->|"http-logger"| Vector
+    Vector --> ClickHouse
+    APISIX -->|"sse-usage INSERT"| ClickHouse
+    APISIX -.->|"config plane"| Etcd
+    APISIX -.->|"key lookup (key-resolver)"| OpenBao
+    Prometheus -.->|"scrape"| APISIX
 ```
 
 ## 4. Route Table
@@ -69,15 +69,22 @@ Verified against [`conf/apisix.yaml`](../../conf/apisix.yaml).
 | Route id | URI | Rewrite | Upstream | Auth plugin | limit-count |
 |----------|-----|---------|----------|-------------|-------------|
 | relay-opencode | /opencode/* | ^/opencode/(.*) → /zen/go/$1 | https://opencode.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
-| relay-opencode-federated | /opencode_federated/* | ^/opencode_federated/(.*) → /zen/go/$1 | https://opencode.ai:443 | key-resolver (OPENCODE_API_KEY) | 100/60s @ x_key_hash |
 | relay-opencode-zen | /opencode_zen/* | ^/opencode_zen/(.*) → /zen/$1 | https://opencode.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
+| relay-opencode-federated | /opencode_federated/* | ^/opencode_federated/(.*) → /zen/go/$1 | https://opencode.ai:443 | key-resolver (OPENCODE_API_KEY) | 100/60s @ x_key_hash |
+| relay-openai | /openai/* | ^/openai/(.*) → /backend-api/codex/responses | https://chatgpt.com:443 | provider-oauth (chatgpt_device) | 100/60s @ x_gateway_key_id |
 | relay-kimi | /kimi/* | ^/kimi/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | provider-oauth | 100/60s @ x_key_hash |
 | relay-kimi-v1 | /kimi/v1/* | ^/kimi/v1/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | provider-oauth | 100/60s @ x_key_hash |
 | relay-kimi-federated | /kimi-federated/* | ^/kimi-federated/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | key-resolver (KIMI_API_KEY) | 100/60s @ x_key_hash |
 | relay-kimi-federated-v1 | /kimi-federated/v1/* | ^/kimi-federated/v1/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | key-resolver (KIMI_API_KEY) | 100/60s @ x_key_hash |
 | relay-kimi-key | /kimi-key/* | ^/kimi-key/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | none | 100/60s @ x_key_hash |
 | relay-kimi-key-v1 | /kimi-key/v1/* | ^/kimi-key/v1/(.*) → /coding/v1/$1 | https://api.kimi.com:443 | none | 100/60s @ x_key_hash |
+| relay-zai-key | /zai-key/* | ^/zai-key/(.*) → /api/coding/paas/v4/$1 | https://api.z.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
+| relay-zai-key-v1 | /zai-key/v1/* | ^/zai-key/v1/(.*) → /api/coding/paas/v4/$1 | https://api.z.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
+| relay-anthropic | /anthropic/* | ^/anthropic/(.*) → /$1 | https://api.anthropic.com:443 | none (passthrough) | 100/60s @ x_key_hash |
+| relay-anthropic-device | /anthropic-device/* | ^/anthropic-device/(.*) → /$1 | https://api.anthropic.com:443 | provider-oauth (device facade) | 100/60s @ x_gateway_key_id |
 | relay-llamafile | /llamafile/* | ^/llamafile/(.*) → /$1 | http://host.docker.internal:8765 | none | 600/60s @ remote_addr |
+| relay-alibaba-token-plan | /token-plan/* | ^/token-plan/(.*) → /$1 | https://token-plan.ap-southeast-1.maas.aliyuncs.com:443 | none (passthrough) | 100/60s @ x_key_hash |
+| relay-alibaba-token-plan-cn | /token-plan-cn/* | ^/token-plan-cn/(.*) → /$1 | https://token-plan.cn-beijing.maas.aliyuncs.com:443 | none (passthrough) | 100/60s @ x_key_hash |
 | gateway-provider-sync | /gateway/providers* | none | http://127.0.0.1:9080 (pass) | provider-sync plugin | 60/60s @ remote_addr |
 
 All relay routes additionally attach: `key-meta` (except relay-llamafile and gateway-provider-sync), `prometheus` (prefer_name), `request-id` (X-Request-Id, include_in_response), `http-logger` (→ `http://vector:8080/ingest`, bodies included, batch_max_size 1), `proxy-buffering` (disable), `redact` (`/etc/apisix/redact-patterns.json`), `sse-usage` (`http://clickhouse:8123`). `gateway-provider-sync` attaches only `provider-sync`, `limit-count`, `prometheus`, `request-id`.
@@ -132,7 +139,7 @@ untested image.
 
 | File | Purpose | Key Changes |
 |------|---------|-------------|
-| [`conf/apisix.yaml`](../../conf/apisix.yaml) | Rendered route seed (12 routes) |  -  |
+| [`conf/apisix.yaml`](../../conf/apisix.yaml) | Rendered route seed (18 routes) |  -  |
 | [`conf/apisix.yaml.j2`](../../conf/apisix.yaml.j2) | Jinja2 template rendered by Ansible |  -  |
 | [`conf/config.yaml`](../../conf/config.yaml) | Deployment mode, plugin registration, shared dicts |  -  |
 | [`res/scripts/seed-routes.sh`](../../res/scripts/seed-routes.sh) | Seeds etcd from apisix.yaml |  -  |
@@ -145,7 +152,7 @@ untested image.
 | Component | Status | Evidence |
 |-----------|--------|----------|
 | etcd/traditional deployment | Implemented | conf/config.yaml:5-21 |
-| 12 routes | Implemented | conf/apisix.yaml |
+| 18 routes | Implemented | conf/apisix.yaml |
 | Plugin pipeline per route | Implemented | conf/apisix.yaml plugin blocks |
 | Plugin registration | Implemented | conf/config.yaml:23-36 |
 | Prometheus key_hash labels | Implemented | conf/config.yaml:37-63 |

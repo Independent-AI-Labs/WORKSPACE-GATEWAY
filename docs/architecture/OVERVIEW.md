@@ -17,7 +17,7 @@ Routes and global config live in **etcd**, not a standalone YAML data plane.
 [`conf/apisix.yaml`](../../conf/apisix.yaml) is the seed document pushed to
 etcd at deploy.
 
-## Routes (12)
+## Routes (18)
 
 Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 
@@ -28,7 +28,33 @@ Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 | `relay-opencode` | `/opencode/*` | `/zen/go/$1` | Direct key passthrough (`key-meta`) |
 | `relay-opencode-federated` | `/opencode_federated/*` | `/zen/go/$1` | `vgw-*` via `key-resolver` + OpenBao |
 | `relay-opencode-zen` | `/opencode_zen/*` | `/zen/$1` | Direct key passthrough (`key-meta`) |
-| `relay-openai` | `/openai/*` | `/backend-api/codex/responses` | OpenAI ChatGPT headless OAuth (`provider-oauth`) |
+
+### OpenAI (`chatgpt.com:443`, rewrite to `/backend-api/codex/responses`)
+
+| Route id | Prefix | Auth |
+|----------|--------|------|
+| `relay-openai` | `/openai/*` | OpenAI ChatGPT headless OAuth (`provider-oauth`) |
+
+### Anthropic (`api.anthropic.com:443`, rewrite to `/$1`)
+
+| Route id | Prefix | Auth |
+|----------|--------|------|
+| `relay-anthropic` | `/anthropic/*` | None (bare passthrough) |
+| `relay-anthropic-device` | `/anthropic-device/*` | Custodial device facade (`provider-oauth`) |
+
+### Z.ai (`api.z.ai:443`, rewrite to `/api/coding/paas/v4/`)
+
+| Route id | Prefix | Auth |
+|----------|--------|------|
+| `relay-zai-key` | `/zai-key/*` | Direct key passthrough (`key-meta`) |
+| `relay-zai-key-v1` | `/zai-key/v1/*` | Direct key passthrough (`key-meta`) |
+
+### Alibaba Token Plan (rewrite to `/$1`)
+
+| Route id | Prefix | Auth |
+|----------|--------|------|
+| `relay-alibaba-token-plan` | `/token-plan/*` | Direct key passthrough (`key-meta`), International |
+| `relay-alibaba-token-plan-cn` | `/token-plan-cn/*` | Direct key passthrough (`key-meta`), China |
 
 ### Kimi (`api.kimi.com:443`, rewrite to `/coding/v1/`)
 
@@ -61,7 +87,7 @@ Registered in `conf/config.yaml`:
 |--------|------|
 | `key-resolver` | Virtual keys via OpenBao; passthrough for non-`vgw-` |
 | `key-meta` | `X-Key-Hash` header for per-key `limit-count` scoping |
-| `provider-oauth` | Kimi OAuth device-code auth and token lifecycle |
+| `provider-oauth` | OAuth device-code auth and token lifecycle (Kimi, OpenAI, Anthropic) |
 | `provider-sync` | Read-only `/gateway/providers` catalog + pricing API |
 | `sse-usage` | SSE/JSON token extraction; ClickHouse `usage_log` INSERT |
 | `redact` | PII anonymize + re-hydrate |

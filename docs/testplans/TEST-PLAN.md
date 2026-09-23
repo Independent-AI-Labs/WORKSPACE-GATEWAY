@@ -159,7 +159,7 @@ validation, provider block merge into config, auth.json writing, error paths
 Shell + jq + Python `yaml.safe_load` assertions over every config artifact.
 Representative checks:
 
-- **apisix.yaml** (`test_apisix_yaml.sh`, 70+): valid YAML; exactly 12 routes;
+- **apisix.yaml** (`test_apisix_yaml.sh`, 70+): valid YAML; exactly 18 routes;
   per-route uri/upstream/plugin matrix for the relay-* and
   gateway-provider-sync routes; no `consumers` section.
   `test_apisix_yaml_render.sh` validates env substitution.

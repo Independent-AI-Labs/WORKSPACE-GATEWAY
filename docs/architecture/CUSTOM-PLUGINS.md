@@ -39,7 +39,7 @@ Computes hash of request identity for `limit-count` scoping via header
 
 **File:** `provider-oauth.lua`; libraries `oauth_device.lua`, `oauth_jwt.lua`,
 `oauth_store.lua`
-**Priority:** 2560 | **Phase:** access | **Routes:** `relay-kimi*`, `relay-openai`
+**Priority:** 2560 | **Phase:** access | **Routes:** `relay-kimi*`, `relay-openai`, `relay-anthropic-device`
 
 Generic OAuth device/browser authentication for any provider. All provider
 differences are per-route config in `conf/apisix.yaml` (`auth_base`, protocol
