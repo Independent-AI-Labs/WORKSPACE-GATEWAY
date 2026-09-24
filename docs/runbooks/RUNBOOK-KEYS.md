@@ -24,11 +24,14 @@ record schema: [KEY-MANAGEMENT](../architecture/KEY-MANAGEMENT.md).
 - `OPENBAO_TOKEN` set in repo-root `.env` (all scripts source `.env`
   automatically; `ENV_FILE` env var overrides the path).
 - `curl` and `jq` installed.
-- Environment variables honored by all three scripts:
+- Environment variables honored by all four scripts:
   - `OPENBAO_ADDR` (default: exec into `gw-openbao`; set only for a remote
     OpenBao with a published endpoint)
-  - `OPENBAO_TOKEN` (falls back to a built-in dev token if unset)
+  - `OPENBAO_TOKEN` (required; the scripts exit if it is unset)
   - `ENV_FILE` (default `<repo>/.env`)
+
+The unified dispatcher `make key ARGS='...'` wraps all four scripts plus
+`show` and `map`; see sections 5 and 6.
 
 ## Procedures
 
@@ -165,7 +168,36 @@ make issue-key KEY_ID=vgw-kimi-pool POOL=kimi
 all keys are disabled, requests on that virtual key return `503 pool
 exhausted`.
 
-### 5. Inspect a key record directly
+### 5. Show a key record (with its upstream mapping)
+
+Script: `res/scripts/gateway-key.sh show`.
+Make target: `make key ARGS='show vgw-alice-01'`.
+
+```bash
+make key ARGS='show vgw-alice-01'
+```
+
+Prints tenant, user, active, created/revoked timestamps, the upstream mapping
+(`upstream_pool` and a masked `upstream_key`), and the rate-limit and budget
+fields. Prints `(gateway OPENCODE_API_KEY)` when both mapping fields are empty.
+
+### 6. Change a key's upstream mapping
+
+Script: `res/scripts/gateway-key.sh map`.
+Make target: `make key ARGS='map ...'`.
+
+```bash
+make key ARGS='map vgw-alice-01 --upstream-key sk-xxxxxxxx'
+make key ARGS='map vgw-alice-01 --pool kimi'
+make key ARGS='map vgw-alice-01 --none'
+```
+
+`--pool` sets `upstream_pool`, which wins at request time. `--upstream-key`
+sets `upstream_key` and clears any pool. `--none` clears both so the key uses
+the gateway-wide `OPENCODE_API_KEY`. Other record fields are preserved. The
+change applies to new requests within the `key_cache` TTL (5s in dev).
+
+### 7. Inspect a key record directly
 
 ```bash
 podman exec gw-openbao curl -sS -H "X-Vault-Token: $OPENBAO_TOKEN" \

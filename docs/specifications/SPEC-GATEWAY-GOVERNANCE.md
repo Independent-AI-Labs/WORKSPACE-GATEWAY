@@ -25,7 +25,8 @@
 ## 1. Overview
 
 Governance is a thin authorization + audit layer over operations that already
-exist (`issue-key.sh`, `revoke-key.sh`, `pool-key.sh`). Identity and role
+exist (`gateway-key.sh`, `issue-key.sh`, `revoke-key.sh`, `pool-key.sh`).
+Identity and role
 management stay in Keycloak/portal; the gateway only enforces permissions and
 records what happened.
 
@@ -62,6 +63,8 @@ Login is Keycloak; the gateway never renders or stores credentials.
 | Issue virtual key | `res/scripts/issue-key.sh` | `gateway:keys:manage` |
 | Revoke virtual key | `res/scripts/revoke-key.sh` | `gateway:keys:manage` |
 | List keys | `res/scripts/list-keys.sh` | `gateway:keys:read` |
+| View key record + upstream mapping | `res/scripts/gateway-key.sh show` | `gateway:keys:read` |
+| Change key upstream mapping | `res/scripts/gateway-key.sh map` | `gateway:keys:manage` |
 | Pool create/add/remove/enable/disable/reset | `res/scripts/pool-key.sh` | `gateway:pools:manage` |
 | Pool list | `res/scripts/pool-key.sh list` | `gateway:pools:read` |
 | Telemetry read (usage/cost) | Grafana / mediated query | `gateway:telemetry:read` |

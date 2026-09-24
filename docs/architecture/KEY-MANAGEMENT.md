@@ -10,27 +10,42 @@ Virtual keys (`vgw-*`) for federated route; direct passthrough on
 graph TB
     subgraph bao [OpenBao file-storage]
         KV["KV v2 secret/data/gateway/keys/"]
+        POOLS["KV v2 secret/data/gateway/upstream-pools/"]
     end
     subgraph keys [Key types]
         VK["Virtual vgw-*"]
         DK["Direct sk-* passthrough"]
     end
     subgraph scripts [Scripts]
+        GATEWAY[gateway-key.sh]
         ISSUE[issue-key.sh]
         LIST[list-keys.sh]
         REVOKE[revoke-key.sh]
+        POOL[pool-key.sh]
     end
+    GATEWAY -.-> ISSUE
+    GATEWAY -.-> LIST
+    GATEWAY -.-> REVOKE
+    GATEWAY -.-> POOL
     ISSUE --> KV
     LIST --> KV
     REVOKE --> KV
+    POOL --> POOLS
     VK --> KV
 ```
 
 ## Virtual key lifecycle
 
-1. **Issued** via `make issue-key` -> OpenBao `active: true`
-2. **Cached** in `key_cache` shared dict (5s dev TTL in route config)
-3. **Revoked** via `make revoke-key` -> `active: false`, record preserved
+1. **Issued** via `make key ARGS='issue ...'` -> OpenBao `active: true`
+2. **Mapped** via `make key ARGS='map ...'` to an upstream key or pool.
+   `make key ARGS='show ...'` prints the record including that mapping.
+3. **Cached** in `key_cache` shared dict (5s dev TTL in route config)
+4. **Revoked** via `make key ARGS='revoke ...'` -> `active: false`, record preserved
+
+The older single-purpose targets (`make issue-key`, `make list-keys`,
+`make revoke-key`, `make pool-key`) still work; `make key` is the unified
+entry point and the only one that exposes `show`, `map`, and the issue-time
+rate-limit and budget flags.
 
 ## KV record schema
 
@@ -41,11 +56,18 @@ Path: `secret/data/gateway/keys/<virtual_key>`
   "data": {
     "virtual_key": "vgw-<hex>",
     "upstream_key": "",
+    "upstream_pool": "",
     "tenant_id": "default",
     "user_id": "agent",
     "active": true,
     "created_at": "2026-01-01T00:00:00Z",
-    "revoked_at": null
+    "revoked_at": null,
+    "rate_limit_rpm": 100,
+    "rate_limit_window": 60,
+    "token_budget": 0,
+    "cost_budget": 0,
+    "budget_window": 86400,
+    "budget_type": "tokens"
   }
 }
 ```
@@ -91,19 +113,23 @@ Rotation semantics (`key-resolver.lua`, sticky selection):
 - `epoch` is bumped on every management write and namespaces the in-memory
   markers, so `reset` immediately un-shadows previously disabled keys.
 
-Management: `res/scripts/pool-key.sh`
+Management: `make key ARGS='pool ...'`
 (`create|add|remove|list|enable|disable|reset`), e.g.
-`bash res/scripts/pool-key.sh create kimi && bash res/scripts/pool-key.sh add kimi k1 sk-...`.
-Full operational procedures are in
+`make key ARGS='pool create kimi'` then
+`make key ARGS='pool add kimi k1 sk-...'`. The same operations run directly
+via `res/scripts/pool-key.sh`. Full operational procedures are in
 [`docs/runbooks/RUNBOOK-KEYS.md`](../runbooks/RUNBOOK-KEYS.md).
-Attach a pool to a virtual key with `issue-key.sh --pool <name>`.
-Disabled keys are re-enabled with `pool-key.sh enable <pool> <key_id>` or
-`reset <pool>`.
+Attach a pool to a virtual key at issue time with
+`make key ARGS='issue --key-id <id> --pool <name>'`, or change an existing
+key with `make key ARGS='map <id> --pool <name>'` (which takes precedence over
+`upstream_key`). Disabled keys are re-enabled with
+`make key ARGS='pool enable <pool> <key_id>'` or `pool reset <pool>`.
 
 ## Scripts
 
 | Script | Make target |
 |--------|-------------|
+| `res/scripts/gateway-key.sh` | `make key ARGS='...'` (unified: issue, list, show, map, revoke, pool) |
 | `res/scripts/issue-key.sh` | `make issue-key` |
 | `res/scripts/list-keys.sh` | `make list-keys` |
 | `res/scripts/revoke-key.sh` | `make revoke-key KEY_ID=vgw-xxx` |

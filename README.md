@@ -117,22 +117,20 @@ Upstream API-key quota exhaustion is handled by upstream key pools (see
 
 ## Features
 
-| Feature | Plugin / Mechanism | Type |
-|---------|-------------------|------|
-| Native-protocol passthrough (no protocol translation) | per-route `upstream` + `proxy-rewrite`; `ai-proxy` deliberately absent | Config |
-| PII redaction (on-the-fly sensitive data anonymisation) + re-hydration | `redact`: regex + dictionary + Luhn, pure Lua | Custom |
-| Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
-| Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
-| Upstream key pool rotation | `key-resolver` + `upstream_pool_lib.lua`: sticky selection, auto-rotate on 429/402/403 | Custom |
-| OAuth device/browser flows (any provider) | `provider-oauth` + `oauth_device`/`oauth_jwt`/`oauth_store`: protocol engines + per-route config, OpenBao session storage, transparent refresh | Custom |
-| SSE token extraction | `sse-usage`: buffers SSE, extracts usage, writes ClickHouse | Custom |
-| Per-key rate limiting (RPM) | `limit-count` + `key-meta` | Built-in + custom Lua |
-| Per-key token/cost budget | `key-resolver` + `sse-usage` + `ngx.shared` | Custom Lua |
-| Request/response logging | `http-logger` to Vector to ClickHouse | Built-in |
-| Prometheus metrics | `prometheus` at `:9100` | Built-in |
-| SSE streaming support | `proxy-buffering` disabled per-route | Config |
-| Grafana dashboards (5) | Cost & Usage, Ops & Health, Cost Leaderboard, Model Experience, Model Performance: 90d lookback, 5s refresh | Config |
-| Billing-grade schema | ClickHouse `Decimal64(6)`, tiered retention (archive volume, no deletion), `LowCardinality` keys | SQL |
+- **Native-protocol passthrough** (no protocol translation): per-route `upstream` + `proxy-rewrite`; `ai-proxy` deliberately absent (Config).
+- **PII redaction** (on-the-fly sensitive data anonymisation) + re-hydration: `redact`, regex + dictionary + Luhn, pure Lua (Custom).
+- **Virtual key management**: `key-resolver`, OpenBao KVv2 (persistent file-storage) with a shared dict cache (Custom).
+- **Direct key pass-through**: `key-resolver`, non-`vgw-` keys forwarded as-is (Custom).
+- **Upstream key pool rotation**: `key-resolver` + `upstream_pool_lib.lua`, sticky selection with auto-rotate on 429/402/403 (Custom).
+- **OAuth device/browser flows** (any provider): `provider-oauth` + `oauth_device` / `oauth_jwt` / `oauth_store`, protocol engines with per-route config, OpenBao session storage, and transparent refresh (Custom).
+- **SSE token extraction**: `sse-usage`, buffers SSE, extracts usage, writes ClickHouse (Custom).
+- **Per-key rate limiting** (RPM): `limit-count` + `key-meta` (Built-in + custom Lua).
+- **Per-key token/cost budget**: `key-resolver` + `sse-usage` + `ngx.shared` (Custom Lua).
+- **Request/response logging**: `http-logger` to Vector to ClickHouse (Built-in).
+- **Prometheus metrics**: `prometheus` at `:9100` (Built-in).
+- **SSE streaming support**: `proxy-buffering` disabled per-route (Config).
+- **Grafana dashboards (5)**: Cost & Usage, Ops & Health, Cost Leaderboard, Model Experience, Model Performance, 90d lookback with 5s refresh (Config).
+- **Billing-grade schema**: ClickHouse `Decimal64(6)`, tiered retention (archive volume, no deletion), `LowCardinality` keys (SQL).
 
 ---
 
@@ -219,35 +217,58 @@ has no `Authorization` flow.
 
 ### Key Modes
 
-1. **Virtual keys** (`vgw-*`): Used on the `/opencode_federated/*` and
-   `/kimi-federated/*` routes. Stored in OpenBao (production file-storage
-   mode with persistent volumes). Resolved to an upstream provider API key.
-   Can be revoked, rate-limited per tenant, audited. Cached in `key_cache`
-   shared dict (5s TTL in dev, 300s in prod).
+1. **Virtual keys** (`vgw-*`): used on `relay-opencode-federated`,
+   `relay-kimi-federated`, and `relay-kimi-federated-v1`. Stored in OpenBao
+   KV v2 and resolved at request time to an upstream provider key. Revocable,
+   rate-limited per tenant, audited. Cached in the `key_cache` shared dict
+   (5s TTL in dev, 300s in prod).
 
-2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): Used on the
+2. **Direct keys** (any non-`vgw-` prefix, e.g. `sk-*`): used on the
    `/opencode/*`, `/kimi-key/*`, and `/zai-key/*` routes. Passed through to
-   upstream as-is. No OpenBao lookup. Users bring their own upstream provider
-   API keys.
+   upstream as-is. No OpenBao lookup. Users bring their own provider API keys.
 
-3. **Upstream key pools**: Named pools of upstream API keys shared by one or
-   more virtual keys. The `key-resolver` plugin selects keys sticky-style and
-   rotates on upstream quota/rate-limit responses (429 parks a key in cooldown,
-   402/403 hard-disables it in OpenBao). Create and attach pools via
-   `make pool-key` and `make issue-key POOL=...`.
+3. **Upstream key pools**: named sets of upstream API keys shared by one or
+   more virtual keys. `key-resolver` selects pool keys sticky-style and rotates
+   on upstream quota/rate-limit responses (429 parks a key in cooldown, 402/403
+   hard-disables it in OpenBao).
+
+Mapping precedence at request time: a non-empty `upstream_pool` wins, then the
+key's own `upstream_key`, then the gateway-wide `OPENCODE_API_KEY`.
 
 ### Commands
 
+Every key operation goes through one dispatcher, `make key ARGS='...'`
+(wrapper: [`res/scripts/gateway-key.sh`](res/scripts/gateway-key.sh)). The
+older single-purpose targets (`make issue-key`, `make list-keys`,
+`make revoke-key`, `make pool-key`) remain, but they expose fewer flags:
+`issue` rate-limit and budget options are reachable only through `make key`
+or the script directly.
+
 ```bash
-make issue-key                              # Create vgw-<random hex> key
-make issue-key KEY_ID=my-key TENANT_ID=acme USER_ID=alice
-make issue-key KEY_ID=my-key POOL=kimi      # Attach key to upstream pool
-make list-keys                              # List all keys with metadata
-make revoke-key KEY_ID=vgw-abc123           # Revoke (record preserved)
-make pool-key ARGS='list'                   # List upstream key pools
-make pool-key ARGS='create kimi'            # Create a new pool
-make pool-key ARGS='add kimi k1 sk-...'     # Add a key to a pool
+make key ARGS='issue'                                    # vgw-<random hex>, defaults
+make key ARGS='issue --key-id vgw-acme-01 --tenant acme --user alice'
+make key ARGS='issue --key-id vgw-acme-01 --pool kimi'   # attach an upstream pool
+make key ARGS='issue --key-id vgw-acme-01 --upstream-key sk-...'
+make key ARGS='issue --key-id vgw-acme-01 --rate-limit-rpm 100 --token-budget 5000000'
+make key ARGS='list'                                     # KEY_ID / TENANT / USER / ACTIVE / CREATED
+make key ARGS='show vgw-acme-01'                         # record plus its upstream mapping
+make key ARGS='map vgw-acme-01 --pool kimi'              # set or change the mapping
+make key ARGS='map vgw-acme-01 --upstream-key sk-...'
+make key ARGS='map vgw-acme-01 --none'                   # clear (use gateway OPENCODE_API_KEY)
+make key ARGS='revoke vgw-acme-01'                       # active=false, record kept
+make key ARGS='pool list'
+make key ARGS='pool create kimi'
+make key ARGS='pool add kimi k1 sk-...'
+make key ARGS='pool remove kimi k1'
+make key ARGS='pool disable kimi k1'
+make key ARGS='pool enable kimi k1'
+make key ARGS='pool reset kimi'
 ```
+
+Run `make key ARGS='help'` for the full flag list. The scripts call the OpenBao
+KV v2 HTTP API directly (not APISIX or etcd) through `podman exec gw-openbao`,
+because OpenBao publishes no host port. Writes carry the shared `OPENBAO_TOKEN`,
+so they are not attributed to an individual operator.
 
 ---
 
@@ -571,6 +592,9 @@ systemctl so an unmanaged compose stack never fights the unit's
 
 | Target | Description |
 |--------|-------------|
+| `make key ARGS='issue ...'` | Unified key CLI: issue, list, show, map, revoke, pool |
+| `make key ARGS='show vgw-xxx'` | Show a key record and its upstream mapping |
+| `make key ARGS='map vgw-xxx --pool kimi'` | Set or change a key's upstream mapping |
 | `make issue-key` | Create new `vgw-*` key in OpenBao |
 | `make issue-key KEY_ID=... POOL=...` | Create a key attached to an upstream key pool |
 | `make list-keys` | List all keys with metadata |

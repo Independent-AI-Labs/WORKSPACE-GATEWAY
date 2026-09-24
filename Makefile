@@ -298,7 +298,12 @@ setup-providers: ## Install ALL gateway providers into opencode config (auth ski
 # =============================================================================
 # Key Management
 # =============================================================================
-.PHONY: issue-key list-keys revoke-key pool-key
+.PHONY: key issue-key list-keys revoke-key pool-key
+
+key: ## Unified key CLI (ARGS='issue ...', 'list', 'show vgw-xxx', 'map vgw-xxx --pool kimi', 'revoke vgw-xxx', 'pool list')
+	if [ -z "$(ARGS)" ]; then bash $(REPO_ROOT)/res/scripts/gateway-key.sh help; exit 0; fi
+	bash $(REPO_ROOT)/res/scripts/gateway-key.sh $(ARGS)
+
 
 issue-key: ## Issue a new virtual gateway key (use KEY_ID=, TENANT_ID=, USER_ID=, POOL=)
 	bash $(REPO_ROOT)/res/scripts/issue-key.sh $(if $(KEY_ID),--key-id $(KEY_ID)) $(if $(TENANT_ID),--tenant $(TENANT_ID)) $(if $(USER_ID),--user $(USER_ID)) $(if $(UPSTREAM_KEY),--upstream-key $(UPSTREAM_KEY)) $(if $(POOL),--pool $(POOL))

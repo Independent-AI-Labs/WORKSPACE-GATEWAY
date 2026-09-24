@@ -11,8 +11,8 @@
 > [REQ-KEYCLOAK-INTEGRATION](REQ-KEYCLOAK-INTEGRATION.md)) and the
 > WORKSPACE-PORTAL RBAC vocabulary, with **no custom identity or credential
 > UI**. **Not implemented**: today these actions are performed by host-side
-> scripts (`issue-key.sh`, `revoke-key.sh`, `pool-key.sh`) with no gateway-level
-> authorization.
+> scripts (`gateway-key.sh`, `issue-key.sh`, `revoke-key.sh`, `pool-key.sh`)
+> with no gateway-level authorization.
 
 ---
 
