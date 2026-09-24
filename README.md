@@ -2,8 +2,11 @@
 
 ![Gateway Cost & Usage dashboard: token usage by category and the per-model treemap](res/dashboard-cost-usage-token-breakdown.png)
 
-WORKSPACE-GATEWAY is a self-hosted, multi-tenant LLM gateway for teams that
-share cloud model access.
+**WORKSPACE-GATEWAY** relays shared LLM traffic through Apache APISIX with
+per-tenant virtual keys, spend limits, and PII redaction. It speaks each
+provider's native protocol, with usage, cost, and health tracked in ClickHouse
+and Grafana; this repo ships sample routes to OpenCode Go and Zen, Kimi, Z.ai,
+Anthropic, OpenAI, Alibaba Token Plan, and a local llamafile.
 
 ---
 
