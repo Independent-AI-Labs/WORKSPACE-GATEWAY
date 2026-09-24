@@ -566,27 +566,32 @@ The stack is owned by the systemd user unit `gateway-compose`
 systemctl so an unmanaged compose stack never fights the unit's
 `Restart=always`.
 
-| Target | Description |
-|--------|-------------|
-| `make gw-build` | Build container images |
-| `make gw-start` | Start stack via systemd, provision keys, health checks |
-| `make gw-stop` | Stop stack via systemd (keep volumes) |
-| `make gw-restart` | Restart the stack via systemd. NOTE: the unit's ExecStart force-recreates every container from the current compose (it does NOT preserve running containers or apply compose network changes selectively) |
-| `make gw-update` | Build images, redeploy changed services via systemd, reconcile, and verify |
-| `make gw-reconcile` | Reconcile routes, schema, and provider catalog without restarting containers |
-| `make gw-verify` | Health report: status + one request through the gateway |
-| `make gw-status` | Show systemd unit + containers |
-| `make gw-logs` | Tail container logs |
-| `make gw-shell` | Exec into APISIX container |
-| `make gw-test` | Run full test suite against the running stack |
-| `make gw-restart-service SVC=name` | Restart one existing service without recreating it |
-| `make gw-recreate-service SVC=name` | Recreate ONE service from the current compose (applies network/env changes; grafana/clickhouse/vector/openbao/prometheus/etcd) |
-| `make gw-restart-grafana` | Restart Grafana, reload provisioning, sync dashboard defaults |
-| `make gw-deploy` | Install + enable gateway compose on boot (systemd user + linger) |
-| `make gw-undeploy` | Disable + remove gateway compose systemd unit |
-| `make gw-systemd-logs` | Tail gateway systemd unit logs |
-| `make ch-migrate` | Apply pending ClickHouse schema migrations |
-| `make ch-migrate-status` | Show ClickHouse migration version |
+| Target                              | Description |
+|-------------------------------------|-------------|
+| `make gw-build`                     | Build container images |
+| `make gw-start`                     | Start stack via systemd, provision keys, health checks |
+| `make gw-stop`                      | Stop stack via systemd (keep volumes) |
+| `make gw-restart`                   | Restart the stack via systemd |
+| `make gw-update`                    | Build images, redeploy changed services via systemd, reconcile, and verify |
+| `make gw-reconcile`                 | Reconcile routes, schema, and provider catalog without restarting containers |
+| `make gw-verify`                    | Health report: status + one request through the gateway |
+| `make gw-status`                    | Show systemd unit + containers |
+| `make gw-logs`                      | Tail container logs |
+| `make gw-shell`                     | Exec into APISIX container |
+| `make gw-test`                      | Run full test suite against the running stack |
+| `make gw-restart-service SVC=name`  | Restart one existing service without recreating it |
+| `make gw-recreate-service SVC=name` | Recreate one service from the current compose |
+| `make gw-restart-grafana`           | Restart Grafana, reload provisioning, sync dashboard defaults |
+| `make gw-deploy`                    | Install + enable gateway compose on boot (systemd user + linger) |
+| `make gw-undeploy`                  | Disable + remove gateway compose systemd unit |
+| `make gw-systemd-logs`              | Tail gateway systemd unit logs |
+| `make ch-migrate`                   | Apply pending ClickHouse schema migrations |
+| `make ch-migrate-status`            | Show ClickHouse migration version |
+
+Notes: `gw-restart` force-recreates every container from the current compose
+and does not preserve running containers or apply compose network changes
+selectively. `gw-recreate-service` applies network and env changes and supports
+grafana, clickhouse, vector, openbao, prometheus, and etcd.
 
 ### Key Management
 
