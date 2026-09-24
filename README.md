@@ -2,18 +2,15 @@
 
 ![Gateway Cost & Usage dashboard: token usage by category and the per-model treemap](res/dashboard-cost-usage-token-breakdown.png)
 
-Apache APISIX gateway for shared LLM traffic with **virtual key sharding**,
-**spend limits**, and **PII redaction**.
+**A multi-tenant LLM gateway, built as APISIX plugins with no sidecar on the
+request path.**
 
-Cloud backends are reached through provider-passthrough relay routes
-(`proxy-rewrite` plus the custom `sse-usage` telemetry layer), with usage, cost,
-and health tracked in ClickHouse and Grafana. Passthrough is transparent: the
-provider's own request and response shapes pass through unmodified, so
-provider-native fields, streaming semantics, and error payloads survive the
-gateway, and every route carries its own credential handling, path rewrite,
-rate limit, and telemetry. This repo ships sample routes to OpenCode, Moonshot
-Kimi, Z.ai, Alibaba Token Plan, and a local llamafile, and the default
-deployment sends cloud traffic to OpenCode Go (`opencode.ai`).
+Teams share cloud model access without sharing provider keys. Callers present a
+revocable `vgw-*` key; the gateway resolves the real credential from OpenBao,
+enforces per-key rate and spend limits, redacts PII before the prompt leaves
+your network, and records every request's tokens and cost in ClickHouse for
+Grafana. Each relay is a native passthrough, so clients keep their own provider
+SDK and its streaming and error semantics.
 
 ---
 
