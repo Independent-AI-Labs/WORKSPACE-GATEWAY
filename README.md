@@ -2,15 +2,8 @@
 
 ![Gateway Cost & Usage dashboard: token usage by category and the per-model treemap](res/dashboard-cost-usage-token-breakdown.png)
 
-**A multi-tenant LLM gateway, built as APISIX plugins with no sidecar on the
-request path.**
-
-Teams share cloud model access without sharing provider keys. Callers present a
-revocable `vgw-*` key; the gateway resolves the real credential from OpenBao,
-enforces per-key rate and spend limits, redacts PII before the prompt leaves
-your network, and records every request's tokens and cost in ClickHouse for
-Grafana. Each relay is a native passthrough, so clients keep their own provider
-SDK and its streaming and error semantics.
+WORKSPACE-GATEWAY is a self-hosted, multi-tenant LLM gateway for teams that
+share cloud model access.
 
 ---
 
@@ -123,6 +116,7 @@ Upstream API-key quota exhaustion is handled by upstream key pools (see
 
 | Feature | Plugin / Mechanism | Type |
 |---------|-------------------|------|
+| Native-protocol passthrough (no protocol translation) | per-route `upstream` + `proxy-rewrite`; `ai-proxy` deliberately absent | Config |
 | PII redaction (on-the-fly sensitive data anonymisation) + re-hydration | `redact`: regex + dictionary + Luhn, pure Lua | Custom |
 | Virtual key management | `key-resolver`: OpenBao KVv2 (persistent file-storage), shared dict cache | Custom |
 | Direct key pass-through | `key-resolver`: non-`vgw-` keys forwarded as-is | Custom |
