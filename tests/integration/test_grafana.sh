@@ -117,19 +117,19 @@ DATASOURCES=$(curl -sS http://admin:admin@localhost:3030/api/datasources ) || { 
 DS_COUNT_RC=0
 DS_COUNT=$(echo "$DATASOURCES" | jq 'length' ) || { DS_COUNT_RC=$?; DS_COUNT="0"; }
 
-if [ "$DS_COUNT" = "2" ]; then
-    record_pass "Grafana has 2 datasources provisioned"
+if [ "$DS_COUNT" = "3" ]; then
+    record_pass "Grafana has 3 datasources provisioned"
 else
-    record_fail "Grafana datasource count: expected 2, got $DS_COUNT"
+    record_fail "Grafana datasource count: expected 3, got $DS_COUNT"
 fi
 
 DS_NAMES_RC=0
 DS_NAMES=$(echo "$DATASOURCES" | jq -r '[.[].name] | sort | join(",")' ) || { DS_NAMES_RC=$?; DS_NAMES=""; }
 
-if [ "$DS_NAMES" = "ClickHouse,Prometheus" ]; then
-    record_pass "Grafana has Prometheus and ClickHouse datasources"
+if [ "$DS_NAMES" = "ClickHouse,ClickHouse (Prod),Prometheus" ]; then
+    record_pass "Grafana has Prometheus, dev and prod ClickHouse datasources"
 else
-    record_fail "Grafana datasource names: expected ClickHouse,Prometheus, got $DS_NAMES"
+    record_fail "Grafana datasource names: expected ClickHouse,ClickHouse (Prod),Prometheus, got $DS_NAMES"
 fi
 
 # ── 5. Dashboards provisioned (3 split dashboards) ───────────────────
