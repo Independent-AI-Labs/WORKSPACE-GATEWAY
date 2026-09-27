@@ -121,6 +121,14 @@ printf '%s' "$P47_CONTENT" | grep -qF 'PAI (adherence)' && printf '%s' "$P47_CON
 P47_SQL=$(jq -r '[.panels[]|select(.id==47)][0].targets[0].rawSql' "$F")
 printf '%s' "$P47_SQL" | grep -qF 'model_registry' && printf '%s' "$P47_SQL" | grep -qF "'\${include_local}'" && printf '%s' "$P47_SQL" | grep -q 'reqs >= 30' && { echo "[PASS] $LABEL: p47 honours include_local + >=30 gate"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 missing gates"; fail=$((fail+1)); }
 
+# Key scoping (2026-09-27): the score must honour the api_key template variable
+# consistently -- gated + sig + spd + sess all carry the same client predicate,
+# so selecting a key narrows every construct (rejections/friction/switches/
+# cancels/aborts), not just the session-abandonment term.
+KEY_PRED="coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (\${api_key:singlequote})"
+assert_eq "$LABEL: p40 key-scopes all four score CTEs" "4" "$(printf '%s' "$P40_SQL" | grep -oF "$KEY_PRED" | wc -l)"
+assert_eq "$LABEL: p47 key-scopes all four score CTEs" "4" "$(printf '%s' "$P47_SQL" | grep -oF "$KEY_PRED" | wc -l)"
+
 # Friction panels (FR-8.5): three marker classes, sparse suppression, stacking
 P42_SQL=$(jq -r '[.panels[]|select(.id==42)][0].targets[].rawSql' "$F")
 printf '%s' "$P42_SQL" | grep -q 'sum(guard_blocks)' && printf '%s' "$P42_SQL" | grep -q 'sum(user_rejections)' && printf '%s' "$P42_SQL" | grep -q 'sum(rule_denials)' && { echo "[PASS] $LABEL: p42 charts all three friction classes"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p42 missing a friction class"; fail=$((fail+1)); }
