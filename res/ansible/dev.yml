@@ -36,14 +36,14 @@
     compose_file: "{{ project_root }}/res/docker/docker-compose.yml"
     venv_bin: "{{ project_root }}/.venv/bin"
     ci_boot_bin: /opt/workspace-ci/.boot-linux/bin
-    compose_cmd: "{{ venv_bin }}/podman-compose -f {{ compose_file }}"
+    compose_cmd: "{{ venv_bin }}/podman-compose -p workspace-gateway-dev -f {{ compose_file }}"
     podman_path: "{{ ci_boot_bin }}/podman"
     admin_api_key: "{{ lookup('env', 'ADMIN_KEY') }}"
     # Debug/ops ports are unpublished (REQ-SECURITY-HARDENING FR-6): all
     # health checks run in-container via podman exec.
-    apisix_container: docker_apisix_1
-    clickhouse_container: docker_clickhouse_1
-    vector_container: docker_vector_1
+    apisix_container: gw-apisix
+    clickhouse_container: gw-clickhouse
+    vector_container: gw-vector
     ansible_cache_dir: "{{ lookup('env', 'HOME') }}/.cache/gateway-ansible"
     run_log: "{{ lookup('env', 'HOME') }}/.cache/gateway-ansible/dev-{{ ansible_date_time.epoch }}.log"
 

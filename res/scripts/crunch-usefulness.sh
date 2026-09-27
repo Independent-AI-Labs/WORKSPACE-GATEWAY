@@ -93,7 +93,7 @@ ch() {
 if [ -z "${APISIX_CONTAINER:-}" ]; then
     APSX_RC=0
     APSX_ID=$("$PODMAN_BIN" ps -q \
-        --filter label=io.podman.compose.project=docker \
+        --filter label=io.podman.compose.project=workspace-gateway-dev \
         --filter label=io.podman.compose.service=apisix) || APSX_RC=$?
     if [ "$APSX_RC" -eq 0 ] && [ -n "$APSX_ID" ]; then
         APSX_NAME_RC=0

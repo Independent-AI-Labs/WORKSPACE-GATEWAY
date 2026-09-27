@@ -51,7 +51,7 @@ assert_contains() {
     fi
 }
 
-if ! "$PODMAN_BIN" ps --filter label=io.podman.compose.project=docker \
+if ! "$PODMAN_BIN" ps --filter label=io.podman.compose.project=workspace-gateway-dev \
         --format '{{.Names}}' | grep -q apisix; then
     echo "[SKIP] stack is not running; recalc-costs live test skipped"
     exit 0

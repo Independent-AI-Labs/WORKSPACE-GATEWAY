@@ -109,7 +109,7 @@ code=$(ch_post --data-binary 'SELECT 1')
 # forwards can appear as container-localhost under pasta, so probe from the
 # apisix container (source 10.99.10.2) through the exec harness.
 PODMAN="${PODMAN:-podman}"
-probe_out="$($PODMAN exec docker_apisix_1 curl -sS --max-time 5 \
+probe_out="$($PODMAN exec gw-apisix curl -sS --max-time 5 \
     -u "default:$CLICKHOUSE_PASSWORD" --data-binary 'SELECT 1' \
     http://clickhouse:8123/ )"
 case "$probe_out" in

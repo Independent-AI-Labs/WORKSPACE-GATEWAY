@@ -18,6 +18,19 @@ fi
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/res/docker/docker-compose.yml}"
 COMPOSE_BIN="${COMPOSE_BIN:-$REPO_ROOT/.venv/bin/podman-compose}"
 PODMAN_PATH="${PODMAN_PATH:?PODMAN_PATH must be set to the absolute podman binary path (the Makefile exports it)}"
+# Load .env, then pin the dev project explicitly so the compose file under
+# res/docker (directory name "docker") can never claim the generic `docker`
+# project namespace. See RUNBOOK-DEV-PROD-SEPARATION.
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    if ! source "$REPO_ROOT/.env"; then
+        echo "ERROR: failed to load $REPO_ROOT/.env" >&2
+        exit 1
+    fi
+    set +a
+fi
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-workspace-gateway-dev}"
 
 usage() {
     printf 'Usage: %s {build|down|restart-service SERVICE|recreate-service SERVICE|logs [SERVICE]|migrate-up|migrate-status|migrate-force VERSION|exec SERVICE -- CMD [ARGS...]}\n' "$0" >&2
@@ -33,7 +46,7 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 compose() {
-    "$COMPOSE_BIN" --podman-path "$PODMAN_PATH" -f "$COMPOSE_FILE" "$@"
+    "$COMPOSE_BIN" --podman-path "$PODMAN_PATH" -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" "$@"
 }
 
 case "${1:-}" in
@@ -65,7 +78,7 @@ case "${1:-}" in
         # -a lists only running containers, so the lookup would come up empty
         # and the service would never be started again.
         container_id="$("$PODMAN_PATH" ps -aq \
-            --filter label=io.podman.compose.project=docker \
+            --filter label=io.podman.compose.project="$COMPOSE_PROJECT" \
             --filter label=io.podman.compose.service="$service")"
         if [ -z "$container_id" ]; then
             echo "ERROR: running gateway container not found for service: $service" >&2
@@ -96,7 +109,7 @@ case "${1:-}" in
             *) echo "ERROR: invalid service: $service" >&2; usage; exit 2 ;;
         esac
         container_id="$("$PODMAN_PATH" ps -q \
-            --filter label=io.podman.compose.project=docker \
+            --filter label=io.podman.compose.project="$COMPOSE_PROJECT" \
             --filter label=io.podman.compose.service="$service")"
         if [ -z "$container_id" ]; then
             echo "ERROR: running gateway container not found for service: $service" >&2

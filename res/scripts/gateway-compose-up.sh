@@ -37,8 +37,9 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
     fi
     set +a
 fi
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-workspace-gateway-dev}"
 compose() {
-    "$COMPOSE_CMD" --podman-path "$PODMAN_PATH" -f "$COMPOSE_FILE" "$@"
+    "$COMPOSE_CMD" --podman-path "$PODMAN_PATH" -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" "$@"
 }
 
 # Start ClickHouse without writers and require readiness before ingestion.
@@ -65,4 +66,4 @@ for service in vector openbao prometheus grafana etcd; do
     compose up -d --force-recreate "$service"
 done
 
-exec "$COMPOSE_CMD" --podman-path "$PODMAN_PATH" -f "$COMPOSE_FILE" up --force-recreate apisix
+exec "$COMPOSE_CMD" --podman-path "$PODMAN_PATH" -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" up --force-recreate apisix

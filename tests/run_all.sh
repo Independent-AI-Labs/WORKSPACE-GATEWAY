@@ -26,7 +26,7 @@ pass=0
 fail=0
 
 stack_is_up() {
-    podman ps --filter label=io.podman.compose.project=docker --format '{{.Names}}' | grep -q '^docker_apisix_1$'
+    podman ps --filter label=io.podman.compose.project=workspace-gateway-dev --format '{{.Names}}' | grep -q '^gw-apisix$'
 }
 
 if stack_is_up; then

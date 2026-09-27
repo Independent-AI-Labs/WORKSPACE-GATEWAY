@@ -9,9 +9,19 @@
 ## Purpose
 
 Inventory, generation, and rotation of every secret the gateway stack
-consumes, plus the nightly ClickHouse backup job. All secrets live in the
-gitignored repo-root `.env` (`chmod 600`); `.env.example` carries example
-values only.
+consumes, plus the nightly ClickHouse backup job.
+
+Two independent secret files exist, one per stack, so neither can
+re-provision the other:
+
+| File | Stack | Template | Consumers |
+|------|-------|----------|-----------|
+| `.env` | dev (`docker-compose.yml`) | `.env.example` | dev containers, `make ch-provision`/`test`, ansible, dev systemd units |
+| `.env.prod` | prod (`docker-compose.prod.yml`) | `.env.prod.example` | prod containers, `gateway-prod.sh` (build/start/verify) |
+
+Both are gitignored and MUST be `chmod 600`. Templates carry example values
+only. A dev edit to `.env` never reaches prod, and vice versa; rotate each
+stack by editing its own file and restarting that stack's consumers.
 
 ## Inventory
 
@@ -59,6 +69,15 @@ openssl rand -base64 24 # passwords
    first, update `.env`, then restart apisix.
 6. etcd credential rotation: run `make etcd-auth-init` (re-binds
    `ETCD_GW_USER`), restart apisix.
+
+### Prod stack
+
+Prod reads `.env.prod` only. Rotate it by editing `.env.prod`, then
+`make gw-prod-redeploy` (guarded: stop + start + verify). This bounces the
+prod data plane, so schedule it; `make gw-prod-stop` is refused without
+`--confirm`. `make etcd-auth-init` re-binds the prod etcd user from
+`.env.prod` when `gw-prod-etcd` is running. Prod ClickHouse users are
+re-provisioned on `gw-prod-redeploy` start.
 
 ## ClickHouse backups
 

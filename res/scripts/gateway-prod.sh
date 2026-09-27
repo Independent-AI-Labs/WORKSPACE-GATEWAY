@@ -41,20 +41,26 @@ PROD_PORT=9081
 # not host-routable under rootless podman).
 ADMIN_KEY="${ADMIN_KEY:-}"
 PROD_TMP="$(mktemp)"
-trap 'rm -f "$PROD_TMP"' EXIT
+PROD_ROUTES_TMP="$(mktemp)"
+trap 'rm -f "$PROD_TMP" "$PROD_ROUTES_TMP"' EXIT
 
 # Compose interpolation and container env (CH_* passwords etc.) must see the
-# repo .env; without this, containers are created with EMPTY credentials
-# (ops_admin XML user gets a blank password and all auth fails).
-if [ -f "$REPO_ROOT/.env" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    if ! source "$REPO_ROOT/.env"; then
-        echo "ERROR: failed to load environment from $REPO_ROOT/.env" >&2
-        exit 1
-    fi
-    set +a
+# repo .env.prod; without this, containers are created with EMPTY credentials
+# (ops_admin XML user gets a blank password and all auth fails). The prod
+# stack reads ONLY .env.prod - never the dev .env - so the two stacks share
+# no credential file (see RUNBOOK-SECRETS).
+ENV_PROD="$REPO_ROOT/.env.prod"
+if [ ! -f "$ENV_PROD" ]; then
+    echo "ERROR: missing $ENV_PROD (prod secrets; copy .env.prod.example and fill in)" >&2
+    exit 1
 fi
+set -a
+# shellcheck disable=SC1091
+if ! source "$ENV_PROD"; then
+    echo "ERROR: failed to load environment from $ENV_PROD" >&2
+    exit 1
+fi
+set +a
 
 usage() {
     printf 'Usage: %s {build|start|stop|redeploy|verify|status|logs|logs-api}\n' "$0" >&2
@@ -74,20 +80,18 @@ compose() {
 }
 
 load_admin_key() {
-    if [ -f "$REPO_ROOT/.env" ]; then
-        if [ -z "$ADMIN_KEY" ]; then
-            ADMIN_KEY="$(grep -E '^ADMIN_KEY=' "$REPO_ROOT/.env" | cut -d= -f2-)"
-        fi
-        if [ -z "${CH_OPS_PASSWORD:-}" ]; then
-            CH_OPS_PASSWORD="$(grep -E '^CH_OPS_PASSWORD=' "$REPO_ROOT/.env" | cut -d= -f2-)"
-        fi
+    if [ -z "$ADMIN_KEY" ]; then
+        ADMIN_KEY="$(grep -E '^ADMIN_KEY=' "$ENV_PROD" | cut -d= -f2-)"
+    fi
+    if [ -z "${CH_OPS_PASSWORD:-}" ]; then
+        CH_OPS_PASSWORD="$(grep -E '^CH_OPS_PASSWORD=' "$ENV_PROD" | cut -d= -f2-)"
     fi
     if [ -z "$ADMIN_KEY" ]; then
-        echo "ERROR: ADMIN_KEY not set and not present in $REPO_ROOT/.env" >&2
+        echo "ERROR: ADMIN_KEY not set and not present in $ENV_PROD" >&2
         exit 1
     fi
     if [ -z "${CH_OPS_PASSWORD:-}" ]; then
-        echo "ERROR: CH_OPS_PASSWORD not set and not present in $REPO_ROOT/.env" >&2
+        echo "ERROR: CH_OPS_PASSWORD not set and not present in $ENV_PROD" >&2
         exit 1
     fi
 }
@@ -230,8 +234,15 @@ case "${1:-}" in
         fi
         compose up -d --force-recreate apisix
         wait_healthy "gw-prod-apisix"
-        echo "Seeding routes from conf/apisix.yaml (admin via exec gw-prod-apisix)"
-        ADMIN_KEY="$ADMIN_KEY" APISIX_YAML="$REPO_ROOT/conf/apisix.yaml" \
+        # Seed from the IMAGE's baked conf/apisix.yaml, not the repo checkout:
+        # prod must never run routes its image does not contain (W2). If the
+        # image is stale vs HEAD, the baked file is what prod actually has.
+        echo "Seeding routes from the baked image conf/apisix.yaml (admin via exec gw-prod-apisix)"
+        if ! "$PODMAN_PATH" exec gw-prod-apisix cat /usr/local/apisix/conf/apisix.yaml > "$PROD_ROUTES_TMP"; then
+            echo "ERROR: prod image lacks baked conf/apisix.yaml; run 'make gw-prod-build' first" >&2
+            exit 1
+        fi
+        ADMIN_KEY="$ADMIN_KEY" APISIX_YAML="$PROD_ROUTES_TMP" \
             PODMAN_PATH="$PODMAN_PATH" \
             bash "$SCRIPT_DIR/seed-routes.sh" \
             --admin-key "$ADMIN_KEY" \

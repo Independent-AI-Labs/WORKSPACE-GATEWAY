@@ -376,4 +376,24 @@ HAS_ETCD_DEP_RC=0
 HAS_ETCD_DEP=$(echo "$APISIX_DEPS" | grep -c "etcd" ) || { HAS_ETCD_DEP_RC=$?; HAS_ETCD_DEP="0"; }
 assert_eq "APISIX depends on etcd" "1" "$HAS_ETCD_DEP"
 
+# --- Per-stack secret isolation (W1) ---
+# Prod must read ONLY .env.prod; dev must never read .env.prod. This is what
+# stops a dev rotation from re-provisioning the prod stack.
+COMPOSE_PROD_YAML="$REPO_ROOT/res/docker/docker-compose.prod.yml"
+JSON_PROD=$(yaml_to_json "$COMPOSE_PROD_YAML")
+
+PROD_ENV_FILES=$(echo "$JSON_PROD" | jq -r '[.services[].env_file // [] | .[]] | .[]')
+PROD_DEV_ENV_RC=0
+PROD_DEV_ENV=$(echo "$PROD_ENV_FILES" | grep -c '^\.\./\.\./\.env$') || { PROD_DEV_ENV_RC=$?; PROD_DEV_ENV="0"; }
+assert_eq "Prod compose does not load dev .env" "0" "$PROD_DEV_ENV"
+
+PROD_PROD_ENV_RC=0
+PROD_PROD_ENV=$(echo "$PROD_ENV_FILES" | grep -c '\.env\.prod$') || { PROD_PROD_ENV_RC=$?; PROD_PROD_ENV="0"; }
+assert_eq "Prod compose loads .env.prod on every env_file service" "4" "$PROD_PROD_ENV"
+
+DEV_ENV_FILES=$(echo "$JSON_DATA" | jq -r '[.services[].env_file // [] | .[]] | unique | .[]')
+DEV_PROD_ENV_RC=0
+DEV_PROD_ENV=$(echo "$DEV_ENV_FILES" | grep -c '\.env\.prod') || { DEV_PROD_ENV_RC=$?; DEV_PROD_ENV="0"; }
+assert_eq "Dev compose does not load .env.prod" "0" "$DEV_PROD_ENV"
+
 summary

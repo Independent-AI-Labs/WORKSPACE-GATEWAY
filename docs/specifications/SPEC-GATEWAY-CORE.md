@@ -130,6 +130,19 @@ only then restart the dev stack onto the same code (`make gw-restart-service
 SVC=apisix` after `make gw-update`). Dev is never restarted against an
 untested image.
 
+Two isolation guarantees hold between the stacks (W1, W2):
+
+- **Secrets.** Dev reads `.env`; prod reads `.env.prod` (both gitignored,
+  `chmod 600`). Prod compose carries no `../../.env` reference, so rotating a
+  dev credential can never re-provision prod. See
+  [RUNBOOK-SECRETS](../runbooks/RUNBOOK-SECRETS.md).
+- **Artifact.** Prod apisix mounts **no** `conf/` paths: `Dockerfile.apisix`
+  bakes `conf/apisix.yaml`, `conf/config.yaml`, `conf/providers`,
+  `conf/redact-patterns.json`, `conf/profanity`, `conf/sql`, and the plugin
+  sources into the image. `gw-prod-start` seeds etcd from the image's baked
+  `conf/apisix.yaml`, never the repo checkout, so prod can never run a route
+  its image does not contain. Rebuild with `make gw-prod-build` before start.
+
 - No `cors` plugin is configured on any route; callers are server-side agents, not browsers.
 - `relay-llamafile` and `gateway-provider-sync` rate-limit by `remote_addr` (no caller key).
 - `pass_host: node` on relay routes preserves upstream Host; `gateway-provider-sync` uses `pass_host: pass`.

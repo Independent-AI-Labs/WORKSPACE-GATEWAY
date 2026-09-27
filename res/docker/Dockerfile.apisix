@@ -34,9 +34,12 @@ COPY plugins/custom/redact.lua /usr/local/apisix/apisix/plugins/redact.lua
 COPY plugins/custom/redact_lib.lua /usr/local/apisix/apisix/plugins/redact_lib.lua
 COPY plugins/custom/redact_walk.lua /usr/local/apisix/apisix/plugins/redact_walk.lua
 COPY conf/config.yaml /usr/local/apisix/conf/config.yaml
+COPY conf/apisix.yaml /usr/local/apisix/conf/apisix.yaml
 COPY conf/redact-patterns.json /etc/apisix/redact-patterns.json
 COPY conf/sql /etc/apisix/sql
 COPY conf/providers /usr/local/apisix/conf/providers
+COPY conf/profanity /etc/apisix/profanity
+COPY res/scripts/usefulness /usr/local/apisix/usefulness
 
 # Rebrand the embedded Admin Dashboard. APISIX has no config knob for this: the
 # Dashboard is a prebuilt static bundle, so patch it in place at build time

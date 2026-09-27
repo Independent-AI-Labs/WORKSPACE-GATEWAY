@@ -1,5 +1,13 @@
+# Explicit project name so a compose run from any directory named `docker`
+# cannot collide with this stack's namespaces. The prod stack is
+# workspace-gateway-prod. Volume and network runtime names below are pinned
+# with explicit `name:` so this rename reuses the existing data and keeps the
+# WORKSPACE-CI wiki nginx attached to docker_gw-edge (RUNBOOK-DEV-PROD-SEPARATION).
+name: workspace-gateway-dev
+
 services:
   apisix:
+    container_name: gw-apisix
     build:
       context: ../..
       dockerfile: res/docker/Dockerfile.apisix
@@ -73,6 +81,7 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server@sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5
+    container_name: gw-clickhouse
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-client --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null"]
       interval: 5s
@@ -137,6 +146,7 @@ services:
 
   vector:
     image: timberio/vector@sha256:1163571c8b59ab6755c1b5488bb2f129151c3b72130ad0500b10420fcc504d9d
+    container_name: gw-vector
     command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
@@ -263,12 +273,20 @@ services:
     networks:
       gw-etcd: {}
 
+# Runtime names pinned to the existing docker_* volumes so renaming the
+# project reuses the data in place (no export/import). Fresh installs create
+# volumes with these literal names.
 volumes:
   clickhouse-data:
+    name: docker_clickhouse-data
   prometheus-data:
+    name: docker_prometheus-data
   grafana-data:
+    name: docker_grafana-data
   openbao-data:
+    name: docker_openbao-data
   etcd-data:
+    name: docker_etcd-data
 
 # Security segmentation (REQ-SECURITY-HARDENING FR-6): static subnets so
 # user/grant HOST restrictions and the Grafana auth-proxy whitelist bind to
@@ -276,6 +294,7 @@ volumes:
 # service attached to more than the boundary it needs to serve traffic.
 networks:
   gw-ch:
+    name: docker_gw-ch
     driver: bridge
     ipam:
       config:
@@ -284,24 +303,28 @@ networks:
           # DHCP pool kept clear of the static apisix address (.2).
           ip_range: 10.99.10.64/26
   gw-etcd:
+    name: docker_gw-etcd
     driver: bridge
     ipam:
       config:
         - subnet: 10.99.20.0/24
           gateway: 10.99.20.1
   gw-secrets:
+    name: docker_gw-secrets
     driver: bridge
     ipam:
       config:
         - subnet: 10.99.30.0/24
           gateway: 10.99.30.1
   gw-metrics:
+    name: docker_gw-metrics
     driver: bridge
     ipam:
       config:
         - subnet: 10.99.40.0/24
           gateway: 10.99.40.1
   gw-ingest:
+    name: docker_gw-ingest
     driver: bridge
     ipam:
       config:
@@ -309,8 +332,11 @@ networks:
           gateway: 10.99.50.1
   # Edge-proxy boundary: the external wiki nginx is the only non-gateway
   # member, pinned to 10.99.60.2 (the Grafana auth-proxy whitelist trusts
-  # exactly that address). See RUNBOOK-EDGE-PROXY.
+  # exactly that address). See RUNBOOK-EDGE-PROXY. This name is held by the
+  # WORKSPACE-CI nginx, so it stays external and is never removed by compose.
   gw-edge:
+    name: docker_gw-edge
+    external: true
     driver: bridge
     ipam:
       config:

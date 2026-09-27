@@ -100,6 +100,7 @@ Hub: [`architecture/README.md`](architecture/README.md)  -  reading order for
 | [`runbooks/RUNBOOK-CLIENT-LOGIN.md`](runbooks/RUNBOOK-CLIENT-LOGIN.md) | Client login flows (opencode provider login) |
 | [`runbooks/RUNBOOK-EDGE-PROXY.md`](runbooks/RUNBOOK-EDGE-PROXY.md) | Edge trust contract for the public Grafana endpoint |
 | [`runbooks/RUNBOOK-SECRETS.md`](runbooks/RUNBOOK-SECRETS.md) | Credential inventory, rotation, ClickHouse backups |
+| [`runbooks/RUNBOOK-DEV-PROD-SEPARATION.md`](runbooks/RUNBOOK-DEV-PROD-SEPARATION.md) | Isolate dev and prod stacks (secrets, artifact, namespace) |
 
 ### TODO.md  -  tracked implementation work
 

@@ -8,9 +8,9 @@ compose_services:
 podman_pods:
   gateway:
     containers:
-      - docker_apisix_1
-      - docker_clickhouse_1
-      - docker_vector_1
+      - gw-apisix
+      - gw-clickhouse
+      - gw-vector
       - gw-etcd
       - gw-grafana
       - gw-prometheus

@@ -58,7 +58,7 @@ teardown() {
 trap teardown EXIT
 
 stack_is_up() {
-    podman ps --filter label=io.podman.compose.project=docker --format '{{.Names}}' | grep -q '^docker_apisix_1$'
+    podman ps --filter label=io.podman.compose.project=workspace-gateway-dev --format '{{.Names}}' | grep -q '^gw-apisix$'
 }
 
 # Auto-detect: if the stack is already running, treat it as external and

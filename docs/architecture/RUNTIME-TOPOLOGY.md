@@ -50,7 +50,10 @@ Source of truth: [`res/docker/docker-compose.yml`](../../res/docker/docker-compo
 
 Prod stack mirrors this with its own subnets and ports 9081/9444/8124
 ([`docker-compose.prod.yml`](../../res/docker/docker-compose.prod.yml));
-it runs no Prometheus/Grafana.
+it runs no Prometheus/Grafana. Prod reads its own `.env.prod` (never the dev
+`.env`) and mounts no `conf/` paths: `Dockerfile.apisix` bakes routes,
+providers, redaction, profanity, and SQL into the image, and `gw-prod-start`
+seeds routes from that baked copy. See [SPEC-GATEWAY-CORE](../specifications/SPEC-GATEWAY-CORE.md) 6.1.
 
 ## Port surface policy (REQ-SECURITY-HARDENING FR-6.2)
 

@@ -242,7 +242,7 @@ gw-logs: ## Show the latest 200 gateway log lines (optional SVC=grafana)
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh logs $(SVC)
 
 gw-shell: ## Exec into APISIX container shell
-	podman exec -it docker_apisix_1 /bin/bash
+	podman exec -it gw-apisix /bin/bash
 
 gw-test: ## Run full test suite against running stack
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
@@ -275,7 +275,8 @@ etcd-auth-init: ## Enable etcd RBAC: root + least-privilege apisix user (idempot
 	if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	bash res/scripts/etcd-auth-init.sh; \
 	if $$PODMAN_PATH ps --filter name=gw-prod-etcd --format '{{.Names}}' | grep -q gw-prod-etcd; then \
-		ETCD_CONTAINER=gw-prod-etcd bash res/scripts/etcd-auth-init.sh; \
+		( set -a; source .env.prod; set +a; \
+		  ETCD_CONTAINER=gw-prod-etcd bash res/scripts/etcd-auth-init.sh ); \
 	fi
 
 .PHONY: gw-security-matrix

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-container_name="${APISIX_CONTAINER:-docker_apisix_1}"
+container_name="${APISIX_CONTAINER:-gw-apisix}"
 drain_timeout="${DRAIN_TIMEOUT:-300}"
 # Canonical runtime lives in the deployed /opt trust boundary; bare `podman`
 # resolves to the root-only wrapper under systemd's minimal PATH.
