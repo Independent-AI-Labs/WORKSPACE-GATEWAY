@@ -48,7 +48,22 @@ assert_eq "Datasources YAML exists" "ok" "ok"
 DS_JSON=$(yaml_to_json "$DS_FILE")
 
 DS_COUNT=$(echo "$DS_JSON" | jq '.datasources | length')
-assert_eq "Two datasources defined" "2" "$DS_COUNT"
+assert_eq "Three datasources defined (Prometheus + dev/prod ClickHouse)" "3" "$DS_COUNT"
+
+HAS_PROD_CH=$(echo "$DS_JSON" | jq '[.datasources[] | select(.name == "ClickHouse (Prod)" and .type == "grafana-clickhouse-datasource")] | length')
+assert_eq "prod ClickHouse datasource present" "1" "$HAS_PROD_CH"
+
+PROD_UID=$(echo "$DS_JSON" | jq -r '.datasources[] | select(.name == "ClickHouse (Prod)") | .uid')
+assert_eq "prod ClickHouse uid is clickhouse-prod" "clickhouse-prod" "$PROD_UID"
+
+PROD_USER=$(echo "$DS_JSON" | jq -r '.datasources[] | select(.name == "ClickHouse (Prod)") | .jsonData.username')
+assert_eq "prod ClickHouse uses read-only grafana_ro" "grafana_ro" "$PROD_USER"
+
+PROD_HOST=$(echo "$DS_JSON" | jq -r '.datasources[] | select(.name == "ClickHouse (Prod)") | .jsonData.host')
+assert_eq "prod ClickHouse host is gw-prod-clickhouse" "gw-prod-clickhouse" "$PROD_HOST"
+
+PROD_PROTO=$(echo "$DS_JSON" | jq -r '.datasources[] | select(.name == "ClickHouse (Prod)") | .jsonData.protocol')
+assert_eq "prod ClickHouse uses native protocol" "native" "$PROD_PROTO"
 
 HAS_PROMETHEUS=$(echo "$DS_JSON" | jq '[.datasources[] | select(.name == "Prometheus" and .type == "prometheus")] | length')
 assert_eq "Prometheus datasource present" "1" "$HAS_PROMETHEUS"

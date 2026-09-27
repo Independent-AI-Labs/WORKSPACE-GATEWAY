@@ -142,11 +142,17 @@ Two isolation guarantees hold between the stacks (W1, W2):
   sources into the image. `gw-prod-start` seeds etcd from the image's baked
   `conf/apisix.yaml`, never the repo checkout, so prod can never run a route
   its image does not contain. Rebuild with `make gw-prod-build` before start.
+- **Observability (W3).** Prod runs no Grafana or Prometheus of its own. The
+  dev Grafana serves both stacks through a second read-only ClickHouse
+  datasource (`clickhouse-prod`, user `grafana_ro`) reached over the shared
+  `gw-metrics-prod` bridge. Dashboards keep their dev `clickhouse` datasource;
+  the prod datasource is selectable per panel. See
+  [RUNBOOK-DEV-PROD-SEPARATION](../runbooks/RUNBOOK-DEV-PROD-SEPARATION.md).
 
 - No `cors` plugin is configured on any route; callers are server-side agents, not browsers.
 - `relay-llamafile` and `gateway-provider-sync` rate-limit by `remote_addr` (no caller key).
 - `pass_host: node` on relay routes preserves upstream Host; `gateway-provider-sync` uses `pass_host: pass`.
-- Bodies are logged at up to 256 KiB (request) / 1 MiB (response); larger payloads are truncated by http-logger.
+- Bodies are logged at up to 256 KiB (request) / 1 MiB (response); larger payloads are truncated by http-logger. A truncated request body is no longer valid JSON, so per-request `model`/`stream` are not read from it: `sse-usage` publishes the values it parses at access time (full body) via `ctx.var`, and the global http-logger `log_format_extra` metadata adds them to the log entry, keeping the request attributed to its model with zero parseable signals. That metadata lives in etcd (APISIX ignores `plugin_attr` for it) and is seeded from the top-level `plugin_metadata` block in `conf/apisix.yaml` by `res/scripts/seed-routes.sh`.
 
 ## 7. File Map
 

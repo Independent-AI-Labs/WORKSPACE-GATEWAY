@@ -82,7 +82,7 @@ re-provisioned on `gw-prod-redeploy` start.
 ## ClickHouse backups
 
 Nightly (systemd timer `gateway-ch-backup.timer`, unit in
-[`res/systemd/`](../../res/systemd/)): `BACKUP DATABASE llm_gateway TO
+[`res/ansible/templates/`](../../res/ansible/templates/)): `BACKUP DATABASE llm_gateway TO
 File('/backups/<date>')` into the staging directory, then synced to
 `/mnt/ws-backup/workspace-gateway/` via the existing root write path. If
 ws-backup is unwritable the backup stays in staging and the job logs a

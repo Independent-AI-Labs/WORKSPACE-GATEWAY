@@ -86,6 +86,39 @@ Only the compose project changes.
 - No `podman volume rename` exists; keeping the runtime names through compose
   `name:` is the supported way to move the project without an export/import of
   the 37 GB ClickHouse volume. Volume names still read `docker_*`.
-- Prod was not restarted. `make gw-verify` reports all components UP; its
-  sanity POST of a hardcoded `minimax-m3` model returns 400, which is
-  unrelated to this change.
+- Prod was not restarted during the rename. `make gw-verify` passes: the
+  health report is all UP and the sanity request returns 200.
+
+## W3 - prod observability (same Grafana)
+
+The dev Grafana serves both stacks.
+`conf/grafana/provisioning/datasources/datasources.yml` defines a second
+read-only ClickHouse datasource, `clickhouse-prod` (`grafana_ro`, no
+`request_bodies` grant), reached over the shared `gw-metrics-prod` bridge so
+prod ClickHouse keeps its loopback-only host publish. The dashboards keep
+their default `clickhouse` (dev) datasource; the prod datasource is available
+for manual selection.
+
+- [x] `clickhouse-prod` provisioned (native, `gw-prod-clickhouse:9000`).
+- [x] `gw-metrics-prod` (external, 10.99.150.0/24) declared in both composes
+      and attached to dev Grafana and prod ClickHouse; created once with
+      `podman network create --subnet 10.99.150.0/24 gw-metrics-prod`.
+- [x] `grafana_ro` HOST IP list now includes 10.99.150.0/24.
+- [x] Dev Grafana healthy; dashboards unchanged. The prod datasource reports
+      unreachable only while prod is off.
+- [ ] Deferred with prod: Prometheus scrape target for `gw-prod-apisix:9100`.
+
+## Prod teardown (2026-09-27)
+
+Prod is stopped and uninstalled:
+
+- [x] `gw-prod-pod.service` stopped, disabled, and its unit file removed
+      (`systemctl --user stop`/`disable`, `rm`, `daemon-reload`).
+- [x] Pod `pod_workspace-gateway-prod` and its five `gw-prod-*` containers
+      removed; ports 9081/9444/8124 closed.
+- [x] Prod data volumes kept:
+      `workspace-gateway-prod_prod-clickhouse-data`,
+      `workspace-gateway-prod_prod-openbao-data`,
+      `workspace-gateway-prod_prod-etcd-data`.
+- Reinstall: `make gw-prod-build` then `make gw-prod-start` (prod compose is
+  the source of truth; the removed pod unit was not repo-managed).

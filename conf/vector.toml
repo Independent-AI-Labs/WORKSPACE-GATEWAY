@@ -11,8 +11,11 @@ source = """
 .provider = "opencode"
 
 req_body_str = to_string!(.request.body || "")
-req_parsed = parse_json(req_body_str) ?? {}
-model_raw = to_string!(req_parsed.model || "")
+# model/stream are parsed once by the sse-usage plugin at access time (full,
+# pre-truncation body) and added to this payload via http-logger
+# log_format_extra, so they stay correct even when the 256 KiB body cap makes
+# .request.body invalid JSON.
+model_raw = to_string!(.model || "")
 # BEGIN GENERATED MODEL CANONICALIZATION (source: conf/model-registry.yaml - regenerate via res/scripts/gen-model-registry.sh, never edit by hand)
 # Model canonicalization - GENERATED from conf/model-registry.yaml.
 # Algorithm mirrors plugins/custom/model_registry.lua M.canonical:
@@ -23,12 +26,15 @@ model_canon = get(model_alias_map, [model_lower]) ?? null
 if model_canon == null {
   model_seg_caps = parse_regex(model_lower, r'(?P<model>[^/]+)$') ?? null
   model_seg = if model_seg_caps != null { to_string(model_seg_caps.model) } else { model_lower }
-  model_canon = get(model_alias_map, [model_seg]) ?? model_seg
+  model_canon = get(model_alias_map, [model_seg]) ?? null
+  if model_canon == null {
+    model_canon = model_seg
+  }
 }
 # END GENERATED MODEL CANONICALIZATION
 .model = model_canon
 .model_raw = model_raw
-.stream = to_string!(req_parsed.stream || false) == "true"
+.stream = to_string!(.stream || "false") == "true"
 
 .method = to_string!(.request.method || "")
 .uri = to_string!(.request.uri || "")

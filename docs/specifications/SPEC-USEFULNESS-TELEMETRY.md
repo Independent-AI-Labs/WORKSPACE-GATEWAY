@@ -355,7 +355,16 @@ cannot produce fake ids.
   accepted ceiling: `ponytail:` refine with a `"role":"tool"`-only JSON
   prefilter if it ever matters.
 - **Truncation (C-3):** bodies cut at 256 KiB may drop markers; consistent
-  with the `parsed=0` coverage stance (FR-2.7).
+  with the `parsed=0` coverage stance (FR-2.7). A truncated body is also
+  invalid JSON, so it cannot be the source of the request's `model`/`stream`.
+  Those are parsed once by `sse-usage` at access time (full body) and added to
+  the http-logger payload via the global http-logger `log_format_extra`
+  metadata (`$sse_model`/`$sse_stream` -> payload `model`/`stream`); Vector
+  reads the structured fields, never the body. The metadata is stored in etcd
+  (APISIX does not read it from `plugin_attr`) and seeded from the top-level
+  `plugin_metadata` block in `conf/apisix.yaml` by `res/scripts/seed-routes.sh`. Without this, over-cap requests were
+  stored with `model=''` and dropped from every per-model view (score card,
+  session abandonment) instead of counting with zero observed signals.
 - Guard-side audit sinks (`/var/log/workspace-guard/`, root-only, C-7)
   remain authoritative for security; this telemetry is the *model-experience*
   view. No cross-join planned.
@@ -489,14 +498,27 @@ dashboard refresh stays 5s (reads are tiny aggregates over
 
 ### 7.1 Scheduling (REQ NFR-1.6)
 
-`res/systemd/gateway-usefulness-crunch.service` (Type=oneshot, runs
-`res/scripts/crunch-usefulness.sh --days 1` as the deploy user with
-`CLICKHOUSE_HOST=localhost`) + `gateway-usefulness-crunch.timer`
+`res/ansible/templates/gateway-usefulness-crunch.service.j2` (Type=oneshot,
+runs `res/scripts/crunch-usefulness.sh --days 1` as the deploy user with
+`CLICKHOUSE_HOST=localhost`, `EnvironmentFile=.env`, and
+`Environment=PODMAN_PATH={{ podman_path }}`) + `gateway-usefulness-crunch.timer.j2`
 (`OnCalendar=*-*-* 00:00:00`, `Persistent=true` to catch missed runs after
 downtime, `Unit=` bound, `RandomizedDelaySec=300`). `make
 gw-crunch-usefulness` runs the script directly (manual/same code path);
-`make gw-install-crunch-timer` installs and enables the timer via the
-existing systemd deployment path.
+`make gw-install-crunch-timer` renders and enables the maintenance timers via
+`res/ansible/compose.yml --tags timers`.
+
+Both maintenance units (`gateway-usefulness-crunch`, `gateway-ch-backup`)
+are rendered from those templates by `res/ansible/compose.yml` alongside
+`gateway-compose.service` (NFR-1.6: scheduling ships with deployment
+automation; the Makefile target uses the same rendering path, no file copies).
+Two unit settings are deliberately absent, because the host runs the
+`host-exec` shell-guard class whose `/bin/bash` file capability the kernel
+ignores/obstructs under them, making the guard refuse (exit 3):
+`NoNewPrivileges` (host-exec requires NNP=0 per SPEC-GIT-GUARD-DEPLOYMENT)
+and `PrivateTmp`. `PODMAN_PATH` is injected so the scripts run the sanctioned
+CI podman binary rather than the unapproved `/usr/local/bin/podman` wrapper.
+`tests/config/test_systemd_units.sh` guards all of this.
 
 REQ-DASHBOARD FR-1.1 amendment (3→5 dashboards, +15 panels) lands in the
 same MR as the dashboard JSON.
@@ -538,7 +560,7 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | Dictionaries vendored + refresh target | Implemented | conf/profanity/*; res/scripts/update-dictionaries.sh; make gw-update-dictionaries |
 | Cruncher (shell + Lua) | Implemented | res/scripts/crunch-usefulness.sh, res/scripts/usefulness/cruncher.lua; make gw-crunch-usefulness |
 | request_signals table | Implemented | migration 000008 + conf/sql/clickhouse-init.sql |
-| systemd timer (daily 00:00) | Implemented | res/systemd/gateway-usefulness-crunch.{service,timer}; make gw-install-crunch-timer |
+| systemd timers (daily maintenance) | Implemented | res/ansible/templates/gateway-{usefulness-crunch,ch-backup}.{service,timer}.j2; rendered by res/ansible/compose.yml (`--tags timers`) + make gw-install-crunch-timer |
 | model experience + performance dashboards | Implemented | conf/grafana/dashboards/gateway-model-{experience,performance}.json; tests/config/test_dashboard_{experience,performance}.sh |
 | Tests | Implemented | tests/lua/test_usefulness_cruncher.lua; tests/integration/test_crunch_idempotency.sh; extended test_clickhouse_sql.sh, test_grafana_provisioning.sh, dashboard_assert.sh |
 | Friction telemetry (§5) | Implemented | migration 000009 + crunch INSERT expressions + panels 42-43; live backfill 2026-09-16 |
@@ -550,6 +572,8 @@ All wired into `tests/run_all.sh` stages and gated by `make check`.
 | Score cards to top (operator order 2026-09-21) | Implemented | p47 moved to the very top, full-width and alone above the score / session-depth pair (layout: 47 → 40/37 → 34/42/43) so it leads the dashboard; card width 232px → 244px (~5% wider); panel-order/grouping test updated |
 | Friction row + readable score cards (operator order 2026-09-22) | Implemented | p42 friction rate moved to its own full-width row between the score/session-depth pair and the detail tables (layout: 47 → 40/37 → 42 → 34/43; p34/p43 widened 8 → 12 columns); p47 gains a how-to-read intro card defining Overall, PAI and Reliability, the verdict bands and the request gate; the hover popover labels are spelled out (PAI (adherence), Your rejections, Switched away, Your cancels, Provider aborts, Friction /100) with the formula in the header and an index footer, and cards grow to 205px (h=18) so the full popover fits unclipped; hover overlay gets a white-theme background via `body.theme-light & .gw-pop` since the `--grafana-*` tokens never resolve; p42's friction legend/tooltip gets `byFrameRefID` display names so the raw `A`/`B`/`C` refIds no longer show; panel-order/grouping, intro, hover-theme and legend-name assertions added; intro reworded as a short scannable definition list and the per-verdict colored borders (card top accents, intro left accent) removed for the plain-border aesthetic; p42 buckets switched from hourly to daily (`toStartOfDay`, volume-weighted) so sparse hours no longer pin the axis; daily-bucket and no-colored-border assertions added |
 | Stream reliability + TTFT (operator order 2026-09-22) | Implemented | p31 renamed "Stream Reliability" and gains a completed share (`aborted=0 AND is_stream=1` over the `is_stream=1` cohort) so the three outcomes read as one 100% split; new p48 "Stream Responsiveness (TTFT)" stat added (TTFT p50/p95 + goodput within 2s); p30/p44 token speeds now use the `count:tok/s` unit so `77788.86` renders `77.79K tok/s`; layout 30/44 → 31/48 → 36/45; panel-count assertions 5→6 (total 32→33, api_key 22→23); follow-up same day: p31 outcomes stacked vertically, the waste/cost pair swapped (p45 left, p36 right), the speed values sized to 12px so the bars keep clear separation from the value text, and the waste tiles colored red (`#f25f5c`) to mark them as loss |
+
+| Crunch timer + truncated-body attribution fix (2026-09-27) | Implemented | the nightly cruncher had never succeeded: the unit carried `NoNewPrivileges=true` (and `PrivateTmp`), and under the host-exec shell guard both settings made the guard refuse its `/bin/bash` file-capability exec (exit 3), so `request_signals` stopped at the last manual crunch (2026-09-24); the script then also needed `PODMAN_PATH` to avoid the unapproved `/usr/local/bin/podman`. The maintenance units are now templated (`res/ansible/templates/*.j2`), rendered and enabled by `res/ansible/compose.yml` (also via `make gw-install-crunch-timer --tags timers`), with NNP/PrivateTmp omitted and PODMAN_PATH injected. Over-cap request attribution is fixed at the source: `sse-usage.access` decodes the full request body via `core.request.get_request_body_table` (the prior `core.request.get_body()` call returns a raw string, so the old table branch never ran) and publishes `ctx.var.sse_model`/`sse_stream`; the global http-logger `log_format_extra` plugin_metadata (in etcd, seeded from the top-level `plugin_metadata` block in `conf/apisix.yaml` by `res/scripts/seed-routes.sh`) adds them to every log entry; Vector reads the structured fields instead of re-parsing the 256 KiB-truncated body, so those requests count under the right model with `parsed=0`/zero signals (FR-2.7). The generated VRL canonicalization was also corrected (the `??` operator does not default on null) so a model absent from the registry canonicalizes to its last segment instead of `''`. New `tests/config/test_systemd_units.sh`; extended `tests/config/test_vector_toml.sh`, `test_config_yaml.sh`; live backfill reapplied |
 
 ## 11. References (research grounding, 2026-09-16)
 

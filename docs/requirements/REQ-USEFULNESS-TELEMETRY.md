@@ -116,7 +116,7 @@ Answer, per model (with ≥ 100 logged responses), from production traffic:
 | FR-2.4 | ClickHouse MUST pre-extract per-row the last `role=user` message text and the follow-up flag (JSON functions in the SELECT); the Lua core MUST NOT parse JSON (TSV in, TSV out) and MUST run on the APISIX container's openresty luajit (host has no Lua). |
 | FR-2.5 | The Lua matching core MUST be pure stdlib Lua (no `resty.*`, no cjson) so it is testable under plain luajit. |
 | FR-2.6 | `request_signals` MUST store, per request: `request_id`, `model`, `timestamp`, `is_followup UInt8`, `parsed UInt8`, `profane UInt8`, `profane_count UInt16`, `profane_terms Array(String)` (one canonical entry per matched occurrence), `frustrated UInt8`, `frustration_count UInt16`, `frustration_terms Array(String)` (one canonical entry per matched occurrence), `signal_count UInt16` (deduplicated occurrence count), `signal_weight Float32` (Σ valence-factored weights, FR-5.7). Raw message text MUST NOT be stored (privacy: matched terms only). |
-| FR-2.7 | Rows whose `req_body` is empty or unparseable (e.g. truncated at the 256 KiB http-logger cap) MUST be recorded with zero signals and `parsed=0` so coverage bias is measurable, never hidden. |
+| FR-2.7 | Rows whose `req_body` is empty or unparseable (e.g. truncated at the 256 KiB http-logger cap) MUST be recorded with zero signals and `parsed=0` so coverage bias is measurable, never hidden. Such a row MUST still carry its `model` (and `stream`), taken from the value `sse-usage` parses at access time and attaches to the log entry via `log_format_extra` (never re-parsed from the truncated body), so over-cap requests count under their model with zero observed signals rather than being stored with an empty model and dropped from every per-model view. |
 
 ### FR-3: Dictionaries
 
@@ -218,7 +218,7 @@ Answer, per model (with ≥ 100 logged responses), from production traffic:
 | NFR-1.3 | No raw user text beyond what already exists in `request_log` may be created; `request_signals` stores matched terms only. |
 | NFR-1.4 | Dictionary snapshots and cruncher are versioned in-repo; deploys are reproducible without network access. |
 | NFR-1.5 | All new tests MUST run under the existing `make check` gates. |
-| NFR-1.6 | The cruncher MUST be scheduled daily at 00:00 local time via a systemd timer (with the manual `make gw-crunch-usefulness` target invoking the same unit); scheduling MUST be installed by the existing deployment automation. |
+| NFR-1.6 | The cruncher MUST be scheduled daily at 00:00 local time via a systemd timer (with the manual `make gw-crunch-usefulness` target invoking the same unit); the unit MUST be templated under `res/ansible/templates/` and installed by the existing deployment automation (`res/ansible/compose.yml --tags timers`, also reached via `make gw-install-crunch-timer`). The unit MUST NOT set `NoNewPrivileges` or `PrivateTmp`: the host-exec shell guard requires NNP=0 for its `/bin/bash` file capability and both settings made every scheduled run fail (exit 3). It MUST set `PODMAN_PATH` to the sanctioned CI podman binary so scripts never resolve the unapproved `/usr/local/bin/podman` wrapper. |
 
 ## 4. Constraints
 
@@ -283,7 +283,7 @@ Answer, per model (with ≥ 100 logged responses), from production traffic:
 | FR-5.x weighting/normalization | FR-5.1 removed (2026-09-17 operator order: rejection_mode + p32 deleted); weighting remains at storage level | request_signals.signal_weight; gateway-model-experience.json (per-bucket denominators, sparse-bucket HAVING) |
 | FR-6.x dashboard | Implemented | conf/grafana/dashboards/gateway-model-experience.json (6 panels) + gateway-model-performance.json (5 panels); tests/config/test_dashboard_experience.sh + test_dashboard_performance.sh; REQ-DASHBOARD FR-1.1 amended to 5 dashboards |
 | FR-7.x derived metrics | Implemented | dashboard p30/p36/p37/p38/p39 queries |
-| NFR-1.6 daily 00:00 scheduling | Implemented | res/systemd/gateway-usefulness-crunch.{service,timer}; make gw-install-crunch-timer |
+| NFR-1.6 daily 00:00 scheduling | Implemented | res/ansible/templates/gateway-{usefulness-crunch,ch-backup}.{service,timer}.j2; rendered by res/ansible/compose.yml (`--tags timers`); make gw-install-crunch-timer; tests/config/test_systemd_units.sh |
 | FR-8.x friction telemetry | Implemented | migration 000009 + conf/sql/clickhouse-init.sql; marker SQL in res/scripts/crunch-usefulness.sh; live 2026-09-16 backfill: 13,467 guard blocks (2,964 requests), 81 user rejections, 52 rule denials, 13 rule ids |
 | FR-9.x score family | Implemented | gateway-model-experience.json p40/p47 (Overall = sqrt(PAI × Reliability), fixed goalposts 50/100/5/5, geometric aggregation, ≥30-request gate, friction/speed excluded); live: 12 models ranked, kimi-k3 88.7 / glm-5.3 81.9 / glm-5.2 0.0 |
 | FR-10.x dashboard refinement | Implemented | p40-p43 + p50-only speed panels (p30/p44, full fleet via migrated timing); FR-10.3/4/5 readability pass (censored merged strings table, %/USD waste, human names, tiered layout split across experience/performance dashboards); FR-10.6 merged scorecard cells + include_local toggle; p35/p39 removed, p45 added; test_dashboard_experience.sh 74/74 + test_dashboard_performance.sh 53/53 |

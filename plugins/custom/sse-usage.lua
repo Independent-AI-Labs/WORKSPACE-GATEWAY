@@ -63,9 +63,14 @@ function plugin.check_schema(conf)
 end
 
 function plugin.access(conf, ctx)
-    local body, err = core.request.get_body()
+    local body = core.request.get_request_body_table(ctx)
     if body and type(body) == "table" and body.model then
         ctx.sse_req_model = tostring(body.model)
+        --Publish the parsed model/stream to the http-logger via
+        --log_format_extra, so request_log carries them even when the 256 KiB
+        --body cap truncates the logged copy into invalid JSON.
+        ctx.var.sse_model = tostring(body.model)
+        ctx.var.sse_stream = tostring(body.stream == true)
     end
 end
 

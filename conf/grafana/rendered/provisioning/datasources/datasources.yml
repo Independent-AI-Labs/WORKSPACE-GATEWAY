@@ -28,3 +28,26 @@ datasources:
     secureJsonData:
       password: ${CH_GRAFANA_RO_PASSWORD}
     editable: false
+
+  # Prod ClickHouse (W3): the same Grafana serves both stacks; the dashboards'
+  # `env` variable switches between these two datasources (default: dev).
+  # Reached over the shared gw-metrics-prod bridge (prod ClickHouse keeps its
+  # loopback-only host publish). Read-only grafana_ro, same least-privilege
+  # posture as dev (no request_bodies grant). Provisioned even when prod is
+  # down; it only errors while prod is off.
+  - name: ClickHouse (Prod)
+    uid: clickhouse-prod
+    type: grafana-clickhouse-datasource
+    access: proxy
+    jsonData:
+      host: gw-prod-clickhouse
+      port: 9000
+      protocol: native
+      username: grafana_ro
+      defaultDatabase: llm_gateway
+      dialTimeout: 10
+      queryTimeout: 60
+      validateSql: false
+    secureJsonData:
+      password: ${CH_GRAFANA_RO_PASSWORD}
+    editable: false

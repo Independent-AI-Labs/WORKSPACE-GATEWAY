@@ -116,7 +116,7 @@ repos:
         always_run: true
       - id: check-resolution-shapes
         name: "Check Resolution Shapes"
-        entry: "bash -c 'source /opt/workspace-ci/lib/checks.sh && ci_check_fallback_resolution'"
+        entry: "bash -c 'source /opt/workspace-ci/lib/checks.sh && ci_check_resolution_shapes'"
         language: system
         pass_filenames: false
         always_run: true

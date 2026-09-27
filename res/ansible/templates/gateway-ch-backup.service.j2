@@ -1,0 +1,14 @@
+[Unit]
+Description=WORKSPACE-GATEWAY ClickHouse nightly backup (llm_gateway -> ws-backup)
+Documentation=file://{{ project_root }}/docs/runbooks/RUNBOOK-SECRETS.md
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ project_root }}
+ExecStart={{ project_root }}/res/scripts/gateway-ch-backup.sh
+EnvironmentFile={{ project_root }}/.env
+Environment=PODMAN_PATH={{ podman_path }}
+SyslogIdentifier=gateway-ch-backup
+# NoNewPrivileges and PrivateTmp are intentionally absent: the host-exec
+# shell guard execs /bin/bash through its file capability, and both unit
+# settings made the guard refuse (exit 3).

@@ -1,0 +1,19 @@
+[Unit]
+Description=WORKSPACE-GATEWAY usefulness telemetry cruncher (request_signals)
+Documentation=file://{{ project_root }}/docs/specifications/SPEC-USEFULNESS-TELEMETRY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ project_root }}
+ExecStart={{ project_root }}/res/scripts/crunch-usefulness.sh --days 1
+EnvironmentFile={{ project_root }}/.env
+Environment=CLICKHOUSE_HOST=localhost
+Environment=CLICKHOUSE_PORT=8123
+Environment=PODMAN_PATH={{ podman_path }}
+# journald: rate-limit friendly tag
+SyslogIdentifier=gateway-usefulness-crunch
+# NoNewPrivileges and PrivateTmp are intentionally absent: the host-exec
+# shell guard execs /bin/bash through its file capability, and both unit
+# settings made the guard refuse (exit 3), so request_signals never advanced.

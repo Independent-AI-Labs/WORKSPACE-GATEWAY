@@ -70,9 +70,20 @@ HAS_REMAP_RC=0
 HAS_REMAP=$(grep -c 'type = "remap"' "$VECTOR_TOML" ) || { HAS_REMAP_RC=$?; HAS_REMAP="0"; }
 assert_eq "Has remap transform" "1" "$HAS_REMAP"
 
-HAS_REQ_BODY_PARSE_RC=0
-HAS_REQ_BODY_PARSE=$(grep -c 'parse_json' "$VECTOR_TOML" ) || { HAS_REQ_BODY_PARSE_RC=$?; HAS_REQ_BODY_PARSE="0"; }
-assert_eq "Remap uses parse_json for model extraction" "true" "$(if [ "$HAS_REQ_BODY_PARSE" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
+# model/stream arrive as structured fields (log_format_extra), parsed once by
+# sse-usage from the full body. Vector must NOT parse the capped body for them:
+# over-cap bodies are truncated into invalid JSON and would mis-attribute.
+HAS_STRUCTURED_MODEL_RC=0
+HAS_STRUCTURED_MODEL=$(grep -cF 'model_raw = to_string!(.model || "")' "$VECTOR_TOML" ) || { HAS_STRUCTURED_MODEL_RC=$?; HAS_STRUCTURED_MODEL="0"; }
+assert_eq "Remap reads model from the structured payload field" "1" "$HAS_STRUCTURED_MODEL"
+
+HAS_STRUCTURED_STREAM_RC=0
+HAS_STRUCTURED_STREAM=$(grep -cF '.stream = to_string!(.stream || "false") == "true"' "$VECTOR_TOML" ) || { HAS_STRUCTURED_STREAM_RC=$?; HAS_STRUCTURED_STREAM="0"; }
+assert_eq "Remap reads stream from the structured payload field" "1" "$HAS_STRUCTURED_STREAM"
+
+HAS_NO_BODY_MODEL_RC=0
+HAS_NO_BODY_MODEL=$(grep -c 'parse_json(req_body_str\|req_parsed' "$VECTOR_TOML" ) || { HAS_NO_BODY_MODEL_RC=$?; HAS_NO_BODY_MODEL="0"; }
+assert_eq "Remap does not parse the request body for model/stream" "0" "$HAS_NO_BODY_MODEL"
 
 HAS_TOKEN_EXTRACT_RC=0
 HAS_TOKEN_EXTRACT=$(grep -c 'prompt_tokens' "$VECTOR_TOML" ) || { HAS_TOKEN_EXTRACT_RC=$?; HAS_TOKEN_EXTRACT="0"; }

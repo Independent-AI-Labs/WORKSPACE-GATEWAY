@@ -150,13 +150,9 @@ gw-recalc-costs: ## Recalculate historical cost (dry-run unless APPLY=1; LIMIT=N
 		$(if $(DAYS),--days $(DAYS)) $(if $(SOURCE),--source $(SOURCE)) \
 		$(if $(ALL),--all --confirm-all)
 
-gw-install-crunch-timer: ## Install + enable the daily 00:00 systemd timer for the cruncher
-	mkdir -p ~/.config/systemd/user
-	install -m 0644 res/systemd/gateway-usefulness-crunch.service ~/.config/systemd/user/
-	install -m 0644 res/systemd/gateway-usefulness-crunch.timer ~/.config/systemd/user/
-	systemctl --user daemon-reload
-	systemctl --user enable --now gateway-usefulness-crunch.timer
-	echo "=== Timer installed: gateway-usefulness-crunch.timer (OnCalendar=*-*-* 00:00:00) ==="
+gw-install-crunch-timer: ## Install + enable the daily maintenance timers (cruncher + ClickHouse backup)
+	$(ANSIBLE_COMPOSE) --tags timers
+	echo "=== Maintenance timers installed: gateway-usefulness-crunch.timer, gateway-ch-backup.timer ==="
 
 gw-build: _compose-build ## Build container images
 

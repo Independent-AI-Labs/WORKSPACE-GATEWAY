@@ -500,25 +500,41 @@
 
 
     # ── sanity: single request through gateway ───────────────────────────
+    # Local llamafile relay: self-contained (no upstream provider account,
+    # region policy, or model-catalog dependency) and exercises the gateway
+    # relay and usage logging end to end. The model id is discovered, not
+    # hardcoded, so it cannot go stale.
+    - name: Discover the local relay model
+      ansible.builtin.shell: |
+        curl -sS --max-time 30 http://localhost:9080/llamafile/v1/models \
+          2>>{{ run_log | quote }}
+      args:
+        chdir: "{{ project_root }}"
+      register: sanity_catalog
+      changed_when: false
+      failed_when: sanity_catalog.rc != 0
+      tags: [sanity, never]
+
+    - name: Pick the local relay model
+      ansible.builtin.set_fact:
+        sanity_model: "{{ (sanity_catalog.stdout | from_json).data[0].id }}"
+      tags: [sanity, never]
+
     - name: Send sanity check request
       ansible.builtin.shell: |
-        if [ -f {{ project_root }}/.env ]; then
-          set -a; . {{ project_root }}/.env; set +a
-        fi
-        curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
-          -X POST http://localhost:9080/opencode/v1/chat/completions \
-          -H "Authorization: Bearer $OPENCODE_API_KEY" \
+        curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+          -X POST http://localhost:9080/llamafile/v1/chat/completions \
           -H "Content-Type: application/json" \
-          -d '{"model":"minimax-m3","messages":[{"role":"user","content":"Say hello"}],"stream":false}' \
+          -d '{"model":"{{ sanity_model }}","messages":[{"role":"user","content":"Say hello"}],"stream":false}' \
           2>>{{ run_log | quote }}
       args:
         chdir: "{{ project_root }}"
       register: sanity_code
       changed_when: false
-      failed_when: sanity_code.rc != 0 or (sanity_code.stdout | trim) not in ['200', '401']
+      failed_when: sanity_code.rc != 0 or (sanity_code.stdout | trim) != '200'
       tags: [sanity, never]
 
     - name: Show sanity result
       ansible.builtin.debug:
-        msg: "Sanity check HTTP status: {{ sanity_code.stdout }}"
+        msg: "Sanity check HTTP status: {{ sanity_code.stdout }} (model {{ sanity_model }})"
       tags: [sanity, never]

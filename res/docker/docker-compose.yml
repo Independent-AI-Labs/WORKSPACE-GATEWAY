@@ -245,6 +245,9 @@ services:
     networks:
       gw-ch: {}
       gw-metrics: {}
+      # W3: the same Grafana serves the prod ClickHouse datasource (uid
+      # clickhouse-prod) over this shared bridge, so it is not pinned to dev.
+      gw-metrics-prod: {}
       gw-edge:
         # Static address: the external edge proxy pins to .2 and proxies here.
         ipv4_address: 10.99.60.3
@@ -347,3 +350,10 @@ networks:
   dataops:
     external: true
     name: dataops_default
+  # Shared prod-observability bridge (W3): dev Grafana reaches the prod
+  # ClickHouse (:9000) here. External and created once
+  # (`podman network create --subnet 10.99.150.0/24 gw-metrics-prod`) so
+  # neither stack's `down` removes it. See RUNBOOK-DEV-PROD-SEPARATION.
+  gw-metrics-prod:
+    external: true
+    name: gw-metrics-prod

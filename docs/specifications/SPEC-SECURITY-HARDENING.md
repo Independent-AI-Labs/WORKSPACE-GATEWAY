@@ -212,7 +212,7 @@ healthchecks (ping/health endpoints  -  unauthenticated by design).
 
 ## 12. Backups
 
-`res/systemd/gateway-ch-backup.{service,timer}`: nightly `podman exec
+`res/ansible/templates/gateway-ch-backup.{service,timer}.j2`: nightly `podman exec
 clickhouse clickhouse-client --password ... BACKUP DATABASE llm_gateway TO
 File('/backups/<date>')` writing to a staging dir, then sync to
 `/mnt/ws-backup/workspace-gateway/` through the existing root write path
@@ -241,7 +241,7 @@ allowlist) and the verification matrix executed from this host (V7).
 | `conf/grafana/provisioning/datasources/datasources.yml` | grafana_ro + secureJsonData |
 | `conf/grafana/dashboards/gateway-ops-health.json` | storage growth panel + alert |
 | `res/scripts/*.sh`, `Makefile` | ops auth, `ch-provision`, `etcd-auth-init` |
-| `res/systemd/gateway-ch-backup.*` | new  -  nightly backup |
+| `res/ansible/templates/gateway-ch-backup.*.j2` | new  -  nightly backup |
 | `.env.example` | full variable inventory, example values |
 | `tests/docker-compose.test.yml`, `tests/**` | fixture + client updates, new V1-V8 |
 

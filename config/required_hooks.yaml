@@ -97,7 +97,7 @@ hooks:
     applicable_to: [any]
   - id: check-resolution-shapes
     kind: shell
-    entry: ci_check_fallback_resolution
+    entry: ci_check_resolution_shapes
     stage: pre-commit
     applicable_to: [any]
   - id: check-commit-message

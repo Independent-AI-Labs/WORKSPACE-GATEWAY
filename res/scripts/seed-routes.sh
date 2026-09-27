@@ -99,7 +99,17 @@ if missing_ids:
 
 with open('$TMPD/routes.json', 'w') as f:
     json.dump(routes, f)
-print(f'Found {len(routes)} route(s) to seed')
+
+plugin_metadata = data.get('plugin_metadata') or []
+missing_meta_ids = [m for m in plugin_metadata if not m.get('id')]
+if missing_meta_ids:
+    print(f'FAIL plugin_metadata entries without ids: {len(missing_meta_ids)}', file=sys.stderr)
+    sys.exit(1)
+
+with open('$TMPD/plugin_metadata.json', 'w') as f:
+    json.dump(plugin_metadata, f)
+
+print(f'Found {len(routes)} route(s) and {len(plugin_metadata)} plugin_metadata entry(ies) to seed')
 "
 
 # Fail before mutating etcd when APISIX has not loaded the custom plugins
@@ -121,6 +131,19 @@ if [ -n "$missing_plugins" ]; then
   exit 1
 fi
 echo "APISIX plugin registry verified ($(printf '%s' "$required_plugins" | wc -w) route plugins)"
+
+# Seed global plugin metadata (e.g. http-logger log_format_extra adds the
+# model/stream that sse-usage publishes, so request_log keeps correct model
+# attribution even when the 256 KiB http-logger body cap truncates the JSON).
+if [ "$(jq 'length' "$TMPD/plugin_metadata.json")" -gt 0 ]; then
+  jq -c '.[]' "$TMPD/plugin_metadata.json" | while read -r meta_json; do
+    mid="$(printf '%s' "$meta_json" | jq -r '.id')"
+    meta_body="$(printf '%s' "$meta_json" | jq -c 'del(.id)')"
+    meta_result="$(admin_http PUT "/apisix/admin/plugin_metadata/$mid" "$meta_body")"
+    meta_status="$(printf '%s' "$meta_result" | jq -r '.status // "?"')"
+    echo "  OK   plugin_metadata $mid seeded (status=$meta_status)"
+  done
+fi
 
 # Reconcile only routes owned by this gateway. The prefix prevents this tool
 # from deleting unrelated routes in a shared APISIX instance.

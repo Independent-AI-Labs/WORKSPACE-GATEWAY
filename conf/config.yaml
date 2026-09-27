@@ -56,6 +56,9 @@ plugins:
   - sse-usage
   - limit-count
 plugin_attr:
+  # plugin_metadata is NOT read from here: APISIX stores it in etcd and it is
+  # seeded by res/scripts/seed-routes.sh from the `plugin_metadata` block in
+  # conf/apisix.yaml (see that file for the http-logger log_format_extra).
   prometheus:
     export_addr:
       ip: "0.0.0.0"

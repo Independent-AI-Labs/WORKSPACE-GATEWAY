@@ -138,6 +138,13 @@ assert_eq "prometheus export_addr ip is 0.0.0.0" "0.0.0.0" "$PROM_EXPORT_IP"
 PROM_EXPORT_PORT=$(echo "$JSON_DATA" | jq -r '.plugin_attr.prometheus.export_addr.port')
 assert_eq "prometheus export_addr port is 9100" "9100" "$PROM_EXPORT_PORT"
 
+# http-logger log_format_extra is global plugin_metadata seeded from
+# conf/apisix.yaml by seed-routes.sh (see test_apisix_yaml.sh), NOT config.yaml
+# plugin_attr, because APISIX reads metadata from etcd, so plugin_attr is a
+# no-op here.
+NO_PLUGIN_ATTR_HTTP_LOGGER=$(echo "$JSON_DATA" | jq '.plugin_attr | has("http-logger")')
+assert_eq "http-logger not configured via inert plugin_attr" "false" "$NO_PLUGIN_ATTR_HTTP_LOGGER"
+
 HAS_ENVS=$(echo "$JSON_DATA" | jq '.nginx_config.envs | index("OPENCODE_API_KEY") != null')
 assert_eq "nginx_config.envs contains OPENCODE_API_KEY" "true" "$HAS_ENVS"
 

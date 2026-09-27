@@ -23,8 +23,9 @@ done
 
 # Host-forwarded connections (rootless port publishing) arrive from the
 # gw-ch gateway address; in-stack clients from the gw-ch subnet. The
-# 10.99.60.x entries mirror this for the gw-test fixture stack.
-STACK_HOSTS="'10.99.10.0/24', '10.99.60.0/24', '10.99.110.0/24'"
+# 10.99.60.x entries mirror this for the gw-test fixture stack. 10.99.150.0/24
+# is the shared gw-metrics-prod bridge the dev Grafana reads prod through (W3).
+STACK_HOSTS="'10.99.10.0/24', '10.99.60.0/24', '10.99.110.0/24', '10.99.150.0/24'"
 
 chq() {
     clickhouse-client --user ops_admin --password "$CH_OPS_PASSWORD" -q "$1"

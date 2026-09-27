@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Nightly ClickHouse backup (REQ-SECURITY-HARDENING FR-7, systemd unit
-# res/systemd/gateway-ch-backup.{service,timer}). Native BACKUP to the
+# res/ansible/templates/gateway-ch-backup.{service,timer}.j2). Native BACKUP to the
 # container-local `backups` disk, copied out to a staging dir, then synced
 # to /mnt/ws-backup/workspace-gateway/ when that mount is writable
 # (fuseblk, root-owned: the existing root sync job picks it up otherwise -
@@ -11,7 +11,7 @@ set -euo pipefail
 # Env (from .env via systemd EnvironmentFile): CH_OPS_PASSWORD.
 
 CONTAINER="${CLICKHOUSE_CONTAINER:-gw-clickhouse}"
-PODMAN="${PODMAN:-podman}"
+PODMAN="${PODMAN:-${PODMAN_PATH:-podman}}"
 STAGING="${HOME}/.local/state/workspace-gateway/backups"
 WS_BACKUP="/mnt/ws-backup/workspace-gateway"
 STAGING_KEEP_DAYS=7

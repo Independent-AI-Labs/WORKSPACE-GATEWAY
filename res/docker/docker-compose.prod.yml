@@ -78,6 +78,9 @@ services:
         # Static: without this the DHCP pool leases 10.99.110.2 to
         # clickhouse before apisix claims it (IPAM conflict on recreate).
         ipv4_address: 10.99.110.3
+      # W3: shared bridge with the dev Grafana (uid clickhouse-prod) so one
+      # Grafana reads both stacks' ClickHouse. External; see dev compose.
+      gw-metrics-prod: {}
 
   migrate:
     profiles: [migration]
@@ -193,3 +196,9 @@ networks:
       config:
         - subnet: 10.99.140.0/24
           gateway: 10.99.140.1
+  # W3 shared observability bridge with the dev Grafana. External; created
+  # once with `podman network create --subnet 10.99.150.0/24 gw-metrics-prod`
+  # so neither stack's `down` removes it.
+  gw-metrics-prod:
+    external: true
+    name: gw-metrics-prod

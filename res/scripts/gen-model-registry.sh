@@ -145,7 +145,10 @@ render_vrl_block() {
         echo "if model_canon == null {"
         echo "  model_seg_caps = parse_regex(model_lower, r'(?P<model>[^/]+)\$') ?? null"
         echo "  model_seg = if model_seg_caps != null { to_string(model_seg_caps.model) } else { model_lower }"
-        echo "  model_canon = get(model_alias_map, [model_seg]) ?? model_seg"
+        echo "  model_canon = get(model_alias_map, [model_seg]) ?? null"
+        echo "  if model_canon == null {"
+        echo "    model_canon = model_seg"
+        echo "  }"
         echo "}"
     } > "$out"
 }

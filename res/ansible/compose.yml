@@ -12,6 +12,18 @@
     project_root: '{{ playbook_dir | dirname | dirname }}'
     compose_file: '{{ project_root }}/res/docker/docker-compose.yml'
     gateway_unit: gateway-compose.service
+    # One-shot timers rendered from res/ansible/templates/ (single source of
+    # truth; `make gw-install-crunch-timer` deploys them through the `timers`
+    # tag). Kept here so they cannot drift from the repo the way the cruncher
+    # timer did. podman_path is injected so scripts run the sanctioned binary.
+    maintenance_units:
+      - gateway-usefulness-crunch.service
+      - gateway-usefulness-crunch.timer
+      - gateway-ch-backup.service
+      - gateway-ch-backup.timer
+    maintenance_timers:
+      - gateway-usefulness-crunch.timer
+      - gateway-ch-backup.timer
     systemd_dir: '{{ ansible_env.HOME }}/.config/systemd/user'
     venv_compose: '{{ project_root }}/.venv/bin/podman-compose'
     ci_podman: /opt/workspace-ci/.boot-linux/bin/podman
@@ -103,6 +115,37 @@
             enabled: true
             state: '{{ "restarted" if gateway_unit_template.changed else "started" }}'
             scope: user
+
+    - name: Deploy gateway maintenance units
+      tags: [deploy, timers, start, restart]
+      block:
+        - name: Ensure systemd user directory exists
+          ansible.builtin.file:
+            path: '{{ systemd_dir }}'
+            state: directory
+            mode: '0755'
+
+        - name: Render gateway maintenance units
+          ansible.builtin.template:
+            src: 'templates/{{ item }}.j2'
+            dest: '{{ systemd_dir }}/{{ item }}'
+            mode: '0644'
+          loop: '{{ maintenance_units }}'
+          register: maintenance_units_render
+
+        - name: Reload systemd after maintenance unit render
+          ansible.builtin.systemd:
+            daemon_reload: true
+            scope: user
+          when: maintenance_units_render.changed
+
+        - name: Enable gateway maintenance timers
+          ansible.builtin.systemd:
+            name: '{{ item }}'
+            enabled: true
+            state: started
+            scope: user
+          loop: '{{ maintenance_timers }}'
 
     - name: Check gateway systemd unit state before start
       tags: [start]
@@ -222,6 +265,24 @@
           ansible.builtin.file:
             path: '{{ systemd_dir }}/{{ gateway_unit }}'
             state: absent
+
+        - name: Disable gateway maintenance timers
+          ansible.builtin.systemd:
+            name: '{{ item }}'
+            enabled: false
+            state: stopped
+            scope: user
+          loop: '{{ maintenance_timers }}'
+          register: undeploy_timers
+          failed_when: >
+            undeploy_timers.failed
+            and 'Could not find the requested service' not in (undeploy_timers.msg | default(''))
+
+        - name: Remove maintenance unit files
+          ansible.builtin.file:
+            path: '{{ systemd_dir }}/{{ item }}'
+            state: absent
+          loop: '{{ maintenance_units }}'
 
         - name: Reload systemd user daemon
           ansible.builtin.systemd:

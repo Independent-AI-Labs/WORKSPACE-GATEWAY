@@ -91,9 +91,9 @@ assert_eq "no wildcard host for ops_admin" "0" \
 ds_rc=0
 DS_BODY="$(cat "$DATASOURCES")" || ds_rc=$?
 assert_eq "datasources.yml exists" "0" "$ds_rc"
-assert_eq "datasource user is grafana_ro (not default)" "1" \
+assert_eq "dev+prod datasource users are grafana_ro (not default)" "2" \
     "$(printf '%s' "$DS_BODY" | grep -c 'username: grafana_ro')"
-assert_eq "datasource password from secureJsonData env" "1" \
+assert_eq "dev+prod datasource passwords from secureJsonData env" "2" \
     "$(printf '%s' "$DS_BODY" | grep -c 'password: \${CH_GRAFANA_RO_PASSWORD}')"
 assert_eq "datasource never uses passwordless default" "0" \
     "$(printf '%s' "$DS_BODY" | grep -c 'username: default')"

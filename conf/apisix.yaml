@@ -1,3 +1,9 @@
+plugin_metadata:
+  - id: http-logger
+    log_format_extra:
+      model: "$sse_model"
+      stream: "$sse_stream"
+
 routes:
   - id: relay-opencode
     uri: /opencode/*
