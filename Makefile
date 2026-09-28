@@ -156,9 +156,9 @@ gw-recalc-costs: ## Recalculate historical cost (dry-run unless APPLY=1; LIMIT=N
 		$(if $(DAYS),--days $(DAYS)) $(if $(SOURCE),--source $(SOURCE)) \
 		$(if $(ALL),--all --confirm-all)
 
-gw-install-crunch-timer: ## Install + enable the daily maintenance timers (cruncher + ClickHouse backup)
+gw-install-crunch-timer: ## Install + enable the daily maintenance timers (cruncher, ClickHouse backup, model-attribution check)
 	$(ANSIBLE_COMPOSE) --tags timers
-	echo "=== Maintenance timers installed: gateway-usefulness-crunch.timer, gateway-ch-backup.timer ==="
+	echo "=== Maintenance timers installed: gateway-usefulness-crunch.timer, gateway-ch-backup.timer, gateway-model-attribution-check.timer ==="
 
 gw-build: _compose-build ## Build container images
 
