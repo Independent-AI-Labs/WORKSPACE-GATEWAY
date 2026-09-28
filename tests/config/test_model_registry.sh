@@ -145,6 +145,16 @@ SSE_USAGE_NORMALIZE_RC=0
 SSE_USAGE_NORMALIZE=$(grep -c 'normalize_key' "$REPO_ROOT/plugins/custom/sse-usage.lua" ) || { SSE_USAGE_NORMALIZE_RC=$?; SSE_USAGE_NORMALIZE="0"; }
 assert_eq "sse-usage.lua has no normalize_key" "0" "$SSE_USAGE_NORMALIZE"
 
+# Aborted-before-message_start streams must take the model captured in
+# access() (ctx.sse_req_model), not ngx.req.get_body_data() which is nil
+# once the body spools to a temp file.
+SSE_USAGE_REQMODEL_RC=0
+SSE_USAGE_REQMODEL=$(grep -c 'ctx.sse_model or ctx.sse_req_model' "$REPO_ROOT/plugins/custom/sse-usage.lua" ) || { SSE_USAGE_REQMODEL_RC=$?; SSE_USAGE_REQMODEL="0"; }
+assert_eq "sse-usage.lua log attributes from the captured request model" "1" "$SSE_USAGE_REQMODEL"
+SSE_USAGE_RAWBODY_RC=0
+SSE_USAGE_RAWBODY=$(grep -c 'ngx.req.get_body_data' "$REPO_ROOT/plugins/custom/sse-usage.lua" ) || { SSE_USAGE_RAWBODY_RC=$?; SSE_USAGE_RAWBODY="0"; }
+assert_eq "sse-usage.lua log no longer reads the raw body for model" "0" "$SSE_USAGE_RAWBODY"
+
 # vector.toml: the last-slash regex must appear only inside GENERATED block
 VECTOR_TOML="$REPO_ROOT/conf/vector.toml"
 REGEX_COUNT_RC=0

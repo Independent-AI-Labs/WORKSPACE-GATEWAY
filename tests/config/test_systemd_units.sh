@@ -61,7 +61,7 @@ summary() {
 }
 
 TEMPLATES="$REPO_ROOT/res/ansible/templates"
-for unit in gateway-usefulness-crunch gateway-ch-backup; do
+for unit in gateway-usefulness-crunch gateway-ch-backup gateway-model-attribution-check; do
     f="$TEMPLATES/$unit.service.j2"
     assert_eq "$unit.service.j2 exists" "1" "$(file_exists "$f")"
     assert_eq "$unit.service.j2 has no NoNewPrivileges directive" "0" "$(count_in '^NoNewPrivileges=' "$f")"
@@ -74,7 +74,7 @@ done
 assert_eq "gateway-ch-backup.sh honours PODMAN_PATH" "true" \
     "$(has_in 'PODMAN="${PODMAN:-${PODMAN_PATH:-podman}}"' "$REPO_ROOT/res/scripts/gateway-ch-backup.sh")"
 
-for timer in gateway-usefulness-crunch gateway-ch-backup; do
+for timer in gateway-usefulness-crunch gateway-ch-backup gateway-model-attribution-check; do
     f="$TEMPLATES/$timer.timer.j2"
     assert_eq "$timer.timer.j2 exists" "1" "$(file_exists "$f")"
     assert_eq "$timer.timer.j2 has OnCalendar" "true" "$(has_in 'OnCalendar=' "$f")"

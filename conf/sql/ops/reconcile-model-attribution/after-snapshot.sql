@@ -1,4 +1,4 @@
--- backfill-request-log-model.sh: post-reconcile attribution snapshot.
+-- reconcile-model-attribution.sh: post-reconcile attribution snapshot.
 SELECT 'request_log' AS t, count() AS rows, countIf(model = '') AS empty_model,
        countIf(model_raw = '') AS empty_raw
 FROM {{ DB }}.request_log

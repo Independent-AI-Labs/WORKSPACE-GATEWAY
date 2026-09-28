@@ -133,7 +133,7 @@ _compose-down:
 
 .PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-shell gw-test \
         gw-restart-service gw-recreate-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
-        gw-sync-model-registry gw-recalc-costs gw-backfill-request-log-model
+        gw-sync-model-registry gw-recalc-costs gw-reconcile-model-attribution gw-check-model-attribution
 
 gw-update-dictionaries: ## Refresh vendored profanity/VADER dictionaries from upstream
 	$(SCRIPT_BASH) res/scripts/update-dictionaries.sh
@@ -144,8 +144,11 @@ gw-sync-model-registry: ## Sync model-registry.yaml + provider local flags into 
 gw-crunch-usefulness: ## Run the rejection-language cruncher now (DAYS=N window, REBUILD=1 for clean recompute)
 	$(SCRIPT_BASH) res/scripts/crunch-usefulness.sh $(if $(DAYS),--days $(DAYS)) $(if $(REBUILD),--rebuild)
 
-gw-backfill-request-log-model: ## Repair request_log model/model_raw/stream attribution from usage_log + billing_ledger (idempotent; dry-run unless APPLY=1)
-	$(SCRIPT_BASH) res/scripts/backfill-request-log-model.sh $(if $(APPLY),--apply)
+gw-reconcile-model-attribution: ## Reconcile model attribution across request_log/usage_log/billing_ledger (idempotent; dry-run unless APPLY=1)
+	$(SCRIPT_BASH) res/scripts/reconcile-model-attribution.sh $(if $(APPLY),--apply)
+
+gw-check-model-attribution: ## Read-only guard: fail if telemetry model attribution has drifted
+	$(SCRIPT_BASH) res/scripts/reconcile-model-attribution.sh --check
 
 gw-recalc-costs: ## Recalculate historical cost (dry-run unless APPLY=1; LIMIT=N default 100, DAYS=N, SOURCE=list)
 	$(SCRIPT_BASH) res/scripts/recalc-costs.sh \

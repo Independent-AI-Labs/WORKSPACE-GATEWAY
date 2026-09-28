@@ -1,4 +1,4 @@
--- backfill-request-log-model.sh: dry-run post-state of the shadow copies,
+-- reconcile-model-attribution.sh: dry-run post-state of the shadow copies,
 -- so the repair is inspected BEFORE any EXCHANGE touches a live table.
 SELECT 'request_log' AS t, count() AS rows,
        countIf(model = '') AS empty_model,

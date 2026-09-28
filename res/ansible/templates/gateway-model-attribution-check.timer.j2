@@ -1,0 +1,11 @@
+[Unit]
+Description=Run gateway model-attribution drift check daily at 06:00 (REQ-USEFULNESS-TELEMETRY NFR-1.6)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=gateway-model-attribution-check.service
+
+[Install]
+WantedBy=timers.target

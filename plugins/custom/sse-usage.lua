@@ -257,7 +257,11 @@ function plugin.log(conf, ctx)
     end
 
     local pt, ct, tt, cached, reasoning, cache_write = sse_lib.extract_tokens(ctx.sse_usage)
-    local model = ctx.sse_model or ""
+    --Response model when the stream carried one, else the request-body model
+    --captured in access(). ctx.sse_req_model survives body spooling, unlike a
+    --raw body read (nil once the body moves to a temp file), so an
+    --aborted-before-message_start stream stays attributable.
+    local model = ctx.sse_model or ctx.sse_req_model or ""
     local reported_cost = tonumber(ctx.sse_cost) or 0
     local req_model = ctx.sse_req_model or model
     local route_id = ctx.route_id or ""
@@ -288,19 +292,6 @@ function plugin.log(conf, ctx)
     local cache = ngx.shared and ngx.shared["gateway-cache"]
     if cache then
         pricing_snapshot = tostring(cache:get("pricing:snapshot:active") or "")
-    end
-
-    --For SSE streams that aborted early (no usage chunk received), the
-    --request body is the model source of record so abort rows remain
-    --filterable by the dashboard model variable.
-    if model == "" then
-        local req_body = ngx.req.get_body_data()
-        if type(req_body) == "string" and req_body ~= "" then
-            local req_parsed = cjson.decode(req_body)
-            if req_parsed and type(req_parsed) == "table" and req_parsed.model then
-                model = tostring(req_parsed.model)
-            end
-        end
     end
 
     --Canonicalize model via the single-source-of-truth registry

@@ -1,0 +1,20 @@
+[Unit]
+Description=WORKSPACE-GATEWAY model-attribution drift check
+Documentation=file://{{ project_root }}/docs/specifications/SPEC-USEFULNESS-TELEMETRY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ project_root }}
+ExecStart={{ project_root }}/res/scripts/reconcile-model-attribution.sh --check
+EnvironmentFile={{ project_root }}/.env
+Environment=CLICKHOUSE_HOST=localhost
+Environment=CLICKHOUSE_PORT=8123
+Environment=PODMAN_PATH={{ podman_path }}
+# journald: rate-limit friendly tag
+SyslogIdentifier=gateway-model-attribution-check
+# NoNewPrivileges and PrivateTmp are intentionally absent: the host-exec
+# shell guard execs /bin/bash through its file capability, and both unit
+# settings made the guard refuse (exit 3) for the cruncher. A failing check
+# exits nonzero and surfaces in the journal instead of shrinking the score.

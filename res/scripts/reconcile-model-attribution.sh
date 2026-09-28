@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# backfill-request-log-model.sh: idempotent reconciliation of model identity
+# reconcile-model-attribution.sh: idempotent reconciliation of model identity
 # across llm_gateway.request_log, usage_log and billing_ledger.
 #
 # Background: until 2026-09-27 the sse-usage plugin never published
@@ -22,7 +22,9 @@ set -euo pipefail
 #     restored from mv-create.sql on exit, success or failure.
 #   * Only empty/garbage/inconsistent values are changed; a re-run converges.
 #
-# Usage: backfill-request-log-model.sh [--apply] [--database llm_gateway]
+# Usage: reconcile-model-attribution.sh [--apply | --check] [--database llm_gateway]
+#   --check  read-only: exit nonzero if any table still disagrees with its
+#            authoritative sibling (for the scheduled guard / CI).
 # Env: CH_OPS_USER/CH_OPS_PASSWORD (required), CLICKHOUSE_HOST/PORT, DATABASE.
 
 _SELF="${BASH_SOURCE[0]}"
@@ -45,19 +47,25 @@ CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 DB="${DATABASE:-llm_gateway}"
 REGISTRY="$REPO_ROOT/conf/model-registry.yaml"
-OPS="ops/backfill-request-log-model"
+OPS="ops/reconcile-model-attribution"
 
 : "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
 CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
 
 APPLY=false
+CHECK=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) APPLY=true; shift ;;
+    --check) CHECK=true; shift ;;
     --database) DB="$2"; shift 2 ;;
     *) echo "Unknown: $1" >&2; exit 2 ;;
   esac
 done
+if $APPLY && $CHECK; then
+  echo "[backfill] ERROR: --apply and --check are mutually exclusive" >&2
+  exit 2
+fi
 
 ch() {
   local sql="$1"
@@ -75,6 +83,24 @@ ch_value() {
   read -r first_line <<< "$out"
   echo "$first_line"
 }
+
+# Read-only drift guard: exit nonzero if any table still disagrees with its
+# authoritative sibling, so an attribution regression fails loudly
+# instead of quietly shrinking the score's denominators.
+if $CHECK; then
+  echo "[backfill] ClickHouse: $CH_URL database=$DB check"
+  CHECK_OUT=$(ch "$(sql_render "$OPS/drift-check.sql" DB="$DB")") \
+    || { echo "[backfill] ERROR: drift-check query failed" >&2; exit 2; }
+  printf '%s\n' "$CHECK_OUT"
+  total=$(printf '%s\n' "$CHECK_OUT" \
+    | awk -F'\t' 'NR == 1 { next } { for (i = 1; i <= NF; i++) s += $i } END { print s + 0 }')
+  if [ "${total:-0}" -eq 0 ]; then
+    echo "[backfill] OK: no model-attribution drift"
+    exit 0
+  fi
+  echo "[backfill] DRIFT: ${total} attributable mismatch(es); run: make gw-reconcile-model-attribution APPLY=1" >&2
+  exit 1
+fi
 
 # Build the registry canonicalization expression used by every insert.
 # {{ CANON_EXPR }} maps lower(local_raw) exactly, else its last '/'-segment,
@@ -114,10 +140,6 @@ echo "[backfill] Registry: $(wc -l < "$REGISTRY") lines -> canonical expr ${#CAN
 echo ""
 echo "[backfill] BEFORE:"
 ch "$(sql_render "$OPS/before-snapshot.sql" DB="$DB")"
-
-echo ""
-echo "[backfill] request_log recoverability:"
-ch "$(sql_render "$OPS/candidates.sql" DB="$DB")"
 
 # ---- build + verify all three shadow copies (non-destructive) ----
 build_shadow() {
