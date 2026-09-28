@@ -85,7 +85,7 @@ The dependency is the published `@opencode-ai/plugin` package. Do not copy
 the upstream `Hooks` types. The gateway plugin owns only the gateway adapter
 and its tests.
 
-Add the gateway-owned plugin to `opencode.json` using the example files in
+Add the gateway-owned plugin to `opencode.jsonc` using the example files in
 `res/`:
 
 - OpenAI registers both `ChatGPT Pro/Plus (browser)` and
@@ -111,7 +111,7 @@ contract is documented.
 | `--require-auth` | off | Prompt for API keys / run OAuth instead of skipping auth |
 | `--gateway URL` | `http://localhost:9080` | Gateway base URL (must be http/https) |
 | `--session ID` | `opencode-<timestamp>` | OAuth session label |
-| `--config-file PATH` | `~/.config/opencode/opencode.jsonc` (or `.json`) | OpenCode config path |
+| `--config-file PATH` | `$OPENCODE_CONFIG_DIR/opencode.jsonc` (else `~/.config/opencode/opencode.jsonc`) | OpenCode config path |
 | `--auth-file PATH` | `~/.local/share/opencode/auth.json` | OpenCode auth path |
 | `--user-agent UA` | `Kimi CLI (Linux 6.17.0-35-generic x64)` | User-Agent on all requests |
 | `--no-browser` | off | Do not auto-open the browser for OAuth |
@@ -174,4 +174,5 @@ Or start the OpenCode TUI and select the provider by name.
 | Device flow fails after `authorization_pending` | A pending HTTP 202 was treated as a terminal error | Check the plugin polling test and preserve 202 as an intermediate response |
 | `provider requires an API key but --no-prompt is set` | Non-interactive run | Drop `--no-prompt`, or pre-provision `auth.json` |
 | `config file is not valid JSON/JSONC` | Corrupt existing config | Fix or move `~/.config/opencode/opencode.jsonc` aside and re-run |
+| `conflicting OpenCode config exists` | Stale `opencode.json`/`config.json` sibling | Delete the stale sibling; OpenCode merges it into the generated config, duplicating providers/models |
 | Chat returns 401 after login | Stale/expired credential | Re-run the script; for virtual keys check status via [RUNBOOK-KEYS](RUNBOOK-KEYS.md) |

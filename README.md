@@ -486,8 +486,16 @@ only); free models are served only through
 `workspace-gw-opencode-zen-api-key`. The llamafile provider takes its model
 list from `/llamafile/v1/models` (or a default id when the server is down);
 MiniCPM5 uses context `131072` (scaled to `104857` at 80%) with `tool_call:
-true`. The script runs automatically on `make gw-start` and `make gw-restart`
-via the Ansible playbook.
+true`. Regenerating the client config is a manual step: run
+`make setup-providers` after the gateway stack is healthy. It is not invoked
+by `gw-start`/`gw-restart`.
+
+The generated file is always `opencode.jsonc` in the OpenCode config directory
+(`$OPENCODE_CONFIG_DIR`, else `~/.config/opencode`). OpenCode deep-merges every
+`config.json` / `opencode.json` / `opencode.jsonc` in that directory, so the
+script refuses to run when a conflicting sibling exists: a stale
+`opencode.json` would union its providers and models into the generated
+config. Remove the sibling and re-run.
 
 Context limits are scaled by `CONTEXT_LIMIT_PCT` (default 80) from `.env`,
 so e.g. `CONTEXT_LIMIT_PCT=80` reduces a 200000-token context to 160000.

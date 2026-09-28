@@ -341,10 +341,24 @@ function M.sync(conf)
         core.log.warn("provider_sync: models.dev fetch failed: ", md_err or "unknown")
     end
 
+    local prev_raw = dict:get(KEY_ENRICHED)
+    local prev = prev_raw and cjson.decode(prev_raw) or nil
+
     local enriched = {}
     for provider_id, provider in pairs(providers) do
         local copy = cjson.decode(cjson.encode(provider)) or {}
-        copy.models = enrich_provider_models(provider, models_dev)
+        local models = enrich_provider_models(provider, models_dev)
+        local prev_models = prev and prev[provider_id] and prev[provider_id].models
+        if next(models) == nil and prev_models and next(prev_models) ~= nil then
+            --A transient source failure must not clobber a good catalog: a
+            --provider with zero models is hidden by OpenCode, so dropping it
+            --is worse than serving the last good list.
+            copy.models = prev_models
+            core.log.warn("provider_sync: provider ", provider_id,
+                " produced no models; retaining previous catalog")
+        else
+            copy.models = models
+        end
         aliases.expand(provider, copy.models)
         pricing.apply_cost_source(provider, copy.models, models_dev)
         enriched[provider_id] = copy

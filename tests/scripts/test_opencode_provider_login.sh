@@ -342,6 +342,59 @@ else
 fi
 assert_eq "--all writes NO auth entries by default" "0" "$ALL_AUTH_COUNT"
 
+# --- Test: single-file guard + canonical opencode.jsonc (FR-5.8) ---
+GUARD_DIR="$TMPDIR/guard"
+mkdir -p "$GUARD_DIR"
+printf '{"provider":{}}\n' > "$GUARD_DIR/opencode.json"
+
+GUARD_RC=0
+GUARD_OUTPUT=$(OPENCODE_CONFIG_DIR="$GUARD_DIR" timeout 30 bash "$CLIENT_SCRIPT" \
+    --provider-id test-api-key \
+    --gateway "$GATEWAY" \
+    --auth-file "$TMPDIR/guard-auth.json" \
+    --no-browser < /dev/null 2>&1) || GUARD_RC=$?
+
+if [ "$GUARD_RC" -ne 0 ]; then
+    echo "[PASS] stale sibling makes the script refuse to run"
+    pass=$((pass + 1))
+else
+    echo "[FAIL] stale sibling should make the script refuse to run"
+    fail=$((fail + 1))
+fi
+assert_contains "stale sibling error names the conflict" \
+    "conflicting OpenCode config exists" "$GUARD_OUTPUT"
+if [ -f "$GUARD_DIR/opencode.jsonc" ]; then
+    echo "[FAIL] guard must not write when a stale sibling exists"
+    fail=$((fail + 1))
+else
+    echo "[PASS] guard wrote no config"
+    pass=$((pass + 1))
+fi
+
+# Remove the stale sibling: default target must be opencode.jsonc, never .json.
+rm -f "$GUARD_DIR/opencode.json"
+CANON_RC=0
+CANON_OUTPUT=$(OPENCODE_CONFIG_DIR="$GUARD_DIR" timeout 30 bash "$CLIENT_SCRIPT" \
+    --provider-id test-api-key \
+    --gateway "$GATEWAY" \
+    --auth-file "$TMPDIR/guard-auth.json" \
+    --no-browser < /dev/null 2>&1) || CANON_RC=$?
+assert_eq "canonical install exits 0" "0" "$CANON_RC"
+if [ -f "$GUARD_DIR/opencode.jsonc" ]; then
+    CANON_NAME=$(jq -r '.provider."test-api-key".name // "__missing__"' "$GUARD_DIR/opencode.jsonc")
+    assert_eq "default target is opencode.jsonc" "Test API Key" "$CANON_NAME"
+else
+    echo "[FAIL] default target opencode.jsonc not written"
+    fail=$((fail + 1))
+fi
+if [ -f "$GUARD_DIR/opencode.json" ]; then
+    echo "[FAIL] script wrote a secondary opencode.json"
+    fail=$((fail + 1))
+else
+    echo "[PASS] no secondary opencode.json written"
+    pass=$((pass + 1))
+fi
+
 if ! kill "$SERVER_PID"; then echo "[INFO] process $SERVER_PID already exited" >&2; fi
 if ! wait "$SERVER_PID"; then echo "[INFO] wait on $SERVER_PID returned $?" >&2; fi
 

@@ -323,6 +323,16 @@ removed on sight.
 Safe-merge rules: only the matching provider key is touched; other providers
 and top-level keys are preserved; JSONC input is rewritten as plain JSON.
 
+Single-file rule (FR-5.8): the canonical target is
+`<config dir>/opencode.jsonc`, where `<config dir>` is `$OPENCODE_CONFIG_DIR`
+when set, else `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`. OpenCode
+deep-merges every `config.json`/`opencode.json`/`opencode.jsonc` in that
+directory at startup (`packages/opencode/src/config/config.ts` `loadGlobal`),
+so a stale sibling unions its providers/models into the generated config. The
+script therefore never writes a secondary `opencode.json`, and refuses to run
+(non-zero exit, no write) when a non-empty `config.json` or `opencode.json`
+sibling exists unless `--config-file` was passed explicitly.
+
 ## 10. Integration with cost_calc and model-registry
 
 - `cost_calc.get_pricing()` canonicalizes the requested model, combines it with

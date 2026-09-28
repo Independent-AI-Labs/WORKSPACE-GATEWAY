@@ -20,7 +20,7 @@ set -euo pipefail
 #   --require-auth         Prompt for keys / run OAuth instead of skipping auth.
 #   --gateway URL        Gateway base URL (default: http://localhost:9080).
 #   --session ID          OAuth session label (default: opencode-<timestamp>).
-#   --config-file PATH    OpenCode config path (default: ~/.config/opencode/opencode.jsonc or .json).
+#   --config-file PATH    OpenCode config path (default: $OPENCODE_CONFIG_DIR/opencode.jsonc).
 #   --auth-file PATH      OpenCode auth path (default: ~/.local/share/opencode/auth.json).
 #   --user-agent UA       User-Agent sent on all requests (default: workspace-gateway-login/0.1).
 #   --no-browser          Do not open the browser for OAuth.
@@ -54,11 +54,15 @@ ALL=0
 REQUIRE_AUTH=0
 FORWARD_ARGS=()
 SESSION="opencode-$(date +%s)"
-if [ -f "${HOME}/.config/opencode/opencode.jsonc" ]; then
-  CONFIG_FILE="${HOME}/.config/opencode/opencode.jsonc"
-else
-  CONFIG_FILE="${HOME}/.config/opencode/opencode.json"
-fi
+# Canonical OpenCode config: one opencode.jsonc per config dir. OpenCode
+# deep-merges every config.json/opencode.json/opencode.jsonc in the config
+# directory (packages/opencode/src/config/config.ts loadGlobal), so a stale
+# sibling unions its providers/models into the generated file. The
+# login script only ever writes opencode.jsonc and refuses to run when a
+# conflicting sibling exists (see the single-file guard below).
+OPENCODE_CONFIG_DIR_RESOLVED="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
+CONFIG_FILE="${OPENCODE_CONFIG_DIR_RESOLVED}/opencode.jsonc"
+CONFIG_FILE_EXPLICIT=0
 AUTH_FILE="${HOME}/.local/share/opencode/auth.json"
 USER_AGENT="workspace-gateway-login/0.1"
 NO_BROWSER=0
@@ -77,7 +81,7 @@ while [ $# -gt 0 ]; do
     --require-auth)   REQUIRE_AUTH=1; FORWARD_ARGS+=("--require-auth"); shift ;;
     --gateway)        GATEWAY="$2"; FORWARD_ARGS+=("--gateway" "$2"); shift 2 ;;
     --session)        SESSION="$2"; shift 2 ;;
-    --config-file)    CONFIG_FILE="$2"; FORWARD_ARGS+=("--config-file" "$2"); shift 2 ;;
+    --config-file)    CONFIG_FILE="$2"; CONFIG_FILE_EXPLICIT=1; FORWARD_ARGS+=("--config-file" "$2"); shift 2 ;;
     --auth-file)      AUTH_FILE="$2"; FORWARD_ARGS+=("--auth-file" "$2"); shift 2 ;;
     --user-agent)     USER_AGENT="$2"; FORWARD_ARGS+=("--user-agent" "$2"); shift 2 ;;
     --no-browser)     NO_BROWSER=1; FORWARD_ARGS+=("--no-browser"); shift ;;
@@ -113,6 +117,22 @@ for dep in curl jq; do
     exit 1
   fi
 done
+
+# --- Single-file guard ---
+# A stale sibling makes OpenCode's deep merge duplicate providers/models. Fail
+# closed instead of writing a second config that will be merged at runtime.
+if [ "$CONFIG_FILE_EXPLICIT" -eq 0 ]; then
+  for _sibling in config.json opencode.json; do
+    _sibling_path="$(dirname "$CONFIG_FILE")/$_sibling"
+    if [ -s "$_sibling_path" ]; then
+      echo "ERROR: conflicting OpenCode config exists: $_sibling_path" >&2
+      echo "OpenCode merges it with $CONFIG_FILE, duplicating providers/models." >&2
+      echo "Remove the stale file, then re-run:" >&2
+      echo "  rm -f \"$_sibling_path\"" >&2
+      exit 1
+    fi
+  done
+fi
 
 # --- --all: install every provider, one recursive run each ---
 if [ "$ALL" -eq 1 ]; then
@@ -400,6 +420,15 @@ mkdir -p "$(dirname "$AUTH_FILE")"
 CONFIG_JSON=$(read_config_json "$CONFIG_FILE")
 PROVIDER_BLOCK=$(echo "$OPENCODE_RESP" | jq '.provider')
 
+# OpenCode hides providers with zero models, so a transient upstream failure
+# that empties the gateway catalog would remove the provider from the client.
+# Warn instead of writing a vanishing provider.
+_zero_models=$(echo "$OPENCODE_RESP" | jq -r '.provider.models | length')
+if [ "$_zero_models" -eq 0 ]; then
+  echo "WARN: ${PROVIDER_ID} has zero models; OpenCode hides zero-model providers." >&2
+  echo "      The gateway catalog likely failed its upstream fetch. Re-run 'make sync-models', then retry." >&2
+fi
+
 if ! _valid_config=$(echo "$CONFIG_JSON" | jq -e .); then
   echo "ERROR: config file is not valid JSON/JSONC: $CONFIG_FILE" >&2
   exit 1
@@ -426,6 +455,7 @@ if [ ! -s "$TMPDIR/config.json" ]; then
   exit 1
 fi
 mv "$TMPDIR/config.json" "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
 
 # --- Write auth.json (only when a credential was obtained) ---
 if [ -n "$ACCESS_TOKEN" ] || [ -n "$USER_KEY" ]; then
