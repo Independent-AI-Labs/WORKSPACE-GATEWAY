@@ -367,19 +367,19 @@ implementation gaps must stay explicitly marked pending until their tests pass.
 ### OAUTH-022: Published Bun plugin dependency is not yet packaged
 
 **Severity:** High
-**Status:** Resolved, landing pending
+**Status:** Resolved, landed in `d41db07`
 
 `res/opencode-plugin/workspace-gateway-auth.ts` imports the public
 `@opencode-ai/plugin` types and its tests use `bun:test`. The gateway now owns
 a Bun manifest and lockfile for the published dependency.
 `bun install --frozen-lockfile`, Bun typechecking, and focused plugin tests pass
 without a path or workspace dependency on `projects/opencode`. The change set
-is verified locally; the commit has not yet landed (see `docs/TODO.md` P3.5).
+landed in `d41db07`.
 
 ### OAUTH-023: Pending device poll must remain non-terminal
 
 **Severity:** High
-**Status:** Resolved, landing pending
+**Status:** Resolved, landed in `d41db07`
 
 The plugin request helper now explicitly accepts HTTP 202 for device polling.
 The Bun suite covers `authorization_pending`, `slow_down`, and a terminal

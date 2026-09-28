@@ -117,8 +117,9 @@ tooling rather than inventing a parallel dependency system:
   workspace boot PATH; never depend on a developer's global `bun`.
 - [x] Regenerate `.pre-commit-config.yaml` from `WORKSPACE-CI` after the
   profile change.
-- [ ] Run lockfile synchronization, secret scanning, lint, typecheck, plugin
-  tests, Lua tests, config tests, and the full gateway test suite.
+- [x] Run lockfile synchronization, secret scanning, lint, typecheck, plugin
+  tests, Lua tests, config tests, and the full gateway test suite. Verified
+  2026-09-28: `make test` 8/8 stages green and the pre-push secret scan clean.
 
 ## P1: Documentation And Release Readiness
 
@@ -159,14 +160,20 @@ tooling rather than inventing a parallel dependency system:
 - Lua suite passed across all suites.
 - Grafana panel integration passed: 22 checks.
 
+**Re-verified 2026-09-28:**
+
+- `make test`: 8/8 stages passed (Lua, scripts, config 27/27, billing-totals,
+  integration 16/16, CI-hook verification, E2E skipped without
+  `OPENCODE_API_KEY`, security lockdown 23/23).
+- Pre-push secret scan (deployed `checks_secrets.sh` gitleaks wrapper): clean.
+- The earlier note that `make test` was blocked by the shell audit's
+  inline-Python policy is obsolete; the suite is green.
+
 **Still pending:**
 
 - Hermetic Bun bootstrap/component registration in the workspace boot layout.
 - Bun lockfile-specific CI validation, if `WORKSPACE-CI` does not already
   provide it.
-- Full `make test` is not green because existing integration scripts are
-  blocked by the shell audit's inline-Python policy; those scripts predate this
-  plugin change and remain separate remediation work.
 
 ## P3: Hook Lifecycle And CI Provenance (added 2026-08-23)
 
@@ -187,8 +194,10 @@ with `mv: Operation not permitted`.
 - [x] Regenerate `.pre-commit-config.yaml` from the redeployed
   `/opt/workspace-ci` (after the P3.2 `REL_CI` fix reaches `/opt`) so
   generated entries and the Makefile agree on one CI root.
-- [ ] Root: run `make install-hooks` (now the sanctioned path), then verify
+- [x] Root: run `make install-hooks` (now the sanctioned path), then verify
   `lsattr -d .git/hooks/*` shows `+i` restored on exactly the three hooks.
+  Verified 2026-09-28: `commit-msg`, `pre-commit`, `pre-push` each show `+i`,
+  all reference `/opt/workspace-ci`, and none reference `../CI`.
 
 ### P3.2: CI provenance rule (single generation source)
 
@@ -219,10 +228,11 @@ produced 22 phantom violations on 2026-08-22).
   deployed `scaffold-ci` (via the restored `7d42315` Makefile entrypoint)
   regenerated the config with 20 absolute `/opt/workspace-ci` refs and zero
   `../CI` refs; backups removed.
-- [ ] Resolve or remove the stale `../CI` tree (operator decision; it
-  predates the migration and is now unreferenced by anything live).
+- [x] Resolve or remove the stale `../CI` tree (operator decision; it
+  predates the migration and is now unreferenced by anything live). Verified
+  2026-09-28: no `../CI` tree exists and no tracked file references `../CI`.
 - [ ] Extend the deployed hook-drift check to reject consumer configs whose
-  embedded CI path differs from the deployed root.
+  embedded CI path differs from the deployed root. (WORKSPACE-CI side.)
 
 ### P3.3: Transient-mutability audit follow-up
 
@@ -245,56 +255,68 @@ REQ-DEPLOYMENT 16-17, `reinstall-hooks`, `lock-repo`):
   killing generator/checker skew (the deployed 2.7KB generator vs 22KB
   source mismatch that produced 22 phantom violations).
 
-### P3.4: Open investigation: `.gitleaksignore`
+### P3.4: Resolved: `.gitleaksignore` retired
 
-- [ ] Determine why the deployed gitleaks wrapper reports findings in the
-  gitignored `.env` while the source-tree wrapper does not; compare
-  `checks_secrets.sh` generations across the three CI trees.
-  2026-08-25 finding: the deployed `checks_secrets.sh` builds its own
-  gitleaks allowlist from git-ignored paths and never reads
-  `.gitleaksignore`; the file is therefore likely INERT under the
-  deployed wrapper, which makes the observed discrepancy stranger, not
-  explained. The generation comparison is still the next step.
-- [ ] If the deployed wrapper has an ignore-propagation defect, fix it in
-  WORKSPACE-CI and REMOVE `.gitleaksignore` from this repository.
-- [ ] Until resolved, `.gitleaksignore` is documented as a scoped,
-  fingerprint-limited exception for the gitignored local `.env` only; it
-  must never cover tracked files.
+Closed 2026-09-28.
+
+- [x] Root-caused the 2026-08-25 discrepancy: the deployed `checks_secrets.sh`
+  was an older generation lacking the git-ignored-path allowlist (lines 47-86
+  of the current wrapper). The deployed wrapper and the WORKSPACE-CI source
+  are now byte-identical (`diff` clean), and the wrapper builds a gitleaks
+  allowlist from every git-ignored path, which excludes `.env` and
+  `.env.prod` before gitleaks opens them.
+- [x] Reproduced the current behavior against the dev tree: the wrapper's own
+  config passes clean with `.env` allowlisted; no `.env` finding is emitted.
+- [x] Confirmed `.gitleaksignore` was NOT inert - gitleaks 8.30.1 `dir` honors
+  it (its three entries suppress exactly `.env:generic-api-key:1/2/6`; removing
+  the file reveals those lines). It was still redundant under the
+  wrapper and incomplete: it covered only 3 of the 11 secrets in `.env`.
+- [x] No wrapper defect found; no WORKSPACE-CI change required. Removed
+  `.gitleaksignore` from this repository as dead policy. The pre-commit
+  gitleaks hook runs the same wrapper, so commit-time scanning is unaffected.
 
 ### P3.6: Documentation truth pass (added 2026-08-25)
 
-- [ ] README provenance table (lines ~627-634): "`../CI` is the only
+- [x] README provenance table (lines ~627-634): "`../CI` is the only
   working generator" is FALSE since the 2026-08-24/25 restoration;
   `/opt/workspace-ci` ships `scaffold-ci` and is the single generation
-  source. Update the table and the two `../CI/workflows/` doc links
-  (point at `../WORKSPACE-CI/workflows/` or remove).
-- [ ] This TODO's P3.2 preamble and README both need the post-fix state:
+  source. Verified 2026-09-28: the README no longer carries a provenance
+  table and has zero `../CI` references or `../CI/workflows/` links.
+- [x] This TODO's P3.2 preamble and README both need the post-fix state:
   restoration landed (`a0efdec`), integrity gates live (`80089d2`),
   REL_CI fix committed (`06b5511`), absolute-path regeneration pending
-  deploy.
+  deploy. P3.2 above records the completed absolute-path regeneration.
 - [ ] WORKSPACE-CI-side ledger: record the guard yaml-edit splice defect
   (cannot append to indentless block sequences; discovered 2026-08-25
   against `policy_integrity_baseline.yaml`) as a WORKSPACE-GUARD issue.
+  (WORKSPACE-CI/WORKSPACE-GUARD side.)
 
 ### P3.7: Pre-commit hygiene for the landing commit (added 2026-08-25)
 
-- [ ] The staged `.pre-commit-config.yaml` regeneration (2026-08-25) wrote
+- [x] The staged `.pre-commit-config.yaml` regeneration (2026-08-25) wrote
   `.pre-commit-config.yaml.scaffold-bak.*` into the tree; ensure the
   landing commit deletes it (or it rides the commit as a stray artifact).
-- [ ] Root `make install-hooks` MUST complete before the landing commit:
+  Verified 2026-09-28: no `.pre-commit-config.yaml.scaffold-bak.*` exists.
+- [x] Root `make install-hooks` MUST complete before the landing commit:
   `.git/hooks/*` still source `../CI` from the 2026-08-22 install, so
   committing before reinstall runs the stale-clone hooks and defeats the
-  remediation.
-- [ ] After install-hooks: verify `lsattr -d .git/hooks/*` shows `+i` on
+  remediation. Hooks were reinstalled 2026-09-27 and source `/opt/workspace-ci`.
+- [x] After install-hooks: verify `lsattr -d .git/hooks/*` shows `+i` on
   exactly the three hooks AND `grep -c '\.\./CI' .git/hooks/*` is 0.
+  Verified 2026-09-28: `+i` on `commit-msg`/`pre-commit`/`pre-push`; zero
+  `../CI` references.
 
 ### P3.5: Landing bookkeeping
 
-- [ ] Commit the complete staged change set through the repaired hooks.
-- [ ] After the commit lands, flip OAUTH-022/023 and the REQ-PROVIDER-OPENAI
+- [x] Commit the complete staged change set through the repaired hooks. Landed
+  in `d41db07` (and `21f7c2b`).
+- [x] After the commit lands, flip OAUTH-022/023 and the REQ-PROVIDER-OPENAI
   implementation-status lines from "landing pending" to their final state.
+  REQ lines cite `d41db07`; audit OAUTH-022/023 updated to "Resolved, landed
+  in `d41db07`" 2026-09-28.
 - [ ] WORKSPACE-CI `TODO-REMEDIATION.md` items 256/260 (review Gateway OAuth
   changes; commit Gateway through repaired hooks) reference this commit.
+  (WORKSPACE-CI side.)
 
 ## Definition Of Done
 
@@ -313,6 +335,6 @@ This TODO is complete only when:
    holds after every regeneration without manual `chattr`.
 7. Exactly one CI tree (the deployed `/opt/workspace-ci`) generates GATEWAY
    hook configuration, enforced by drift checks.
-8. The `.gitleaksignore` question is resolved: wrapper fixed and the ignore
-   file removed, or the wrapper behavior is confirmed correct and the file is
-   the documented policy.
+8. The `.gitleaksignore` question is resolved: wrapper behavior confirmed
+   correct (it allowlists every git-ignored path) and the redundant ignore
+   file removed (P3.4, 2026-09-28).

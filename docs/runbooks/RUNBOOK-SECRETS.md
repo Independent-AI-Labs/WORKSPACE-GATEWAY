@@ -97,8 +97,9 @@ podman run --rm -v scratch-volume:/var/lib/clickhouse ... clickhouse-server
 
 ## Verification
 
-- `gitleaks` clean on the repo (CI)  -  `.env` gitignored; `.gitleaksignore`
-  fingerprints match current `.env` lines only.
+- `gitleaks` clean on the repo (CI)  -  `.env` is gitignored and the
+  WORKSPACE-CI `ci_scan_secrets` wrapper allowlists every git-ignored path, so
+  no `.env` content is scanned.
 - `stat -c %a .env` → `600`.
 - After rotation: no auth errors in `make gw-logs SVC=vector` /
   `SVC=apisix` / `SVC=grafana` for 15 minutes of live traffic.
