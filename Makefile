@@ -31,6 +31,8 @@ ANSIBLE_PLAYBOOK ?= $(CI_DIR)/.boot-linux/bin/ansible-playbook
 export UV_PYTHON_INSTALL_DIR := $(CI_DIR)/.boot-linux/python
 ANSIBLE_DEV := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/dev.yml
 ANSIBLE_COMPOSE := $(ANSIBLE_PLAYBOOK) $(REPO_ROOT)/res/ansible/compose.yml
+# Recipes that talk to the live stack need the project secrets in scope.
+LOAD_ENV := if [ -f .env ]; then set -a; source .env; set +a; fi;
 
 # Node.js / Playwright for browser-based Grafana panel rendering tests.
 # Force-set (not ?=) so git hooks / CI get correct paths even when the
@@ -131,9 +133,16 @@ _compose-down:
 	echo "=== Stopping gateway stack ==="
 	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
-.PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-reconcile gw-verify gw-status gw-logs gw-shell gw-test \
+.PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-verify gw-status gw-logs gw-shell \
         gw-restart-service gw-recreate-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
-        gw-sync-model-registry gw-recalc-costs gw-reconcile-model-attribution gw-check-model-attribution
+        gw-sync-model-registry gw-recalc-costs gw-fix-model-attribution gw-check-model-attribution
+
+# Internal: apply desired runtime state (routes, ClickHouse schema, provider
+# catalog) to the running stack. Never restarts containers. Every lifecycle
+# target below ends with it, so a config change only needs to run once.
+_gw-apply:
+	$(LOAD_ENV) \
+	$(ANSIBLE_DEV) --tags start
 
 gw-update-dictionaries: ## Refresh vendored profanity/VADER dictionaries from upstream
 	$(SCRIPT_BASH) res/scripts/update-dictionaries.sh
@@ -144,11 +153,11 @@ gw-sync-model-registry: ## Sync model-registry.yaml + provider local flags into 
 gw-crunch-usefulness: ## Run the rejection-language cruncher now (DAYS=N window, REBUILD=1 for clean recompute)
 	$(SCRIPT_BASH) res/scripts/crunch-usefulness.sh $(if $(DAYS),--days $(DAYS)) $(if $(REBUILD),--rebuild)
 
-gw-reconcile-model-attribution: ## Reconcile model attribution across request_log/usage_log/billing_ledger (idempotent; dry-run unless APPLY=1)
-	$(SCRIPT_BASH) res/scripts/reconcile-model-attribution.sh $(if $(APPLY),--apply)
+gw-fix-model-attribution: ## Repair model identity across request_log/usage_log/billing_ledger (idempotent; dry-run unless APPLY=1)
+	$(SCRIPT_BASH) res/scripts/fix-model-attribution.sh $(if $(APPLY),--apply)
 
 gw-check-model-attribution: ## Read-only guard: fail if telemetry model attribution has drifted
-	$(SCRIPT_BASH) res/scripts/reconcile-model-attribution.sh --check
+	$(SCRIPT_BASH) res/scripts/fix-model-attribution.sh --check
 
 gw-recalc-costs: ## Recalculate historical cost (dry-run unless APPLY=1; LIMIT=N default 100, DAYS=N, SOURCE=list)
 	$(SCRIPT_BASH) res/scripts/recalc-costs.sh \
@@ -162,10 +171,9 @@ gw-install-crunch-timer: ## Install + enable the daily maintenance timers (crunc
 
 gw-build: _compose-build ## Build container images
 
-gw-start: ## Start the gateway stack via systemd, then health checks + init + sync
+gw-start: ## Start the stack via systemd (installs the boot unit on first run), then apply routes/schema/catalog
 	$(ANSIBLE_COMPOSE) --tags deploy,start
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
-	$(ANSIBLE_DEV) --tags start
+	$(MAKE) -s _gw-apply
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DANGER  -  AGENTS: NEVER RUN `make gw-stop`.
@@ -186,20 +194,14 @@ gw-stop: ## DANGER: stops gateway with NO restart (kills LLM service for ALL age
 		exit 1; \
 	fi
 
-gw-restart: ## Restart stack via systemd (unit force-recreates all containers from current compose)
+gw-restart: ## Restart the stack via systemd (recreates all containers), then apply routes/schema/catalog
 	$(ANSIBLE_COMPOSE) --tags restart
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
-	$(ANSIBLE_DEV) --tags start
+	$(MAKE) -s _gw-apply
 
-gw-update: ## Build images, redeploy changed services via systemd, then reconcile
+gw-update: ## Build images, redeploy changed services, then apply routes/schema/catalog
 	$(MAKE) gw-build
 	$(ANSIBLE_COMPOSE) --tags deploy,restart
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
-	$(ANSIBLE_DEV) --tags start
-
-gw-reconcile: ## Reconcile routes, schema, and provider catalog without restarting containers
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
-	$(ANSIBLE_DEV) --tags start
+	$(MAKE) -s _gw-apply
 
 gw-restart-service: ## Restart one existing service without recreating it
 	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-restart-service SVC=grafana" >&2; exit 1; }
@@ -234,7 +236,7 @@ gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 	echo "=== Grafana upgrade complete ==="
 
 gw-verify: ## Health report: container/endpoint status + one request through the gateway
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(LOAD_ENV) \
 	$(ANSIBLE_DEV) --tags status,sanity
 
 gw-status: ## Show gateway systemd + container status
@@ -245,10 +247,6 @@ gw-logs: ## Show the latest 200 gateway log lines (optional SVC=grafana)
 
 gw-shell: ## Exec into APISIX container shell
 	podman exec -it gw-apisix /bin/bash
-
-gw-test: ## Run full test suite against running stack
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
-	bash tests/run_all.sh
 
 # =============================================================================
 # ClickHouse Migrations
@@ -268,7 +266,7 @@ ch-migrate-force: ## Clear a dirty migration state and re-run: make ch-migrate-f
 
 .PHONY: ch-provision
 ch-provision: ## (Re)apply ClickHouse users/grants from .env (idempotent; also runs on fresh volumes)
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(LOAD_ENV) \
 	PODMAN_PATH=$${PODMAN_PATH:-/opt/workspace-ci/.boot-linux/bin/podman} \
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh exec clickhouse -- bash /docker-entrypoint-initdb.d/00-provision.sh
 
@@ -283,7 +281,7 @@ etcd-auth-init: ## Enable etcd RBAC: root + least-privilege apisix user (idempot
 
 .PHONY: gw-security-matrix
 gw-security-matrix: ## Run the live lockdown verification matrix (tests/e2e/test_security_lockdown.sh)
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(LOAD_ENV) \
 	bash tests/e2e/test_security_lockdown.sh
 
 # =============================================================================
@@ -354,12 +352,12 @@ plugin-test: ## Run gateway-owned OpenCode plugin Bun tests
 	$(BUN) test "$(BUN_PLUGIN_DIR)/workspace-gateway-auth.test.ts"
 
 test: ## Run all test stages (excludes live upstream API tests)
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(LOAD_ENV) \
 	$(MAKE) plugin-test; \
 	bash tests/run_all.sh
 
 test-live: ## Run all tests including live upstream API tests (RUN_LIVE_API_TESTS=1)
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(LOAD_ENV) \
 	RUN_LIVE_API_TESTS=1 bash tests/run_all.sh
 
 check: lint type-check test ## Run all quality gates
@@ -377,12 +375,7 @@ check-push: check ## Pre-push gate: check + E2E if API key available
 # =============================================================================
 # Boot Persistence
 # =============================================================================
-.PHONY: gw-deploy gw-undeploy gw-systemd-logs
-
-gw-deploy: ## Install + enable gateway compose on boot (systemd user + linger), then health checks + init + sync
-	$(ANSIBLE_COMPOSE) --tags deploy
-	if [ -f .env ]; then set -a; source .env; set +a; fi; \
-	$(ANSIBLE_DEV) --tags start
+.PHONY: gw-undeploy gw-systemd-logs
 
 gw-undeploy: ## Disable + remove gateway compose systemd unit
 	$(ANSIBLE_COMPOSE) --tags undeploy

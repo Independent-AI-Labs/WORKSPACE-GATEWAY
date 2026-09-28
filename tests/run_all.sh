@@ -59,7 +59,7 @@ run_stage 2 "Script Tests" "scripts/run.sh"
 
 run_stage 3 "Config Validation" "config/run.sh"
 
-run_stage 4 "Reconciler Tests" "reconciler/test_reconciler.sh"
+run_stage 4 "Billing Totals Tests" "billing-totals/test_billing_totals.sh"
 
 if [ -n "${OPENCODE_API_KEY:-}" ]; then
     export KEEP_STACK_UP_FOR_E2E=1

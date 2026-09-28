@@ -91,7 +91,7 @@ and retaining all telemetry data indefinitely at controlled storage cost.
 | FR-4.1 | All `TTL ... DELETE` clauses (13-month retention) MUST be removed from every `llm_gateway` table; telemetry data is retained indefinitely. |
 | FR-4.2 | Tables MUST use storage policy `tiered` (`conf/clickhouse-storage-tiering.xml`): parts move to the `archive` volume (path inside the existing data volume) and are recompressed with `CODEC ZSTD(3)` on the schedule in migration `000011` (bodies at 6 months, metadata at 12/18 months). |
 | FR-4.3 | A storage-growth panel (bytes on disk per table, free space, part counts from `system.parts`/`system.disks`) MUST exist on `gateway-ops-health`, and a Grafana unified alert MUST fire on low free space (<20%) or anomalous growth. |
-| FR-4.4 | The reconciler MUST emit a warning when ClickHouse data growth exceeds the configured monthly budget. |
+| FR-4.4 | The billing totals job MUST emit a warning when ClickHouse data growth exceeds the configured monthly budget. |
 | FR-4.5 | Nightly ClickHouse backups MUST be written to `/mnt/ws-backup` (10.9T FUSE volume) via a systemd timer; the archive tier MUST NOT live on the FUSE volume (unsupported for live MergeTree). |
 
 ### FR-5: Grafana Trust Model
@@ -118,7 +118,7 @@ and retaining all telemetry data indefinitely at controlled storage cost.
 | FR-7.1 | The Vector ClickHouse sink MUST authenticate (HTTP basic auth) as `vector_rw` via env-interpolated credentials. |
 | FR-7.2 | The `sse-usage` plugin MUST authenticate its `usage_log` INSERTs as `apisix_rw`: route config carries `clickhouse_user` and `clickhouse_password_env` (env resolved at request time, following the `openbao_token_env` pattern); the password env MUST be declared in `nginx_config.envs`. |
 | FR-7.3 | The golang-migrate DSN (`make ch-migrate`, compose `migrate` service) MUST authenticate as `migrator`. |
-| FR-7.4 | Every host-side ClickHouse client script (reconciler, crunch-usefulness, sync-model-registry, backfill-reasoning-tokens, seed-clickhouse-dashboard-data, dedupe-model-history, recalc-costs, migrate-opencode-stats) MUST send `ops_admin` basic auth from env (`CH_OPS_USER`/`CH_OPS_PASSWORD`), with no unauthenticated access. |
+| FR-7.4 | Every host-side ClickHouse client script (billing-totals, crunch-usefulness, sync-model-registry, backfill-reasoning-tokens, seed-clickhouse-dashboard-data, dedupe-model-history, recalc-costs, migrate-opencode-stats) MUST send `ops_admin` basic auth from env (`CH_OPS_USER`/`CH_OPS_PASSWORD`), with no unauthenticated access. |
 
 ### FR-8: etcd RBAC
 | ID | Requirement |

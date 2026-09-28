@@ -207,7 +207,7 @@ In-stack access to unpublished services via `podman exec` only.
 All ClickHouse clients read `CH_OPS_USER`/`CH_OPS_PASSWORD` (default
 `ops_admin`/env) and send basic auth; no unauthenticated access:
 
-`reconciler.sh` (+ growth-budget warning, FR-4.4), `crunch-usefulness.sh`,
+`billing-totals.sh` (+ growth-budget warning, FR-4.4), `crunch-usefulness.sh`,
 `sync-model-registry.sh`, `backfill-reasoning-tokens.sh`,
 `seed-clickhouse-dashboard-data.sh`, `dedupe-model-history.sh`,
 `migrate-opencode-stats.sh`, `gateway-compose-up.sh` (ping needs no auth),

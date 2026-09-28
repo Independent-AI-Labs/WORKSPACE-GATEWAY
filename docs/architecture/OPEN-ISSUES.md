@@ -12,9 +12,9 @@ are summarized in the changelog only (not repeated in child docs).
 is a multi-line stream. `usage_log` counts from `sse-usage` are accurate.
 Comparing the two columns is apples to oranges.
 
-### Reconciler and billing enrichment
+### Billing totals and enrichment
 
-**[OPEN]** `res/scripts/reconciler.sh` logs gateway-side totals only.
+**[OPEN]** `res/scripts/billing-totals.sh` logs gateway-side totals only.
 Upstream provider API comparison and `billing_discrepancies` writes are
 v2 scope. `billing_ledger.rate_input` / `rate_output` are 0 until
 a models.dev pricing snapshot lands in ClickHouse.

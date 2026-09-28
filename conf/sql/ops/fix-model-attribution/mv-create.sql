@@ -1,6 +1,6 @@
 -- billing_ledger_mv definition, kept in lock-step with conf/sql/clickhouse-init.sql
 -- and conf/sql/migrations/000012_add_cache_write_tokens.up.sql (asserted by
--- tests/config/test_reconcile_model_attribution.sh).
+-- tests/config/test_fix_model_attribution.sh).
 CREATE MATERIALIZED VIEW IF NOT EXISTS {{ DB }}.billing_ledger_mv
 TO {{ DB }}.billing_ledger
 AS

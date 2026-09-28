@@ -88,7 +88,7 @@ converted to zero. Unknown pricing remains observable as `unknown`.
 
 A per-response cost reported by the upstream (`usage.estimated_cost` / body
 `cost`) is **not** a pricing source and MUST NOT be billed. It is persisted
-separately as reported-cost metadata for reconciliation only.
+separately as reported-cost metadata for accounting only.
 
 ### Supported pricing data
 

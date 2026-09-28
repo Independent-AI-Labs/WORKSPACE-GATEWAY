@@ -5,7 +5,7 @@
 **Type:** Specification
 **Requirements:** [REQ-BILLING-TELEMETRY](../requirements/REQ-BILLING-TELEMETRY.md)
 
-> Implements billing-grade telemetry on ClickHouse: Vector-remapped `request_log`, timer-written `usage_log`, MV-populated `billing_ledger`, and a `billing_discrepancies` reconciler target. Invariants: identical `event_id`/`request_id`/`key_id` derivation on both write paths; canonical `model` + verbatim `model_raw`; all schema change via golang-migrate.
+> Implements billing-grade telemetry on ClickHouse: Vector-remapped `request_log`, timer-written `usage_log`, MV-populated `billing_ledger`, and a `billing_discrepancies` divergence target. Invariants: identical `event_id`/`request_id`/`key_id` derivation on both write paths; canonical `model` + verbatim `model_raw`; all schema change via golang-migrate.
 
 ---
 
@@ -16,7 +16,7 @@
 - [`conf/vector.toml`](../../conf/vector.toml): source → remap → ClickHouse sink
 - [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua): usage_log writer
 - [`plugins/custom/sse_usage_lib.lua`](../../plugins/custom/sse_usage_lib.lua): SSE/JSON parsing lib
-- [`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh): daily totals job
+- [`res/scripts/billing-totals.sh`](../../res/scripts/billing-totals.sh): daily totals job
 - [`docs/architecture/TELEMETRY-AND-SCHEMA.md`](../../docs/architecture/TELEMETRY-AND-SCHEMA.md): architecture doc (critical path)
 
 ---
@@ -28,7 +28,7 @@ Two independent write paths converge on shared correlation ids:
 1. **request_log path**  -  APISIX `http-logger` → Vector `http_server` source → VRL remap → ClickHouse `request_log`.
 2. **usage_log path**  -  `sse-usage` plugin observes the stream in `body_filter`, resolves cost in `log`, and INSERTs into `usage_log` from an `ngx.timer.at` context.
 
-`billing_ledger_mv` fires on each usage_log INSERT to populate `billing_ledger`. The reconciler reads `request_log` daily.
+`billing_ledger_mv` fires on each usage_log INSERT to populate `billing_ledger`. The billing totals job reads `request_log` daily.
 
 ## 2. Architectural Principles
 
@@ -59,7 +59,7 @@ request |  request-id plugin -> X-Request-Id                      |
         +-------+-------------------------------------------------+
                 v
         usage_log --(billing_ledger_mv)--> billing_ledger
-        request_log <-- reconciler.sh (daily totals)
+        request_log <-- billing-totals.sh (daily totals)
                        (v2: -> billing_discrepancies)
 ```
 
@@ -76,7 +76,7 @@ ORDER BY `(event_id, request_id, timestamp)`. Columns: `event_id`, `request_id`,
 ### 4.3 billing_ledger (populated by MV)
 ORDER BY `(tenant_id, user_id, timestamp)`. 25+ columns incl. identity (tenant_id, user_id, provider, model_name, model_raw, route_name, consumer_group), `request_mode`, `cache_status`, token fields, `rate_input/rate_output Decimal64(8)`, `currency`, `cost Decimal64(6)`, `success`, `error_type`, latency fields, `upstream_resp_id`, redact fields. Enrichment-only columns are `''`/0 until backfill.
 
-### 4.4 billing_discrepancies (reconciler v2 target)
+### 4.4 billing_discrepancies (v2 totals-job target)
 `date Date`, `tenant_id`, `provider`, `model_name`, `gateway_tokens UInt32`, `provider_tokens UInt32`, `divergence Decimal64(6)`, `tolerance Decimal64(6)`, `flagged_at`. No TTL. Empty today.
 
 ### 4.5 Migrations
@@ -113,9 +113,9 @@ Remap stages:
 4. `body_filter`  -  buffers via `sse_usage_lib.buffer_chunk`; scans complete lines (`scan_sse_for_usage` / `parse_json_usage`) for usage, model, and the upstream-reported `estimated_cost` (captured as reported-cost metadata); tracks `[DONE]` and upstream EOF.
 5. `log`  -  computes `aborted` (0 completed, 1 client abort, 2 provider abort), extracts tokens via `sse_usage_lib.extract_tokens`, resolves the billed cost via provider-aware `cost_calc.resolve_cost` (provider override, else models.dev, else unknown), records provider/pricing provenance and active snapshot, canonicalizes model (`model_registry.canonical`, verbatim kept in `model_raw`), stores the upstream-reported cost in `reported_cost`, builds `event_id`/`request_id`/`key_id`, encodes a JSONEachRow entry and INSERTs into `usage_log` from `ngx.timer.at` with retries {0.1, 0.5, 2.0}s. Also increments the `quota_counters` shared dict when `ctx.quota_bucket_key` is set.
 
-## 7. Reconciler
+## 7. Billing Totals
 
-[`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh): computes `YESTERDAY` portably (Linux/Darwin), queries `request_log` for per-provider/model `sum(prompt/completion/total tokens)`, and logs each line for audit. v2 (commented in-script): compare against upstream provider usage APIs and INSERT divergences into `billing_discrepancies`; divergences are never discarded. Tests: `tests/reconciler/test_reconciler.sh`, `tests/integration/test_reconciler_exec.sh`.
+[`res/scripts/billing-totals.sh`](../../res/scripts/billing-totals.sh): computes `YESTERDAY` portably (Linux/Darwin), queries `request_log` for per-provider/model `sum(prompt/completion/total tokens)`, and logs each line for audit. v2 (commented in-script): compare against upstream provider usage APIs and INSERT divergences into `billing_discrepancies`; divergences are never discarded. Tests: `tests/billing-totals/test_billing_totals.sh`, `tests/integration/test_billing_totals_exec.sh`.
 
 ## 8. Edge Cases & Decisions
 
@@ -133,7 +133,7 @@ Remap stages:
 | [`conf/vector.toml`](../../conf/vector.toml) | Ingest pipeline + GENERATED canonicalization |  -  |
 | [`plugins/custom/sse-usage.lua`](../../plugins/custom/sse-usage.lua) | usage_log writer |  -  |
 | [`plugins/custom/sse_usage_lib.lua`](../../plugins/custom/sse_usage_lib.lua) | chunk buffering, usage scanning, token extraction |  -  |
-| [`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh) | Daily totals |  -  |
+| [`res/scripts/billing-totals.sh`](../../res/scripts/billing-totals.sh) | Daily totals |  -  |
 | [`docs/architecture/TELEMETRY-AND-SCHEMA.md`](../../docs/architecture/TELEMETRY-AND-SCHEMA.md) | Architecture doc (critical path) |  -  |
 
 ## 10. Implementation Status
@@ -145,5 +145,5 @@ Remap stages:
 | billing_ledger_mv | Implemented | clickhouse-init.sql:190-221; migrations 000004/000005 |
 | Migrations 000001-000007 | Implemented | conf/sql/migrations/ |
 | Model canonicalization | Implemented | vector.toml GENERATED block; sse-usage.lua:190-191 |
-| Reconciler (gateway totals) | Implemented | res/scripts/reconciler.sh |
-| Reconciler upstream comparison | Not implemented | v2 comment in reconciler.sh |
+| Billing totals (gateway totals) | Implemented | res/scripts/billing-totals.sh |
+| Billing totals upstream comparison | Not implemented | v2 comment in billing-totals.sh |

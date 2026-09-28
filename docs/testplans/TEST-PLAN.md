@@ -39,7 +39,7 @@ Each stage is independently runnable and yields a pass/fail exit code.
 | 1 | Lua Unit Tests | `tests/lua/run.sh` | APISIX image (resty CLI) |
 | 2 | Script Tests | `tests/scripts/run.sh` | Python (simulated provider server) |
 | 3 | Config Validation | `tests/config/run.sh` | jq + Python |
-| 4 | Reconciler Tests | `tests/reconciler/test_reconciler.sh` | None |
+| 4 | Billing Totals Tests | `tests/billing-totals/test_billing_totals.sh` | None |
 | 5 | Integration Tests | `tests/integration/run.sh` | podman-compose stack |
 | 6 | CI Hook Verification | `tests/ci/test_hooks.sh` | git, CI repo |
 | 7 | E2E Live API Tests | `tests/e2e/run.sh` | Running stack + `OPENCODE_API_KEY` |
@@ -101,13 +101,13 @@ tests/
                 test_clickhouse_auth.sh, test_etcd_auth.sh,
                 test_opencode_gateway_auth.sh, test_provider_sync_route.sh,
                 dashboard_assert.sh, yaml_helpers.sh, run.sh
-  reconciler/  test_reconciler.sh
+  billing-totals/  test_billing_totals.sh
   integration/ test_stack_up.sh, test_key_resolver.sh, test_route_relay.sh,
                test_prometheus.sh, test_grafana.sh, test_dashboard_queries.sh,
                test_grafana_ds_proxy.sh, test_grafana_panels.sh,
                grafana_panel_check.js, test_llamafile_e2e.sh,
                test_event_id_alignment.sh, test_data_flow.sh,
-               test_cost_e2e.sh, test_reconciler_exec.sh,
+               test_cost_e2e.sh, test_billing_totals_exec.sh,
                test_crunch_idempotency.sh, test_security_lockdown.sh,
                test_provider_sync_client.sh, lib_event_align.sh, run.sh
   ci/          test_hooks.sh
@@ -222,10 +222,10 @@ Representative checks:
   ops-health storage-growth panel), templating parity, no `request_bodies`
   reference in any dashboard SQL, `conf/prometheus.yml` scrape targets.
 
-## 9. Stage 4: Reconciler Tests
+## 9. Stage 4: Billing Totals Tests
 
-`tests/reconciler/test_reconciler.sh` validates
-[`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh): `bash -n`
+`tests/billing-totals/test_billing_totals.sh` validates
+[`res/scripts/billing-totals.sh`](../../res/scripts/billing-totals.sh): `bash -n`
 syntax, `set -euo pipefail`, `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT` defaults,
 error handling on query failure, explicit empty-result handling, and presence
 of the upstream-API TODO marker.
@@ -247,7 +247,7 @@ Black-box against the full podman-compose stack; torn down via trap unless
 | `test_event_id_alignment.sh` | `request_id`/`event_id` alignment across request_log/usage_log (live) |
 | `test_data_flow.sh` | APISIX -> Vector -> ClickHouse row lands (live) |
 | `test_cost_e2e.sh` | Cost computation end-to-end via llamafile (live) |
-| `test_reconciler_exec.sh` | Reconciler executes against the stack |
+| `test_billing_totals_exec.sh` | Billing totals job executes against the stack |
 | `test_provider_sync_client.sh` | `/gateway/providers*` endpoints serve catalog/opencode blocks |
 | `test_security_lockdown.sh` | Live security matrix (REQ-SECURITY-HARDENING V7): unauthenticated ClickHouse 401; `grafana_ro` DDL/INSERT denied; `request_bodies` invisible to `grafana_ro`; spoofed `X-WEBAUTH-USER` rejected by Grafana allowlist; host port surface (`ss`) |
 

@@ -67,7 +67,7 @@ if [ "$DRY_RC" -ne 0 ]; then
 fi
 assert_contains "dry run reports candidates" "$DRY_OUT" "candidate rows:"
 assert_contains "dry run leaves a run id" "$DRY_OUT" "run_id=run-"
-if [[ "$DRY_OUT" == *"already reconciled"* ]] || [[ "$DRY_OUT" == *"nothing to do."* ]]; then
+if [[ "$DRY_OUT" == *"already up to date"* ]] || [[ "$DRY_OUT" == *"nothing to do."* ]]; then
     echo "[PASS] dry run found nothing to change (idempotent no-op)"
     pass=$((pass + 1))
 else
@@ -92,7 +92,7 @@ if [ "$APPLY_RC" -ne 0 ]; then
     fail=$((fail + 1))
 fi
 APPLY_NOOP=0
-if [[ "$APPLY_OUT" == *"already reconciled"* ]]; then
+if [[ "$APPLY_OUT" == *"already up to date"* ]]; then
     APPLY_NOOP=1
     echo "[PASS] apply found nothing to change (no backup needed; idempotent no-op)"
     pass=$((pass + 1))
@@ -100,7 +100,7 @@ elif [ "$APPLY_RC" -eq 0 ]; then
     assert_contains "apply verifies the backup" "$APPLY_OUT" "backup verified:"
 fi
 assert_contains "apply reports the result" "$APPLY_OUT" "applied="
-if [[ "$APPLY_OUT" != *"applied=0 failed=0"* ]] && [[ "$APPLY_OUT" != *"already reconciled"* ]]; then
+if [[ "$APPLY_OUT" != *"applied=0 failed=0"* ]] && [[ "$APPLY_OUT" != *"already up to date"* ]]; then
     assert_contains "apply had no failures" "$APPLY_OUT" "failed=0"
 else
     echo "[PASS] apply had no failures"

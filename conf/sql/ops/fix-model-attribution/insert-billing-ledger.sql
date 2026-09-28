@@ -1,4 +1,4 @@
--- Reconcile billing_ledger model identity to the registry.
+-- Repair billing_ledger model identity to the registry.
 --
 -- model_name is the canonical id, model_raw the verbatim wire string.
 -- usage_log (joined by event_id, the ledger's only shared key) is the

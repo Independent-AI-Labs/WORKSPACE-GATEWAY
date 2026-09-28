@@ -1,4 +1,4 @@
--- Reconcile request_log model identity to the registry.
+-- Repair request_log model identity to the registry.
 --
 -- model_raw is the verbatim wire string; model is its canonical id. Valid raws
 -- canonicalize through {{ CANON_EXPR }} (registry alias map, source:

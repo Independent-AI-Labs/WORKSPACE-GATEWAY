@@ -1,4 +1,4 @@
--- reconcile-model-attribution.sh: pre-reconcile attribution snapshot.
+-- fix-model-attribution.sh: post-repair attribution snapshot.
 SELECT 'request_log' AS t, count() AS rows, countIf(model = '') AS empty_model,
        countIf(model_raw = '') AS empty_raw
 FROM {{ DB }}.request_log

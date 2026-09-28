@@ -11,11 +11,11 @@ Implemented and verified:
 
 - Production APISIX plugin imports use the namespaced module layout, including
   `redact`; startup checks the loaded plugin registry before route mutation.
-- Normal restart, update, reconcile, and service restart have separate Make
+- Normal restart, update, route-apply, and service restart have separate Make
   semantics, with systemd as the lifecycle owner.
 - Migration is profile-gated and runs from the Ansible readiness sequence after
   ClickHouse initialization and health checks.
-- Route reconciliation deletes stale managed routes and verifies the exact
+- Route seeding deletes stale managed routes and verifies the exact
   managed route set after seeding.
 - Internal service ports bind to loopback, and administrative credentials are
   passed through a temporary mode-0600 file rather than a process argument.
@@ -93,7 +93,7 @@ No existing code or worktree changes were reverted during the audit.
 - [Compose restart](https://docs.docker.com/reference/cli/docker/compose/restart/):
   restarts existing service containers and does not apply Compose changes.
 - [Compose up](https://docs.docker.com/reference/cli/docker/compose/up/):
-  creates/reconciles containers and may recreate them when image or
+  creates/adjusts containers and may recreate them when image or
   configuration changes.
 - [Compose service specification](https://compose-spec.github.io/compose-spec/05-services.html):
   `service_healthy` dependencies require health checks.
@@ -241,7 +241,7 @@ Use bounded retries and fail closed.
 `seed-routes.sh` only PUTs routes found in the source file. Removed routes are
 not deleted, routes without IDs are skipped, and individual requests have no
 retry. Traditional APISIX mode stores routes in etcd, so the source file must
-be reconciled rather than merely appended/upserted.
+be applied as an exact set rather than merely appended/upserted.
 
 **Remediation.** Validate all IDs, list managed routes, delete stale managed
 routes, PUT desired routes, and verify the resulting set exactly.
@@ -268,13 +268,13 @@ tests.
 
 ### Medium: Lifecycle names and documentation are misleading
 
-`gw-start` performs deployment and schema setup. `gw-restart` builds images and
-reconciles application state. There is no `redeploy` or `update` target. The
+`gw-start` performs deployment and schema setup. `gw-restart` applies
+application state. There is no `redeploy` or `update` target. The
 runbook instructs direct Compose operation while README says systemd owns the
 stack. Comments incorrectly describe standalone APISIX mode.
 
 **Remediation.** Define and document separate commands for start, stop,
-restart, deploy, update, reconcile, and clean. Remove contradictory procedures.
+restart, apply, and clean. Remove contradictory procedures.
 
 ### Medium: Route and status observability are incomplete
 
@@ -296,17 +296,16 @@ forwarding trap. Graceful stop behavior is therefore not established by test.
 ## Remediation Work Breakdown
 
 1. Fix all production namespace imports and add a production-layout loader test.
-2. Add APISIX plugin registry and route-set gates before route reconciliation.
+2. Add APISIX plugin registry and route-set gates before route seeding.
 3. Correct `gw-verify` HTTP status handling and make it validate real readiness.
 4. Move external network creation before Compose start.
 5. Remove automatic migration startup and retain one migration owner.
 6. Add ClickHouse, Vector, APISIX, OpenBao, etcd, Prometheus, and Grafana health
    checks with ordered dependencies.
-7. Define separate Make semantics for start, stop, restart, deploy, update,
-   reconcile, and clean.
+7. Define separate Make semantics for start, stop, restart, apply, and clean.
 8. Remove global systemd cleanup and duplicate restart policies.
 9. Align drain and stop timeouts and add failure recovery around restart.
-10. Make route reconciliation exact and idempotent, including stale deletion.
+10. Make route seeding exact and idempotent, including stale deletion.
 11. Harden secret transport, host bindings, timeouts, retries, and failure
     propagation.
 12. Unify production and test Compose definitions and add lifecycle tests.
@@ -321,10 +320,10 @@ The remediation is complete only when all of the following hold:
 - A clean production-layout APISIX load registers every configured custom
   plugin, including `redact`.
 - A normal restart preserves container IDs and does not build or recreate.
-- An update explicitly rebuilds/reconciles changed services.
+- An update explicitly rebuilds and recreates changed services.
 - A fresh deployment creates networks before services.
 - Migration runs exactly once after ClickHouse readiness.
-- Route reconciliation leaves etcd with exactly the managed desired route set.
+- Route seeding leaves etcd with exactly the managed desired route set.
 - Verification fails on plugin, route, migration, telemetry, or HTTP errors.
 - No lifecycle command can delete unrelated containers or networks.
 - Test Compose and production Compose have verified parity.

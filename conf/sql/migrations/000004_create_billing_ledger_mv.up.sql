@@ -5,7 +5,7 @@
 -- to empty/0 here - a future enrich job can backfill them via the
 -- request_id join key. rate_input/rate_output require the models.dev
 -- pricing cache (in nginx shared dict, not ClickHouse), so they default
--- to 0 until a reconciler pricing snapshot lands in ClickHouse.
+-- to 0 until a totals-job pricing snapshot lands in ClickHouse.
 --
 -- This migration replicates the canonical MV declared in
 -- conf/sql/clickhouse-init.sql lines 174-212 so databases that pre-date the

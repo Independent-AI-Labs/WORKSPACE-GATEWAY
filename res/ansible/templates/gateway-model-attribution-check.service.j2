@@ -7,7 +7,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory={{ project_root }}
-ExecStart={{ project_root }}/res/scripts/reconcile-model-attribution.sh --check
+ExecStart={{ project_root }}/res/scripts/fix-model-attribution.sh --check
 EnvironmentFile={{ project_root }}/.env
 Environment=CLICKHOUSE_HOST=localhost
 Environment=CLICKHOUSE_PORT=8123

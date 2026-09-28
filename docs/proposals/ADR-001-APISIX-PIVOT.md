@@ -73,7 +73,7 @@ Adopt **Apache APISIX 3.17.0** as the gateway platform, replacing Kong:
 **Negative / trade-offs:**
 
 - The v2.0 Kong design work (Rust Wasm plugin specs, sidecar contracts) is
-  discarded; billing and reconciliation contracts transfer to the new platform.
+  discarded; billing and accounting contracts transfer to the new platform.
 - Team must own OpenResty/Lua plugin discipline (phase mapping, shared dicts,
   cosocket error handling) instead of Rust.
 

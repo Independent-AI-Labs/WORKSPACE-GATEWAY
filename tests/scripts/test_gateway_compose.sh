@@ -65,7 +65,7 @@ if ! grep -qF 'kill -TERM "$BAO_PID"' "$REPO_ROOT/res/docker/openbao-entrypoint.
 fi
 
 if ! grep -qF 'Verified exact managed route set' "$REPO_ROOT/res/scripts/seed-routes.sh"; then
-    echo "route reconciliation lacks exact-set verification" >&2
+    echo "route seeding lacks exact-set verification" >&2
     exit 1
 fi
 

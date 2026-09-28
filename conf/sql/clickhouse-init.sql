@@ -333,7 +333,7 @@ ALTER TABLE llm_gateway.billing_discrepancies MODIFY SETTING
 -- upstream_resp_id) are left as defaults here; a future enrich
 -- job can backfill them via the request_id join key. rate_input/rate_output
 -- require the models.dev pricing cache (in nginx shared dict, not
--- ClickHouse), so they are 0 until a reconciler copy of the
+-- ClickHouse), so they are 0 until a totals-job copy of the
 -- pricing snapshot lands in ClickHouse. ttft_ms/llm_latency_ms receive the
 -- real stream timing captured by sse-usage (ttft_content_ms/duration_ms).
 CREATE MATERIALIZED VIEW IF NOT EXISTS llm_gateway.billing_ledger_mv

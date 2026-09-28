@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# reconcile-model-attribution.sh: idempotent reconciliation of model identity
-# across llm_gateway.request_log, usage_log and billing_ledger.
+# fix-model-attribution.sh: idempotent repair of model identity across
+# llm_gateway.request_log, usage_log and billing_ledger.
 #
 # Background: until 2026-09-27 the sse-usage plugin never published
 # $sse_model/$sse_stream, so any request whose logged body was 256 KiB-cap
@@ -22,7 +22,7 @@ set -euo pipefail
 #     restored from mv-create.sql on exit, success or failure.
 #   * Only empty/garbage/inconsistent values are changed; a re-run converges.
 #
-# Usage: reconcile-model-attribution.sh [--apply | --check] [--database llm_gateway]
+# Usage: fix-model-attribution.sh [--apply | --check] [--database llm_gateway]
 #   --check  read-only: exit nonzero if any table still disagrees with its
 #            authoritative sibling (for the scheduled guard / CI).
 # Env: CH_OPS_USER/CH_OPS_PASSWORD (required), CLICKHOUSE_HOST/PORT, DATABASE.
@@ -47,7 +47,7 @@ CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
 CH_URL="http://${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}"
 DB="${DATABASE:-llm_gateway}"
 REGISTRY="$REPO_ROOT/conf/model-registry.yaml"
-OPS="ops/reconcile-model-attribution"
+OPS="ops/fix-model-attribution"
 
 : "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
 CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
@@ -98,7 +98,7 @@ if $CHECK; then
     echo "[backfill] OK: no model-attribution drift"
     exit 0
   fi
-  echo "[backfill] DRIFT: ${total} attributable mismatch(es); run: make gw-reconcile-model-attribution APPLY=1" >&2
+  echo "[backfill] DRIFT: ${total} attributable mismatch(es); run: make gw-fix-model-attribution APPLY=1" >&2
   exit 1
 fi
 
@@ -212,7 +212,7 @@ swap() {
 }
 
 # Build + swap one table at a time so a dependent table (billing_ledger reads
-# the corrected usage_log by event_id) is reconciled against the new state.
+# the corrected usage_log by event_id) is aligned against the new state.
 build_shadow request_log "$OPS/insert-request-log.sql"
 swap request_log
 build_shadow usage_log "$OPS/insert-usage-log.sql"

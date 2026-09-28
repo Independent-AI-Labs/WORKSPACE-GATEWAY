@@ -366,7 +366,7 @@ ships full request/response metadata to Vector, which inserts `request_log`
 | `request_bodies` | Vector (from http-logger) | `event_id`, `request_id`, `req_body`, `resp_body` (`ops_admin`-only) |
 | `usage_log` | sse-usage plugin (via timer) | `request_id`, model, token breakdown, `cost`, `cost_source` |
 | `billing_ledger` | MV on `usage_log` INSERT | cost `Decimal64(6)`, rate_input/output, cache_status |
-| `billing_discrepancies` | v2 reconciler (deferred) | gateway_tokens, provider_tokens, divergence |
+| `billing_discrepancies` | v2 billing totals job (deferred) | gateway_tokens, provider_tokens, divergence |
 
 Retention moves old parts to a tiered, ZSTD-recompressed archive volume rather
 than deleting them.
@@ -557,12 +557,11 @@ Result in opencode config:
 ```bash
 make test          # Run all stages (excludes live upstream API tests)
 make test-live     # Run all stages including live upstream API tests
-make gw-test       # Same as test, against the running stack
 ```
 
 1. Lua unit tests via `resty` CLI inside the APISIX container
 2. Config validation: 25 scripts (YAML, SQL, TOML, JSON, dashboard structure, migrations)
-3. Reconciler static analysis: syntax, strict mode, error handling
+3. Billing totals static analysis: syntax, strict mode, error handling
 4. Integration: black-box HTTP against the running stack (llamafile e2e,
    event_id alignment, data flow, cost e2e, Grafana panel checks)
 5. Repository hooks: pre-commit and pre-push hooks present and wired
@@ -575,27 +574,24 @@ make gw-test       # Same as test, against the running stack
 ### Gateway Lifecycle (systemd-managed)
 
 The stack is owned by the systemd user unit `gateway-compose`
-(`make gw-deploy` installs it with linger). Start/stop/restart go through
+(`make gw-start` installs it with linger). Start/stop/restart go through
 systemctl so an unmanaged compose stack never fights the unit's
 `Restart=always`.
 
 | Target                              | Description |
 |-------------------------------------|-------------|
 | `make gw-build`                     | Build container images |
-| `make gw-start`                     | Start stack via systemd, provision keys, health checks |
+| `make gw-start`                     | Start stack via systemd (installs boot unit), apply routes/schema/catalog |
 | `make gw-stop`                      | Stop stack via systemd (keep volumes) |
-| `make gw-restart`                   | Restart the stack via systemd |
-| `make gw-update`                    | Build images, redeploy changed services via systemd, reconcile, and verify |
-| `make gw-reconcile`                 | Reconcile routes, schema, and provider catalog without restarting containers |
+| `make gw-restart`                   | Restart the stack via systemd, apply routes/schema/catalog |
+| `make gw-update`                    | Build images, redeploy changed services, apply routes/schema/catalog |
 | `make gw-verify`                    | Health report: status + one request through the gateway |
 | `make gw-status`                    | Show systemd unit + containers |
 | `make gw-logs`                      | Tail container logs |
 | `make gw-shell`                     | Exec into APISIX container |
-| `make gw-test`                      | Run full test suite against the running stack |
 | `make gw-restart-service SVC=name`  | Restart one existing service without recreating it |
 | `make gw-recreate-service SVC=name` | Recreate one service from the current compose |
 | `make gw-restart-grafana`           | Restart Grafana, reload provisioning, sync dashboard defaults |
-| `make gw-deploy`                    | Install + enable gateway compose on boot (systemd user + linger) |
 | `make gw-undeploy`                  | Disable + remove gateway compose systemd unit |
 | `make gw-systemd-logs`              | Tail gateway systemd unit logs |
 | `make ch-migrate`                   | Apply pending ClickHouse schema migrations |

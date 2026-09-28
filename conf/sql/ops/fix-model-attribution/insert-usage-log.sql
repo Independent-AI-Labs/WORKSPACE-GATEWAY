@@ -1,4 +1,4 @@
--- Reconcile usage_log model identity to the registry.
+-- Repair usage_log model identity to the registry.
 --
 -- usage_log.model/model_raw are not part of the ORDER BY, but the remaining
 -- repair needs the request_log join (rows that lost the model entirely), so a

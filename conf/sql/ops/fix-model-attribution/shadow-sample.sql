@@ -1,4 +1,4 @@
--- reconcile-model-attribution.sh: spot-check, in the request_log shadow before
+-- fix-model-attribution.sh: spot-check, in the request_log shadow before
 -- the swap, the aliases known to have drifted plus anything whose raw still
 -- fails the model-id shape guard (a re-run target).
 SELECT model_raw, model, count() AS n

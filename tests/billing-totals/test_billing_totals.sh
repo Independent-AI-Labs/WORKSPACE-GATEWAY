@@ -7,7 +7,7 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-RECONCILER="$REPO_ROOT/res/scripts/reconciler.sh"
+TOTALS="$REPO_ROOT/res/scripts/billing-totals.sh"
 
 pass=0
 fail=0
@@ -24,29 +24,29 @@ check() {
     fi
 }
 
-bash -n "$RECONCILER"
+bash -n "$TOTALS"
 check "Valid bash syntax" "$?"
 
-grep -q 'set -euo pipefail' "$RECONCILER"
+grep -q 'set -euo pipefail' "$TOTALS"
 check "set -euo pipefail present" "$?"
 
-grep -q ':-localhost' "$RECONCILER"
+grep -q ':-localhost' "$TOTALS"
 check "CLICKHOUSE_HOST has default (localhost)" "$?"
 
-grep -q ':-8123' "$RECONCILER"
+grep -q ':-8123' "$TOTALS"
 check "CLICKHOUSE_PORT has default" "$?"
 
-grep -q 'exit 1' "$RECONCILER"
+grep -q 'exit 1' "$TOTALS"
 check "Error handling on query failure" "$?"
 
-grep -q 'nothing to reconcile' "$RECONCILER"
+grep -q 'nothing to report' "$TOTALS"
 check "Empty results handled" "$?"
 
-grep -q 'request_log' "$RECONCILER"
+grep -q 'request_log' "$TOTALS"
 check "Queries request_log not billing_ledger" "$?"
 
 echo ""
-echo "Reconciler tests: $pass passed, $fail failed"
+echo "Billing totals tests: $pass passed, $fail failed"
 if [ "$fail" -gt 0 ]; then
     exit 1
 fi

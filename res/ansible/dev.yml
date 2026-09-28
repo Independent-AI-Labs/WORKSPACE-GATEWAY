@@ -19,12 +19,12 @@
 #   sanity   - single curl request through gateway
 #
 # Makefile orchestrates multi-step flows:
-#   gw-start   = systemd unit start + post-start health (this playbook --tags start)
+#   gw-start   = systemd unit start + post-start apply (this playbook --tags start)
 #   gw-stop    = systemd unit stop (res/ansible/compose.yml --tags stop)
 #   gw-restart = systemd unit restart (unit ExecStart force-recreates all
-#                containers from the current compose) + post-start health
+#                containers from the current compose) + post-start apply
 #   gw-recreate-service = recreate ONE service (gateway-compose.sh recreate-service)
-#   gw-test    = bash tests/run_all.sh (no ansible needed)
+#   make test  = bash tests/run_all.sh (no ansible needed)
 
 - name: WORKSPACE-GATEWAY dev lifecycle
   hosts: localhost
@@ -97,9 +97,9 @@
 # ── start: render apisix.yaml, health checks + init + sync ──────────
 # NOTE: compose build/up/down are now Makefile targets (see header).
 # This tag assumes the stack is already up via the systemd unit.
-# APISIX standalone YAML mode polls apisix.yaml every 1s, so rendering
-# the .j2 here (after compose-up) hot-reloads the llamafile route into
-# the running APISIX without a container restart.
+# APISIX runs with `config_provider: etcd` (conf/config.yaml), so it does
+# NOT poll the rendered file. Routes reach the running instance only when
+# seed-routes.sh below PUTs them into the Admin API (etcd).
 # Subtags: setup (one-time init tasks), health (service readiness checks).
 # Both run under --tags start; --tags health or --tags setup selects subset.
     - name: Capture llamafile upstream env vars (empty -> .j2 defaults apply)
@@ -216,7 +216,7 @@
             mode: '0600'
           no_log: true
 
-        - name: Reconcile routes
+        - name: Seed routes into Admin API
           ansible.builtin.shell: >
             {{ project_root }}/res/scripts/seed-routes.sh --admin-key-file {{ admin_key_file.path | quote }}
             2>>{{ run_log | quote }}

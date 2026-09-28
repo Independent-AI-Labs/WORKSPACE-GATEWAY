@@ -97,7 +97,7 @@ Some enrichment columns default empty until request_log join backfill (v2).
 
 ### billing_discrepancies
 
-v2 reconciler target. Empty today.
+v2 totals-job target. Empty today.
 
 ### cost_recalc_audit
 
@@ -152,9 +152,9 @@ Init SQL alone is insufficient across volume restarts; Ansible reapplies
 `cache_write_tokens` to `usage_log`/`billing_ledger`, recreates
 `billing_ledger_mv`, and creates `cost_recalc_audit`.
 
-## Reconciler
+## Billing Totals
 
-`res/scripts/reconciler.sh`: daily gateway-side totals from `request_log`
+`res/scripts/billing-totals.sh`: daily gateway-side totals from `request_log`
 (`ops_admin` auth) plus the storage-growth budget warning. Upstream API
 comparison deferred. See [`OPEN-ISSUES.md`](OPEN-ISSUES.md).
 

@@ -183,7 +183,7 @@ if [ "$RATE_ROWS" -eq 0 ]; then
 fi
 echo "[recalc] rates rows: $RATE_ROWS"
 
-# ---- 2. usage rows to reconcile ----
+# ---- 2. usage rows to repair ----
 SOURCE_SQL=""
 for s in ${SOURCES//,/ }; do
   [ -n "$s" ] || continue
@@ -228,7 +228,7 @@ CORRECTIONS="$TMP_DIR/corrections.tsv"
 FIX_COUNT=$(grep -c . "$CORRECTIONS") || FIX_COUNT=0
 echo "[recalc] rows needing correction: $FIX_COUNT"
 if [ "$FIX_COUNT" -eq 0 ]; then
-  echo "[recalc] already reconciled (idempotent no-op)."
+  echo "[recalc] already up to date (idempotent no-op)."
   if [ "$APPLY" = true ]; then
     echo "[recalc] applied=0 failed=0 (provider groups=0 cost groups=0) run_id=$RUN_ID"
   fi

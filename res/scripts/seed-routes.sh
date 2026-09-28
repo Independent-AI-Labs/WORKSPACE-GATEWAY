@@ -145,7 +145,7 @@ if [ "$(jq 'length' "$TMPD/plugin_metadata.json")" -gt 0 ]; then
   done
 fi
 
-# Reconcile only routes owned by this gateway. The prefix prevents this tool
+# Manage only routes owned by this gateway. The prefix prevents this tool
 # from deleting unrelated routes in a shared APISIX instance.
 admin_http GET /apisix/admin/routes > "$TMPD/listing.json"
 jq -r --arg prefix "$MANAGED_ROUTE_PREFIX" \

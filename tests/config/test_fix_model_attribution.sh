@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# tests/config/test_reconcile_model_attribution.sh
-# Structure guard for the idempotent model-attribution reconciler
+# tests/config/test_fix_model_attribution.sh
+# Structure guard for the idempotent model-attribution fixer
 # (SPEC-USEFULNESS-TELEMETRY section 6, REQ FR-9.8/FR-9.9). Static checks
-# only; the live repair runs in dev via make gw-reconcile-model-attribution.
+# only; the live repair runs in dev via make gw-fix-model-attribution.
 
 _SELF="${BASH_SOURCE[0]}"
 if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
@@ -12,8 +12,8 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SCRIPT="$REPO_ROOT/res/scripts/reconcile-model-attribution.sh"
-OPS="$REPO_ROOT/conf/sql/ops/reconcile-model-attribution"
+SCRIPT="$REPO_ROOT/res/scripts/fix-model-attribution.sh"
+OPS="$REPO_ROOT/conf/sql/ops/fix-model-attribution"
 MAKEFILE="$REPO_ROOT/Makefile"
 UNIT="$REPO_ROOT/res/ansible/templates/gateway-model-attribution-check.service.j2"
 INIT="$REPO_ROOT/conf/sql/clickhouse-init.sql"
@@ -51,8 +51,8 @@ assert_file_absent() {
     fi
 }
 
-assert_eq "reconcile script exists" "yes" "$(if [ -f "$SCRIPT" ]; then printf yes; else printf no; fi)"
-assert_eq "reconcile script is executable" "yes" "$(if [ -x "$SCRIPT" ]; then printf yes; else printf no; fi)"
+assert_eq "fix script exists" "yes" "$(if [ -f "$SCRIPT" ]; then printf yes; else printf no; fi)"
+assert_eq "fix script is executable" "yes" "$(if [ -x "$SCRIPT" ]; then printf yes; else printf no; fi)"
 
 for f in before-snapshot after-snapshot create-backfill drop-backfill \
          drop-backfill-final exchange-backfill insert-request-log insert-usage-log \
@@ -95,7 +95,7 @@ assert_file_has "re-checks source==shadow before swap" "$SCRIPT" 'changed under 
 assert_file_has "MV restore trap installed" "$SCRIPT" 'trap restore_mv EXIT'
 assert_file_has "per-table build+swap order" "$SCRIPT" 'build_shadow request_log'
 
-assert_file_has "make target wired" "$MAKEFILE" 'gw-reconcile-model-attribution:'
+assert_file_has "make target wired" "$MAKEFILE" 'gw-fix-model-attribution:'
 assert_file_has "make target gates on APPLY" "$MAKEFILE" '$(if $(APPLY),--apply)'
 
 # Read-only drift guard: the same script, --check, exits nonzero on any
@@ -106,7 +106,7 @@ assert_file_has "drift-check uses the raw shape guard" "$OPS/drift-check.sql" "m
 assert_file_has "script parses --check" "$SCRIPT" '--check) CHECK=true'
 assert_file_has "script exits nonzero on drift" "$SCRIPT" 'attributable mismatch'
 assert_file_has "make check target wired" "$MAKEFILE" 'gw-check-model-attribution:'
-assert_file_has "check unit runs --check" "$UNIT" 'reconcile-model-attribution.sh --check'
+assert_file_has "check unit runs --check" "$UNIT" 'fix-model-attribution.sh --check'
 
 # mv-create.sql must match the canonical MV definition in clickhouse-init.sql
 # (the provisioning path) after substituting the DB template variable.
@@ -120,7 +120,7 @@ assert_eq "mv-create matches clickhouse-init MV block" "$INIT_MV" "$CREATE_MV"
 assert_eq "mv-create matches migration 000012 MV block" "$(norm_block "$MIG12")" "$CREATE_MV"
 
 echo ""
-echo "test_reconcile_model_attribution.sh: $pass passed, $fail failed"
+echo "test_fix_model_attribution.sh: $pass passed, $fail failed"
 if [ "$fail" -gt 0 ]; then
     exit 1
 fi

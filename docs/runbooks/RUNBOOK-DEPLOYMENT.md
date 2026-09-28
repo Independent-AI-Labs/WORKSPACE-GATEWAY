@@ -10,7 +10,7 @@
 
 Operational procedures for bringing the WORKSPACE-GATEWAY compose stack up and
 down, building the custom APISIX image, verifying health, reading logs, querying
-ClickHouse, and running the reconciler. Runtime topology and service inventory:
+ClickHouse, and running the billing totals job. Runtime topology and service inventory:
 [RUNTIME-TOPOLOGY](../architecture/RUNTIME-TOPOLOGY.md).
 
 ## Prerequisites
@@ -90,9 +90,9 @@ make gw-restart-service SVC=apisix
 | grafana | `conf/grafana/provisioning/`, `conf/grafana/dashboards/` |
 
 Deployment mode is etcd/traditional (`conf/config.yaml`: `role: traditional`,
-`config_provider: etcd`). `conf/apisix.yaml` is reconciled into etcd by the
+`config_provider: etcd`). `conf/apisix.yaml` is seeded into etcd by the
 startup workflow; route changes do not require an APISIX restart, but do require
-`make gw-reconcile` once that target is available.
+re-running `make gw-start` (or `make gw-restart`).
 
 ### 5. Health checks
 
@@ -136,15 +136,15 @@ podman exec -it gw-clickhouse clickhouse-client --password "$CLICKHOUSE_PASSWORD
   --database llm_gateway
 ```
 
-### 8. Reconciler ops
+### 8. Billing totals ops
 
-[`res/scripts/reconciler.sh`](../../res/scripts/reconciler.sh) cross-checks the
-ClickHouse ledger for yesterday against upstream provider usage and inserts
-divergences beyond tolerance into `billing_discrepancies`. Run daily via cron
-at 02:00, or manually:
+[`res/scripts/billing-totals.sh`](../../res/scripts/billing-totals.sh) logs the
+previous day's gateway-side per-provider/model token totals from `request_log`
+for audit (as `ops_admin`). Upstream API comparison and writes into
+`billing_discrepancies` are v2 scope. Run daily via cron at 02:00, or manually:
 
 ```bash
-bash res/scripts/reconciler.sh
+bash res/scripts/billing-totals.sh
 ```
 
 Inspect flagged rows:
@@ -171,7 +171,7 @@ Rootless podman sources forwarded connections from one of the container's own
 networks, so `conf/config.yaml` `allow_admin` admits `10.99.0.0/16` alongside
 loopback; the API key is still required for every admin operation.
 
-> **Reconciler caveat:** routes created in the UI MUST NOT use the `relay-`
+> **Route caveat:** routes created in the UI MUST NOT use the `relay-`
 > prefix. `res/scripts/seed-routes.sh` treats every `relay-*` route as
 > gateway-owned and deletes any that are absent from `conf/apisix.yaml`.
 
@@ -198,7 +198,7 @@ After bring-up, all of the following must hold:
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | apisix exits immediately | Missing/invalid `.env` | Check `logs apisix`; fix `.env` per RUNBOOK-SECRETS |
-| apisix up but routes 404 | etcd not seeded / stale | run the route reconciliation workflow; verify the APISIX plugin registry and etcd |
+| apisix up but routes 404 | etcd not seeded / stale | re-run `make gw-start`; verify the APISIX plugin registry and etcd |
 | `network dataops_default not found` | External network missing | `podman network create dataops_default` |
 | ClickHouse tables missing | init.sql only runs on empty volume; migrations not applied | `run --rm migrate up`; check `logs migrate` |
 | ClickHouse 401 from scripts | `CH_OPS_USER`/`CH_OPS_PASSWORD` not exported | Source `.env` in the shell / cron unit |

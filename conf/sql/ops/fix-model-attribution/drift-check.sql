@@ -1,6 +1,6 @@
 -- Model-attribution drift guard (read-only). Counts rows where an
 -- authoritative sibling already holds the model but this table does not, plus
--- any raw failing the model-id shape guard. All zero means the reconciler has
+-- any raw failing the model-id shape guard. All zero means the fixer has
 -- no work, and the score cannot quietly drop requests on an empty
 -- request_signals.model join key.
 SELECT

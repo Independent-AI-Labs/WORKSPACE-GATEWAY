@@ -70,7 +70,7 @@ Login is Keycloak; the gateway never renders or stores credentials.
 | Telemetry read (usage/cost) | Grafana / mediated query | `gateway:telemetry:read` |
 | Conversation-body read | operator loopback only | not delegated (REQ-SECURITY-HARDENING FR-3.5) |
 
-Permission names MUST be reconciled with WORKSPACE-PORTAL's `resource:action`
+Permission names MUST be aligned with WORKSPACE-PORTAL's `resource:action`
 registry; where the portal already defines an equivalent, reuse it.
 
 ## 4. `authz-keycloak` Configuration

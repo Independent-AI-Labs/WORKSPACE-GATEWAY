@@ -200,7 +200,7 @@ produced 22 phantom violations on 2026-08-22).
 
 - [x] WORKSPACE-CI: restore consumer-config generation (`scaffold-ci`)
   into the deployed artifact. Done: `a0efdec` + redeploy.
-- [x] WORKSPACE-CI: reconcile the deployed `generate-hooks` with
+- [x] WORKSPACE-CI: align the deployed `generate-hooks` with
   `check_required_hooks_present` (marker skew). Done: integrity gates.
 - [x] Fix scaffold-ci `REL_CI` computation: the pre-migration
   `realpath --relative-to` logic emitted `../../../../../opt/workspace-ci`
@@ -219,7 +219,7 @@ produced 22 phantom violations on 2026-08-22).
   deployed `scaffold-ci` (via the restored `7d42315` Makefile entrypoint)
   regenerated the config with 20 absolute `/opt/workspace-ci` refs and zero
   `../CI` refs; backups removed.
-- [ ] Reconcile or remove the stale `../CI` tree (operator decision; it
+- [ ] Resolve or remove the stale `../CI` tree (operator decision; it
   predates the migration and is now unreferenced by anything live).
 - [ ] Extend the deployed hook-drift check to reject consumer configs whose
   embedded CI path differs from the deployed root.
@@ -230,7 +230,7 @@ Confirmed model (evidence: REQ-GGUARD-174..178, REQ-YE-402/500/800/801,
 REQ-DEPLOYMENT 16-17, `reinstall-hooks`, `lock-repo`):
 
 - Tracked policy files: no `+i`; ownership+dir-control invariant, guard
-  reconcile, no unseal cycle.
+  alignment, no unseal cycle.
 - `.git/hooks/*` + tier registries: `+i` retained; edits go through
   root-run tools that clear per-inode inside an exclusive lock and verify
   restore. `lock-repo --unseal` (recursive strip) is deployment-mirror-only.

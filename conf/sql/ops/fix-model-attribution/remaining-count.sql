@@ -1,4 +1,4 @@
--- Rows still missing a model after the reconcile.
+-- Rows still missing a model after the repair.
 SELECT
     (SELECT count() FROM {{ DB }}.request_log
      WHERE model = '' AND (uri LIKE '%chat/completions%' OR uri LIKE '%/responses%'))

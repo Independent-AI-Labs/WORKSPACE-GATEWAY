@@ -28,7 +28,7 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         *)
-            echo "[reconciler] ERROR: unknown argument: $1" >&2
+            echo "[billing-totals] ERROR: unknown argument: $1" >&2
             exit 1
             ;;
     esac
@@ -54,18 +54,18 @@ GATEWAY_TOTALS=$(query_clickhouse "
     GROUP BY provider, model
     FORMAT TabSeparated
 ") || {
-    echo "[reconciler] ERROR: ClickHouse query failed" >&2
+    echo "[billing-totals] ERROR: ClickHouse query failed" >&2
     echo "$GATEWAY_TOTALS" >&2
     exit 1
 }
 
 if [ -z "$GATEWAY_TOTALS" ]; then
-    echo "[reconciler] No records for $YESTERDAY, nothing to reconcile"
+    echo "[billing-totals] No records for $YESTERDAY, nothing to report"
     exit 0
 fi
 
 echo "$GATEWAY_TOTALS" | while IFS=$'\t' read -r provider model prompt completion total; do
-    echo "[reconciler] $provider/$model: prompt=$prompt completion=$completion total=$total"
+    echo "[billing-totals] $provider/$model: prompt=$prompt completion=$completion total=$total"
 
     # v2: Compare gateway totals against upstream provider usage API.
     # Divergences beyond tolerance will be inserted into
@@ -74,4 +74,4 @@ echo "$GATEWAY_TOTALS" | while IFS=$'\t' read -r provider model prompt completio
     # (AGENTS.md Rule 13).
 done
 
-echo "[reconciler] completed for $YESTERDAY"
+echo "[billing-totals] completed for $YESTERDAY"
