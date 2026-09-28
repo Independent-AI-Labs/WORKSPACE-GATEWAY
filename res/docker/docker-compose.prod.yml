@@ -134,7 +134,9 @@ services:
       retries: 12
     restart: unless-stopped
     networks:
-      gw-secrets-prod: {}
+      gw-secrets-prod:
+        aliases:
+          - gateway-openbao
 
   etcd:
     image: quay.io/coreos/etcd@sha256:fb5f961035e5263b31fe103e57b645fa23e612c9d58118a8548eb160fedecb55

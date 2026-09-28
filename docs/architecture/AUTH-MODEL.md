@@ -116,16 +116,24 @@ identity store.
 
 The custom `provider-oauth` plugin cluster runs **outbound** OAuth flows
 (device RFC 8628 / browser PKCE) to obtain and refresh *upstream provider*
-credentials (ChatGPT, Anthropic, Kimi), storing them in OpenBao and injecting
-them upstream. It is **not** a validator of inbound caller identity and must not
-be confused with native `openid-connect`. See
+credentials (ChatGPT, Kimi), storing them in OpenBao and injecting them
+upstream. It is **not** a validator of inbound caller identity and must not be
+confused with native `openid-connect`. See
 [SPEC-PROVIDER-OPENAI](../specifications/SPEC-PROVIDER-OPENAI.md) and
 [SPEC-PROVIDER-KIMI](../specifications/SPEC-PROVIDER-KIMI.md).
+
+Anthropic is deliberately excluded from `provider-oauth`. Its API-key
+provider entry is client-authenticated (`workspace-gw-anthropic-api-key`),
+and Claude Pro/Max runs on the built-in OpenCode `anthropic` provider via a
+maintained community plugin. The gateway never mints, stores, or refreshes
+an Anthropic credential. See
+[SPEC-PROVIDER-ANTHROPIC](../specifications/SPEC-PROVIDER-ANTHROPIC.md).
 
 | Direction | Plugin | Purpose |
 |-----------|--------|---------|
 | Inbound | `openid-connect` (native) | authenticate callers (target-state) |
-| Outbound | `provider-oauth` (custom) | obtain/refresh upstream provider tokens |
+| Outbound | `provider-oauth` (custom) | obtain/refresh upstream provider tokens (ChatGPT, Kimi) |
+| Outbound | community OpenCode plugin | obtain/refresh the Anthropic subscription token in the client process; gateway uninvolved |
 
 ## 6. Credential resolution order (data plane)
 

@@ -15,7 +15,7 @@ set -euo pipefail
 # nothing.
 #
 # Environment overrides (all optional):
-#   GW_BASE_URL  gateway origin (default: https://gw.workspaceguardrails.com)
+#   GW_BASE_URL  gateway origin (default: http://localhost:9080)
 #   GW_ROUTE     Anthropic route prefix (default: /anthropic)
 #   CLAUDE_BIN   claude executable (default: claude from PATH)
 #   WORKSPACE_GUARD_SANITIZED_SINK  guard strip-report sink
@@ -24,7 +24,7 @@ set -euo pipefail
 #
 # Usage: bash res/scripts/claude-gw.sh [claude args...]
 
-GW_BASE_URL="${GW_BASE_URL:-https://gw.workspaceguardrails.com}"
+GW_BASE_URL="${GW_BASE_URL:-http://localhost:9080}"
 GW_ROUTE="${GW_ROUTE:-/anthropic}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 

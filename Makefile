@@ -297,6 +297,10 @@ sync-models: ## Trigger provider model sync on the gateway
 setup-providers: ## Install ALL gateway providers into opencode config (auth skipped by default; REQUIRE_AUTH=1 to prompt)
 	bash $(REPO_ROOT)/res/scripts/opencode-provider-login.sh --all $(if $(REQUIRE_AUTH),--require-auth)
 
+.PHONY: setup-anthropic-max
+setup-anthropic-max: ## Wire client-side Claude Pro/Max into opencode (community auth plugin + ANTHROPIC_BASE_URL; gateway stays a dumb proxy)
+	bash $(REPO_ROOT)/res/scripts/opencode-anthropic-max.sh $(if $(GATEWAY),--gateway $(GATEWAY))
+
 # OpenBao-backed virtual key management
 # =============================================================================
 # Key Management

@@ -39,13 +39,18 @@ Computes hash of request identity for `limit-count` scoping via header
 
 **File:** `provider-oauth.lua`; libraries `oauth_device.lua`, `oauth_jwt.lua`,
 `oauth_store.lua`
-**Priority:** 2560 | **Phase:** access | **Routes:** `relay-kimi*`, `relay-openai`, `relay-anthropic-device`
+**Priority:** 2560 | **Phase:** access | **Routes:** `relay-kimi*`, `relay-openai`
 
 Generic OAuth device/browser authentication for any provider. All provider
 differences are per-route config in `conf/apisix.yaml` (`auth_base`, protocol
 engine `rfc8628` or `chatgpt_device`, endpoints, client_id, UA, OpenBao
-prefixes, key-rejection, header extras). Adding an OAuth provider is config
-plus a provider YAML, not new Lua.
+prefixes, key-rejection, header extras). Adding a gateway-exec OAuth provider
+is config plus a provider YAML, not new Lua.
+
+Anthropic is not a `provider-oauth` provider: its subscription path uses
+the built-in OpenCode `anthropic` provider with a maintained community auth
+plugin running client-side, so the gateway holds no Anthropic credential. See
+[SPEC-PROVIDER-ANTHROPIC](../specifications/SPEC-PROVIDER-ANTHROPIC.md).
 
 ## provider-sync
 

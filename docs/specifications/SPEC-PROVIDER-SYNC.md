@@ -87,7 +87,8 @@ One provider document per file; `id` is authoritative.
 | `route` | string | yes | Gateway route prefix (e.g. `/kimi`) |
 | `npm` | string | yes | OpenCode SDK package |
 | `auth.type` | enum | yes | `oauth` / `api_key` / `virtual_key` / `none` / `passthrough` |
-| `auth.plugin` | string | for oauth | e.g. `provider-oauth` |
+| `auth.plugin` | string | for oauth | Auth engine name: `provider-oauth` |
+| `auth.methods` | list | for oauth | Method metadata `{ id, flow, label, route }` |
 | `auth.api_key` | string | for virtual_key | e.g. `vgw-kimi-key` |
 | `options.headers` | object | no | Static headers copied to the client block |
 | `model_source.type` | enum | yes | `models_dev_provider` / `gateway` / `llamafile` |
@@ -104,15 +105,20 @@ One provider document per file; `id` is authoritative.
 | `context_limit_pct` | int | no (100) | Context scaling percentage |
 | `context_limit_ceiling` | int | no (0 = none) | Context cap |
 
-Deployed files (8): `workspace-gw-kimi-device-oauth` (oauth, moonshotai),
+Deployed files (12): `workspace-gw-kimi-device-oauth` (oauth, moonshotai),
 `workspace-gw-kimi-virtual-key` (virtual_key, moonshotai),
 `workspace-gw-kimi-api-key` (api_key, moonshotai),
 `workspace-gw-opencode-go-virtual-key` (virtual_key, opencode-go),
 `workspace-gw-openai-device-oauth` (oauth, openai),
 `workspace-gw-opencode-go-api-key` (api_key, opencode-go),
 `workspace-gw-opencode-zen-api-key` (api_key, endpoint
-`/opencode_zen/v1/models`, opencode), and `workspace-gw-llamafile-no-auth` (none,
-`llamafile` source with `model_metadata`, `pricing.source: unknown`). All three Kimi providers alias
+`/opencode_zen/v1/models`, opencode),
+`workspace-gw-zai-api-key` (api_key, zai),
+`workspace-gw-alibaba-token-plan-passthrough` and
+`workspace-gw-alibaba-token-plan-cn-passthrough` (passthrough),
+`workspace-gw-llamafile-no-auth` (none, `llamafile` source with
+`model_metadata`, `pricing.source: unknown`), and
+`workspace-gw-anthropic-api-key` (api_key). All three Kimi providers alias
 `kimi-for-coding -> kimi-k2.7-code`.
 
 ## 4. Plugin Manifest & Schema
@@ -265,13 +271,14 @@ Catalog unavailable (no cache and sync failed): 503
 
 `baseURL` derives from the incoming request's scheme/host/port (port omitted
 for 80/443). Model entries are the §6.1 shape; gateway-internal fields
-(`pricing`) MUST be stripped from the block. `auth_route` is `<route>/auth` only for `auth.type == "oauth"`.
+(`pricing`) MUST be stripped from the block. `auth_route` is `<route>/auth` for
+`auth.type == "oauth"`.
 The current client contract exposes the headless device method; `auth_type:
 oauth` must not be interpreted as proof that browser PKCE is supported.
 Each OAuth method declares an explicit `id`, `flow`, and route; clients select a
 method rather than inferring a device flow from `auth_type`. The OpenAI provider
 declares both `chatgpt-headless` (`device_authorization`) and `chatgpt-browser`
-(`authorization_code_pkce`). The Kimi provider declares only its verified
+(`authorization_code_pkce`); the Kimi provider declares only its verified
 device-authorization method.
 
 ## 8. Route Configuration
@@ -289,25 +296,26 @@ Options: `--provider-id` (required), `--gateway` (default
 `--device-timeout` (default 900s).
 
 Flow: validate `curl`/`jq` and gateway URL -> fetch the `/opencode` block ->
-branch on `auth_type` (oauth: earlier headless device flow via `auth_route`; api_key/
-virtual_key: prompt unless `--no-prompt`) -> strip JSONC comments -> `jq` merge
-`.provider[$id] = $block.provider` -> merge
+branch on `auth_type` (oauth: headless device flow via `auth_route`;
+api_key/virtual_key: prompt unless `--no-prompt`) -> strip JSONC comments ->
+`jq` merge `.provider[$id] = $block.provider` -> merge
 `{ "<id>": { "type": "api", "key": "<token>" } }` into `auth.json` with
 mode `600` -> print summary.
 
-The preferred OAuth path is the gateway-owned OpenCode plugin at
-`res/opencode-plugin/workspace-gateway-auth.ts`, loaded through the standard
-OpenCode `plugin` config array. It registers method-specific browser/device
-flows and returns gateway-issued credentials through OpenCode's native auth
-store. The shell script remains an earlier-generation installer and does not host an
-OAuth callback server.
+The OAuth path is an OpenCode plugin loaded through the standard `plugin`
+config array: `res/opencode-plugin/workspace-gateway-auth.ts` registers
+method-specific browser/device flows and returns gateway-issued credentials
+through OpenCode's native auth store.
+
+The shell script does not host an OAuth callback server.
 
 Plugin registration (`register_auth_plugin`): when the `/opencode` response
 carries a non-empty `auth_methods` list, the script writes a per-provider
-wrapper at `<config dir>/plugin/wg-auth-<provider-id>.ts`:
+wrapper at `<config dir>/plugin/wg-auth-<provider-id>.ts`, importing the
+gateway engine:
 
 ```ts
-import plugin from "<REPO_ROOT>/res/opencode-plugin/workspace-gateway-auth.ts"
+import plugin from "<REPO_ROOT>/res/opencode-plugin/<engine>.ts"
 export default (input: any) => plugin(input, { provider: "<id>", gateway: "<url>" })
 ```
 
@@ -362,12 +370,14 @@ sibling exists unless `--config-file` was passed explicitly.
 | `plugins/custom/provider_sync_catalog.lua` | YAML load, enrichment, sync, cache | owns defaults and cache keys |
 | `plugins/custom/provider_sync_metadata.lua` | models.dev metadata join, entry builder, reasoning variants, limit scaling | pure Lua; no ngx |
 | `plugins/custom/provider_sync_pricing.lua` | `pricing:*` writer + snapshot publisher | provider-aware resolution; sole writer |
-| `conf/providers/*.yaml` | 8 provider definitions | incl. `model_aliases`, `model_metadata`, pricing policy |
-| `res/opencode-plugin/workspace-gateway-auth.ts` | OpenCode auth plugin | metadata-driven device/browser methods |
+| `conf/providers/*.yaml` | 12 provider definitions | incl. `model_aliases`, `model_metadata`, pricing policy |
+| `res/opencode-plugin/workspace-gateway-auth.ts` | OpenCode gateway-auth plugin | metadata-driven device/browser methods |
+| `res/scripts/opencode-anthropic-max.sh` | Anthropic Pro/Max installer | community plugin spec + runtime env (no built-in provider override) |
 | `conf/apisix.yaml` | `gateway-provider-sync` route | limit-count 60 RPM |
 | `res/scripts/opencode-provider-login.sh` | Client login | bash+curl+jq only |
 | `tests/lua/test_provider_sync.lua` | Unit tests | simulated ngx + fixtures |
 | `tests/scripts/test_opencode_provider_login.sh` | Script tests | simulated gateway |
+| `tests/scripts/test_opencode_anthropic_max.sh` | Anthropic installer tests | idempotent plugin merge, no provider override |
 | `tests/integration/test_provider_sync_client.sh` | Live end-to-end | real stack |
 
 ## 13. Implementation Status
@@ -378,7 +388,8 @@ sibling exists unless `--config-file` was passed explicitly.
 | Catalog sync/enrichment | Implemented | provider_sync_catalog.lua |
 | models.dev metadata + OpenCode variants | Implemented | provider_sync_metadata.lua |
 | Pricing writer split | Implemented | provider_sync_pricing.lua |
-| Provider YAMLs (8) | Implemented | conf/providers/ |
+| Provider YAMLs (12) | Implemented | conf/providers/ |
 | Route + rate limit | Implemented | conf/apisix.yaml `gateway-provider-sync` |
 | Client script | Implemented | res/scripts/opencode-provider-login.sh |
+| Anthropic Pro/Max installer | Implemented | res/scripts/opencode-anthropic-max.sh |
 | Tests (unit/script/integration) | Implemented | tests/lua, tests/scripts, tests/integration |

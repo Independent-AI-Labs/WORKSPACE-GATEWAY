@@ -81,7 +81,6 @@ Verified against [`conf/apisix.yaml`](../../conf/apisix.yaml).
 | relay-zai-key | /zai-key/* | ^/zai-key/(.*) → /api/coding/paas/v4/$1 | https://api.z.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
 | relay-zai-key-v1 | /zai-key/v1/* | ^/zai-key/v1/(.*) → /api/coding/paas/v4/$1 | https://api.z.ai:443 | none (passthrough) | 100/60s @ x_key_hash |
 | relay-anthropic | /anthropic/* | ^/anthropic/(.*) → /$1 | https://api.anthropic.com:443 | none (passthrough) | 100/60s @ x_key_hash |
-| relay-anthropic-device | /anthropic-device/* | ^/anthropic-device/(.*) → /$1 | https://api.anthropic.com:443 | provider-oauth (device facade) | 100/60s @ x_gateway_key_id |
 | relay-llamafile | /llamafile/* | ^/llamafile/(.*) → /$1 | http://host.docker.internal:8765 | none | 600/60s @ remote_addr |
 | relay-alibaba-token-plan | /token-plan/* | ^/token-plan/(.*) → /$1 | https://token-plan.ap-southeast-1.maas.aliyuncs.com:443 | none (passthrough) | 100/60s @ x_key_hash |
 | relay-alibaba-token-plan-cn | /token-plan-cn/* | ^/token-plan-cn/(.*) → /$1 | https://token-plan.cn-beijing.maas.aliyuncs.com:443 | none (passthrough) | 100/60s @ x_key_hash |
@@ -89,7 +88,7 @@ Verified against [`conf/apisix.yaml`](../../conf/apisix.yaml).
 
 All relay routes additionally attach: `key-meta` (except relay-llamafile and gateway-provider-sync), `prometheus` (prefer_name), `request-id` (X-Request-Id, include_in_response), `http-logger` (→ `http://vector:8080/ingest`, bodies included, batch_max_size 1), `proxy-buffering` (disable), `redact` (`/etc/apisix/redact-patterns.json`), `sse-usage` (`http://clickhouse:8123`). `gateway-provider-sync` attaches only `provider-sync`, `limit-count`, `prometheus`, `request-id`.
 
-`key-resolver` config on federated routes: `openbao_addr: http://openbao:8200`, `openbao_token_env: OPENBAO_TOKEN`, `key_prefix: secret/data/gateway/keys/`, `cache_ttl: 5`, `virtual_key_prefix: vgw-`.
+`key-resolver` config on federated routes: `openbao_addr: http://gateway-openbao:8200`, `openbao_token_env: OPENBAO_TOKEN`, `key_prefix: secret/data/gateway/keys/`, `cache_ttl: 5`, `virtual_key_prefix: vgw-`.
 
 ## 5. config.yaml Essentials
 

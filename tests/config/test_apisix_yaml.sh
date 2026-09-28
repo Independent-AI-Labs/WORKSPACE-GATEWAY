@@ -41,7 +41,7 @@ fi
 
 assert_eq "Valid YAML (parseable)" "ok" "ok"
 
-assert_eq "Exactly 18 routes" "18" "$(echo "$JSON_DATA" | jq '.routes | length')"
+assert_eq "Exactly 17 routes" "17" "$(echo "$JSON_DATA" | jq '.routes | length')"
 assert_eq "http-logger metadata log_format_extra (model|stream; seed-routes.sh, survives the 256 KiB body cap)" '$sse_model|$sse_stream' "$(echo "$JSON_DATA" | jq -r '(.plugin_metadata[] | select(.id == "http-logger")).log_format_extra | "\(.model)|\(.stream)"')"
 # --- relay-opencode (passthrough, no key-resolver) ---
 OC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode")][0]')
@@ -130,7 +130,7 @@ FED_REWRITE_REPLACE=$(echo "$FED_ROUTE" | jq -r '.plugins["proxy-rewrite"].regex
 assert_eq "relay-opencode-federated: proxy-rewrite replacement is /zen/go/" '/zen/go/$1' "$FED_REWRITE_REPLACE"
 
 FED_KEY_RESOLVER_ADDR=$(echo "$FED_ROUTE" | jq -r '.plugins["key-resolver"].openbao_addr')
-assert_eq "relay-opencode-federated: key-resolver openbao_addr is http://openbao:8200" "http://openbao:8200" "$FED_KEY_RESOLVER_ADDR"
+assert_eq "relay-opencode-federated: key-resolver openbao_addr is http://gateway-openbao:8200" "http://gateway-openbao:8200" "$FED_KEY_RESOLVER_ADDR"
 
 FED_KEY_RESOLVER_PREFIX=$(echo "$FED_ROUTE" | jq -r '.plugins["key-resolver"].virtual_key_prefix')
 assert_eq "relay-opencode-federated: key-resolver virtual_key_prefix is vgw-" "vgw-" "$FED_KEY_RESOLVER_PREFIX"

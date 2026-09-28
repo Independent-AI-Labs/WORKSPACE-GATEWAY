@@ -8,8 +8,11 @@
 > written inline in shell, Lua, tests, or Grafana JSON. The tree is rendered
 > at runtime (shell, Grafana) or read directly (Lua, ClickHouse initdb,
 > golang-migrate), and is linted by `sqlfluff` from the root-guarded
-> `.sqlfluff`. Enforced by `tests/config/test_no_inline_sql.sh`; the render
-> contract is covered by `tests/config/test_sql_render.sh`.
+> `.sqlfluff`. Inline SQL is rejected by the WORKSPACE-CI inline-code checker
+> (WORKSPACE-CI `REQ-INLINE-CODE` and `SPEC-INLINE-CODE`), which runs as a
+> mandatory pre-commit hook over every non-gitignored file;
+> `tests/config/test_no_inline_sql.sh` is the repository's thin consumer
+> wrapper. The render contract is covered by `tests/config/test_sql_render.sh`.
 
 ---
 
@@ -103,16 +106,18 @@ values the runtime uses.
 
 ## 5. Guard and provenance
 
-- `tests/config/test_no_inline_sql.sh` scans shell/Lua/YAML/JSON for SQL
-  statement starters outside `conf/sql/`, and requires Grafana `rawSql` to be
-  `{{sql:<path>}}`. It fails with the offending file:line list. Test probe SQL
-  now lives in `conf/sql/tests/` (ClickHouse) and `conf/sql/sqlite/tests/`
-  (SQLite), so the scan is clean rather than exempted.
-- The guard skips matches that are not executed SQL: `grep`/`awk`/`sed`
-  pattern strings and `assert_contains`/`assert_not_contains` schema
-  assertions (e.g. DDL extracted from a `conf/sql/` file, or test assertions
-  about column text). Real query execution (`ch`, `curl`,
-  `clickhouse-client`) still trips the pattern.
+- The mandatory WORKSPACE-CI inline-code checker scans every non-gitignored
+  file and reports SQL, interpreter, and remote-execution payloads that appear
+  outside a sanctioned loader. This repository declares its sanctioned loader
+  shapes (`sql_render`, `io.open(".../conf/sql/...")`, `{{sql:<path>}}`) and
+  its allowed constructs as consumer policy; the shared checker holds no
+  repository-specific path. Test probe SQL lives in `conf/sql/tests/`
+  (ClickHouse) and `conf/sql/sqlite/tests/` (SQLite), so the scan is clean
+  rather than exempted.
+- `tests/config/test_no_inline_sql.sh` remains as a consumer wrapper so the
+  repository can run the same classification locally and assert its loader
+  shapes. It no longer carries its own statement list or its own
+  substring exemptions.
 - `res/docker/clickhouse-provision.sh` is an explicit, documented exception:
   it runs as ClickHouse initdb before any repo/`conf` mount exists, and its
   user DDL embeds secrets, so it stays inline and fail-closed.
@@ -127,7 +132,7 @@ values the runtime uses.
 |------|--------|----------|
 | Tree, renderer, VARS, lint config | Implemented | `conf/sql/`; `res/scripts/lib-sql.sh`; `.sqlfluff`; `tests/config/test_sql_render.sh` (15/15) |
 | Initdb + migrations relocated | Implemented | `conf/sql/clickhouse-init.sql`; `conf/sql/migrations/`; compose/ansible/tests updated |
-| No-inline-SQL guard | Implemented (green) | `tests/config/test_no_inline_sql.sh` (2/2); no inline SQL outside `conf/sql/` |
+| No-inline-SQL guard | Migrating to shared checker | WORKSPACE-CI `check-inline-code` hook plus consumer wrapper `tests/config/test_no_inline_sql.sh`; no inline SQL outside `conf/sql/` |
 | SQLite `opencode-stats` / `opencode-fix` extraction | Implemented | `conf/sql/sqlite/opencode-stats/`; `conf/sql/sqlite/opencode-fix/` |
 | Shell ClickHouse extraction | Implemented | `ops/<tool>/`; guard reports no production shell files |
 | Lua `ingest/` extraction | Implemented | `conf/sql/ingest/usage-log.insert.sql`; `sse-usage.lua` reads it via `io.open`; `conf/sql` mounted at `/etc/apisix/sql` |

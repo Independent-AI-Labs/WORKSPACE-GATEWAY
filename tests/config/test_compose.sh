@@ -230,10 +230,6 @@ HAS_OAUTH_STORE_MOUNT_RC=0
 HAS_OAUTH_STORE_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_store.lua" ) || { HAS_OAUTH_STORE_MOUNT_RC=$?; HAS_OAUTH_STORE_MOUNT="0"; }
 assert_eq "APISIX mounts oauth_store.lua" "1" "$HAS_OAUTH_STORE_MOUNT"
 
-HAS_OAUTH_VERIFY_MOUNT_RC=0
-HAS_OAUTH_VERIFY_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_verify.lua" ) || { HAS_OAUTH_VERIFY_MOUNT_RC=$?; HAS_OAUTH_VERIFY_MOUNT="0"; }
-assert_eq "APISIX mounts oauth_verify.lua" "1" "$HAS_OAUTH_VERIFY_MOUNT"
-
 HAS_OAUTH_SESSION_MOUNT_RC=0
 HAS_OAUTH_SESSION_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "oauth_session.lua" ) || { HAS_OAUTH_SESSION_MOUNT_RC=$?; HAS_OAUTH_SESSION_MOUNT="0"; }
 assert_eq "APISIX mounts oauth_session.lua" "1" "$HAS_OAUTH_SESSION_MOUNT"
@@ -267,7 +263,7 @@ HAS_PROVIDER_PRICING_MOUNT=$(echo "$APISIX_MOUNTS" | grep -c "provider_pricing.l
 assert_eq "APISIX mounts provider_pricing.lua" "1" "$HAS_PROVIDER_PRICING_MOUNT"
 
 APISIX_VOLUME_COUNT=$(echo "$APISIX_MOUNTS" | wc -l | tr -d ' ')
-assert_eq "APISIX has 31 volume mounts (6 config + 24 plugins + usefulness)" "31" "$APISIX_VOLUME_COUNT"
+assert_eq "APISIX has 30 volume mounts (6 config + 23 plugins + usefulness)" "30" "$APISIX_VOLUME_COUNT"
 
 CLICKHOUSE_MOUNTS=$(echo "$JSON_DATA" | jq -r '.services.clickhouse.volumes[]')
 HAS_INIT_SQL_RC=0

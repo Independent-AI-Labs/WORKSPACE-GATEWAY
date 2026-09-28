@@ -1,13 +1,13 @@
 ---
-id: workspace-gw-anthropic-passthrough
-name: "Workspace GW (Anthropic Passthrough)"
+id: workspace-gw-anthropic-api-key
+name: "Workspace GW (Anthropic API Key)"
 provider:
   id: anthropic
   label: Anthropic
 route: "/anthropic"
 npm: "@anthropic-ai/sdk"
 auth:
-  type: passthrough
+  type: api_key
 options:
   headers:
     X-Tenant-ID: default

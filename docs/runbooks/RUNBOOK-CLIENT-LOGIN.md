@@ -25,6 +25,7 @@ below. Background: [SPEC-PROVIDER-SYNC](../specifications/SPEC-PROVIDER-SYNC.md)
   `gateway-provider-sync` route serving `/gateway/providers*`.
 - A provider ID from `conf/providers/*.yaml`, e.g. `workspace-gw-kimi-device-oauth`,
   `workspace-gw-kimi-api-key`, `workspace-gw-kimi-virtual-key`,
+  `workspace-gw-anthropic-api-key`,
   `workspace-gw-llamafile-no-auth`.
 - For OAuth providers: a browser (or copy/paste of the verification URL).
 - For preferred OpenCode OAuth: Bun and the gateway-owned plugin dependencies
@@ -85,14 +86,54 @@ The dependency is the published `@opencode-ai/plugin` package. Do not copy
 the upstream `Hooks` types. The gateway plugin owns only the gateway adapter
 and its tests.
 
-Add the gateway-owned plugin to `opencode.jsonc` using the example files in
-`res/`:
+### 2b. Anthropic providers (client-authenticated, gateway stays a dumb proxy)
 
-- OpenAI registers both `ChatGPT Pro/Plus (browser)` and
-  `ChatGPT Pro/Plus (headless)`.
-- Kimi registers `Kimi Code (device authorization)`.
+Anthropic ships one ordinary gateway provider entry
+(`workspace-gw-anthropic-api-key`); the gateway holds no Anthropic
+credential and runs no OAuth. Claude Pro/Max is a second path that does
+**not** add a gateway provider entry: it uses the built-in OpenCode
+`anthropic` provider plus the maintained community plugin.
 
-Then run:
+- `workspace-gw-anthropic-api-key`, a regular API-key provider:
+
+  ```bash
+  bash res/scripts/opencode-provider-login.sh \
+    --provider-id workspace-gw-anthropic-api-key --require-auth
+  ```
+
+- Claude Pro/Max subscription: built-in `anthropic` provider, wired by
+  the installer (adds the pinned community plugin
+  `@ex-machina/opencode-anthropic-auth`, prints the runtime env):
+
+  ```bash
+  make setup-anthropic-max
+  export ANTHROPIC_BASE_URL=http://localhost:9080/anthropic
+  # then, in the OpenCode TUI:
+  #   /connect -> Anthropic -> Claude Pro/Max
+  ```
+
+The community plugin performs the Anthropic OAuth exchange entirely in
+the OpenCode process, directly against Anthropic; it also injects the
+Claude Code request shape. The gateway hosts no OAuth route, no
+verification page, and holds no token. Model traffic relays through the
+gateway `/anthropic` route with the client's own credential attached.
+
+> The Claude subscription is exercised only by the community plugin, not
+> by the gateway service. The built-in OpenCode `anthropic` provider is
+> not defined or overridden by any committed file; routing is injected at
+> runtime via `ANTHROPIC_BASE_URL`.
+
+The login flow registers the gateway auth engine per provider
+automatically; no manual `opencode.jsonc` editing is required for gateway
+providers.
+
+- Gateway-hosted engine (`workspace-gateway-auth.ts`) for the
+  gateway-brokered OAuth providers:
+  - OpenAI registers both `ChatGPT Pro/Plus (browser)` and
+    `ChatGPT Pro/Plus (headless)`.
+  - Kimi registers `Kimi Code (device authorization)`.
+
+For the gateway-brokered providers run:
 
 ```bash
 opencode auth login -p workspace-gw-openai-device-oauth
@@ -103,6 +144,10 @@ the gateway exchanges upstream tokens and stores the session. Do not add an
 inline Python/Perl/Node callback server to the shell installer. Kimi exposes
 only device authorization because no verified Kimi browser authorization-code
 contract is documented.
+
+For Claude Pro/Max, select it on the `Anthropic` provider in the
+OpenCode `/connect` UI after `make setup-anthropic-max`: the code exchange
+happens in-process and the gateway never sees the authorization request.
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -124,7 +169,7 @@ contract is documented.
 1. Fetches `GET <gateway>/gateway/providers/<id>/opencode` and reads
    `.provider`, `.auth_type`, and `.auth_route`.
 2. Authenticates according to `auth_type`:
-    - `oauth` in the earlier script: starts the brokered headless device flow via
+    - `oauth` (gateway exec): starts the brokered headless device flow via
      `POST <gateway><auth_route>/device?session=<session>`, prints the user code
      and verification URL, opens the browser (unless `--no-browser`), and polls
       `POST <gateway><auth_route>/device/poll` with the opaque gateway device code until an `access_token` is

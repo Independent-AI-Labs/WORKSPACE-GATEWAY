@@ -151,8 +151,17 @@ OpenCode reasoning `variants` derived from `reasoning_options`, and
 
 `test_opencode_provider_login.sh` exercises the client login script against
 `mock_provider_server.py` (a local simulation of `/gateway/providers*`): flag
-validation, provider block merge into config, auth.json writing, error paths
-(bad provider id, `--no-prompt` with api_key auth, invalid config).
+validation, provider block merge into config, auth.json writing, and error
+paths (bad provider id, `--no-prompt` with api_key auth, invalid config).
+
+`test_opencode_anthropic_max.sh` exercises the Claude Pro/Max installer: it
+adds the pinned community plugin spec idempotently, preserves unrelated plugin
+entries, never writes a built-in `anthropic` provider block, and honors the
+single-file guard.
+
+Separately, `make plugin-test` runs the Bun suite under
+`res/opencode-plugin/` (`workspace-gateway-auth.test.ts`). The Bun suite runs
+before `tests/run_all.sh`.
 
 ## 8. Stage 3: Config Validation
 
@@ -199,8 +208,9 @@ Representative checks:
   with the schema documented in `docs/architecture/TELEMETRY-AND-SCHEMA.md`.
 - **SQL tree** (`test_sql_render.sh`, `test_no_inline_sql.sh`): the renderer
   resolves `{{ … }}` with the documented precedence and fails closed on an
-  unresolved template variable; the guard rejects inline SQL outside `conf/sql/`
-  and non-`{{sql:<path>}}` Grafana `rawSql`
+  unresolved template variable; inline SQL outside `conf/sql/` and
+  non-`{{sql:<path>}}` Grafana `rawSql` are rejected by the WORKSPACE-CI
+  inline-code hook, exercised locally through `test_no_inline_sql.sh`
   (`docs/specifications/SPEC-SQL-STRUCTURE.md`).
 - **model_registry / cost_calc** (`test_model_registry.sh`,
   `test_cost_calc.sh`): registry codegen output and pricing lookup API

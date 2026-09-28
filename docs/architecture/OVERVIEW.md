@@ -40,7 +40,12 @@ Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 | Route id | Prefix | Auth |
 |----------|--------|------|
 | `relay-anthropic` | `/anthropic/*` | None (bare passthrough) |
-| `relay-anthropic-device` | `/anthropic-device/*` | Custodial device facade (`provider-oauth`) |
+
+One provider-sync entry rides this route: `workspace-gw-anthropic-api-key`
+(client API key). Claude Pro/Max is not a gateway provider: it uses the
+built-in OpenCode `anthropic` provider plus the maintained community auth
+plugin, routed at runtime via `ANTHROPIC_BASE_URL`. The gateway performs no
+Anthropic auth; the OAuth exchange runs client-side against Anthropic.
 
 ### Z.ai (`api.z.ai:443`, rewrite to `/api/coding/paas/v4/`)
 
@@ -87,7 +92,7 @@ Registered in `conf/config.yaml`:
 |--------|------|
 | `key-resolver` | Virtual keys via OpenBao; passthrough for non-`vgw-` |
 | `key-meta` | `X-Key-Hash` header for per-key `limit-count` scoping |
-| `provider-oauth` | OAuth device-code auth and token lifecycle (Kimi, OpenAI, Anthropic) |
+| `provider-oauth` | OAuth device-code auth and token lifecycle (Kimi, OpenAI) |
 | `provider-sync` | Read-only `/gateway/providers` catalog + pricing API |
 | `sse-usage` | SSE/JSON token extraction; ClickHouse `usage_log` INSERT |
 | `redact` | PII anonymize + re-hydrate |

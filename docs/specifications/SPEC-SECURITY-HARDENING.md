@@ -184,6 +184,10 @@ one schema lineage, no forked fresh-install path.
 | `gw-ingest` | apisix, vector | 10.99.50.0/24 · 10.99.150.0/24 |
 | `dataops_default` (external) | apisix | unchanged |
 
+The `openbao` service carries the unique `gw-secrets` alias `gateway-openbao`;
+APISIX plugins address `http://gateway-openbao:8200` so the name can never
+resolve to an unrelated container named `openbao` on a shared network.
+
 Published: `9080/9443`, `9081/9444`, `127.0.0.1:8123`, `127.0.0.1:8124`,
 `127.0.0.1:3030`. Removed: 2379/2380/8201/18080/9180/9181/9100/9101/9000/9001.
 In-stack access to unpublished services via `podman exec` only.

@@ -68,6 +68,13 @@ No auth when password is unset (default).
 | `POST` | `/provider/{id}/oauth/authorize` | Authorize provider via OAuth |
 | `POST` | `/provider/{id}/oauth/callback` | Handle OAuth callback |
 
+Provider auth methods are registered by plugins, keyed by provider id.
+The gateway registers `workspace-gateway-auth.ts` (gateway-exec OAuth,
+e.g. OpenAI/Kimi). Claude Pro/Max on the built-in `anthropic` provider is
+served by the maintained community plugin
+(`@ex-machina/opencode-anthropic-auth`), which performs its OAuth in the
+client process and calls no gateway auth endpoint.
+
 ## 8. Sessions
 
 | Method | Path | Description | Body / Query |

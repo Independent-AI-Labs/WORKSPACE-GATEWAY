@@ -102,7 +102,7 @@ routes:
         regex_uri: ["^/opencode_federated/(.*)", "/zen/go/$1"]
       key-meta: {}
       key-resolver:
-        openbao_addr: "http://openbao:8200"
+        openbao_addr: "http://gateway-openbao:8200"
         openbao_token_env: "OPENBAO_TOKEN"
         upstream_key_env: "OPENCODE_API_KEY"
         key_prefix: "secret/data/gateway/keys/"
@@ -333,7 +333,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/kimi-federated/(.*)", "/coding/v1/$1"]
       key-resolver:
-        openbao_addr: "http://openbao:8200"
+        openbao_addr: "http://gateway-openbao:8200"
         openbao_token_env: "OPENBAO_TOKEN"
         upstream_key_env: "KIMI_API_KEY"
         key_prefix: "secret/data/gateway/keys/"
@@ -382,7 +382,7 @@ routes:
       proxy-rewrite:
         regex_uri: ["^/kimi-federated/v1/(.*)", "/coding/v1/$1"]
       key-resolver:
-        openbao_addr: "http://openbao:8200"
+        openbao_addr: "http://gateway-openbao:8200"
         openbao_token_env: "OPENBAO_TOKEN"
         upstream_key_env: "KIMI_API_KEY"
         key_prefix: "secret/data/gateway/keys/"
@@ -614,78 +614,6 @@ routes:
         rejected_code: 429
         key_type: var
         key: http_x_key_hash
-        policy: local
-      prometheus:
-        prefer_name: true
-      request-id:
-        header_name: X-Request-Id
-        include_in_response: true
-      http-logger:
-        uri: "http://vector:8080/ingest"
-        method: POST
-        content_type: "application/json"
-        batch_max_size: 1
-        include_req_body: true
-        include_resp_body: true
-        max_req_body_bytes: 262144
-        max_resp_body_bytes: 1048576
-      proxy-buffering:
-        disable: true
-      redact:
-        patterns_file: "/etc/apisix/redact-patterns.json"
-      sse-usage:
-        clickhouse_addr: "http://clickhouse:8123"
-        clickhouse_user: "apisix_rw"
-        clickhouse_password_env: "CH_APISIX_PASSWORD"
-
-  - id: relay-anthropic-device
-    # Custodial device facade (REQ-PROVIDER-ANTHROPIC FR-3): gateway-minted
-    # device codes, verify page completes Anthropic's browser PKCE grant,
-    # tokens live in OpenBao, relay injects Bearer + oauth beta header and
-    # appends ?beta=true on /v1/messages upstream.
-    uri: /anthropic-device/*
-    upstream:
-      type: roundrobin
-      scheme: https
-      pass_host: node
-      nodes:
-        "api.anthropic.com:443": 1
-    plugins:
-      proxy-rewrite:
-        regex_uri: ["^/anthropic-device/(.*)", "/$1"]
-        #Same plaintext-SSE requirement as the passthrough route.
-        headers:
-          set:
-            accept-encoding: "identity"
-      provider-oauth:
-        auth_base: /anthropic-device/auth
-        protocol: anthropic
-        oauth_host: "https://claude.ai"
-        token_host: "https://platform.claude.com"
-        client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-        authorize_path: /oauth/authorize
-        authorize_params:
-          code: "true"
-        scopes: "user:inference user:profile"
-        token_path: /v1/oauth/token
-        browser_redirect_uri: "https://platform.claude.com/oauth/code/callback"
-        verify_page: true
-        verification_origin: "https://gw.workspaceguardrails.com"
-        token_prefix: "secret/data/gateway/anthropic-tokens/"
-        device_prefix: "secret/data/gateway/anthropic-device/"
-        refresh_rotation_required: false
-        reject_key_prefix: "sk-ant-"
-        reject_key_pointer: "/anthropic"
-        beta_query_path: "/v1/messages"
-        fixed_upstream_headers:
-          anthropic-beta: "oauth-2025-04-20"
-      key-meta: {}
-      limit-count:
-        count: 100
-        time_window: 60
-        rejected_code: 429
-        key_type: var
-        key: http_x_gateway_key_id
         policy: local
       prometheus:
         prefer_name: true

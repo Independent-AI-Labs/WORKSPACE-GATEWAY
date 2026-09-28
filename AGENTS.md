@@ -36,5 +36,6 @@ Grafana JSON. Template with `{{ NAME }}` / `{{ time_filter('col') }}` /
 templater; SQLite overrides under `conf/sql/sqlite/`).
 
 Canonical rules: [docs/specifications/SPEC-SQL-STRUCTURE.md](docs/specifications/SPEC-SQL-STRUCTURE.md).
-Enforced by `tests/config/test_no_inline_sql.sh`; render contract by
-`tests/config/test_sql_render.sh`.
+Enforced by the WORKSPACE-CI inline-code hook (WORKSPACE-CI `REQ-INLINE-CODE`),
+with `tests/config/test_no_inline_sql.sh` as the repository consumer wrapper;
+render contract by `tests/config/test_sql_render.sh`.

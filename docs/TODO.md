@@ -8,7 +8,8 @@
 This is the execution checklist for the gateway-owned OpenCode OAuth plugin.
 The authoritative behavior contracts remain in
 [REQ-PROVIDER-OPENAI](requirements/REQ-PROVIDER-OPENAI.md),
-[SPEC-PROVIDER-OPENAI](specifications/SPEC-PROVIDER-OPENAI.md), and
+[SPEC-PROVIDER-OPENAI](specifications/SPEC-PROVIDER-OPENAI.md),
+[SPEC-PROVIDER-ANTHROPIC](specifications/SPEC-PROVIDER-ANTHROPIC.md), and
 [RUNBOOK-CLIENT-LOGIN](runbooks/RUNBOOK-CLIENT-LOGIN.md).
 
 ## Non-Negotiable Boundaries
@@ -21,6 +22,9 @@ The authoritative behavior contracts remain in
 - Do not add an inline interpreter callback server to the shell installer.
 - Do not store upstream access or refresh tokens in repository files, logs, or
   test fixtures.
+- Do not add an Anthropic auth surface to the gateway: the built-in OpenCode
+  `anthropic` provider stays untouched, and the Anthropic subscription flow
+  runs in the client-side community plugin only.
 
 ## Established CI Conventions To Follow
 
@@ -85,8 +89,12 @@ tooling rather than inventing a parallel dependency system:
   exchange.
 - [x] Ensure the callback server closes on success, failure, timeout, and
   startup error.
-- [x] Ensure the plugin never calls provider OAuth endpoints directly; all
-  OAuth exchanges remain gateway-owned.
+- [x] Ensure the gateway-exec plugin (`workspace-gateway-auth.ts`) never calls
+  provider OAuth endpoints directly; its OAuth exchanges remain gateway-owned.
+- [x] Claude Pro/Max subscription path: delegate to the maintained community
+  plugin (`@ex-machina/opencode-anthropic-auth`) on the built-in `anthropic`
+  provider via `make setup-anthropic-max`; no repository-owned Anthropic OAuth
+  engine, no gateway auth surface.
 
 ## P1: Tests And Quality Gates
 
@@ -98,6 +106,10 @@ tooling rather than inventing a parallel dependency system:
 - [x] Test browser callback state mismatch with zero gateway exchange calls.
 - [x] Test browser callback success and callback-server cleanup.
 - [x] Test HTTP failures and malformed gateway responses.
+- [x] Test the Anthropic Pro/Max installer: idempotent plugin-spec merge,
+  unrelated entry preservation, and no built-in `anthropic` provider override.
+- [x] Test `register_auth_plugin` registers the gateway engine and makes no
+  client-side registration.
 - [x] Add Bun typecheck and plugin test commands to the gateway Makefile.
 - [x] Include the commands in the node CI profile without replacing Lua and
   shell gates.
@@ -295,7 +307,8 @@ This TODO is complete only when:
    state validation.
 4. Existing gateway Lua, shell, YAML, and integration gates still pass.
 5. Documentation, provider metadata, examples, and generated hooks describe
-   the same OpenAI/Kimi OAuth behavior.
+   the same OpenAI/Kimi gateway-exec OAuth behavior and the Anthropic
+   client-side community-plugin behavior.
 6. Hook regeneration uses `reinstall-hooks` end-to-end; the `+i` invariant
    holds after every regeneration without manual `chattr`.
 7. Exactly one CI tree (the deployed `/opt/workspace-ci`) generates GATEWAY

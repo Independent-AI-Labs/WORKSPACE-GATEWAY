@@ -57,25 +57,25 @@ graph LR
 
 Source: [`conf/apisix.yaml`](../../conf/apisix.yaml). Legend: y = enabled.
 
-| Plugin | opencode | opencode-zen | opencode-federated | openai | kimi | kimi-v1 | kimi-federated | kimi-federated-v1 | kimi-key | kimi-key-v1 | zai-key | zai-key-v1 | anthropic | anthropic-device | llamafile | alibaba | alibaba-cn | provider-sync |
-|--------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-| `proxy-rewrite` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
-| `key-resolver` | - | - | y | - | - | - | y | y | - | - | - | - | - | - | - | - | - | - |
-| `provider-oauth` | - | - | - | y | y | y | - | - | - | - | - | - | - | y | - | - | - | - |
-| `key-meta` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - | y | y | - |
-| `provider-sync` | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | y |
-| `redact` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
-| `semantic-cache` | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| `sse-usage` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
-| `limit-count` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
-| `request-id` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
-| `http-logger` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
-| `proxy-buffering` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
-| `prometheus` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
+| Plugin | opencode | opencode-zen | opencode-federated | openai | kimi | kimi-v1 | kimi-federated | kimi-federated-v1 | kimi-key | kimi-key-v1 | zai-key | zai-key-v1 | anthropic | llamafile | alibaba | alibaba-cn | provider-sync |
+|--------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| `proxy-rewrite` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `key-resolver` | - | - | y | - | - | - | y | y | - | - | - | - | - | - | - | - | - |
+| `provider-oauth` | - | - | - | y | y | y | - | - | - | - | - | - | - | - | - | - | - |
+| `key-meta` | y | y | y | y | y | y | y | y | y | y | y | y | y | - | y | y | - |
+| `provider-sync` | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | y |
+| `redact` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `semantic-cache` | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| `sse-usage` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `limit-count` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
+| `request-id` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
+| `http-logger` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `proxy-buffering` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | - |
+| `prometheus` | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y | y |
 
 `limit-count`: 100/60s keyed on `http_x_key_hash` for the keyed passthrough and
-federated routes; the provider-oauth routes `relay-openai` and
-`relay-anthropic-device` key on `http_x_gateway_key_id`; 600/60s on
+federated routes; the provider-oauth route `relay-openai` keys on
+`http_x_gateway_key_id`; 600/60s on
 `remote_addr` for llamafile; 60/60s on `remote_addr` for provider-sync.
 
 `semantic-cache` is a planned v2 plugin (no route enables it yet). It sits at
@@ -98,9 +98,12 @@ bill and no provider load to rate-limit. See
 - **llamafile:** no auth plugins; per-IP rate limit; rewrite to `/`.
 - **openai route:** `provider-oauth` (ChatGPT device flow) on `relay-openai`;
   proxy-rewrite sends every path to `/backend-api/codex/responses`.
-- **anthropic routes:** `relay-anthropic` is a bare passthrough (no auth
-  plugin); `relay-anthropic-device` adds the `provider-oauth` custodial
-  device facade. Both rewrite to `/$1`.
+- **anthropic route:** `relay-anthropic` is a bare passthrough (no auth
+  plugin); client credentials (API key or subscription OAuth bearer)
+  relay verbatim, rewriting to `/$1`. One provider-sync entry rides it,
+  `workspace-gw-anthropic-api-key` (API key). The subscription token is
+  minted client-side by the maintained community plugin on the built-in
+  `anthropic` provider, never by the gateway.
 - **zai routes:** own-key passthrough with `key-meta`; rewrite to
   `/api/coding/paas/v4/`.
 - **alibaba routes:** own-key passthrough with `key-meta`; rewrite to `/$1`.

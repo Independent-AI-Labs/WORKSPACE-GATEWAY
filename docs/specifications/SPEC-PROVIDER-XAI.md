@@ -88,7 +88,7 @@ The plugin touches only `Authorization` and gateway meta headers.
 
 | Schema property | Type | Default |
 |-----------------|------|---------|
-| `openbao_addr` | string | `http://openbao:8200` |
+| `openbao_addr` | string | `http://gateway-openbao:8200` |
 | `openbao_token_env` | string | `OPENBAO_TOKEN` |
 | `client_id` | string | `b1a00492-073a-47ea-816f-4c329264a828` |
 | `issuer` | string | `https://auth.x.ai` |

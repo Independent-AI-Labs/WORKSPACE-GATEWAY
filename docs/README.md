@@ -31,7 +31,7 @@ as not implemented.
 | [`requirements/REQ-PROVIDER-OPENAI.md`](requirements/REQ-PROVIDER-OPENAI.md) | OpenAI browser/headless OAuth provider integration |
 | [`requirements/REQ-PROVIDER-SYNC.md`](requirements/REQ-PROVIDER-SYNC.md) | Provider catalog/pricing sync service |
 | [`requirements/REQ-PROVIDER-ZAI.md`](requirements/REQ-PROVIDER-ZAI.md) | Z.ai GLM provider integration (own-key passthrough) |
-| [`requirements/REQ-PROVIDER-ANTHROPIC.md`](requirements/REQ-PROVIDER-ANTHROPIC.md) | Anthropic provider integration |
+| [`requirements/REQ-PROVIDER-ANTHROPIC.md`](requirements/REQ-PROVIDER-ANTHROPIC.md) | Anthropic gateway API-key provider + client-side Claude Pro/Max path |
 | [`requirements/REQ-PROVIDER-ALIBABA-TOKEN-PLAN.md`](requirements/REQ-PROVIDER-ALIBABA-TOKEN-PLAN.md) | Alibaba Cloud Token Plan provider integration (own-key passthrough, Implemented) |
 | [`requirements/REQ-PROVIDER-XAI.md`](requirements/REQ-PROVIDER-XAI.md) | xAI Grok provider integration (Draft) |
 | [`requirements/REQ-REDACT.md`](requirements/REQ-REDACT.md) | PII redaction plugin (v1) |
@@ -58,7 +58,7 @@ as not implemented.
 | [`specifications/SPEC-PROVIDER-OPENAI.md`](specifications/SPEC-PROVIDER-OPENAI.md) | provider-oauth plugin and ChatGPT relay |
 | [`specifications/SPEC-PROVIDER-SYNC.md`](specifications/SPEC-PROVIDER-SYNC.md) | provider-sync plugin implementation |
 | [`specifications/SPEC-PROVIDER-ZAI.md`](specifications/SPEC-PROVIDER-ZAI.md) | Z.ai GLM passthrough routes |
-| [`specifications/SPEC-PROVIDER-ANTHROPIC.md`](specifications/SPEC-PROVIDER-ANTHROPIC.md) | Anthropic passthrough routes |
+| [`specifications/SPEC-PROVIDER-ANTHROPIC.md`](specifications/SPEC-PROVIDER-ANTHROPIC.md) | Anthropic passthrough route + API-key provider + community-plugin subscription path |
 | [`specifications/SPEC-PROVIDER-ALIBABA-TOKEN-PLAN.md`](specifications/SPEC-PROVIDER-ALIBABA-TOKEN-PLAN.md) | Alibaba Cloud Token Plan passthrough routes (Implemented) |
 | [`specifications/SPEC-PROVIDER-XAI.md`](specifications/SPEC-PROVIDER-XAI.md) | xAI provider implementation (Draft) |
 | [`specifications/SPEC-REDACT.md`](specifications/SPEC-REDACT.md) | redact plugin implementation |
@@ -67,13 +67,13 @@ as not implemented.
 | [`specifications/SPEC-USEFULNESS-TELEMETRY.md`](specifications/SPEC-USEFULNESS-TELEMETRY.md) | Usefulness telemetry implementation: TTFT capture, batch cruncher, dashboard (Implemented) |
 | [`specifications/SPEC-STATS-MIGRATION.md`](specifications/SPEC-STATS-MIGRATION.md) | opencode stats migrator implementation (Implemented) |
 | [`specifications/SPEC-SECURITY-HARDENING.md`](specifications/SPEC-SECURITY-HARDENING.md) | Hardening implementation: provision script, migrations 000010/000011, network/port surface, writer auth, runbooks |
-| [`specifications/SPEC-SQL-STRUCTURE.md`](specifications/SPEC-SQL-STRUCTURE.md) | Externalized `conf/sql/` tree: templating, loaders, sqlfluff lint, no-inline-SQL guard |
+| [`specifications/SPEC-SQL-STRUCTURE.md`](specifications/SPEC-SQL-STRUCTURE.md) | Externalized `conf/sql/` tree: templating, loaders, sqlfluff lint, no-inline-SQL enforcement via the WORKSPACE-CI inline-code checker |
 
 ### research/  -  upstream findings
 
 | Document | Scope |
 |----------|-------|
-| [`research/RES-ANTHROPIC-OAUTH.md`](research/RES-ANTHROPIC-OAUTH.md) | Anthropic OAuth findings |
+| [`research/RES-ANTHROPIC-OAUTH.md`](research/RES-ANTHROPIC-OAUTH.md) | Anthropic OAuth feasibility and client-side plugin rationale |
 | [`research/RES-PROVIDER-ALIBABA-TOKEN-PLAN.md`](research/RES-PROVIDER-ALIBABA-TOKEN-PLAN.md) | Alibaba Cloud Token Plan endpoint catalog and verification |
 
 ### architecture/  -  deep technical reference

@@ -307,7 +307,7 @@ on stack start. Admin API and built-in dashboard are reached via
 - `conf/profanity/`: vendored rejection-language dictionaries (refresh: `make gw-update-dictionaries`)
 - `conf/grafana/`: Grafana datasources + 5 provisioned dashboards
 - `conf/redact-patterns.json`: PII detection: 6 regex patterns + 2 dictionary categories
-- `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff`
+- `conf/sql/`: All SQL (no inline SQL anywhere). `clickhouse-init.sql` base schema, `migrations/` incremental changes, plus `ops/`, `ingest/`, `grafana/queries/`, `sqlite/`, `tests/`. Templates rendered by `res/scripts/lib-sql.sh` and linted by sqlfluff via `.sqlfluff`; inline SQL is rejected by the WORKSPACE-CI inline-code hook
 - `conf/vector.toml`: Vector pipeline: HTTP source, VRL remap (parse_json for model extraction), ClickHouse sink
 - `res/docker/docker-compose.yml`: 8 services: apisix, etcd, clickhouse, migrate, vector, openbao, prometheus, grafana
 - `res/docker/Dockerfile.apisix`: Custom APISIX image: Lua plugins + config copied in
@@ -469,14 +469,19 @@ login script above, which fetches each ready-made block from
 - `workspace-gw-kimi-virtual-key`: virtual-key mode for Kimi (`vgw-*`)
 - `workspace-gw-kimi-api-key`: API-key passthrough for Kimi
 - `workspace-gw-zai-api-key`: API-key passthrough for Z.ai GLM (Coding Plan endpoint)
-- `workspace-gw-anthropic-passthrough`: API-key passthrough for Anthropic
-- `workspace-gw-anthropic-device-oauth`: device OAuth for Anthropic
+- `workspace-gw-anthropic-api-key`: API-key passthrough for Anthropic
 - `workspace-gw-openai-device-oauth`: device OAuth for OpenAI (ChatGPT)
 - `workspace-gw-alibaba-token-plan-passthrough`: API-key passthrough, Alibaba Token Plan
 - `workspace-gw-alibaba-token-plan-cn-passthrough`: API-key passthrough, Alibaba Token Plan (China)
 
-For the OAuth providers, the login script starts the device flow and prints
-the verification URL.
+For the gateway-brokered OAuth providers, the login script starts the device
+flow and prints the verification URL. Claude Pro/Max is different: it is not a
+gateway provider at all. `make setup-anthropic-max` adds the maintained
+community plugin (`@ex-machina/opencode-anthropic-auth`) to the built-in
+OpenCode `anthropic` provider and prints the `ANTHROPIC_BASE_URL` needed to
+route model traffic through the gateway; the OAuth exchange runs client-side
+against Anthropic, so the gateway hosts no Anthropic auth and never handles the
+credential.
 
 Each provider receives the full enriched catalog, because opencode drops
 providers that expose zero models. The two Go providers
@@ -617,6 +622,7 @@ grafana, clickhouse, vector, openbao, prometheus, and etcd.
 | `make pool-key ARGS='add kimi k1 sk-...'` | Add a key to an upstream pool |
 | `make sync-models` | Refresh gateway-side provider/model catalog |
 | `make setup-providers` | Install all gateway providers into opencode config (`REQUIRE_AUTH=1` to prompt for keys) |
+| `make setup-anthropic-max` | Wire client-side Claude Pro/Max (community auth plugin + `ANTHROPIC_BASE_URL`) |
 
 ### Quality Gates
 

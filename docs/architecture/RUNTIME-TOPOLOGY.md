@@ -71,7 +71,7 @@ Static subnets (dev / prod):
 - **gw-ch** (10.99.10.0/24 / 10.99.110.0/24): ClickHouse clients  - 
   apisix, vector, grafana, migrate
 - **gw-etcd** (10.99.20.0/24 / 10.99.120.0/24): apisix, etcd
-- **gw-secrets** (10.99.30.0/24 / 10.99.130.0/24): apisix, openbao
+- **gw-secrets** (10.99.30.0/24 / 10.99.130.0/24): apisix, openbao (aliased `gateway-openbao`)
 - **gw-metrics** (10.99.40.0/24 / 10.99.140.0/24): apisix, prometheus, grafana
 - **gw-ingest** (10.99.50.0/24 / 10.99.150.0/24): apisix, vector
 - **dataops_default** (external): APISIX dual-homed for shared services

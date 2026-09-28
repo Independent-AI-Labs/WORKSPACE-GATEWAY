@@ -1,31 +1,50 @@
-# REQ-PROVIDER-ANTHROPIC: Anthropic Providers (Transparent Passthrough + Device Facade)
+# REQ-PROVIDER-ANTHROPIC: Anthropic Providers (Gateway + Client-Authenticated Paths)
 
-**Date:** 2026-09-19
+**Date:** 2026-09-28
 **Status:** Draft
 **Type:** Requirements
 **Specification:** [SPEC-PROVIDER-ANTHROPIC](../specifications/SPEC-PROVIDER-ANTHROPIC.md)
 **Research:** [RES-ANTHROPIC-OAUTH](../research/RES-ANTHROPIC-OAUTH.md)
 
-> Mandates two Anthropic providers behind the gateway. Provider A is a
-> bare proxy: every request, including the client's own Anthropic
-> credentials and beta headers, relays to api.anthropic.com verbatim;
-> downstream clients keep their standard login and token mechanisms and
-> users configure nothing beyond a base URL. Provider B is a custodial
-> device-flow facade for clients with no Anthropic login capability
-> (opencode, headless agents): the gateway owns the OAuth session,
-> refreshes it, and presents a device-code login. Explicitly excluded:
-> intercepting or hosting the client-side browser login for provider A
-> (research F2: no supported path), and any modification of request
-> bodies or auth headers on the passthrough route.
+> Serves Anthropic models behind the gateway's one bare `/anthropic` proxy.
+> Every request, including the client's own Anthropic credentials (API key or
+> subscription OAuth bearer) and beta headers, relays to api.anthropic.com
+> verbatim. The gateway holds no Anthropic credential, runs no OAuth
+> handshake, hosts no verification page, and stores no Anthropic token; the
+> gateway service itself performs no subscription reuse.
+>
+> Two client-authenticated paths are supported:
+> 1. `workspace-gw-anthropic-api-key`, an ordinary provider-sync catalog
+>    entry (`auth.type: api_key`) for users with a regular Anthropic API key.
+> 2. Claude Pro/Max subscription: the **built-in OpenCode `anthropic`
+>    provider** pointed at the gateway at runtime via the environment, with
+>    the maintained community auth plugin
+>    (`@ex-machina/opencode-anthropic-auth`) registering the OAuth method.
+>    There is no separate gateway provider entry for the subscription path,
+>    and no repository-owned client auth plugin: the community plugin performs
+>    OAuth client-side directly against Anthropic and rewrites model requests
+>    to look like Claude Code (research F4: OpenCode ships no Anthropic auth
+>    since 1.3.0; a plugin is required).
+>
+> No committed file defines, overrides, or names the built-in `anthropic`
+> provider's baseURL or models. Routing for the subscription path is a
+> runtime `ANTHROPIC_BASE_URL` environment variable that the community plugin
+> honors, and the repository ships only a thin installer
+> (`res/scripts/opencode-anthropic-max.sh`) that adds the plugin spec and
+> prints the environment. Explicitly excluded: intercepting or hosting the
+> client-side login on the gateway, and any modification of request bodies or
+> auth headers on the passthrough route.
 
 ---
 
 **Cross-references:**
 - [SPEC-PROVIDER-ANTHROPIC](../specifications/SPEC-PROVIDER-ANTHROPIC.md): companion specification
 - [RES-ANTHROPIC-OAUTH](../research/RES-ANTHROPIC-OAUTH.md): feasibility evidence
-- [REQ-PROVIDER-KIMI](REQ-PROVIDER-KIMI.md): custodial OAuth provider pattern (device facade shape)
-- [`plugins/custom/provider-oauth.lua`](../../plugins/custom/provider-oauth.lua): auth endpoints, session relay
-- [`conf/apisix.yaml.j2`](../../conf/apisix.yaml.j2): relay routes
+- [REQ-PROVIDER-SYNC](REQ-PROVIDER-SYNC.md): provider catalog and client-config service
+- [`plugins/custom/provider-sync.lua`](../../plugins/custom/provider-sync.lua): OpenCode provider block rendering
+- [`conf/providers/workspace-gw-anthropic-api-key.yaml`](../../conf/providers/workspace-gw-anthropic-api-key.yaml): API-key provider
+- [`res/scripts/opencode-anthropic-max.sh`](../../res/scripts/opencode-anthropic-max.sh): community-plugin installer
+- [`conf/apisix.yaml.j2`](../../conf/apisix.yaml.j2): relay route
 - [`res/scripts/claude-gw.sh`](../../res/scripts/claude-gw.sh): client wrapper
 
 ---
@@ -34,46 +53,52 @@
 
 ### 1.1 Purpose
 
-Serve Anthropic models through WORKSPACE-GATEWAY in two modes: with the
-client's own Anthropic authentication passed through untouched
-(transparency mode), and with gateway-custodial OAuth for clients that
-cannot run a browser login (custody mode).
+Serve Anthropic models through WORKSPACE-GATEWAY with the client's own
+Anthropic authentication passed through untouched. The gateway is a dumb
+proxy; it never mints, stores, refreshes, or injects an Anthropic credential.
+Two client-side authentication paths are supported without either path
+requiring the gateway to handle Anthropic auth: a first-class API-key
+provider, and the built-in OpenCode `anthropic` provider for Claude Pro/Max.
 
 ### 1.2 Scope
 
 **This document OWNS the requirements for:**
 - The `/anthropic/*` passthrough route and its no-auth-plugin contract
-- The `/anthropic-device/*` custodial route, its device facade
-  endpoints, token custody, and upstream injection
-- The two provider definitions exposed to clients
+- The `workspace-gw-anthropic-api-key` provider definition
+- The Claude Pro/Max path: the community auth plugin, the
+  `res/scripts/opencode-anthropic-max.sh` installer, and the
+  `ANTHROPIC_BASE_URL` runtime contract
 - The `claude-gw.sh` wrapper contract
 
 **This document DOES NOT:**
-- Define provider-oauth plugin internals (owned by SPEC-PROVIDER-ANTHROPIC
-  implementation notes and the existing oauth engine family)
+- Define provider-oauth plugin internals (owned by REQ-PROVIDER-KIMI /
+  REQ-PROVIDER-OPENAI)
 - Cover model catalog/pricing sync internals (owned by REQ-PROVIDER-SYNC)
-- Cover the zai/openai/kimi providers
+- Cover the zai/openai/kimi/opencode providers
+- Own the community plugin's implementation (it is an external dependency,
+  pinned by this repo)
 
 ### 1.3 Terminology
 
 | Term | Definition |
 |------|------------|
-| Passthrough mode | Client's own Anthropic credentials relayed verbatim; gateway holds no tokens |
-| Custody mode | Gateway holds OAuth tokens in OpenBao; client holds a gateway session bearer |
-| Device facade | Gateway-implemented RFC 8628-style login over Anthropic's browser PKCE grant (upstream has no device flow) |
-| beta path | OAuth tokens require `anthropic-beta: oauth-2025-04-20` and `/v1/messages?beta=true` |
+| Passthrough | Client's own Anthropic credentials relayed verbatim; gateway holds no tokens |
+| API-key provider | `workspace-gw-anthropic-api-key`: OpenCode stores the user's Anthropic API key and sends it as `x-api-key` |
+| Subscription path | Built-in OpenCode `anthropic` provider + community auth plugin (`@ex-machina/opencode-anthropic-auth`), routed at runtime via `ANTHROPIC_BASE_URL` |
+| Community plugin | The external, maintained OpenCode plugin that performs Claude Pro/Max PKCE OAuth client-side and injects the required Claude Code request shape |
+| beta path | Subscription OAuth tokens require `anthropic-beta: oauth-2025-04-20`, authored client-side by the community plugin |
 
 ## 2. Functional Requirements
 
-### FR-1: Routes
+### FR-1: Route
 
 | ID | Requirement |
 |----|-------------|
 | FR-1.1 | The gateway SHALL expose `relay-anthropic` (`/anthropic/*`) proxying to `api.anthropic.com:443` over HTTPS with path rewrite `^/anthropic/(.*)` to `/$1`. |
-| FR-1.2 | The gateway SHALL expose `relay-anthropic-device` (`/anthropic-device/*`) proxying to the same upstream with the same rewrite, plus the `provider-oauth` plugin with an `anthropic` protocol engine. |
-| FR-1.3 | Query strings (including `?beta=true`), request bodies, and response streams MUST pass through both routes unmodified. |
+| FR-1.2 | Query strings (including `?beta=true`), request bodies, and response streams MUST pass through unmodified. |
+| FR-1.3 | The gateway SHALL NOT expose any Anthropic login, callback, verification, or token endpoint. |
 
-### FR-2: Provider A, transparent passthrough (`workspace-gw-anthropic`)
+### FR-2: Transparent passthrough
 
 | ID | Requirement |
 |----|-------------|
@@ -82,49 +107,57 @@ cannot run a browser login (custody mode).
 | FR-2.3 | Client-visible behavior MUST equal talking to api.anthropic.com directly: same status codes, same error bodies, same streaming semantics. Documented client-side base-URL side effects (tool-search default, Remote Control disablement) are client behavior, not gateway defects. |
 | FR-2.4 | Standard gateway observability MUST still apply: http-logger, redact, sse-usage, prometheus, request-id, limit-count, key-meta. |
 
-### FR-3: Provider B, custodial device facade (`workspace-gw-anthropic-device`)
+### FR-3: Provider definition
 
 | ID | Requirement |
 |----|-------------|
-| FR-3.1 | The gateway SHALL implement the login endpoints `POST /anthropic-device/auth/device`, `POST /anthropic-device/auth/device/poll`, and a browser-completable verification page under `/anthropic-device/auth/verify`, per the device facade pattern of the kimi provider. |
-| FR-3.2 | The upstream authorization MUST be Anthropic's browser PKCE grant with the verified constants and quirks (client id, PKCE S256 with state equal to the verifier, `code=true`, JSON token bodies, `CODE#STATE` splitting); the gateway MUST NOT invent parameters outside them. |
-| FR-3.3 | Tokens MUST be stored in OpenBao under `secret/data/gateway/anthropic-tokens/` (sessions) and `secret/data/gateway/anthropic-device/` (pending device records), keyed per the existing oauth-store conventions. |
-| FR-3.4 | On relay, the gateway MUST inject the live access token as `Authorization: Bearer`, MUST ensure the OAuth beta header (`anthropic-beta: oauth-2025-04-20`) and `?beta=true` are present on `/v1/messages`, and MUST strip the client's gateway credential from the upstream request. |
-| FR-3.5 | The gateway MUST refresh custodial tokens before expiry (refresh threshold per existing oauth session logic) and MUST tolerate refresh responses that omit a new refresh token (keep the previous one). |
-| FR-3.6 | Anthropic API keys (`sk-ant-`) presented on the custodial route MUST be rejected with a pointer to `/anthropic` (passthrough provider), mirroring the kimi reject_key contract. |
-| FR-3.7 | Upstream OAuth constants (hosts, paths, client id) MUST live in one route-level config block; no scattering across plugin code. |
+| FR-3.1 | The repository SHALL provision exactly one Anthropic provider file, following the existing provider YAML schema and id contract, using `provider.id: anthropic` and `npm: "@anthropic-ai/sdk"`: `workspace-gw-anthropic-api-key` (auth `api_key`). |
+| FR-3.2 | The provider MUST use the single `/anthropic` route; no additional gateway route, upstream, or auth surface is introduced. |
+| FR-3.3 | The built-in OpenCode provider id `anthropic` MUST NOT be defined or overridden by any committed provider file or static fragment. (The subscription path selects it, but routing is injected at runtime via `ANTHROPIC_BASE_URL`, never by committed provider config.) |
+| FR-3.4 | The repository MUST NOT ship a custom static-config fragment for Anthropic. The API-key provider is installed by `make setup-providers`; the subscription path is wired by `make setup-anthropic-max`. |
 
-### FR-4: Client wrapper (`res/scripts/claude-gw.sh`)
+### FR-4: Claude Pro/Max subscription path (client-side, community plugin)
 
 | ID | Requirement |
 |----|-------------|
-| FR-4.1 | The wrapper MUST set exactly one environment variable, `ANTHROPIC_BASE_URL` (default `https://gw.workspaceguardrails.com/anthropic`), then exec `claude` with all arguments. |
-| FR-4.2 | The wrapper MUST NOT set `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or any other credential env: external credential envs disable the CLI's OAuth path (research F1). |
-| FR-4.3 | The wrapper MUST fail with an install hint when `claude` is not on PATH. |
+| FR-4.1 | The subscription path MUST use the built-in OpenCode `anthropic` provider; no separate gateway provider entry is created. |
+| FR-4.2 | The repository SHALL depend on the maintained community plugin `@ex-machina/opencode-anthropic-auth`, pinned to an exact version, added to the OpenCode `plugin` array. |
+| FR-4.3 | `res/scripts/opencode-anthropic-max.sh` MUST add the pinned plugin spec idempotently (preserving unrelated plugin entries) and MUST NOT modify the `anthropic` provider block. |
+| FR-4.4 | The installer MUST print the runtime environment required to route model traffic through the gateway: `ANTHROPIC_BASE_URL=<gateway>/anthropic` (and `ANTHROPIC_INSECURE=1` only for a self-signed gateway cert). |
+| FR-4.5 | The community plugin MUST perform the Anthropic PKCE OAuth exchange directly against Anthropic (client process); the gateway MUST NOT be involved in the authorization or token exchange. |
+| FR-4.6 | After the user selects "Claude Pro/Max" on the built-in `anthropic` provider, all Anthropic model traffic MUST flow through the gateway while the credential stays client-side. |
+| FR-4.7 | The repository MUST NOT ship its own Anthropic OAuth engine; OAuth and Claude Code request rewriting are the community plugin's responsibility. |
 
-### FR-5: Provider definitions & models
-
-| ID | Requirement |
-|----|-------------|
-| FR-5.1 | Two provider files SHALL be provisioned: `workspace-gw-anthropic` (route `/anthropic`, auth type passthrough) and `workspace-gw-anthropic-device` (route `/anthropic-device`, auth type oauth, method device facade), following the existing provider yaml schema. |
-| FR-5.2 | Model catalog and pricing SHALL sync from models.dev namespace `anthropic`; model ids MUST NOT be remapped. |
-| FR-5.3 | Provider display MUST use the `@anthropic-ai/sdk` npm package id for Anthropic-protocol clients. |
-
-### FR-6: Security
+### FR-5: Client wrapper (`res/scripts/claude-gw.sh`)
 
 | ID | Requirement |
 |----|-------------|
-| FR-6.1 | Custodial tokens and device records MUST never appear in logs; the redact pipeline MUST cover OAuth token shapes. |
-| FR-6.2 | The verification page MUST be reachable over HTTPS on the public gateway origin only, and device codes MUST expire (15 minutes default). |
-| FR-6.3 | Rate limits and key hashing MUST apply on both routes exactly as on existing provider routes. |
+| FR-5.1 | The wrapper MUST set exactly one environment variable, `ANTHROPIC_BASE_URL` (default a reachable gateway origin), then exec `claude` with all arguments. |
+| FR-5.2 | The wrapper MUST NOT set `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or any other credential env: external credential envs disable the CLI's OAuth path (research F1). |
+| FR-5.3 | The wrapper MUST fail with an install hint when `claude` is not on PATH. |
+
+### FR-6: Provider models & pricing
+
+| ID | Requirement |
+|----|-------------|
+| FR-6.1 | Model catalog and pricing for the API-key provider SHALL sync from models.dev namespace `anthropic`; model ids MUST NOT be remapped. The subscription path uses the built-in provider's own models.dev catalog. |
+| FR-6.2 | Provider display MUST use the `@anthropic-ai/sdk` npm package id for Anthropic-protocol clients. |
+
+### FR-7: Security
+
+| ID | Requirement |
+|----|-------------|
+| FR-7.1 | Anthropic credentials MUST never appear in gateway logs; the redact pipeline MUST cover OAuth token shapes. |
+| FR-7.2 | The gateway MUST NOT persist any Anthropic OAuth token or pending authorization record; no Anthropic token/device prefix is provisioned in OpenBao. |
+| FR-7.3 | Rate limits and key hashing MUST apply on the route exactly as on existing provider routes. |
 
 ## 3. Non-Functional Requirements
 
 | ID | Requirement |
 |----|-------------|
 | NFR-1 | Passthrough streaming MUST add no measurable first-byte latency beyond transport (proxy-buffering disabled, as all SSE routes). |
-| NFR-2 | The custodial engine MUST keep upstream constants overridable per environment (staging/prod) without code changes. |
-| NFR-3 | Both routes MUST remain under the standard route plugin budget and file size limits of the repo. |
+| NFR-2 | The route MUST remain under the standard route plugin budget and file size limits of the repo. |
+| NFR-3 | The installer script MUST pass the repo's shell lint (`bash -n`) and have a self-check for its idempotent merge. |
 
 ## 4. Acceptance
 
@@ -132,6 +165,7 @@ cannot run a browser login (custody mode).
 |----------|----------|
 | `claude` with wrapper, `/login` done once | All model traffic flows through GW with CLI-owned credentials; GW logs show anthropic models; no gateway auth errors |
 | `claude` streaming request via GW | Indistinguishable from direct api.anthropic.com streaming |
-| opencode + provider B after device login | Requests succeed; client never sees an Anthropic credential |
-| Device login abandoned | Poll returns pending then expires; no token stored |
-| `sk-ant-` key on `/anthropic-device` | Rejected with pointer to `/anthropic` |
+| OpenCode API-key provider installed with a key | `workspace-gw-anthropic-api-key/*` chats flow through GW; gateway stores nothing |
+| `make setup-anthropic-max` then `/connect` → Anthropic → Claude Pro/Max | Community plugin mints/refreshes the token against Anthropic; inference flows through GW; gateway stores nothing |
+| Built-in `anthropic` provider in OpenCode | Untouched on disk; no committed file defines or overrides its baseURL |
+| Gateway restart mid-session | Client refresh continues uninterrupted (client-side); no gateway state lost |

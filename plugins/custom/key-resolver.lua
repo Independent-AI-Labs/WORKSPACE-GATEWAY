@@ -16,7 +16,7 @@ plugin.schema = {
     properties = {
         openbao_addr = {
             type = "string",
-            default = "http://openbao:8200",
+            default = "http://gateway-openbao:8200",
         },
         openbao_token_env = {
             type = "string",
