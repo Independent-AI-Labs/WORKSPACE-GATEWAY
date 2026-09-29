@@ -64,7 +64,9 @@ left untouched rather than misattributed. opencode's own direct providers
 |----------|-----------|---------|
 | `get_pricing` | `(model_id, provider_id)` | `(price_table, "fresh")` or `(nil, "miss")` |
 | `compute_cost` | `(tokens, price)` | number (USD) |
+| `cost_breakdown` | `(tokens, price)` | table `{input, cached, cache_write, output, reasoning}` whose values sum to `compute_cost` |
 | `resolve_cost` | `(tokens, model_id, provider_id)` | `(cost, source)` where source ∈ `M.SOURCE_PROVIDER_OVERRIDE` / `M.SOURCE_MODELS_DEV` / `M.SOURCE_UNKNOWN` |
+| `resolve_cost_breakdown` | `(tokens, model_id, provider_id)` | `(breakdown, source)` or `(nil, "unknown")` on a miss |
 | `route_of` | `(event_id)` | route id (`event_id` minus its trailing `_<epoch>`) |
 | `resolve_provider` | `(provider_id, event_id)` | resolved gateway provider id, or `""` (no other provider) |
 
@@ -101,6 +103,15 @@ publish a cache rate falls back to the `input` rate rather than billing the
 tokens free. The `ct - reasoning < 0` guard covers providers whose `reasoning`
 count is a separate stream rather than a subset of `completion_tokens`.
 
+`cost_breakdown` computes the same five terms and returns them as named
+components; `compute_cost` is their sum, so the two can never drift. The
+components are persisted per row in `usage_log`
+(`cost_input_uncached`, `cost_cached`, `cost_cache_write`, `cost_output`,
+`cost_reasoning`; migration `000016`) so a dashboard can show the exact spend
+of each token category without a proportional split. On an unpriced row
+`resolve_cost_breakdown` returns `(nil, "unknown")` and the ingest path writes
+zeros.
+
 ### 6.1 Historical Recalculation (`res/scripts/recalc-costs.sh`)
 
 A persistent, idempotent, non-destructive repair tool revalues rows written
@@ -114,6 +125,16 @@ one formula with the request path by invoking `cost_calc.compute_cost` through
 - **Provider-scoped rates** are read from the live catalog
   (`/gateway/providers/:id`), keyed `provider_id:canonical`, never from a
   provider-agnostic map.
+- **Historical direct/absent providers.** Migrated opencode rows carry
+  opencode's own provider ids (`openai`, `opencode-go`, `zai-coding-plan`,
+  ...); some gateway ids also lose a model when it leaves a catalog. Those rows
+  have no live catalog rate, so a models.dev snapshot fills the gap: the id's
+  own namespace, plus a small explicit namespace-equivalence table in the
+  script for models that later left their namespace (e.g. `opencode-go` →
+  `zai`). Precedence is catalog > own namespace > equivalence, and only
+  provider ids present in the candidate rows are consulted. `MODELS_DEV_URL`
+  (default `https://models.dev/api.json`) selects the snapshot and
+  `MODELS_DEV_PRICING_FILE` reuses an offline one.
 - **Provider resolution + backfill.** Each row's gateway provider is resolved
   through `cost_calc.resolve_provider` (section 2.4): prior aliases are
   canonicalized and empty ids are recovered from the route in `event_id`. A row
@@ -133,25 +154,28 @@ one formula with the request path by invoking `cost_calc.compute_cost` through
   not issued per row: one provider_id UPDATE per resolved mapping (alias, or
   route pattern for empty ids) and one cost UPDATE per distinct
   `(provider, rate)` tuple. A full repair is tens of statements. Each cost
-  UPDATE shares `cost_calc.compute_cost`'s arithmetic, is gated on
-  `cost_source IN (...)` and `abs(cost - expr) > epsilon`, and rewrites
-  cost/source only where the value differs; provider backfill is likewise gated
-  on the previous `provider_id`. Re-running converges to a no-op.
+  UPDATE shares `cost_calc.cost_breakdown`'s arithmetic, rewrites the total
+  `cost` plus its five per-category `cost_*` components together, and is gated
+  on `cost_source IN (...)` and an `abs(...) > epsilon` check per column, so a
+  row whose total is already correct but whose category split is still zero
+  (first pass after migration `000016`) is backfilled exactly once. Provider
+  backfill is likewise gated on the previous `provider_id`. Re-running
+  converges to a no-op.
 - Lua emits corrections separated by the ASCII unit separator (`\31`) so an
   empty `request_id` (migrated rows) is not collapsed by the shell's tab `IFS`;
-  each row also carries its canonical model and the five rate coefficients so
-  the shell can group without a second rate source.
+  each row also carries its canonical model, the five rate coefficients, and a
+  `components_stale` flag so the shell can group without a second rate source.
 
 ## 7. Resolution Order (`resolve_cost`)
 
-1. `get_pricing(model_id, provider_id)`; miss → `(0, "unknown")`.
+1. `get_pricing(model_id, provider_id)`; miss → `(0, "unknown")` (`resolve_cost_breakdown` returns `(nil, "unknown")`).
 2. Hit → `(compute_cost(tokens, price), price.pricing_source)` when `pricing_source` is exactly `provider_override` or `models_dev`. Any other provenance is a writer contract violation: log an error and return `(0, "unknown")` rather than mislabel the row.
 
 The upstream-reported cost never participates: `sse-usage` extracts it into `usage_log.reported_cost` independently of the billed `cost`/`cost_source`.
 
 ## 8. Integration Points
 
-- **Caller:** `sse-usage.lua` passes `{ pt, ct, cached, cache_write, reasoning }`, the request model, and route-derived provider id; the resolved billed cost lands in `usage_log.cost` / `cost_source` and the `quota_counters` cost increment (`math.ceil(cost * 100)`). The upstream-reported cost is written to `usage_log.reported_cost` separately.
+- **Caller:** `sse-usage.lua` passes `{ pt, ct, cached, cache_write, reasoning }`, the request model, and route-derived provider id to `resolve_cost_breakdown`; the summed billed cost lands in `usage_log.cost` / `cost_source`, the five components in `usage_log.cost_*`, and the cost increment in `quota_counters` (`math.ceil(cost * 100)`). The upstream-reported cost is written to `usage_log.reported_cost` separately.
 - **Warm cache:** `sse-usage.plugin.init` triggers `provider-sync.sync({})` at startup so the first request rarely hits the cold-miss path.
 - **Historical alias dedupe:** `res/scripts/dedupe-model-history.sh` merges alias rows only (supersedes `backfill-provider-costs.sh`); it no longer rewrites cost.
 - **Historical recalculation:** `res/scripts/recalc-costs.sh` revalues existing rows (section 6.1); cost repair is owned by this tool, not by dedupe.

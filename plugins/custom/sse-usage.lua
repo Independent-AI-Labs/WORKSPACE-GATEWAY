@@ -277,12 +277,21 @@ function plugin.log(conf, ctx)
     --provider id, then the route map. No other provider is consulted.
     local provider_id = cost_calc.resolve_provider(ctx.provider_id or "", event_id)
 
-    local final_cost, cost_source = cost_calc.resolve_cost(
+    local breakdown, cost_source = cost_calc.resolve_cost_breakdown(
         { pt = pt, ct = ct, cached = cached, cache_write = cache_write, reasoning = reasoning },
         req_model,
         provider_id
     )
-    --resolve_cost already returns the record's provenance, so the pricing
+    --Persist the exact per-category split alongside the total; an unpriced
+    --row keeps every component at 0 with cost_source='unknown'.
+    local cost_input_uncached = breakdown and breakdown.input or 0
+    local cost_cached = breakdown and breakdown.cached or 0
+    local cost_cache_write = breakdown and breakdown.cache_write or 0
+    local cost_output = breakdown and breakdown.output or 0
+    local cost_reasoning = breakdown and breakdown.reasoning or 0
+    local final_cost = breakdown and (cost_input_uncached + cost_cached
+        + cost_cache_write + cost_output + cost_reasoning) or 0
+    --resolve_cost_breakdown already returns the record's provenance, so the pricing
     --snapshot column reads it directly instead of looking the price up twice.
     local pricing_source = cost_source
     if cost_source == cost_calc.SOURCE_UNKNOWN then
@@ -356,6 +365,11 @@ function plugin.log(conf, ctx)
         duration_ms = duration_ms,
         cost = final_cost,
         cost_source = cost_source,
+        cost_input_uncached = cost_input_uncached,
+        cost_cached = cost_cached,
+        cost_cache_write = cost_cache_write,
+        cost_output = cost_output,
+        cost_reasoning = cost_reasoning,
         reported_cost = reported_cost,
         provider_id = provider_id or "",
         pricing_source = pricing_source or "",

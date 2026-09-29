@@ -82,12 +82,16 @@ in `req_body` by the `redact` plugin before logging.
 
 Written by sse-usage. Columns include `request_id`, `cached_tokens`,
 `cache_write_tokens`, `reasoning_tokens`, `cost`, `cost_source`, `reported_cost`,
-`provider_id`, `pricing_source`, and `pricing_snapshot`. `cached_tokens` is the
-cache-read volume and `cache_write_tokens` the cache-write volume; both are
-subtracted from `prompt_tokens` before the uncached input term. `cost` is the
-billed cost and `cost_source` its provenance (`provider_override` / `models_dev`
-/ `unknown`); `reported_cost` is the upstream-reported value kept as metadata
-and never billed. Authoritative usage for billing.
+`cost_input_uncached`, `cost_cached`, `cost_cache_write`, `cost_output`,
+`cost_reasoning`, `provider_id`, `pricing_source`, and `pricing_snapshot`.
+`cached_tokens` is the cache-read volume and `cache_write_tokens` the
+cache-write volume; both are subtracted from `prompt_tokens` before the
+uncached input term. `cost` is the billed cost and `cost_source` its
+provenance (`provider_override` / `models_dev` / `unknown`); `reported_cost`
+is the upstream-reported value kept as metadata and never billed. The five
+`cost_*` columns are the exact per-token-category split of `cost`
+(`cost_calc.cost_breakdown`), written at ingest and backfilled by
+`recalc-costs.sh`; they sum to `cost`. Authoritative usage for billing.
 
 ### billing_ledger
 
@@ -119,8 +123,8 @@ retention; REQ-SECURITY-HARDENING FR-4). Tables use storage policy `tiered`
 parts move to the `archive` volume and recompress `CODEC ZSTD(3)` (bodies at
 6 months, metadata at 12/18). Cost is controlled by compression and monitored
 by the ops-health growth panel + alert, not by deletion. Nightly backups go
-to `/mnt/ws-backup`. The container-local `backups` disk is the `BACKUP
-DATABASE ... TO Disk('backups', ...)` target (also used by
+to `/mnt/ws-backup`. The container-local `backups` disk is the
+`BACKUP DATABASE ... TO Disk('backups', ...)` target (also used by
 `res/scripts/recalc-costs.sh`); ClickHouse 24.8 gates the Disk engine behind
 `<backups><allowed_disk>backups</allowed_disk></backups>` in
 [`conf/clickhouse-storage-tiering.xml`](../../conf/clickhouse-storage-tiering.xml).
@@ -150,7 +154,8 @@ after `init.sql` in Ansible; `make ch-migrate`, `make ch-migrate-status`
 Init SQL alone is insufficient across volume restarts; Ansible reapplies
 `clickhouse-init.sql` and migrate runs pending versions. `000012` adds
 `cache_write_tokens` to `usage_log`/`billing_ledger`, recreates
-`billing_ledger_mv`, and creates `cost_recalc_audit`.
+`billing_ledger_mv`, and creates `cost_recalc_audit`. `000016` adds the five
+per-category `cost_*` columns to `usage_log`.
 
 ## Billing Totals
 

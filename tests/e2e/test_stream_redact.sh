@@ -7,6 +7,9 @@ if [ -n "${SHG_SCRIPT_PATH:-}" ]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export REPO_ROOT
+# shellcheck source=../../res/scripts/lib-ch.sh
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 if [ -f "$REPO_ROOT/.env" ]; then
     set -a
@@ -50,12 +53,11 @@ headers_file=$(mktemp)
 body_file=$(mktemp)
 
 http_code_RC=0
-http_code=$(curl -sS -D "$headers_file" -o "$body_file" -w "%{http_code}" \
-    --max-time 60 \
-    -X POST "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
-    -H "Authorization: Bearer $GATEWAY_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":true}" ) || { http_code_RC=$?; http_code="000"; }
+http_code=$(printf '%s' "{\"model\":\"minimax-m3\",\"messages\":[{\"role\":\"user\",\"content\":\"My email is $PII_EMAIL, say hello in one word\"}],\"stream\":true}" \
+    | ch_post "$GATEWAY_URL/opencode_federated/v1/chat/completions" \
+        -D "$headers_file" -o "$body_file" -w "%{http_code}" --max-time 60 \
+        -H "Authorization: Bearer $GATEWAY_API_KEY" \
+        -H "Content-Type: application/json") || { http_code_RC=$?; http_code="000"; }
 
 body=$(cat "$body_file")
 

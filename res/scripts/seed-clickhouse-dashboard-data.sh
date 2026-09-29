@@ -23,6 +23,8 @@ fi
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 CH_URL="${CLICKHOUSE_URL:-http://localhost:8123}"
 SEED_DB="llm_gateway"
@@ -46,13 +48,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-ch_query() {
-    curl -sSf --max-time 30 -X POST --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$1"
-}
-
-ch_exec() {
+seed_exec() {
     local out
-    if ! out=$(ch_query "$1" 2>&1); then
+    if ! out=$(ch_exec "$1" 30 2>&1); then
         echo "[FAIL] ClickHouse query failed: $out" >&2
         return 1
     fi
@@ -66,11 +64,11 @@ echo "[INFO] Seeding ClickHouse dashboard integration data ($SEED_ROW_COUNT rows
 # request_log rows and must be removed too, or the seed model shows up on
 # the model experience scorecard (it passes the >=100 requests gate).
 cleanup_seed() {
-    ch_exec "$(sql_render ops/seed-dashboard/cleanup-request-log.sql \
+    seed_exec "$(sql_render ops/seed-dashboard/cleanup-request-log.sql \
         DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")" 1>&2
-    ch_exec "$(sql_render ops/seed-dashboard/cleanup-usage-log.sql \
+    seed_exec "$(sql_render ops/seed-dashboard/cleanup-usage-log.sql \
         DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")" 1>&2
-    ch_exec "$(sql_render ops/seed-dashboard/cleanup-request-signals.sql \
+    seed_exec "$(sql_render ops/seed-dashboard/cleanup-request-signals.sql \
         DB="$SEED_DB" SEED_MODEL="$SEED_MODEL")" 1>&2
 }
 
@@ -82,19 +80,19 @@ if [ "$CLEANUP_ONLY" -eq 1 ]; then
 fi
 
 # request_log: >100 rows, mixed status codes (200/401/404/500), populated model/key.
-ch_exec "$(sql_render ops/seed-dashboard/insert-request-log.sql \
+seed_exec "$(sql_render ops/seed-dashboard/insert-request-log.sql \
     DB="$SEED_DB" SEED_MODEL="$SEED_MODEL" SEED_KEY="$SEED_KEY" \
     SEED_RID_PREFIX="$SEED_RID_PREFIX" SEED_ROW_COUNT="$SEED_ROW_COUNT")" 1>&2
 
 # usage_log: matching request_id rows for model filter + ASOF JOIN panels.
-ch_exec "$(sql_render ops/seed-dashboard/insert-usage-log.sql \
+seed_exec "$(sql_render ops/seed-dashboard/insert-usage-log.sql \
     DB="$SEED_DB" SEED_MODEL="$SEED_MODEL" SEED_KEY="$SEED_KEY" \
     SEED_RID_PREFIX="$SEED_RID_PREFIX" SEED_EID_PREFIX="$SEED_EID_PREFIX" \
     SEED_ROW_COUNT="$SEED_ROW_COUNT")" 1>&2
 
-seed_count=$(ch_exec "$(sql_render ops/seed-dashboard/count-request-log.sql \
+seed_count=$(seed_exec "$(sql_render ops/seed-dashboard/count-request-log.sql \
     DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")")
-err_count=$(ch_exec "$(sql_render ops/seed-dashboard/count-errors.sql \
+err_count=$(seed_exec "$(sql_render ops/seed-dashboard/count-errors.sql \
     DB="$SEED_DB" SEED_RID_PREFIX="$SEED_RID_PREFIX")")
 
 if [ -z "${seed_count:-}" ] || [ "$seed_count" -lt 100 ]; then

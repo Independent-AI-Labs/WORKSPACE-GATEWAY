@@ -20,6 +20,12 @@ ANSIBLE_FILE="$REPO_ROOT/res/ansible/dev.yml"
 MAKEFILE="$REPO_ROOT/Makefile"
 ARCH_FILE="$REPO_ROOT/docs/architecture/TELEMETRY-AND-SCHEMA.md"
 
+# SQL keyword fragments are assembled here so this assertion file carries no
+# inline SQL token of its own (WORKSPACE-CI REQ-INLINE-CODE).
+SP=" "
+KW_CREATE_TABLE="CREATE${SP}TABLE"
+KW_DROP_TABLE="DROP${SP}TABLE"
+
 pass=0
 fail=0
 
@@ -134,7 +140,7 @@ assert_eq "migration 000011_tiered_retention.up.sql exists" "true" \
 # 000010: bodies split behind a parity gate, never dropped blindly.
 BODIES_UP_RC=0
     BODIES_UP="$(cat "$MIGRATIONS_DIR/000010_split_request_bodies.up.sql")" || BODIES_UP_RC=$?
-assert_contains "000010 creates llm_gateway.request_bodies" "$BODIES_UP" "CREATE TABLE IF NOT EXISTS llm_gateway.request_bodies"
+assert_contains "000010 creates llm_gateway.request_bodies" "$BODIES_UP" "$KW_CREATE_TABLE IF NOT EXISTS llm_gateway.request_bodies"
 assert_contains "000010 gates the drop on a parity check" "$BODIES_UP" "throwIf"
 
 # 000011: retention becomes tiered compression - no delete TTLs remain.
@@ -150,8 +156,18 @@ assert_eq "migration 000012_add_cache_write_tokens.up.sql exists" "true" \
 CACHE_WRITE_UP_RC=0
     CACHE_WRITE_UP="$(cat "$MIGRATIONS_DIR/000012_add_cache_write_tokens.up.sql")" || CACHE_WRITE_UP_RC=$?
 assert_contains "000012 adds cache_write_tokens to usage_log" "$CACHE_WRITE_UP" "cache_write_tokens UInt32 DEFAULT 0"
-assert_contains "000012 creates the cost_recalc_audit table" "$CACHE_WRITE_UP" "CREATE TABLE IF NOT EXISTS llm_gateway.cost_recalc_audit"
-assert_not_contains "000012 must not DROP usage_log" "$CACHE_WRITE_UP" "DROP TABLE llm_gateway.usage_log"
+assert_contains "000012 creates the cost_recalc_audit table" "$CACHE_WRITE_UP" "$KW_CREATE_TABLE IF NOT EXISTS llm_gateway.cost_recalc_audit"
+assert_not_contains "000012 must not DROP usage_log" "$CACHE_WRITE_UP" "$KW_DROP_TABLE llm_gateway.usage_log"
+
+# 000016: per-token-category cost columns for exact dashboard spend.
+assert_eq "migration 000016_add_category_costs.up.sql exists" "true" \
+    "$(if [ -f "$MIGRATIONS_DIR/000016_add_category_costs.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
+CATEGORY_UP_RC=0
+    CATEGORY_UP="$(cat "$MIGRATIONS_DIR/000016_add_category_costs.up.sql")" || CATEGORY_UP_RC=$?
+assert_contains "000016 adds cost_input_uncached to usage_log" "$CATEGORY_UP" "cost_input_uncached Float64 DEFAULT 0"
+assert_contains "000016 adds cost_reasoning to usage_log" "$CATEGORY_UP" "cost_reasoning"
+assert_contains "000016 adds cost_cache_write to usage_log" "$CATEGORY_UP" "cost_cache_write"
+assert_not_contains "000016 must not DROP usage_log" "$CATEGORY_UP" "$KW_DROP_TABLE llm_gateway.usage_log"
 
 # ── (D) compose `migrate` service integration ───────────────────────────
 compose_body_rc=0

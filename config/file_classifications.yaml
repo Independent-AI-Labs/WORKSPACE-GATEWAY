@@ -36,3 +36,23 @@ files:
   res/apisix-dashboard-services.png:
     class: binary
     owner: workspace-ci
+  conf/grafana/rendered/dashboards/gateway-cost-leaderboard.json:
+    class: generated
+    validated_by: res/scripts/render-grafana-dashboards.sh --check
+    owner: workspace-ci
+  conf/grafana/rendered/dashboards/gateway-cost-usage.json:
+    class: generated
+    validated_by: res/scripts/render-grafana-dashboards.sh --check
+    owner: workspace-ci
+  conf/grafana/rendered/dashboards/gateway-model-experience.json:
+    class: generated
+    validated_by: res/scripts/render-grafana-dashboards.sh --check
+    owner: workspace-ci
+  conf/grafana/rendered/dashboards/gateway-model-performance.json:
+    class: generated
+    validated_by: res/scripts/render-grafana-dashboards.sh --check
+    owner: workspace-ci
+  conf/grafana/rendered/dashboards/gateway-ops-health.json:
+    class: generated
+    validated_by: res/scripts/render-grafana-dashboards.sh --check
+    owner: workspace-ci

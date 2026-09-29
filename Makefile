@@ -218,21 +218,19 @@ gw-recreate-service: ## Recreate one service from the current compose (applies n
 gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 	$(MAKE) gw-restart-service SVC=grafana
 	echo "=== Waiting for Grafana health ==="
+	$(LOAD_ENV) \
 	for i in 1 2 3 4 5 6 7 8 9 10 15 20; do \
-		if curl -sS -f --max-time 2 http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health; then \
-			curl -sS http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/health | uv run python scripts/grafana-health-version.py; break; \
+		if curl -sS -f --max-time 2 http://admin:$${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD not set (source .env)}@localhost:3030/api/health; then \
+			curl -sS http://admin:$${GRAFANA_ADMIN_PASSWORD}@localhost:3030/api/health | uv run python scripts/grafana-health-version.py; break; \
 		fi; \
 		echo "  waiting... (attempt $$i/20)"; sleep 2; \
 	done
-	echo "=== Reloading provisioning (drops orphan dashboards) ==="
-	curl -sS -f -X POST http://admin:$${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:3030/api/admin/provisioning/dashboards/reload
 	echo "=== Syncing dashboard defaults from JSON (90d / 5s) ==="
 	bash res/scripts/sync-grafana-dashboards.sh
 	echo "=== Canonical dashboard URLs (use these; stale bookmarks may keep now-24h) ==="
-	echo "  http://localhost:3030/d/gateway-cost-usage?from=now-90d&to=now&refresh=5s"
-	echo "  http://localhost:3030/d/gateway-ops-health?from=now-90d&to=now&refresh=5s"
-	echo "  http://localhost:3030/d/gateway-cost-leaderboard?from=now-90d&to=now&refresh=5s"
-	echo "  http://localhost:3030/d/gateway-usefulness?from=now-90d&to=now&refresh=5s"
+	for uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard gateway-model-experience gateway-model-performance; do \
+		echo "  http://localhost:3030/d/$$uid?from=now-90d&to=now&refresh=5s"; \
+	done
 	echo "=== Grafana upgrade complete ==="
 
 gw-verify: ## Health report: container/endpoint status + one request through the gateway

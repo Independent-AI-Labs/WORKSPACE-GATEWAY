@@ -266,11 +266,7 @@
       tags: [start, health]
 
     - name: Run ClickHouse init SQL (idempotent)
-      ansible.builtin.shell: >
-        {{ podman_path }} exec -i -e CLICKHOUSE_PASSWORD {{ clickhouse_container }}
-        bash -c 'clickhouse-client --password "$CLICKHOUSE_PASSWORD" --multiquery'
-        < {{ project_root }}/conf/sql/clickhouse-init.sql
-        >>{{ run_log | quote }} 2>&1
+      ansible.builtin.shell: "{{ podman_path }} exec -i -e CLICKHOUSE_PASSWORD {{ clickhouse_container }} bash -c 'clickhouse-client --password \"$CLICKHOUSE_PASSWORD\" --multiquery' < {{ project_root }}/conf/sql/clickhouse-init.sql >>{{ run_log | quote }} 2>&1"
       register: ch_init
       changed_when: true
       tags: [start, setup]
@@ -521,20 +517,24 @@
       tags: [sanity, never]
 
     - name: Send sanity check request
-      ansible.builtin.shell: |
-        curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
-          -X POST http://localhost:9080/llamafile/v1/chat/completions \
-          -H "Content-Type: application/json" \
-          -d '{"model":"{{ sanity_model }}","messages":[{"role":"user","content":"Say hello"}],"stream":false}' \
-          2>>{{ run_log | quote }}
-      args:
-        chdir: "{{ project_root }}"
-      register: sanity_code
+      ansible.builtin.uri:
+        url: "http://localhost:9080/llamafile/v1/chat/completions"
+        method: POST
+        body_format: json
+        body:
+          model: "{{ sanity_model }}"
+          messages:
+            - role: user
+              content: Say hello
+          stream: false
+        status_code: 200
+        timeout: 60
+      register: sanity_response
       changed_when: false
-      failed_when: sanity_code.rc != 0 or (sanity_code.stdout | trim) != '200'
+      failed_when: sanity_response.status != 200
       tags: [sanity, never]
 
     - name: Show sanity result
       ansible.builtin.debug:
-        msg: "Sanity check HTTP status: {{ sanity_code.stdout }} (model {{ sanity_model }})"
+        msg: "Sanity check HTTP status: {{ sanity_response.status }} (model {{ sanity_model }})"
       tags: [sanity, never]

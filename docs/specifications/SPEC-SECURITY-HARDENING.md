@@ -116,8 +116,8 @@ one schema lineage, no forked fresh-install path.
 
 - `000010.up`: create `request_bodies` (event_id, request_id, req_body,
   resp_body, timestamp; MergeTree ORDER BY (event_id, request_id), partitioned
-  monthly); `INSERT INTO request_bodies SELECT ... FROM request_log WHERE
-  req_body != '' OR resp_body != ''`; parity check (`count() == countIf(...)`);
+  monthly); `INSERT INTO request_bodies SELECT ... FROM request_log` where
+  `req_body != '' OR resp_body != ''`; parity check (`count() == countIf(...)`);
   `ALTER TABLE request_log DROP COLUMN req_body, resp_body` (guarded:
   migration aborts on parity mismatch). `000010.down`: re-add columns and
   copy back (no loss).
@@ -216,9 +216,9 @@ healthchecks (ping/health endpoints  -  unauthenticated by design).
 
 ## 12. Backups
 
-`res/ansible/templates/gateway-ch-backup.{service,timer}.j2`: nightly `podman exec
-clickhouse clickhouse-client --password ... BACKUP DATABASE llm_gateway TO
-File('/backups/<date>')` writing to a staging dir, then sync to
+`res/ansible/templates/gateway-ch-backup.{service,timer}.j2`: nightly
+`podman exec clickhouse clickhouse-client --password ... BACKUP DATABASE llm_gateway TO File('/backups/<date>')`
+writing to a staging dir, then sync to
 `/mnt/ws-backup/workspace-gateway/` through the existing root write path
 (A-3); falls back to staging-only with a logged warning if ws-backup is not
 writable.

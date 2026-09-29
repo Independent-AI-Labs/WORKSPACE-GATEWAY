@@ -1,6 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
+_SELF="${BASH_SOURCE[0]}"
+case "$_SELF" in
+    /proc/*) _SELF="${SHG_SCRIPT_PATH:-$_SELF}" ;;
+esac
+REPO_ROOT="$(cd "$(dirname "$_SELF")/../.." && pwd)"
+if [ ! -f "$REPO_ROOT/res/scripts/lib-ch.sh" ] && [ -f "$PWD/res/scripts/lib-ch.sh" ]; then
+    REPO_ROOT="$PWD"
+fi
+export REPO_ROOT
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
+
 # Portable "yesterday" via platform detection (no stderr suppression needed)
 case "$(uname -s)" in
     Linux*)
@@ -42,8 +54,7 @@ CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
 : "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (source repo .env)}"
 
 query_clickhouse() {
-    local sql="$1"
-    curl -sSf --max-time 10 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
+    ch_exec "$1" 10
 }
 
 GATEWAY_TOTALS=$(query_clickhouse "

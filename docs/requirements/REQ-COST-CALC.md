@@ -52,7 +52,7 @@ Provide deterministic, auditable per-request USD cost for every usage row, resol
 | FR-1.1 | `cost_calc` MUST be a pure Lua module, NOT a registered APISIX plugin: no schema, no priority, no phase bindings. |
 | FR-1.2 | `cost_calc` MUST NOT write any `pricing:*` key. The ONLY writer MUST be `provider_sync_pricing.lua` (enforced by `tests/config/test_model_registry.sh`, which greps for `dict:set("pricing:"`). |
 | FR-1.3 | `cost_calc` MUST NOT fetch models.dev or any remote pricing source itself. |
-| FR-1.4 | The module MUST expose exactly the public functions `get_pricing(model_id, provider_id)`, `compute_cost(tokens, price)`, `resolve_cost(tokens, model_id, provider_id)` plus the `SOURCE_PROVIDER_OVERRIDE`/`SOURCE_MODELS_DEV`/`SOURCE_UNKNOWN` constants. |
+| FR-1.4 | The module MUST expose exactly the public functions `get_pricing(model_id, provider_id)`, `compute_cost(tokens, price)`, `cost_breakdown(tokens, price)`, `resolve_cost(tokens, model_id, provider_id)`, `resolve_cost_breakdown(tokens, model_id, provider_id)` plus the `SOURCE_PROVIDER_OVERRIDE`/`SOURCE_MODELS_DEV`/`SOURCE_UNKNOWN` constants. |
 
 ### FR-2: Canonical Pricing Keys
 | ID | Requirement |
@@ -69,7 +69,8 @@ Provide deterministic, auditable per-request USD cost for every usage row, resol
 | FR-3.3 | Cache pricing MUST be supported for both reads and writes; when no `cache_read` or `cache_write` rate is declared, the `input` rate MUST be used (never bill cache tokens free). |
 | FR-3.4 | All token/rate values MUST be coerced with `tonumber(...) or 0`. |
 | FR-3.5 | When `reasoning > completion_tokens` (a provider counting reasoning as a separate stream), `output_non_reasoning` MUST equal `completion_tokens` so reasoning is not subtracted twice. |
-| FR-3.6 | A persistent, idempotent, non-destructive recalculation tool MUST be able to revalue historical rows using this same formula, provider-scoped, with a mandatory verified backup and an audit trail. It recomputes the billed `cost`/`cost_source` from the provider override or models.dev; the reported-cost metadata column is never modified. |
+| FR-3.6 | A persistent, idempotent, non-destructive recalculation tool MUST be able to revalue historical rows using this same formula, provider-scoped, with a mandatory verified backup and an audit trail. It recomputes the billed `cost`/`cost_source` from the provider override or models.dev; the reported-cost metadata column is never modified. For rows whose provider is outside the live catalog - opencode's own migrated provider ids (`openai`, `opencode-go`, `zai-coding-plan`, ...) or a gateway id whose model left the catalog - rates MUST come from a models.dev snapshot under the id's own namespace, with an explicit namespace-equivalence table for models that later left a namespace (mirroring the migrator's `zai-coding-plan` → `zai`); the live catalog always takes precedence and only providers present in the candidate rows are consulted. |
+| FR-3.7 | `cost_breakdown` MUST return the five token-category terms of the FR-3.1 formula (`input`, `cached`, `cache_write`, `output`, `reasoning`) and `compute_cost` MUST equal their sum. `resolve_cost_breakdown` MUST return the breakdown with the same provenance rules as `resolve_cost`, or `(nil, "unknown")` on a miss. |
 
 ### FR-4: Failure Behavior
 | ID | Requirement |

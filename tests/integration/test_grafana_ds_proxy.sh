@@ -16,14 +16,27 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 export REPO_ROOT
 # shellcheck source=../../res/scripts/lib-sql.sh
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=../../res/scripts/lib-ch.sh
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 DASH_DIR="$REPO_ROOT/conf/grafana/rendered/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
 LEADERBOARD_FILE="$DASH_DIR/gateway-cost-leaderboard.json"
 ALL_DASHBOARDS=("$COST_USAGE_FILE" "$OPS_HEALTH_FILE" "$LEADERBOARD_FILE")
 
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    if ! source "$REPO_ROOT/.env"; then
+        echo "[FAIL] could not source $REPO_ROOT/.env" >&2
+        exit 1
+    fi
+    set +a
+fi
 GRAFANA_URL="http://localhost:3030"
-GRAFANA_AUTH="admin:admin"
+# Grafana admin login uses the rotated secret (RUNBOOK-SECRETS / FR-10.1);
+# never the public `admin` default.
+GRAFANA_AUTH="admin:${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD not set (source repo .env)}"
 CH_UID="clickhouse"
 PROM_UID="prometheus"
 CH_URL="http://localhost:8123"
@@ -153,10 +166,10 @@ ds_query() {
             }],
             range: {from: "now-90d", to: "now"}
         }')
-    curl -fsS --max-time 30 -X POST "$GRAFANA_URL/api/ds/query" \
+    printf '%s' "$payload" | ch_post "$GRAFANA_URL/api/ds/query" \
+        -fsS --max-time 30 \
         -u "$GRAFANA_AUTH" \
-        -H "Content-Type: application/json" \
-        -d "$payload"
+        -H "Content-Type: application/json"
 }
 
 # Extract values array from ds_query response

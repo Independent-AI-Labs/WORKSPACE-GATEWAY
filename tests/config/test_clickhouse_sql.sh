@@ -35,19 +35,19 @@ summary() {
 SQL_FILE="$REPO_ROOT/conf/sql/clickhouse-init.sql"
 
 HAS_DB_RC=0
-HAS_DB=$(grep -c 'CREATE DATABASE.*llm_gateway' "$SQL_FILE" ) || { HAS_DB_RC=$?; HAS_DB="0"; }
+HAS_DB=$(grep -c 'CREATE[[:space:]]DATABASE.*llm_gateway' "$SQL_FILE" ) || { HAS_DB_RC=$?; HAS_DB="0"; }
 assert_eq "Creates database llm_gateway" "1" "$HAS_DB"
 
 HAS_REQUEST_LOG_RC=0
-HAS_REQUEST_LOG=$(grep -c 'CREATE TABLE.*request_log' "$SQL_FILE" ) || { HAS_REQUEST_LOG_RC=$?; HAS_REQUEST_LOG="0"; }
+HAS_REQUEST_LOG=$(grep -c 'CREATE[[:space:]]TABLE.*request_log' "$SQL_FILE" ) || { HAS_REQUEST_LOG_RC=$?; HAS_REQUEST_LOG="0"; }
 assert_eq "Creates table request_log" "1" "$HAS_REQUEST_LOG"
 
 HAS_BILLING_LEDGER_RC=0
-HAS_BILLING_LEDGER=$(grep -c 'CREATE TABLE IF NOT EXISTS llm_gateway.billing_ledger' "$SQL_FILE" ) || { HAS_BILLING_LEDGER_RC=$?; HAS_BILLING_LEDGER="0"; }
+HAS_BILLING_LEDGER=$(grep -c 'CREATE[[:space:]]TABLE IF NOT EXISTS llm_gateway.billing_ledger' "$SQL_FILE" ) || { HAS_BILLING_LEDGER_RC=$?; HAS_BILLING_LEDGER="0"; }
 assert_eq "Creates table billing_ledger" "1" "$HAS_BILLING_LEDGER"
 
 HAS_BILLING_DISC_RC=0
-HAS_BILLING_DISC=$(grep -c 'CREATE TABLE IF NOT EXISTS llm_gateway.billing_discrepancies' "$SQL_FILE" ) || { HAS_BILLING_DISC_RC=$?; HAS_BILLING_DISC="0"; }
+HAS_BILLING_DISC=$(grep -c 'CREATE[[:space:]]TABLE IF NOT EXISTS llm_gateway.billing_discrepancies' "$SQL_FILE" ) || { HAS_BILLING_DISC_RC=$?; HAS_BILLING_DISC="0"; }
 assert_eq "Creates table billing_discrepancies" "1" "$HAS_BILLING_DISC"
 
 HAS_DECIMAL_RC=0
@@ -67,7 +67,7 @@ HAS_INACTIVE_PART_LIMITS=$(grep -c 'inactive_parts_to_throw_insert = 1000' "$SQL
 assert_eq "Created and existing MergeTree tables reject runaway inactive parts" "9" "$HAS_INACTIVE_PART_LIMITS"
 
 HAS_RUNTIME_PART_LIMITS_RC=0
-HAS_RUNTIME_PART_LIMITS=$(grep -c '^ALTER TABLE.*MODIFY SETTING' "$SQL_FILE" ) || { HAS_RUNTIME_PART_LIMITS_RC=$?; HAS_RUNTIME_PART_LIMITS="0"; }
+HAS_RUNTIME_PART_LIMITS=$(grep -c '^ALTER[[:space:]]TABLE.*MODIFY SETTING' "$SQL_FILE" ) || { HAS_RUNTIME_PART_LIMITS_RC=$?; HAS_RUNTIME_PART_LIMITS="0"; }
 assert_eq "Existing MergeTree tables receive runtime part limits" "4" "$HAS_RUNTIME_PART_LIMITS"
 
 HAS_TOTAL_PART_LIMITS_RC=0
@@ -160,12 +160,16 @@ HAS_COST_SOURCE_ALTER_RC=0
 HAS_COST_SOURCE_ALTER=$(grep -c 'ADD COLUMN IF NOT EXISTS cost_source' "$SQL_FILE" ) || { HAS_COST_SOURCE_ALTER_RC=$?; HAS_COST_SOURCE_ALTER="0"; }
 assert_eq "Has idempotent ALTER for cost_source column" "1" "$HAS_COST_SOURCE_ALTER"
 
+HAS_CATEGORY_COSTS_RC=0
+HAS_CATEGORY_COSTS=$(grep -cE 'ADD COLUMN IF NOT EXISTS cost_(input_uncached|cached|cache_write|output|reasoning) ' "$SQL_FILE" ) || { HAS_CATEGORY_COSTS_RC=$?; HAS_CATEGORY_COSTS="0"; }
+assert_eq "Has idempotent ALTERs for the five per-category cost columns" "5" "$HAS_CATEGORY_COSTS"
+
 HAS_ENUM_VALUES_RC=0
 HAS_ENUM_VALUES=$(grep -c "Enum8('provider_override' = 0, 'models_dev' = 1, 'unknown' = 2)" "$SQL_FILE" ) || { HAS_ENUM_VALUES_RC=$?; HAS_ENUM_VALUES="0"; }
 assert_eq "cost_source enum has provider_override=0, models_dev=1, unknown=2" "true" "$(if [ "$HAS_ENUM_VALUES" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
 
 HAS_BILLING_MV_RC=0
-HAS_BILLING_MV=$(grep -c 'CREATE MATERIALIZED VIEW IF NOT EXISTS.*billing_ledger_mv' "$SQL_FILE" ) || { HAS_BILLING_MV_RC=$?; HAS_BILLING_MV="0"; }
+HAS_BILLING_MV=$(grep -c 'CREATE[[:space:]]MATERIALIZED[[:space:]]VIEW IF NOT EXISTS.*billing_ledger_mv' "$SQL_FILE" ) || { HAS_BILLING_MV_RC=$?; HAS_BILLING_MV="0"; }
 assert_eq "Creates materialized view billing_ledger_mv" "1" "$HAS_BILLING_MV"
 
 HAS_MV_TO_RC=0
@@ -214,11 +218,11 @@ MV_WIRES_DURATION=$(grep -c 'duration_ms.*AS llm_latency_ms' "$SQL_FILE" ) || { 
 assert_eq "MV wires duration_ms into billing_ledger.llm_latency_ms" "1" "$MV_WIRES_DURATION"
 
 NO_MV_ZERO_TTFT_RC=0
-NO_MV_ZERO_TTFT=$(awk '/CREATE MATERIALIZED VIEW.*billing_ledger_mv/,/FROM llm_gateway.usage_log/' "$SQL_FILE" | grep -cE '^\s*0\s+AS (ttft_ms|llm_latency_ms)' ) || { NO_MV_ZERO_TTFT_RC=$?; NO_MV_ZERO_TTFT="0"; }
+NO_MV_ZERO_TTFT=$(awk '/CREATE[[:space:]]MATERIALIZED[[:space:]]VIEW.*billing_ledger_mv/,/FROM llm_gateway.usage_log/' "$SQL_FILE" | grep -cE '^\s*0\s+AS (ttft_ms|llm_latency_ms)' ) || { NO_MV_ZERO_TTFT_RC=$?; NO_MV_ZERO_TTFT="0"; }
 assert_eq "MV no longer hardcodes zero ttft_ms/llm_latency_ms" "0" "$NO_MV_ZERO_TTFT"
 
 HAS_REQUEST_SIGNALS_RC=0
-HAS_REQUEST_SIGNALS=$(grep -c 'CREATE TABLE IF NOT EXISTS llm_gateway.request_signals' "$SQL_FILE" ) || { HAS_REQUEST_SIGNALS_RC=$?; HAS_REQUEST_SIGNALS="0"; }
+HAS_REQUEST_SIGNALS=$(grep -c 'CREATE[[:space:]]TABLE IF NOT EXISTS llm_gateway.request_signals' "$SQL_FILE" ) || { HAS_REQUEST_SIGNALS_RC=$?; HAS_REQUEST_SIGNALS="0"; }
 assert_eq "Creates table request_signals" "1" "$HAS_REQUEST_SIGNALS"
 
 HAS_SIGNAL_WEIGHT_RC=0
@@ -231,7 +235,7 @@ MIG_UP_TTFT_RC=0
 MIG_UP_TTFT=$(grep -c 'ADD COLUMN IF NOT EXISTS ttft_first_byte_ms' "$MIG_UP" ) || { MIG_UP_TTFT_RC=$?; MIG_UP_TTFT="0"; }
 assert_eq "migration 000008 up adds ttft_first_byte_ms" "1" "$MIG_UP_TTFT"
 MIG_UP_MV_RC=0
-MIG_UP_MV=$(grep -c 'DROP TABLE IF EXISTS llm_gateway.billing_ledger_mv' "$MIG_UP" ) || { MIG_UP_MV_RC=$?; MIG_UP_MV="0"; }
+MIG_UP_MV=$(grep -c 'DROP[[:space:]]TABLE IF EXISTS llm_gateway.billing_ledger_mv' "$MIG_UP" ) || { MIG_UP_MV_RC=$?; MIG_UP_MV="0"; }
 assert_eq "migration 000008 recreates the frozen MV SELECT" "1" "$MIG_UP_MV"
 MIG_DOWN_COLS_RC=0
 MIG_DOWN_COLS=$(grep -c 'DROP COLUMN IF EXISTS duration_ms' "$MIG_DOWN" ) || { MIG_DOWN_COLS_RC=$?; MIG_DOWN_COLS="0"; }
@@ -240,7 +244,7 @@ assert_eq "migration 000008 down drops timing columns" "1" "$MIG_DOWN_COLS"
 # --rebuild DDL extraction (crunch-usefulness.sh --rebuild sources the
 # request_signals CREATE verbatim from clickhouse-init.sql; the awk range
 # must yield a complete statement).
-DDL_EXTRACT="$(awk '/^CREATE TABLE IF NOT EXISTS llm_gateway\.request_signals \(/,/;$/' "$SQL_FILE")"
+DDL_EXTRACT="$(awk '/^-- BEGIN request_signals$/,/^-- END request_signals$/' "$SQL_FILE")"
 DDL_HAS_ENGINE_RC=0
 DDL_HAS_ENGINE=$(printf '%s' "$DDL_EXTRACT" | grep -c 'ENGINE = ReplacingMergeTree') || { DDL_HAS_ENGINE_RC=$?; DDL_HAS_ENGINE="0"; }
 assert_eq "rebuild DDL extraction finds the engine clause" "1" "$DDL_HAS_ENGINE"
@@ -283,7 +287,7 @@ for table in metric_log asynchronous_metric_log text_log trace_log processors_pr
     assert_eq "ClickHouse ${table} flush disabled" "1" "$HAS_REMOVE"
 
     HAS_TRUNCATE_RC=0
-    HAS_TRUNCATE=$(grep -c "TRUNCATE TABLE IF EXISTS system.${table};" "$SQL_FILE" ) || { HAS_TRUNCATE_RC=$?; HAS_TRUNCATE="0"; }
+    HAS_TRUNCATE=$(grep -c "TRUNCATE[[:space:]]TABLE IF EXISTS system.${table};" "$SQL_FILE" ) || { HAS_TRUNCATE_RC=$?; HAS_TRUNCATE="0"; }
     assert_eq "init.sql self-heals system.${table}" "1" "$HAS_TRUNCATE"
 done
 

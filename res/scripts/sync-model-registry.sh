@@ -46,6 +46,8 @@ fi
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 TMPD="$(mktemp -d)"
 trap 'rm -rf "$TMPD"' EXIT
@@ -116,9 +118,8 @@ jq -cRn 'inputs | split("\t") as $f |
     { model: $f[0], is_local: ($f[1]|tonumber), provider: $f[2] }' \
     "$TMPD/rows.tsv" > "$TMPD/rows.jsonl"
 
-curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" \
-    --data-binary "$(sql_render ops/sync-model-registry/truncate-model-registry.sql DB="$DATABASE")"
+ch_exec "$(sql_render ops/sync-model-registry/truncate-model-registry.sql DB="$DATABASE")" 30
 { sql_render ops/sync-model-registry/insert-model-registry.sql DB="$DATABASE"
   cat "$TMPD/rows.jsonl"; } > "$TMPD/insert.payload"
-curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @"$TMPD/insert.payload"
+ch_exec_file "$TMPD/insert.payload" 30
 echo "[OK] model_registry synced: $N_ROWS models ($(awk -F'\t' '$2==1' "$TMPD/rows.tsv" | wc -l) local)"

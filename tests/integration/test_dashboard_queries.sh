@@ -15,6 +15,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 export REPO_ROOT
 # shellcheck source=../../res/scripts/lib-sql.sh
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=../../res/scripts/lib-ch.sh
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 DASH_DIR="$REPO_ROOT/conf/grafana/rendered/dashboards"
 COST_USAGE_FILE="$DASH_DIR/gateway-cost-usage.json"
 OPS_HEALTH_FILE="$DASH_DIR/gateway-ops-health.json"
@@ -79,12 +81,12 @@ echo "[INFO] Time range: $FROM_TS to $TO_TS"
 
 # ── Fetch all key hashes and models from ClickHouse ────────────────────
 ALL_KEYS_RC=0
-ALL_KEYS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
+ALL_KEYS=$(ch_exec \
     "$(sql_render tests/dashboard-queries/all-keys.sql "TABLE=usage_log")" \
     ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
 if [ -z "$ALL_KEYS" ]; then
     ALL_KEYS_RC=0
-    ALL_KEYS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
+    ALL_KEYS=$(ch_exec \
     "$(sql_render tests/dashboard-queries/all-keys.sql "TABLE=request_log")" \
     ) || { ALL_KEYS_RC=$?; ALL_KEYS=""; }
 fi
@@ -96,7 +98,7 @@ PROM_KEY_REGEX=$(echo "$ALL_KEYS" | grep '.' | paste -sd '|' -)
 echo "[INFO] Keys: $(echo "$ALL_KEYS" | grep -c '.')"
 
 ALL_MODELS_RC=0
-ALL_MODELS=$(curl -fsS --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary \
+ALL_MODELS=$(ch_exec \
     "$(sql_render tests/dashboard-queries/all-models.sql)" \
     ) || { ALL_MODELS_RC=$?; ALL_MODELS=""; }
 [ -z "$ALL_MODELS" ] && ALL_MODELS="unknown"
@@ -173,12 +175,12 @@ sub_prom() {
 # ── Execution helpers ──────────────────────────────────────────────────
 exec_ch() {
     local sql; sql=$(sub_ch "$(get_ch_sql "$1" "$2")")
-    curl -fsS --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$sql"
+    ch_exec "$sql" 30
 }
 
 exec_ch_raw() {
     # $1 = already-substituted SQL
-    curl -fsS --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$1"
+    ch_exec "$1" 30
 }
 
 prom_root() {
@@ -218,7 +220,7 @@ echo "--- Q1: ClickHouse Query Execution (all panels, all targets) ---"
 while IFS=$'\t' read -r pid ref; do
     sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")")
     hc_RC=0
-    hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
+    hc=$(ch_code "$sql" 30) || { hc_RC=$?; hc="000"; }
     [ "$hc" = "200" ] && rp "Q1: p${pid}-${ref} HTTP 200" || rf "Q1: p${pid}-${ref} HTTP $hc"
 done < <(for df in "${ALL_DASHBOARDS[@]}"; do
     jq -r '.panels[] | select(.datasource.uid == "clickhouse") | .id as $pid | .targets[] | [$pid, .refId] | @tsv' "$df"
@@ -236,6 +238,14 @@ PT=$(echo "$P3R" | cut -f1); PI=$(echo "$P3R" | cut -f2); PC=$(echo "$P3R" | cut
 PT=${PT:-0}; PI=${PI:-0}; PC=${PC:-0}; PO=${PO:-0}; PR=${PR:-0}
 PS=$((PI + PC + PO + PR))
 [ "$PT" -eq "$PS" ] && rp "Q2: total($PT)=in($PI)+ca($PC)+out($PO)+re($PR)=$PS" || rf "Q2: total($PT)!=sum($PS)"
+# Per-category cost conservation: the four displayed category costs sum to the
+# billed total (input folds cache-write spend into its token bucket).
+P3_INC=$(echo "$P3R" | cut -f6); P3_CCA=$(echo "$P3R" | cut -f7); P3_OUTC=$(echo "$P3R" | cut -f8); P3_REC=$(echo "$P3R" | cut -f9); P3_TC=$(echo "$P3R" | cut -f10)
+P3_INC=${P3_INC:-0}; P3_CCA=${P3_CCA:-0}; P3_OUTC=${P3_OUTC:-0}; P3_REC=${P3_REC:-0}; P3_TC=${P3_TC:-0}
+P3_CSUM=$(awk "BEGIN{printf \"%.6f\", $P3_INC + $P3_CCA + $P3_OUTC + $P3_REC}")
+P3_CDIFF=$(awk "BEGIN{d=$P3_CSUM - $P3_TC; if(d<0)d=-d; printf \"%.6f\", d}")
+P3_COK=$(awk "BEGIN{print ($P3_CDIFF <= 0.0001) ? 1 : 0}")
+[ "$P3_COK" = "1" ] && rp "Q2: category_cost($P3_CSUM)=total_cost($P3_TC) diff=$P3_CDIFF" || rf "Q2: category_cost($P3_CSUM)!=total_cost($P3_TC) diff=$P3_CDIFF"
 echo ""
 
 # =====================================================================
@@ -252,9 +262,9 @@ awk "BEGIN{exit !($TC >= 0)}" && rp "Q3: cost=$TC (>=0)" || rf "Q3: cost=$TC (ne
 echo ""
 
 # =====================================================================
-# Q4: p3 format: token columns as compact "NN.NN B|M|K" strings (or plain
-# integers); the combined columns join token and spend with a middot, where
-# spend is exact "$X.YY" under 1000 and compact "$X.YY B|M|K" above it
+# Q4: p3 format: every tile (4 categories + Total + 3 averages) joins a
+# compact token quantity to a compact spend with a middot, where spend is
+# exact "$X.YY" under 1000 and compact "$X.YY B|M|K" above it
 # =====================================================================
 echo "--- Q4: p3 Output Format ---"
 P3_FMT_ROW=$(exec_ch 3 A | sed -n '1p')
@@ -263,15 +273,9 @@ P3_IDX=0
 IFS=$'\t' read -r -a P3_COLS <<< "$P3_FMT_ROW"
 for val in "${P3_COLS[@]}"; do
     label="${P3_LABELS[$P3_IDX]}"
-    if [ "$P3_IDX" -lt 4 ]; then
-        echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)?$' \
-            && rp "Q4: p3-${label} format valid" \
-            || rf "Q4: p3-${label} format invalid: $val"
-    else
-        echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)? · \$[0-9]+(\.[0-9]{2})?(B|M|K)?$' \
-            && rp "Q4: p3-${label} format valid" \
-            || rf "Q4: p3-${label} format invalid: $val"
-    fi
+    echo "$val" | grep -qE '^[0-9]+(\.[0-9]{1,2})?(B|M|K)? · \$[0-9]+(\.[0-9]{2})?(B|M|K)?$' \
+        && rp "Q4: p3-${label} format valid" \
+        || rf "Q4: p3-${label} format invalid: $val"
     P3_IDX=$((P3_IDX + 1))
 done
 [ "${#P3_COLS[@]}" -eq 8 ] && rp "Q4: p3 returns 8 formatted columns" || rf "Q4: p3 returns ${#P3_COLS[@]} columns (expected 8)"
@@ -443,7 +447,7 @@ else
     # p4 Error Rate: single key query returns HTTP 200 (filter doesn't break SQL)
     P4_SQL=$(sub_ch "$(get_ch_sql 4 A)" "$SKL")
     P4_HC_RC=0
-    P4_HC=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$P4_SQL" ) || { P4_HC_RC=$?; P4_HC="000"; }
+    P4_HC=$(ch_code "$P4_SQL" 30) || { P4_HC_RC=$?; P4_HC="000"; }
     [ "$P4_HC" = "200" ] && rp "Q14: p4 single_key HTTP 200" || rf "Q14: p4 single_key HTTP $P4_HC"
 fi
 echo ""
@@ -459,7 +463,7 @@ if [ -n "$SM" ] && [ "$SM" != "unknown" ]; then
         pid="${pid_ref%%:*}"; ref="${pid_ref##*:}"
         sql=$(sub_ch "$(get_ch_sql "$pid" "$ref")" "$CH_KEY_LIST" "$SML")
         hc_RC=0
-        hc=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 -X POST --config "$CH_CURL_CONFIG" "$CH_URL/" --data-binary "$sql" ) || { hc_RC=$?; hc="000"; }
+        hc=$(ch_code "$sql" 30) || { hc_RC=$?; hc="000"; }
         [ "$hc" = "200" ] && rp "Q15: p${pid}-${ref} single model HTTP 200" || rf "Q15: p${pid}-${ref} single model HTTP $hc"
     done
 else

@@ -24,6 +24,8 @@ fi
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 DRY_RUN=false
 FORCE=false
@@ -65,7 +67,7 @@ mark() {
 
 ch() {
     local code
-    if ! code=$(printf '%s' "$1" | curl -sS --max-time 300 -o "$TMPD/resp.txt" -w '%{http_code}' \
+    if ! code=$(printf '%s' "$1" | ch_curl -sS --max-time 300 -o "$TMPD/resp.txt" -w '%{http_code}' \
             --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
             "$CH_URL/" --data-binary @-); then
         echo "[FAIL] ClickHouse request error" >&2; return 1
@@ -463,9 +465,7 @@ if [ -n "$BACKUP_DIR" ]; then
         cks=$(ch "$(sql_render ops/migrate-opencode-stats/table-checksum.sql DB="$DB" TABLE="$t")")
         printf '%s\trows=%s\tcityHash64sum=%s\n' "$t" "$cnt" "$cks" \
             >> "$BACKUP_DIR/manifest.txt"
-        if ! curl -sS --max-time 600 -o "$BACKUP_DIR/$t.native" \
-                --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
-                "$CH_URL/" --data-binary "$(sql_render ops/migrate-opencode-stats/table-native-dump.sql DB="$DB" TABLE="$t")"; then
+        if ! ch_exec_file "$(sql_render ops/migrate-opencode-stats/table-native-dump.sql DB="$DB" TABLE="$t")" 600 > "$BACKUP_DIR/$t.native"; then
             echo "[FAIL] backup dump of $t failed" >&2
             exit 1
         fi

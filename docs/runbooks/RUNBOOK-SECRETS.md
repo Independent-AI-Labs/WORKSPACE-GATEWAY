@@ -61,10 +61,20 @@ openssl rand -base64 24 # passwords
    make gw-restart-service SVC=grafana
    make gw-restart-service SVC=apisix   # CH_APISIX_PASSWORD, etcd creds
    ```
+   `GRAFANA_ADMIN_PASSWORD` is special: `GF_SECURITY_ADMIN_PASSWORD` is read
+   only when Grafana first initializes its database. On an existing
+   `grafana-data` volume a restart does NOT apply a rotated value, so set it
+   in place after restarting (`PUT /api/admin/users/1/password` as the current
+   admin, or `grafana-cli admin reset-admin-password`); wiping `grafana-data`
+   re-seeds from `.env` but loses Grafana state. Integration tests read
+   `GRAFANA_ADMIN_PASSWORD` from `.env` (never the `admin` default).
 4. Verify: `make gw-verify`, dashboards render, live traffic writes
-   `request_log`/`usage_log` (`curl -u "$CH_OPS_USER:$CH_OPS_PASSWORD" -s
-   'http://127.0.0.1:8123/' --data 'SELECT count() FROM llm_gateway.request_log'
-   --database llm_gateway`).
+   `request_log`/`usage_log`:
+
+   ```bash
+   curl -u "$CH_OPS_USER:$CH_OPS_PASSWORD" -s 'http://127.0.0.1:8123/' \
+     --data 'SELECT count() FROM llm_gateway.request_log' --database llm_gateway
+   ```
 5. Provider-side rotations (`OPENCODE_API_KEY`): rotate at the provider
    first, update `.env`, then restart apisix.
 6. etcd credential rotation: run `make etcd-auth-init` (re-binds
@@ -82,8 +92,9 @@ re-provisioned on `gw-prod-redeploy` start.
 ## ClickHouse backups
 
 Nightly (systemd timer `gateway-ch-backup.timer`, unit in
-[`res/ansible/templates/`](../../res/ansible/templates/)): `BACKUP DATABASE llm_gateway TO
-File('/backups/<date>')` into the staging directory, then synced to
+[`res/ansible/templates/`](../../res/ansible/templates/)): the
+`BACKUP DATABASE llm_gateway TO File('/backups/<date>')` statement into the
+staging directory, then synced to
 `/mnt/ws-backup/workspace-gateway/` via the existing root write path. If
 ws-backup is unwritable the backup stays in staging and the job logs a
 warning (always logged, REQ-SECURITY-HARDENING NFR-1.4).

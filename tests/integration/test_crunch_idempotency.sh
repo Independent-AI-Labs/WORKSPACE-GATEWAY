@@ -21,6 +21,8 @@ CRUNCH="$REPO_ROOT/res/scripts/crunch-usefulness.sh"
 export REPO_ROOT
 # shellcheck source=../../res/scripts/lib-sql.sh
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=../../res/scripts/lib-ch.sh
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 pass=0
 fail=0
@@ -63,7 +65,7 @@ ch() (
   cfg="$(mktemp)"
   trap 'rm -f "$cfg"' EXIT
   printf 'user = "%s:%s"\n' "${CH_OPS_USER:-ops_admin}" "$CH_OPS_PASSWORD" > "$cfg"
-  curl -sSf --max-time 60 \
+  ch_curl -sSf --max-time 60 \
       --config "$cfg" \
       "$CH_URL/" --data-binary "$sql"
 )
@@ -105,8 +107,8 @@ echo "---------------------------"
 N_ROWS=$(printf '%s\n' "$SIG1" | grep -c . ) || N_ROWS=0
 [ "$N_ROWS" = "5" ] && ok "all 5 rows recorded (unparseable row kept, FR-2.7)" || ko "expected 5 signal rows, got $N_ROWS"
 
-# curl used to join multiple --data-binary parts with '&', corrupting the
-# first TSV row of every block insert to "&<request_id>"
+# Multiple upload parts are joined with '&' by the HTTP client, corrupting
+# the first TSV row of every block insert to "&<request_id>"
 N_AMP=$(ch "$(sql_render tests/crunch-idempotency/count-amp-request-ids.sql)") || N_AMP="?"; [ "$N_AMP" = "0" ] && ok "no ampersand-corrupted request_ids (curl multi-part join guard)" || ko "found $N_AMP request_ids starting with '&'"
 
 ROW_A=$(printf '%s\n' "$SIG1" | grep -a $'^crunch-test-a\t')

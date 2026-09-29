@@ -62,6 +62,8 @@ fi
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 PROF="$REPO_ROOT/conf/profanity/en.txt"
 PHRASES="$REPO_ROOT/conf/profanity/frustration-phrases.txt"
@@ -82,10 +84,7 @@ CONT_VADER=/etc/apisix/profanity/vader-negative.txt
 CONT_BLOCK=/etc/apisix/profanity/fuzzy-blocklist.txt
 CONT_CRUNCHER=/usr/local/apisix/usefulness/cruncher.lua
 
-ch() {
-  local sql="$1"
-  curl -sSf --max-time 120 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
-}
+ch() { ch_exec "$1" 120; }
 
 # Resolve the apisix container: prefer APISIX_CONTAINER, then the dev compose
 # service container (label-filtered, so a stale gw-prod-apisix from the prod
@@ -151,9 +150,9 @@ if $REBUILD; then
         echo "[crunch] dry-run: would DROP + recreate ${DATABASE}.request_signals from canonical DDL"
     else
         # Canonical DDL single source of truth: conf/sql/clickhouse-init.sql.
-        # Extract the request_signals CREATE block verbatim (up to the first
-        # line ending in a semicolon).
-        DDL="$(awk '/^CREATE TABLE IF NOT EXISTS llm_gateway\.request_signals \(/,/;$/' \
+        # Extract the request_signals block verbatim between its begin/end
+        # markers.
+        DDL="$(awk '/^-- BEGIN request_signals$/,/^-- END request_signals$/' \
             "$REPO_ROOT/conf/sql/clickhouse-init.sql")"
         if [ -z "$DDL" ] || ! printf '%s' "$DDL" | grep -q 'ENGINE = ReplacingMergeTree'; then
             echo "[crunch] ERROR: could not extract request_signals DDL from clickhouse-init.sql" >&2
@@ -203,11 +202,11 @@ flush_block() {
     ch "$(sql_render ops/crunch-usefulness/delete-window.sql \
         DB="$DATABASE" BLOCK_START="$BLOCK_START" BLOCK_END="$BLOCK_END")" \
       || { echo "[crunch] ERROR: block delete failed for ${BLOCK_START}" >&2; exit 1; }
-    # curl concatenates multiple --data-binary parts with '&' (form-field
-    # semantics), which corrupts the first TSV row of every block insert
-    # ("&<request_id>"). Build ONE payload file and send it whole.
+    # Multiple upload parts are joined with '&' (form-field semantics), which
+    # corrupts the first TSV row of every block insert ("&<request_id>").
+    # Build ONE payload file and send it whole.
     { printf '%s\n' "$INSERT_SQL"; cat "$BATCH_FILE"; } > "$TMP_DIR/insert.payload"
-    INSERT_CODE=$(curl -sS --max-time 300 \
+    INSERT_CODE=$(ch_curl -sS --max-time 300 \
         -w '%{http_code}' -o "$TMP_DIR/insert.err" "$CH_URL/" \
         --user "$CH_OPS_USER:$CH_OPS_PASSWORD" \
         --data-binary @"$TMP_DIR/insert.payload") || INSERT_CODE="000"

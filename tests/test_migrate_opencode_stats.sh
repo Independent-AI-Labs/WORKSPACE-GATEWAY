@@ -20,6 +20,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export REPO_ROOT
 # shellcheck source=../res/scripts/lib-sql.sh
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=../res/scripts/lib-ch.sh
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 MIGRATOR="$REPO_ROOT/res/scripts/migrate-opencode-stats.sh"
 INIT_SQL="$REPO_ROOT/conf/sql/clickhouse-init.sql"
 CH_IMAGE="clickhouse/clickhouse-server:24.8-alpine"
@@ -148,7 +150,7 @@ assert_fresh() {
     local url="$1" t
     for t in usage_log request_log billing_ledger; do
         local n
-        n=$(curl -sSf "$url/" --data-binary "$(sql_render ops/migrate-opencode-stats/table-count.sql "DB=llm_gateway" "TABLE=$t")")
+        n=$(ch_exec "$(sql_render ops/migrate-opencode-stats/table-count.sql "DB=llm_gateway" "TABLE=$t")" 300 "$url")
         assert_eq "fresh instance: $t empty (FR-5.3)" "0" "$n"
     done
 }
@@ -216,7 +218,7 @@ assert_eq "backup manifest pre-insert counts are 0" "3" \
     "$(grep -c 'rows=0' "$BACKUP_DIR/manifest.txt")"
 
 # ---------------------------------------------------------- field checks
-chq() { curl -sSf "$CH_URL/" --data-binary "$1"; }
+chq() { ch_exec "$1"; }
 chq_t() { local tmpl="$1"; shift; chq "$(sql_render "tests/migrate-opencode-stats/$tmpl.sql" "$@")"; }
 chq_count() { chq "$(sql_render ops/migrate-opencode-stats/table-count.sql "DB=llm_gateway" "TABLE=$1")"; }
 
@@ -399,11 +401,11 @@ if [ "$FULL" = true ]; then
         GOT=$(echo "$RUN4" | grep 'usage_log:' | sed -E 's/.*inserted=([0-9]+).*/\1/')
         assert_eq "rehearsal dry-run count == inserted count (AC-5)" "$EXPECT" "$GOT"
         assert_eq "rehearsal usage_log row count" "$EXPECT" \
-            "$(curl -sSf "$CH2_URL/" --data-binary "$(sql_render ops/migrate-opencode-stats/table-count.sql "DB=llm_gateway" "TABLE=usage_log")")"
+            "$(ch_exec "$(sql_render ops/migrate-opencode-stats/table-count.sql "DB=llm_gateway" "TABLE=usage_log")" 300 "$CH2_URL")"
         assert_eq "rehearsal no cached>prompt rows" "0" \
-            "$(curl -sSf "$CH2_URL/" --data-binary "$(sql_render tests/migrate-opencode-stats/count-cached-over-prompt.sql)")"
+            "$(ch_exec "$(sql_render tests/migrate-opencode-stats/count-cached-over-prompt.sql)" 300 "$CH2_URL")"
         assert_eq "rehearsal no reasoning>completion rows" "0" \
-            "$(curl -sSf "$CH2_URL/" --data-binary "$(sql_render tests/migrate-opencode-stats/count-reasoning-over-completion.sql)")"
+            "$(ch_exec "$(sql_render tests/migrate-opencode-stats/count-reasoning-over-completion.sql)" 300 "$CH2_URL")"
 
         RUN5=$(OPENCODE_DBS="$LIVE_COPY" bash "$MIGRATOR" --clickhouse-url "$CH2_URL" --force --pricing-file "$PRICING_FIXTURE")
         assert_eq "rehearsal second pass inserts 0 (AC-5)" \

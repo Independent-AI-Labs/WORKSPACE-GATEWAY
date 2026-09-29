@@ -148,7 +148,14 @@ No `allValue`; Grafana expands `${var:singlequote}` natively.
 Single query (refId A) with a `WITH totals AS (...)` CTE over
 `llm_gateway.usage_log` computing `total_tok`, `input_tok`
 (`prompt_tokens - cached_tokens`), `cached_tok`, `output_tok`
-(`completion_tokens - reasoning_tokens`), `reasoning_tok`, and `sum(cost)`.
+(`completion_tokens - reasoning_tokens`), `reasoning_tok`, `sum(cost)`, and
+the exact per-category costs `input_cost`
+(`sum(cost_input_uncached + cost_cache_write)` - the displayed Input token
+bucket `prompt-cached` includes cache-write tokens), `cached_cost`
+(`sum(cost_cached)`), `output_cost` (`sum(cost_output)`) and `reasoning_cost`
+(`sum(cost_reasoning)`) from the columns written by `cost_calc` at ingest
+(migration `000016`). The four category costs sum exactly to the billed
+`cost`, so no proportional token split is used.
 Period averages are **run-rate projections**, not per-bucket means: a
 `runrate` CTE computes `elapsed_days = greatest(dateDiff('second',
 $__fromTime, $__toTime) / 86400, 1)` and
@@ -157,14 +164,14 @@ $__fromTime, $__toTime) / 86400, 1)` and
 projects the whole-range total: monthly `total / elapsed_days * days_in_month`,
 weekly `total / elapsed_days * 7`, daily `total / elapsed_days`. Because
 `$__fromTime`/`$__toTime` are Grafana range macros, those lines carry
-`-- noqa: LXR` for the SQLFluff lexer. Emits 8 string columns:
-`"Input Tokens"`, `"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"`
-(compact uppercase `B`/`M`/`K` `multiIf` strings, e.g. `9.18B`), then
-`"Total"`, `"Monthly Average"`, `"Weekly Average"`, `"Daily Average"`, each
-formatted as compact tokens for the quantity joined by a middot to compact
-K/M/B spend: `"12B · $3.89K"` (`"4.1B · $1.30K"` for the averages). The spend
-side mirrors the dashboard's Grafana-rendered currency (p8 tooltip, p46
-legend) via `multiIf(x >= 1e9 -> 'B', >= 1e6 -> 'M', >= 1e3 -> 'K', else '')`
+`-- noqa: LXR` for the SQLFluff lexer. Emits 8 string columns, each formatted
+as compact tokens for the quantity joined by a middot to compact K/M/B spend:
+`"12B · $3.89K"`. The first four are the categories
+(`"Input Tokens"`, `"Cached Tokens"`, `"Output Tokens"`, `"Reasoning Tokens"`,
+e.g. `"859.47M · $1.21K"`), then `"Total"`, `"Monthly Average"`,
+`"Weekly Average"`, `"Daily Average"` (`"4.1B · $1.30K"` for the averages).
+The spend side mirrors the dashboard's Grafana-rendered currency (p8 tooltip,
+p46 legend) via `multiIf(x >= 1e9 -> 'B', >= 1e6 -> 'M', >= 1e3 -> 'K', else '')`
 around `printf('%.2f', ...)`, so large sums abbreviate (`$4.44K`) and cents
 keep 2 decimals (`printf` pads; `toString(round(x, 2))` would drop trailing
 zeros). Colors (byName): the four token categories

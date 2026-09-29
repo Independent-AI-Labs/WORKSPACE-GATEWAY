@@ -75,9 +75,10 @@ assert_eq "$LABEL: p3 stat titles are enlarged (text.titleSize)" "16" "$P3_TITLE
 P3_VALUE_SIZE=$(jq -r '[.panels[]|select(.id==3)][0].options.text.valueSize // "missing"' "$F")
 assert_eq "$LABEL: p3 stat values stay pinned (text.valueSize)" "18.5" "$P3_VALUE_SIZE"
 
-# p3: Total and the period averages combine compact tokens + compact K/M/B cost
+# p3: all 8 tiles combine compact tokens + compact K/M/B cost (4 categories
+# + Total + 3 averages)
 P3_AVG_SEP=$(printf '%s' "$P3_SQL" | grep -oF "' · \$'" | wc -l | tr -d ' ')
-assert_eq "$LABEL: p3 Total + averages render tokens middot cost (4 columns)" "4" "$P3_AVG_SEP"
+assert_eq "$LABEL: p3 all 8 tiles render tokens middot cost" "8" "$P3_AVG_SEP"
 P3_PROJECTS=$(printf '%s' "$P3_SQL" | grep -oF 'elapsed_days' | wc -l | tr -d ' ')
 assert_eq "$LABEL: p3 averages project the range total (run-rate, elapsed_days)" "7" "$P3_PROJECTS"
 P3_FROMTIME=$(printf '%s' "$P3_SQL" | grep -cF '$__fromTime')

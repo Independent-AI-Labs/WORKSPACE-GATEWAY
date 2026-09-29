@@ -12,6 +12,20 @@ if [ ! -f "$REPO_ROOT/res/scripts/gateway-compose.sh" ] && [ -f "$PWD/res/script
     REPO_ROOT="$PWD"
 fi
 
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    if ! source "$REPO_ROOT/.env"; then
+        echo "[FAIL] could not source $REPO_ROOT/.env" >&2
+        exit 1
+    fi
+    set +a
+fi
+# Grafana admin login uses the rotated secret (RUNBOOK-SECRETS / FR-10.1);
+# never the public `admin` default.
+GRAFANA_URL="http://localhost:3030"
+GRAFANA_AUTH="admin:${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD not set (source repo .env)}"
+
 pass=0
 fail=0
 
@@ -113,7 +127,7 @@ fi
 # ── 4. Grafana datasources provisioned ────────────────────────────────
 
 DATASOURCES_RC=0
-DATASOURCES=$(curl -sS http://admin:admin@localhost:3030/api/datasources ) || { DATASOURCES_RC=$?; DATASOURCES="[]"; }
+DATASOURCES=$(curl -sS -u "$GRAFANA_AUTH" "$GRAFANA_URL/api/datasources" ) || { DATASOURCES_RC=$?; DATASOURCES="[]"; }
 DS_COUNT_RC=0
 DS_COUNT=$(echo "$DATASOURCES" | jq 'length' ) || { DS_COUNT_RC=$?; DS_COUNT="0"; }
 
@@ -135,7 +149,7 @@ fi
 # ── 5. Dashboards provisioned (3 split dashboards) ───────────────────
 
 DASHBOARDS_RC=0
-DASHBOARDS=$(curl -sS http://admin:admin@localhost:3030/api/search ) || { DASHBOARDS_RC=$?; DASHBOARDS="[]"; }
+DASHBOARDS=$(curl -sS -u "$GRAFANA_AUTH" "$GRAFANA_URL/api/search" ) || { DASHBOARDS_RC=$?; DASHBOARDS="[]"; }
 
 for dash_info in "Gateway Cost & Usage|gateway-cost-usage" \
                  "Gateway Operations & Health|gateway-ops-health" \
@@ -155,7 +169,7 @@ done
 
 for dash_uid in gateway-cost-usage gateway-ops-health gateway-cost-leaderboard; do
     dash_json_RC=0
-    dash_json=$(curl -sS "http://admin:admin@localhost:3030/api/dashboards/uid/$dash_uid" ) || { dash_json_RC=$?; dash_json="{}"; }
+    dash_json=$(curl -sS -u "$GRAFANA_AUTH" "$GRAFANA_URL/api/dashboards/uid/$dash_uid" ) || { dash_json_RC=$?; dash_json="{}"; }
     dash_from_RC=0
     dash_from=$(echo "$dash_json" | jq -r '.dashboard.time.from // "missing"' ) || { dash_from_RC=$?; dash_from="parse_error"; }
     dash_refresh_RC=0

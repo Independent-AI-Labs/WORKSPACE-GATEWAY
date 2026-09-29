@@ -104,7 +104,7 @@ SELECT ... (existing columns unchanged) ...,
 FROM llm_gateway.usage_log;
 ```
 
-`conf/sql/clickhouse-init.sql` gains the three columns in both the CREATE TABLE
+`conf/sql/clickhouse-init.sql` gains the three columns in both the `CREATE TABLE`
 and the MV, plus the idempotent `ADD COLUMN IF NOT EXISTS` ALTER block
 (house style). Down migration drops the columns and restores the old MV
 SELECT (zeros).
@@ -460,8 +460,7 @@ Conventions: identical to SPEC-DASHBOARD §3 variables plus:
 - `include_local`: custom variable, options `include : yes` /
   `exclude : no` (default `exclude`, `allValue: yes` per REQ-DASHBOARD
   FR-3.3). Both score panels (p40/p47) append
-  `AND ('${include_local}' = 'yes' OR model NOT IN (SELECT model FROM
-  llm_gateway.model_registry WHERE is_local = 1))`; `model_registry` is
+  `AND ('${include_local}' = 'yes' OR model NOT IN (SELECT model FROM llm_gateway.model_registry WHERE is_local = 1))`; `model_registry` is
   materialized by `res/scripts/sync-model-registry.sh` (`make
   gw-sync-model-registry`) from `conf/providers/*.yaml` `local: true`
   flags. Migrated timing (2026-09-17) also lights the speed and avg-latency

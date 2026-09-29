@@ -170,6 +170,15 @@ assert_eq "Grafana serves from subpath" "true" "$GRAFANA_SUBPATH"
 GRAFANA_ENV_FILE=$(echo "$JSON_DATA" | jq '[.services.grafana.env_file[] | select(endswith(".env"))] | length')
 assert_eq "Grafana loads .env (CH_GRAFANA_RO_PASSWORD for datasource provisioning)" "1" "$GRAFANA_ENV_FILE"
 
+# The admin password must be required at compose parse time: a missing/empty
+# GRAFANA_ADMIN_PASSWORD fails the stack instead of seeding `admin`
+# (RUNBOOK-SECRETS / FR-10.1).
+GRAFANA_PW_EXPECTED='${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required (see RUNBOOK-SECRETS; the public admin default is forbidden)}'
+GRAFANA_PW=$(echo "$JSON_DATA" | jq -r '.services.grafana.environment.GF_SECURITY_ADMIN_PASSWORD')
+assert_eq "Dev Grafana admin password is required (no admin default)" "$GRAFANA_PW_EXPECTED" "$GRAFANA_PW"
+GRAFANA_PW_TEST=$(echo "$TEST_JSON" | jq -r '.services.grafana.environment.GF_SECURITY_ADMIN_PASSWORD')
+assert_eq "Test Grafana admin password is required (no admin default)" "$GRAFANA_PW_EXPECTED" "$GRAFANA_PW_TEST"
+
 APISIX_PORT_9080=$(echo "$JSON_DATA" | jq '[.services.apisix.ports[] | select(. == "9080:9080")] | length')
 assert_eq "APISIX exposes port 9080" "1" "$APISIX_PORT_9080"
 

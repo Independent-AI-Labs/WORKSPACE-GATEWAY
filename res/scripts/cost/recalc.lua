@@ -18,11 +18,14 @@
 -- Usage rows (stdin, tab-separated):
 --   event_id  request_id  timestamp  provider_id  model  prompt  completion
 --   total  cached  cache_write  reasoning  cost_source  cost
+--   cost_input_uncached  cost_cached  cost_cache_write  cost_output  cost_reasoning
 --
 -- Correction rows (stdout, unit-separator (\31) separated):
 --   event_id  request_id  timestamp  new_cost  old_cost  old_source
 --   provider_id  model  old_provider_id  canonical_model
 --   input  output  cache_read  cache_write  reasoning  new_source
+--   components_stale (1 when the five per-category cost columns differ and
+--   must be rewritten even if the total is unchanged)
 --
 -- The unit separator (not a tab) keeps empty fields -- migrated rows carry
 -- an empty request_id -- from being collapsed by the shell's readonly
@@ -133,10 +136,14 @@ function M.resolve(row)
     return cost_calc.resolve_provider(row[4], row[1])
 end
 
--- Return new_cost, resolved_provider, price when the row should be corrected,
--- else nil, resolved_provider, price. A nil new_cost with a changed provider
--- means provider_id-only backfill: cost and provenance stay put. price is the
--- provider-scoped rate record (nil when unpriced) for the shell's bulk UPDATE.
+-- Return new_cost, resolved_provider, price, components_stale when the row
+-- should be corrected, else nil, resolved_provider, price, components_stale.
+-- A nil new_cost with a changed provider means provider_id-only backfill:
+-- cost and provenance stay put. components_stale is true when any of the five
+-- per-category cost columns (row[14..18]) differs from the priced split, so
+-- the shell rewrites them even when the total is already correct (first pass
+-- after the 000016 columns land). price is the provider-scoped rate record
+-- (nil when unpriced) for the shell's bulk UPDATE.
 function M.decide(prices, row, epsilon)
     epsilon = epsilon or 1e-9
     local old_provider = row[4] or ""
@@ -145,14 +152,22 @@ function M.decide(prices, row, epsilon)
 
     local price = nil
     local new_cost = nil
+    local components_stale = false
     if provider ~= "" then
         price = M.lookup(prices, provider, row[5])
         --Every row with a provider-scoped price is revalued, regardless of
         --its previous source: an upstream-reported cost is not billed.
         if price then
-            local c = cost_calc.compute_cost(tokens_of(row), price)
+            local bd = cost_calc.cost_breakdown(tokens_of(row), price)
+            local c = bd.input + bd.cached + bd.cache_write + bd.output + bd.reasoning
             local old_cost = tonumber(row[13]) or 0
             local old_source = row[12] or ""
+            local function differs(idx, value)
+                return math.abs((tonumber(row[idx]) or 0) - value) > epsilon
+            end
+            components_stale = differs(14, bd.input) or differs(15, bd.cached)
+                or differs(16, bd.cache_write) or differs(17, bd.output)
+                or differs(18, bd.reasoning)
             --Provenance is part of the row: a priced row whose source still
             --names the wrong channel is corrected even when the amount
             --coincides, so the enum reflects where the price came from.
@@ -162,8 +177,10 @@ function M.decide(prices, row, epsilon)
         end
     end
 
-    if new_cost == nil and not provider_changed then return nil, provider, price end
-    return new_cost, provider, price
+    if new_cost == nil and not provider_changed and not components_stale then
+        return nil, provider, price, false
+    end
+    return new_cost, provider, price, components_stale
 end
 
 local function run_cli(args)
@@ -184,10 +201,10 @@ local function run_cli(args)
         if line ~= "" then
             local row = split_tsv(line)
             if row[1] and row[1] ~= "" then
-                local new_cost, provider, price = M.decide(prices, row, epsilon)
+                local new_cost, provider, price, components_stale = M.decide(prices, row, epsilon)
                 local old_cost = row[13] or "0"
                 local old_provider = row[4] or ""
-                if new_cost or (provider ~= "" and provider ~= old_provider) then
+                if new_cost or (provider ~= "" and provider ~= old_provider) or components_stale then
                     -- Reuse the original cost text verbatim so a
                     -- provider_id-only backfill is byte-identical on cost and
                     -- the shell guard treats it as unchanged.
@@ -206,12 +223,13 @@ local function run_cli(args)
                     local prr = (price and price.reasoning) or (price and price.output) or 0
                     local nsrc = (price and price.source) or "unknown"
                     io.write(string.format(
-                        "%s\31%s\31%s\31%s\31%s\31%s\31%s\31%s\31%s\31%s\31%.17g\31%.17g\31%.17g\31%.17g\31%.17g\31%s\n",
+                        "%s\31%s\31%s\31%s\31%s\31%s\31%s\31%s\31%s\31%s\31%.17g\31%.17g\31%.17g\31%.17g\31%.17g\31%s\31%s\n",
                         row[1], row[2] or "", row[3] or "",
                         cost_field, old_cost,
                         row[12] or "", provider ~= "" and provider or old_provider,
                         row[5] or "", old_provider,
-                        canonical, pi, po, pcr, pcw, prr, nsrc))
+                        canonical, pi, po, pcr, pcw, prr, nsrc,
+                        components_stale and "1" or "0"))
                 end
             end
         end

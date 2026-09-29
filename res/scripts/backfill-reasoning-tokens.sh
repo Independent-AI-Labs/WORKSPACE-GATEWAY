@@ -55,11 +55,10 @@ fi
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
-ch() {
-  local sql="$1"
-  curl -sSf --max-time 30 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
-}
+ch() { ch_exec "$1" 30; }
 
 esc() {
   local s="$1"
@@ -160,7 +159,7 @@ echo "[backfill] Computed reasoning tokens for $PROCESSED rows"
 # Step 3: create + populate temp table
 echo "[backfill] Creating reasoning_backfill table..."
 ch "$(sql_render ops/backfill-reasoning-tokens/drop-backfill.sql DB="$DB")" || { echo "[backfill] WARN: DROP reasoning_backfill failed (continuing - table may not exist)" >&2; }
-ch "$(sql_render ops/backfill-reasoning-tokens/create-backfill.sql DB="$DB")" || { echo "[backfill] ERROR: create table failed" >&2; exit 1; }
+ch "$(sql_render ops/backfill-reasoning-tokens/create-backfill.sql DB="$DB")" || { echo "[backfill] ERROR: temp table creation failed" >&2; exit 1; }
 
 echo "[backfill] Inserting into temp table..."
 INSERTED=0

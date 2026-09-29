@@ -1,0 +1,10 @@
+# Consumer exemptions from WORKSPACE-CI REQ-INLINE-CODE (exact rule+path).
+#
+# res/scripts/lib-ch.sh is the repository's single reviewed exec channel: all
+# ClickHouse HTTP queries and body-bearing HTTP requests pass through it, so
+# the remote-exec rule is exempted for that one path only. No other file may
+# carry curl/clickhouse-client upload payloads.
+exemptions:
+  - rule: exec-curl-data
+    path: res/scripts/lib-ch.sh
+    reason: Sanctioned ClickHouse/HTTP exec loader (SPEC-INLINE-CODE section 10).

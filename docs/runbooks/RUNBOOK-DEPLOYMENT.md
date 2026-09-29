@@ -35,7 +35,7 @@ ClickHouse, and running the billing totals job. Runtime topology and service inv
 1. From the repo root, use the systemd-owned lifecycle target:
     ```bash
     make gw-start
-   ```
+    ```
 2. Services started: `apisix` (public 9080/9443; loopback 9180 Admin API +
    embedded Dashboard UI), `clickhouse` (loopback 8123, authenticated),
    `migrate` (one-shot golang-migrate runner,

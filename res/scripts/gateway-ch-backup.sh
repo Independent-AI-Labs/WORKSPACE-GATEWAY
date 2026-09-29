@@ -40,8 +40,8 @@ DATE="$(date +%F)"
 NAME="gw-${DATE}"
 
 chq() {
-    "$PODMAN" exec "$CONTAINER" clickhouse-client \
-        --user "$CH_OPS_USER" --password "$CH_OPS_PASSWORD" -q "$1"
+    printf '%s\n' "$1" | "$PODMAN" exec -i "$CONTAINER" clickhouse-client \
+        --user "$CH_OPS_USER" --password "$CH_OPS_PASSWORD" --multiquery
 }
 
 mkdir -p "$STAGING"

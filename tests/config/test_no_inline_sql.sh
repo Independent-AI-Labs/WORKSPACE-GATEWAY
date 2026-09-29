@@ -64,7 +64,7 @@ else
 fi
 
 echo "=== Grafana rawSql must be {{sql:<path>}} ==="
-if grafana_hits="$(grep -rnEI '"rawSql"[[:space:]]*:[[:space:]]*"[^"]*(SELECT|INSERT INTO|FROM )' \
+if grafana_hits="$(grep -rnEI '"rawSql"[[:space:]]*:[[:space:]]*"[^"]*(SELECT|INSERT[[:space:]]+INTO|FROM )' \
     conf/grafana/dashboards conf/grafana/provisioning | grep -v '{{sql:')"; then
     :
 else

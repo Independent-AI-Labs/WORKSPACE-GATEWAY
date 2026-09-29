@@ -136,6 +136,19 @@ local function decide_tests()
     local alias_cost, alias_prov = recalc.decide(prices, alias, 1e-9)
     check(close(alias_cost, 1.0), "decide[7] alias repriced")
     assert_eq(alias_prov, "workspace-gw-opencode-go-api-key", "decide[7] alias provider")
+
+    -- A priced row with a correct total/source but still-zero category
+    -- columns is flagged components_stale so the backfill rewrites the split.
+    local full = { "e1", "r1", "2026-09-21 00:00:00.000", "workspace-gw-a",
+        "glm-5.2", "1000000", "0", "0", "0", "0", "0", "models_dev", "1.0",
+        "0", "0", "0", "0", "0" }
+    local fcost, _fprov, _price, fstale = recalc.decide(prices, full, 1e-9)
+    check(fcost == nil and fstale == true, "decide[9] category cost drift flagged")
+
+    -- With the split already present, the same row is an idempotent no-op.
+    full[14] = "1.0"
+    local fcost2, _fp2, _pr2, fstale2 = recalc.decide(prices, full, 1e-9)
+    check(fcost2 == nil and fstale2 == false, "decide[10] correct split is a no-op")
 end
 
 local function main()

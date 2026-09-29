@@ -42,6 +42,8 @@ fi
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
 CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
@@ -88,17 +90,11 @@ if [[ "$LIMIT" -eq 0 && "$APPLY" == true && "$CONFIRM_ALL" != true ]]; then
   exit 1
 fi
 
-ch() {
-  curl -sSf --max-time 300 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$1"
-}
-ch_long() {
-  curl -sSf --max-time 1800 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$1"
-}
+ch() { ch_exec "$1" 300; }
+ch_long() { ch_exec "$1" 1800; }
 # ch_payload sends a file that carries its own full statement (used for
 # INSERT ... FORMAT: header + TSV data in one body, as ClickHouse expects).
-ch_payload() {
-  curl -sSf --max-time 900 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @"$1"
-}
+ch_payload() { ch_exec_file "$1" 900; }
 # ch_value reads a single scalar; empty/err yields "".
 ch_value() {
   local out
@@ -213,6 +209,86 @@ if [ "$ROW_COUNT" -eq 0 ]; then
   exit 0
 fi
 
+# ---- 2b. models.dev rates for historical/absent provider models ----
+# Migrated opencode rows carry opencode's own provider ids (openai,
+# opencode-go, zai-coding-plan, ...). Their cost provider is the id itself,
+# mirroring migrate-opencode-stats.sh; the gateway catalog has no entry for
+# them, so without a models.dev rate they can never be split into categories.
+# Some models later leave a namespace (opencode-go dropped glm-5.1; the
+# anthropic-passthrough gateway id has no catalog entry at all), so a small,
+# explicit, reviewable namespace-equivalence table fills the gap. Precedence
+# is catalog > own namespace > equivalence: equivalences are emitted first,
+# own namespaces next, and the catalog last, and recalc.lua keeps the last
+# rate row per key. Only provider ids present in the candidate rows are
+# consulted, so nothing is priced speculatively.
+declare -A GATEWAY_IDS=()
+while read -r pid; do [ -n "$pid" ] && GATEWAY_IDS[$pid]=1; done \
+  < <(jq -r '.[].id' <<< "$PROVIDER_LIST_JSON")
+
+# provider_id -> models.dev namespace with the same rates, used only when the
+# model is missing from the provider's own namespace (and never over the live
+# catalog). Verified to reproduce the migrated billed cost exactly.
+declare -A NS_EQUIV=(
+  [zai-coding-plan]=zai
+  [opencode-go]=zai
+  [workspace-gw-opencode-go-api-key]=zai
+  [workspace-gw-opencode-go-virtual-key]=zai
+  [workspace-gw-anthropic-passthrough]=anthropic
+)
+
+CANDIDATE_PROVIDERS="$(cut -f4 "$ROWS" | sort -u)"
+emit_ns_rates() { # provider_id  models.dev namespace
+  jq -r --arg key "$1" --arg ns "$2" '
+    (.[$ns].models // {}) | to_entries[] | .key as $m |
+    (.value.cost // {}) as $c |
+    select(($c.input // 0) > 0) |
+    [ $key, ($m | ascii_downcase), ($c.input // 0), ($c.output // 0),
+      ($c.cache_read // 0), ($c.cache_write // 0), ($c.reasoning // 0),
+      "models_dev" ] | @tsv
+  ' "$MODELS_DEV_PRICING_FILE"
+}
+
+RATES_DIRECT="$TMP_DIR/rates-direct.tsv"
+: > "$RATES_DIRECT"
+DIRECT_N=0
+if [ -n "$CANDIDATE_PROVIDERS" ]; then
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if [ -n "${NS_EQUIV[$p]:-}" ]; then DIRECT_N=$((DIRECT_N + 1)); fi
+    if [ -z "${GATEWAY_IDS[$p]:-}" ]; then DIRECT_N=$((DIRECT_N + 1)); fi
+  done <<< "$CANDIDATE_PROVIDERS"
+fi
+if [ "$DIRECT_N" -gt 0 ]; then
+  MODELS_DEV_URL="${MODELS_DEV_URL:-https://models.dev/api.json}"
+  MODELS_DEV_PRICING_FILE="${MODELS_DEV_PRICING_FILE:-}"
+  if [ -z "$MODELS_DEV_PRICING_FILE" ]; then
+    MODELS_DEV_PRICING_FILE="$TMP_DIR/modelsdev.json"
+    curl -sSf --max-time 60 -o "$MODELS_DEV_PRICING_FILE" "$MODELS_DEV_URL" || {
+      echo "[recalc] ERROR: models.dev fetch failed ($MODELS_DEV_URL); set MODELS_DEV_PRICING_FILE to reuse an offline snapshot" >&2
+      exit 1
+    }
+  elif [ ! -f "$MODELS_DEV_PRICING_FILE" ]; then
+    echo "[recalc] ERROR: MODELS_DEV_PRICING_FILE not found: $MODELS_DEV_PRICING_FILE" >&2
+    exit 1
+  fi
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    if [ -n "${NS_EQUIV[$p]:-}" ]; then
+      emit_ns_rates "$p" "${NS_EQUIV[$p]}" >> "$RATES_DIRECT"
+    fi
+    if [ -z "${GATEWAY_IDS[$p]:-}" ]; then
+      emit_ns_rates "$p" "$p" >> "$RATES_DIRECT"
+    fi
+  done <<< "$CANDIDATE_PROVIDERS"
+  echo "[recalc] models.dev rate rows for direct/absent providers: $(grep -c . "$RATES_DIRECT")"
+fi
+
+# Catalog last so a live gateway price always wins over a namespace match.
+if [ -s "$RATES_DIRECT" ]; then
+  cat "$RATES_DIRECT" "$RATES" > "$TMP_DIR/rates-all.tsv"
+  RATES="$TMP_DIR/rates-all.tsv"
+fi
+
 # ---- 3. recompute via Lua (one shared formula) ----
 "$PODMAN_BIN" cp "$RECALC_LUA" "$APISIX_CONTAINER:/tmp/recalc.lua"
 "$PODMAN_BIN" cp "$COST_CALC" "$APISIX_CONTAINER:/tmp/cost_calc.lua"
@@ -237,7 +313,7 @@ fi
 
 echo "[recalc] sample (event_id  new  old  source  provider  old_provider):"
 SAMPLE_N=0
-while IFS=$'\x1f' read -r eid _rid _ts new old src pid _m oldpid _canon _pi _po _pcr _pcw _prr _nsrc; do
+while IFS=$'\x1f' read -r eid _rid _ts new old src pid _m oldpid _canon _pi _po _pcr _pcw _prr _nsrc _cstale; do
   [ -n "$eid" ] || continue
   echo "  $eid  new=$new old=$old source=$src provider=${pid:-$oldpid} (was ${oldpid:-none})"
   SAMPLE_N=$((SAMPLE_N + 1))
@@ -277,7 +353,7 @@ ch "$(sql_render ops/recalc-costs/alter-audit-add-column.sql DB="$DB")"
 
 echo "[recalc] writing audit rows..."
 {
-  while IFS=$'\x1f' read -r eid _rid _ts new old src pid model oldpid _canon _pi _po _pcr _pcw _prr _nsrc; do
+  while IFS=$'\x1f' read -r eid _rid _ts new old src pid model oldpid _canon _pi _po _pcr _pcw _prr _nsrc _cstale; do
     [ -z "$eid" ] && continue
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$eid" "$oldpid" "$pid" "$model" "$old" "$new" "$src" "$RUN_ID"
@@ -304,7 +380,7 @@ declare -A PG=()        # provider group key -> WHERE predicate
 declare -A COST_MODELS=()  # rate-group key -> "model","model",...
 declare -A COST_SEEN=()    # rate-group key + model -> 1
 
-while IFS=$'\x1f' read -r eid _rid _ts new old src pid model oldpid canonical pi po pcr pcw prr nsrc; do
+while IFS=$'\x1f' read -r eid _rid _ts new old src pid model oldpid canonical pi po pcr pcw prr nsrc cstale; do
   [ -z "$eid" ] && continue
 
   if [ "$pid" != "$oldpid" ]; then
@@ -316,7 +392,7 @@ while IFS=$'\x1f' read -r eid _rid _ts new old src pid model oldpid canonical pi
     fi
   fi
 
-  if [ "$new" != "$old" ] || [ "$src" != "$nsrc" ]; then
+  if [ "$new" != "$old" ] || [ "$src" != "$nsrc" ] || [ "$cstale" = "1" ]; then
     gkey="$pid|$canonical|$pi|$po|$pcr|$pcw|$prr|$nsrc"
     mkey="$gkey|$model"
     if [ -z "${COST_SEEN[$mkey]:-}" ]; then
@@ -343,21 +419,25 @@ if [ "${#PG[@]}" -gt 0 ]; then
 fi
 
 # ---- 6b. cost revalue, one UPDATE per (provider, rate) tuple ----
-# The expression is the same arithmetic cost_calc.compute_cost performs in
-# Lua (input_uncached clamped at 0, reasoning treated as a subset of
-# completion unless it exceeds it). Re-running converges because the
-# abs(cost - expr) > epsilon guard skips already-correct rows.
+# The expressions are the same arithmetic cost_calc.cost_breakdown performs
+# in Lua (input_uncached clamped at 0, reasoning treated as a subset of
+# completion unless it exceeds it), one per token category. Re-running
+# converges because the abs(...) > epsilon guards skip already-correct rows.
 if [ "${#COST_MODELS[@]}" -gt 0 ]; then
   for gkey in "${!COST_MODELS[@]}"; do
     IFS='|' read -r cpid _ccanon pi po pcr pcw prr nsrc <<< "$gkey"
-    EXPR="greatest(toInt64(prompt_tokens) - toInt64(cached_tokens) - toInt64(cache_write_tokens), 0) * $pi / 1e6
-          + if(toInt64(completion_tokens) - toInt64(reasoning_tokens) >= 0, toInt64(completion_tokens) - toInt64(reasoning_tokens), toInt64(completion_tokens)) * $po / 1e6
-          + toInt64(cached_tokens) * $pcr / 1e6
-          + toInt64(cache_write_tokens) * $pcw / 1e6
-          + toInt64(reasoning_tokens) * $prr / 1e6"
+    EXPR_INPUT="greatest(toInt64(prompt_tokens) - toInt64(cached_tokens) - toInt64(cache_write_tokens), 0) * $pi / 1e6"
+    EXPR_OUTPUT="if(toInt64(completion_tokens) - toInt64(reasoning_tokens) >= 0, toInt64(completion_tokens) - toInt64(reasoning_tokens), toInt64(completion_tokens)) * $po / 1e6"
+    EXPR_CACHED="toInt64(cached_tokens) * $pcr / 1e6"
+    EXPR_CACHE_WRITE="toInt64(cache_write_tokens) * $pcw / 1e6"
+    EXPR_REASONING="toInt64(reasoning_tokens) * $prr / 1e6"
+    EXPR="$EXPR_INPUT + $EXPR_OUTPUT + $EXPR_CACHED + $EXPR_CACHE_WRITE + $EXPR_REASONING"
     if ALTER_OUT=$(ch "$(sql_render ops/recalc-costs/alter-cost.sql \
            DB="$DB" EXPR="$EXPR" NEW_SOURCE="$(esc "$nsrc")" PID="$(esc "$cpid")" \
-           MODELS="${COST_MODELS[$gkey]}" SOURCE_SQL="$SOURCE_SQL" EPSILON="$EPSILON")"); then
+           MODELS="${COST_MODELS[$gkey]}" SOURCE_SQL="$SOURCE_SQL" EPSILON="$EPSILON" \
+           EXPR_INPUT="$EXPR_INPUT" EXPR_OUTPUT="$EXPR_OUTPUT" \
+           EXPR_CACHED="$EXPR_CACHED" EXPR_CACHE_WRITE="$EXPR_CACHE_WRITE" \
+           EXPR_REASONING="$EXPR_REASONING")"); then
       APPLIED=$((APPLIED + 1))
     else
       FAILED=$((FAILED + 1))

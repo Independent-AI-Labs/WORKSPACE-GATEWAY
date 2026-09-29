@@ -67,11 +67,10 @@ echo "[INFO] using model id: $MODEL_ID"
 RESP_HEADERS=$(mktemp)
 RESP_BODY=$(mktemp)
 HTTP_CODE_RC=0
-HTTP_CODE=$(curl -sS -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
-    -X POST "$GATEWAY_URL/llamafile/v1/chat/completions" \
-    -H "Content-Type: application/json" \
-    -d "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one word\"}],\"stream\":false}" \
-    ) || { HTTP_CODE_RC=$?; HTTP_CODE="000"; }
+HTTP_CODE=$(printf '%s' "{\"model\":\"$MODEL_ID\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one word\"}],\"stream\":false}" \
+    | ch_post "$GATEWAY_URL/llamafile/v1/chat/completions" \
+        -D "$RESP_HEADERS" -o "$RESP_BODY" -w "%{http_code}" --max-time 120 \
+        -H "Content-Type: application/json") || { HTTP_CODE_RC=$?; HTTP_CODE="000"; }
 LIVE_RID_RC=0
 LIVE_RID=$(grep -i '^x-request-id:' "$RESP_HEADERS" | sed 's/^[Xx]-[Rr]equest-[Ii]d:[[:space:]]*//; s/\r$//' ) || { LIVE_RID_RC=$?; LIVE_RID=""; }
 rm -f "$RESP_HEADERS"

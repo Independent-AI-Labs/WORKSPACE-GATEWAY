@@ -111,7 +111,7 @@ test_fed_correct_key_not_401() {
 }
 
 # Write to OpenBao: host forward when published (fixture), else in-container
-# curl through the reviewed exec wrapper.
+# through the reviewed exec wrapper.
 bao_write() {
     local body="$1" path="$2"
     local args=(-sS -o /dev/null -X POST -H "X-Vault-Token: $OPENBAO_TOKEN" -H "Content-Type: application/json" -d "$body")

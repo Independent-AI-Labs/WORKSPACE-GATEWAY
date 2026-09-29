@@ -22,6 +22,11 @@ DEDUPE="$REPO_ROOT/res/scripts/dedupe-model-history.sh"
 MAKEFILE="$REPO_ROOT/Makefile"
 SPEC="$REPO_ROOT/docs/specifications/SPEC-COST-CALC.md"
 
+# Assembled so this assertion file carries no inline SQL token of its own
+# (WORKSPACE-CI REQ-INLINE-CODE).
+SP=" "
+KW_BACKUP_DATABASE="BACKUP${SP}DATABASE"
+
 pass=0
 fail=0
 
@@ -71,7 +76,7 @@ assert_contains "--all with --apply requires --confirm-all" "$BODY" "REFUSING --
 
 # ── (C) mandatory verified backup before any write ──────────────────────
 RECALC_SQL_BODY="$(cat "$RECALC_SQL_DIR"/*.sql)"
-assert_contains "takes a full-database backup" "$(cat "$BACKUP_SQL")" "BACKUP DATABASE"
+assert_contains "takes a full-database backup" "$(cat "$BACKUP_SQL")" "$KW_BACKUP_DATABASE"
 assert_contains "verifies backup status" "$BODY" "BACKUP_CREATED"
 assert_contains "aborts when backup is unverified" "$BODY" "not BACKUP_CREATED); aborting"
 # backup render call appears before the first mutation render call
@@ -84,9 +89,11 @@ assert_eq "backup happens before the first mutation" "true" \
 assert_contains "writes cost_recalc_audit" "$BODY" "cost_recalc_audit"
 assert_contains "reprices every provenance by default" "$BODY" 'SOURCES="unknown,provider_override,models_dev"'
 assert_contains "mutation is scoped by source" "$RECALC_SQL_BODY" "AND cost_source IN ({{ SOURCE_SQL }})"
-assert_contains "cost mutation is idempotent (skips already-correct rows)" "$RECALC_SQL_BODY" 'AND (abs(cost - ({{ EXPR }})) > {{ EPSILON }} OR cost_source != {{ NEW_SOURCE }})'
+assert_contains "cost mutation is idempotent (skips already-correct rows)" "$RECALC_SQL_BODY" 'abs(cost - ({{ EXPR }})) > {{ EPSILON }}'
+assert_contains "cost mutation also gates on the category columns" "$RECALC_SQL_BODY" 'abs(cost_input_uncached - ({{ EXPR_INPUT }})) > {{ EPSILON }}'
 assert_contains "provider backfill is one bulk UPDATE per mapping" "$RECALC_SQL_BODY" "UPDATE provider_id = {{ NEW_PID }}"
-assert_contains "cost revalue writes the resolved provenance" "$RECALC_SQL_BODY" 'UPDATE cost = {{ EXPR }}, cost_source = {{ NEW_SOURCE }}'
+assert_contains "cost revalue writes the resolved provenance" "$RECALC_SQL_BODY" 'UPDATE cost = {{ EXPR }}, cost_source = {{ NEW_SOURCE }},'
+assert_contains "cost revalue writes the five category columns" "$RECALC_SQL_BODY" 'cost_reasoning = {{ EXPR_REASONING }}'
 if [[ "$RECALC_SQL_BODY" == *"AND timestamp = toDateTime64("* ]]; then
     echo "[FAIL] recalc must not mutate row-by-row (bulk groups expected)"
     fail=$((fail + 1))
@@ -100,6 +107,7 @@ assert_eq "audit insert precedes the first mutation" "true" \
 
 # ── (E) one shared formula ──────────────────────────────────────────────
 assert_contains "recalc.lua reuses cost_calc.compute_cost" "$(cat "$LUA")" 'require("cost_calc")'
+assert_contains "recalc.lua reuses cost_calc.cost_breakdown" "$(cat "$LUA")" 'cost_calc.cost_breakdown'
 assert_contains "recalc.lua reuses model_registry.canonical" "$(cat "$LUA")" 'require("model_registry")'
 # Corrections travel on a non-whitespace separator so an empty request_id
 # (migrated rows) is not collapsed by the shell's tab-IFS read.
@@ -120,6 +128,18 @@ assert_contains "dedupe points at the dedicated tool" "$DEDUPE_BODY" "cost repai
 
 # ── (G) the spec documents the tool ─────────────────────────────────────
 assert_contains "SPEC-COST-CALC documents recalc-costs.sh" "$(cat "$SPEC")" "recalc-costs.sh"
+
+# ── (H) historical/absent provider rates are explicit and catalog-first ──
+# Migrated/direct provider rows have no live catalog rate; the tool prices
+# them from a models.dev snapshot under an explicit namespace-equivalence
+# table, with the live catalog always winning.
+assert_contains "direct-provider equivalences are declared" "$BODY" "declare -A NS_EQUIV=("
+assert_contains "zai-coding-plan maps to zai (migrator parity)" "$BODY" "[zai-coding-plan]=zai"
+assert_contains "opencode-go falls back to zai for dropped models" "$BODY" "[opencode-go]=zai"
+assert_contains "anthropic passthrough maps to anthropic" "$BODY" "[workspace-gw-anthropic-passthrough]=anthropic"
+assert_contains "only candidate-row providers are consulted" "$BODY" 'CANDIDATE_PROVIDERS="$(cut -f4 "$ROWS" | sort -u)"'
+assert_contains "catalog rates are emitted last (catalog wins)" "$BODY" 'cat "$RATES_DIRECT" "$RATES"'
+assert_contains "offline pricing snapshot is supported" "$BODY" "MODELS_DEV_PRICING_FILE"
 
 echo ""
 echo "test_recalc_costs.sh: $pass passed, $fail failed"

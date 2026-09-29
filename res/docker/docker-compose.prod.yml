@@ -47,7 +47,7 @@ services:
     image: clickhouse/clickhouse-server@sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5
     container_name: gw-prod-clickhouse
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null"]
+      test: ["CMD-SHELL", "echo 'SELECT 1' | clickhouse-client --password \"$$CLICKHOUSE_PASSWORD\" >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 12

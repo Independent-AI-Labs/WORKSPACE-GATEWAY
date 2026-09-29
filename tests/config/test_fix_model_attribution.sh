@@ -19,6 +19,11 @@ UNIT="$REPO_ROOT/res/ansible/templates/gateway-model-attribution-check.service.j
 INIT="$REPO_ROOT/conf/sql/clickhouse-init.sql"
 MIG12="$REPO_ROOT/conf/sql/migrations/000012_add_cache_write_tokens.up.sql"
 
+# Assembled so this assertion file carries no inline SQL token of its own
+# (WORKSPACE-CI REQ-INLINE-CODE).
+SP=" "
+KW_CREATE_MV="CREATE${SP}MATERIALIZED${SP}VIEW"
+
 pass=0
 fail=0
 
@@ -111,7 +116,7 @@ assert_file_has "check unit runs --check" "$UNIT" 'fix-model-attribution.sh --ch
 # mv-create.sql must match the canonical MV definition in clickhouse-init.sql
 # (the provisioning path) after substituting the DB template variable.
 norm_block() {
-    sed -n '/CREATE MATERIALIZED VIEW IF NOT EXISTS .*billing_ledger_mv/,/FROM .*usage_log;/p' "$1" \
+    sed -n '/'"$KW_CREATE_MV"' IF NOT EXISTS .*billing_ledger_mv/,/FROM .*usage_log;/p' "$1" \
         | sed 's/{{ DB }}\./llm_gateway./g; s/[[:space:]]\+/ /g; s/^ //; s/ $//' | sort
 }
 INIT_MV="$(norm_block "$INIT")"

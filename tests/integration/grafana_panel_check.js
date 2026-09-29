@@ -24,11 +24,17 @@ const { chromium } = require('playwright');
 const args = process.argv.slice(2);
 let grafanaUrl = process.env.GRAFANA_URL || 'http://localhost:3030';
 
-// Grafana API auth: basic auth (admin:admin), same as the other integration
-// tests. X-WEBAUTH-USER is rejected here because under rootless podman/pasta
-// the host's connections to the published port present as the container's own
-// gw-metrics IP, which is outside GF_AUTH_PROXY_WHITELIST.
-const basicAuth = 'Basic ' + Buffer.from('admin:admin').toString('base64');
+// Grafana API auth: basic auth with the rotated admin secret from .env
+// (RUNBOOK-SECRETS / FR-10.1), same as the other integration tests; never the
+// public `admin` default. X-WEBAUTH-USER is rejected here because under
+// rootless podman/pasta the host's connections to the published port present
+// as the container's own gw-metrics IP, outside GF_AUTH_PROXY_WHITELIST.
+const grafanaPassword = process.env.GRAFANA_ADMIN_PASSWORD;
+if (!grafanaPassword) {
+  console.error('[FAIL] GRAFANA_ADMIN_PASSWORD not set (source repo .env)');
+  process.exit(1);
+}
+const basicAuth = 'Basic ' + Buffer.from('admin:' + grafanaPassword).toString('base64');
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--url' && args[i + 1]) {
     grafanaUrl = args[i + 1];

@@ -34,6 +34,8 @@ PROD_TAG="${PROD_TAG:-localhost/workspace-gateway:0.1.0}"
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 PROD_PORT=9081
 # Debug ports are unpublished in prod (REQ-SECURITY-HARDENING FR-6); the
@@ -167,10 +169,10 @@ verify() {
 
     echo "-- key-auth rejection"
     local code
-    code=$(curl -sS -o /dev/null -w '%{http_code}' -m 15 \
-        "http://127.0.0.1:$PROD_PORT/kimi/v1/chat/completions" \
-        -H 'Content-Type: application/json' \
-        -d '{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"hi"}]}')
+    code=$(printf '%s' '{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"hi"}]}' \
+        | ch_post "http://127.0.0.1:$PROD_PORT/kimi/v1/chat/completions" \
+            -o /dev/null -w '%{http_code}' -m 15 \
+            -H 'Content-Type: application/json')
     if [ "$code" = "401" ]; then
         echo "OK: unauthenticated relay rejected with 401"
     else
@@ -184,9 +186,9 @@ verify() {
     # Query in-container as ops_admin (exec-only access; the 8124 host
     # forward is for diagnostics, and its source address is
     # network-stack-dependent under rootless port publishing).
-    if ! rows=$("$PODMAN_PATH" exec gw-prod-clickhouse clickhouse-client \
-        --user ops_admin --password "${CH_OPS_PASSWORD:-}" \
-        -q "$(sql_render ops/gateway-prod/request-log-count.sql)"); then
+    if ! rows=$(printf '%s\n' "$(sql_render ops/gateway-prod/request-log-count.sql)" \
+        | "$PODMAN_PATH" exec -i gw-prod-clickhouse clickhouse-client \
+            --user ops_admin --password "${CH_OPS_PASSWORD:-}" --multiquery); then
         rows="-1"
     fi
     echo "request_log rows: $rows"

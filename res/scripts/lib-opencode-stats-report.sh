@@ -100,12 +100,12 @@ insert_table() {
             fi
             local code
             if ! code=$({ sql_render ops/migrate-opencode-stats/insert-json-each-row.sql DB="$DB" TABLE="$table"; cat "$TMPD/keep.jsonl"; } \
-                | curl -sS --max-time 300 -X POST --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @- \
+                | ch_curl -sS --max-time 300 -X POST --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary @- \
                     -o "$TMPD/resp.txt" -w '%{http_code}'); then
                 echo "[FAIL] insert request error for $table" >&2; return 1
             fi
             if [ "$code" != "200" ]; then
-                echo "[FAIL] insert into $table failed (HTTP $code):" >&2
+                echo "[FAIL] insert for $table failed (HTTP $code):" >&2
                 cat "$TMPD/resp.txt" >&2
                 return 1
             fi

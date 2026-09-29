@@ -123,6 +123,7 @@ SETTINGS index_granularity = 8192,
          inactive_parts_to_throw_insert = 1000,
          max_parts_in_total = 5000;
 
+-- BEGIN request_signals
 CREATE TABLE IF NOT EXISTS llm_gateway.request_signals (
     request_id        String,
     model             LowCardinality(String) DEFAULT '',
@@ -153,6 +154,7 @@ SETTINGS index_granularity = 8192,
          inactive_parts_to_delay_insert = 500,
          inactive_parts_to_throw_insert = 1000,
          max_parts_in_total = 5000;
+-- END request_signals
 
 -- Model metadata used by dashboards (include/exclude-local toggle).
 -- Materialized from conf/model-registry.yaml + conf/providers/*.yaml
@@ -279,7 +281,22 @@ ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS reported_cost    Float64 DEFAULT 0 AFTER cost_source;
 
 ALTER TABLE llm_gateway.usage_log
-    ADD COLUMN IF NOT EXISTS provider_id      LowCardinality(String) DEFAULT '' AFTER reported_cost;
+    ADD COLUMN IF NOT EXISTS cost_input_uncached Float64 DEFAULT 0 AFTER reported_cost;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cost_cached         Float64 DEFAULT 0 AFTER cost_input_uncached;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cost_cache_write    Float64 DEFAULT 0 AFTER cost_cached;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cost_output         Float64 DEFAULT 0 AFTER cost_cache_write;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS cost_reasoning      Float64 DEFAULT 0 AFTER cost_output;
+
+ALTER TABLE llm_gateway.usage_log
+    ADD COLUMN IF NOT EXISTS provider_id      LowCardinality(String) DEFAULT '' AFTER cost_reasoning;
 
 ALTER TABLE llm_gateway.usage_log
     ADD COLUMN IF NOT EXISTS pricing_source   LowCardinality(String) DEFAULT '' AFTER provider_id;

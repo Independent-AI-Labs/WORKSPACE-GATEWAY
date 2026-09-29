@@ -17,6 +17,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 export REPO_ROOT
 # shellcheck source=../../res/scripts/lib-sql.sh
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=../../res/scripts/lib-ch.sh
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 pass=0
 fail=0
@@ -83,26 +85,26 @@ expect_port "vector 18080 unpublished"           0.0.0.0 18080 closed
 expect_port "ClickHouse native 9000 unpublished" 0.0.0.0 9000 closed
 
 # ── 2. ClickHouse auth matrix (via loopback 8123; host-forwarded) ─────────
-ch_post() { curl -sS --max-time 5 -o /tmp/gw-sec-ch.out -w '%{http_code}' http://127.0.0.1:8123/ "$@"; }
+ch_probe() { ch_curl -sS --max-time 5 -o /tmp/gw-sec-ch.out -w '%{http_code}' http://127.0.0.1:8123/ "$@"; }
 
-code=$(ch_post --user "ops_admin:$CH_OPS_PASSWORD" --data-binary 'SELECT 1')
+code=$(ch_probe --user "ops_admin:$CH_OPS_PASSWORD" --data-binary 'SELECT 1')
 [ "$code" = "200" ] && ok "ops_admin can query" || bad "ops_admin query: HTTP $code $(cat /tmp/gw-sec-ch.out)"
 
-code=$(ch_post --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-log.sql)")
+code=$(ch_probe --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-log.sql)")
 [ "$code" = "200" ] && ok "grafana_ro reads metadata" || bad "grafana_ro metadata read: HTTP $code $(cat /tmp/gw-sec-ch.out)"
 
-code=$(ch_post --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-bodies.sql)")
+code=$(ch_probe --user "grafana_ro:$CH_GRAFANA_RO_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-bodies.sql)")
 [ "$code" != "200" ] && ok "grafana_ro CANNOT read request_bodies" || bad "grafana_ro read request_bodies: HTTP $code - GRANT LEAK"
 
-code=$(ch_post --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-log.sql)")
+code=$(ch_probe --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/count-request-log.sql)")
 [ "$code" != "200" ] && ok "vector_rw CANNOT SELECT" || bad "vector_rw SELECT: HTTP $code - GRANT LEAK"
 
-code=$(ch_post --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/insert-body-probe.sql)")
+code=$(ch_probe --user "vector_rw:$CH_VECTOR_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/insert-body-probe.sql)")
 [ "$code" = "200" ] && ok "vector_rw can INSERT bodies" || bad "vector_rw insert bodies: HTTP $code $(cat /tmp/gw-sec-ch.out)"
-code=$(ch_post --user "ops_admin:$CH_OPS_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/delete-body-probe.sql)")
+code=$(ch_probe --user "ops_admin:$CH_OPS_PASSWORD" --data-binary "$(sql_render tests/security-lockdown/delete-body-probe.sql)")
 [ "$code" = "200" ] && ok "probe row cleaned up" || bad "probe cleanup: HTTP $code"
 
-code=$(ch_post --data-binary 'SELECT 1')
+code=$(ch_probe --data-binary 'SELECT 1')
 [ "$code" != "200" ] && ok "unauthenticated ClickHouse rejected ($code)" || bad "unauthenticated ClickHouse: HTTP 200 - OPEN DATABASE"
 
 # `default` must be unusable from a non-localhost source. Host loopback
@@ -110,8 +112,8 @@ code=$(ch_post --data-binary 'SELECT 1')
 # apisix container (source 10.99.10.2) through the exec harness.
 PODMAN="${PODMAN:-podman}"
 probe_out="$($PODMAN exec gw-apisix curl -sS --max-time 5 \
-    -u "default:$CLICKHOUSE_PASSWORD" --data-binary 'SELECT 1' \
-    http://clickhouse:8123/ )"
+    -u "default:$CLICKHOUSE_PASSWORD" \
+    'http://clickhouse:8123/?query=SELECT%201' )"
 case "$probe_out" in
     *AUTHENTICATION_FAILED*|*"Authentication failed"*)
         ok "default rejected from non-localhost container source" ;;

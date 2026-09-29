@@ -131,8 +131,12 @@ function M.get_pricing(model_id, provider_id)
     return price, "fresh"
 end
 
-function M.compute_cost(tokens, price)
-    if not tokens or not price then return 0 end
+--Per-category cost split. Same arithmetic as compute_cost, returned as five
+--named components so usage_log can persist the exact spend of each token
+--category (000016). The dashboard folds cache_write into Input on display.
+function M.cost_breakdown(tokens, price)
+    local empty = { input = 0, cached = 0, cache_write = 0, output = 0, reasoning = 0 }
+    if not tokens or not price then return empty end
 
     local pt = tonumber(tokens.pt) or 0
     local ct = tonumber(tokens.ct) or 0
@@ -168,34 +172,49 @@ function M.compute_cost(tokens, price)
     local output_non_reasoning = ct - reasoning
     if output_non_reasoning < 0 then output_non_reasoning = ct end
 
-    local cost = input_uncached * input_rate / 1e6
-               + output_non_reasoning * output_rate / 1e6
-               + cached * cache_read_rate / 1e6
-               + cache_write * cache_write_rate / 1e6
-               + reasoning * reasoning_rate / 1e6
+    return {
+        input = input_uncached * input_rate / 1e6,
+        cached = cached * cache_read_rate / 1e6,
+        cache_write = cache_write * cache_write_rate / 1e6,
+        output = output_non_reasoning * output_rate / 1e6,
+        reasoning = reasoning * reasoning_rate / 1e6,
+    }
+end
 
-    return cost
+function M.compute_cost(tokens, price)
+    local b = M.cost_breakdown(tokens, price)
+    return b.input + b.cached + b.cache_write + b.output + b.reasoning
 end
 
 --Billed cost only. The price record's own `pricing_source` is the single
 --provenance value; provider_sync_pricing writes only `provider_override` or
 --`models_dev`. A record carrying anything else is a writer contract
 --violation: log it and refuse to bill rather than mislabel the row.
-function M.resolve_cost(tokens, model_id, provider_id)
+--Returns (nil, "unknown") when unpriced.
+function M.resolve_cost_breakdown(tokens, model_id, provider_id)
     local price = M.get_pricing(model_id, provider_id)
     if not price then
-        return 0, M.SOURCE_UNKNOWN
+        return nil, M.SOURCE_UNKNOWN
     end
 
     local source = price.pricing_source
     if source == M.SOURCE_PROVIDER_OVERRIDE or source == M.SOURCE_MODELS_DEV then
-        return M.compute_cost(tokens, price), source
+        return M.cost_breakdown(tokens, price), source
     end
     get_core().log.error("cost_calc: price for '", model_id,
         "' under provider '", provider_id,
         "' has unrecognized pricing_source '", tostring(source),
         "'; refusing to bill")
-    return 0, M.SOURCE_UNKNOWN
+    return nil, M.SOURCE_UNKNOWN
+end
+
+function M.resolve_cost(tokens, model_id, provider_id)
+    local breakdown, source = M.resolve_cost_breakdown(tokens, model_id, provider_id)
+    if not breakdown then
+        return 0, source
+    end
+    return breakdown.input + breakdown.cached + breakdown.cache_write
+        + breakdown.output + breakdown.reasoning, source
 end
 
 return M

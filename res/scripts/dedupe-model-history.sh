@@ -45,14 +45,13 @@ fi
 export REPO_ROOT
 # shellcheck source=/dev/null
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || exit 1
+# shellcheck source=/dev/null
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || exit 1
 
 # shellcheck source=../../tests/config/yaml_helpers.sh
 source "$REPO_ROOT/tests/config/yaml_helpers.sh" || exit 1
 
-ch() {
-  local sql="$1"
-  curl -sSf --max-time 300 --user "$CH_OPS_USER:$CH_OPS_PASSWORD" "$CH_URL/" --data-binary "$sql"
-}
+ch() { ch_exec "$1" 300; }
 
 ch_value() {
   local sql="$1"

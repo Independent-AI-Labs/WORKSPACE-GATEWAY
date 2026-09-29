@@ -28,6 +28,8 @@ export GATEWAY_URL CH_URL
 
 # Renderers for the conf/sql/test templates (caller sets REPO_ROOT).
 : "${REPO_ROOT:?lib_event_align.sh requires REPO_ROOT}"
+# shellcheck source=../../res/scripts/lib-ch.sh
+source "$REPO_ROOT/res/scripts/lib-ch.sh" || return 1
 export REPO_ROOT
 # shellcheck source=../../res/scripts/lib-sql.sh
 source "$REPO_ROOT/res/scripts/lib-sql.sh" || return 1
@@ -56,7 +58,7 @@ ch_query() (
     cfg="$(mktemp)"
     trap 'rm -f "$cfg"' EXIT
     printf 'user = "%s:%s"\n' "${CH_OPS_USER:-ops_admin}" "$CH_OPS_PASSWORD" > "$cfg"
-    curl -fsS --max-time 15 -G \
+    ch_curl -fsS --max-time 15 -G \
         --config "$cfg" \
         "$CH_URL/" --data-urlencode "query=$1 FORMAT TabSeparated"
 )

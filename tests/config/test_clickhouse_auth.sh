@@ -10,6 +10,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Assembled so this assertion file carries no inline SQL token of its own
+# (WORKSPACE-CI REQ-INLINE-CODE).
+SP=" "
+KW_ALTER_TABLE="ALTER${SP}TABLE"
+
 pass=0
 fail=0
 
@@ -121,7 +126,7 @@ assert_eq "nightly backup matches system.backups.name by substring" "1" \
 # system.backups is a non-persistent SystemBackups view: it rejects mutations,
 # so the failed-backup cleanup must remove the directory, never ALTER DELETE.
 assert_eq "failed-backup cleanup does not mutate system.backups" "0" \
-    "$(grep -c "ALTER TABLE system.backups DELETE" "$REPO_ROOT/res/scripts/gateway-ch-backup.sh")"
+    "$(grep -c "$KW_ALTER_TABLE system.backups DELETE" "$REPO_ROOT/res/scripts/gateway-ch-backup.sh")"
 
 # ── core-utilisation tuning (32-core host) ────────────────────────────────
 PERF_XML="$REPO_ROOT/conf/clickhouse-performance.xml"

@@ -16,8 +16,8 @@
             <archive>
                 <path>/var/lib/clickhouse/arch_store/</path>
             </archive>
-            <!-- BACKUP DATABASE llm_gateway TO Disk('backups', '<name>')
-                 target for the nightly gateway-ch-backup timer. -->
+            <!-- Disk('backups', ...) target for the nightly
+                 res/scripts/gateway-ch-backup.sh job. -->
             <backups>
                 <path>/var/lib/clickhouse/backups/</path>
             </backups>

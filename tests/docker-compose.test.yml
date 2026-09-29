@@ -73,7 +73,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.8-alpine
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1' >/dev/null"]
+      test: ["CMD-SHELL", "echo 'SELECT 1' | clickhouse-client --password \"$$CLICKHOUSE_PASSWORD\" >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -192,7 +192,7 @@ services:
       GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
       GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:3030/}"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required (see RUNBOOK-SECRETS; the public admin default is forbidden)}"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_SECURITY_COOKIE_SECURE: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"

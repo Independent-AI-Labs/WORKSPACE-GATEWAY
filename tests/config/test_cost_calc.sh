@@ -67,7 +67,9 @@ check("Module returns a table", type(M) == "table")
 -- sole pricing writer; cost_calc no longer fetches models.dev)
 check("Exposes get_pricing", type(M.get_pricing) == "function")
 check("Exposes compute_cost", type(M.compute_cost) == "function")
+check("Exposes cost_breakdown", type(M.cost_breakdown) == "function")
 check("Exposes resolve_cost", type(M.resolve_cost) == "function")
+check("Exposes resolve_cost_breakdown", type(M.resolve_cost_breakdown) == "function")
 check("Does NOT expose warmup (writer path removed)", type(M.warmup) == "nil")
 check("Does NOT expose fetch_and_cache (writer path removed)", type(M.fetch_and_cache) == "nil")
 check("Does NOT expose normalize_key (registry owns identity)", type(M.normalize_key) == "nil")
@@ -139,6 +141,29 @@ check("compute_cost zero reasoning bills at output == 2.0", math.abs(t9e4 - 2.0)
 local t9f = M.compute_cost({pt=0, ct=1e5, cached=0, reasoning=3e5},
     {input=1, output=2, reasoning=4})
 check("compute_cost separate reasoning == 1.4", math.abs(t9f - 1.4) < 1e-9)
+
+-- Test 9g: cost_breakdown splits the same formula into five exact
+-- components. uncached 7e5*1=0.7, output 4e5*2=0.8, cached 2e5*0.1=0.02,
+-- cache_write 1e5*1.25=0.125, reasoning 3e5*4=1.2.
+local bd = M.cost_breakdown({pt=1e6, ct=7e5, cached=2e5, cache_write=1e5, reasoning=3e5},
+    {input=1, output=2, cache_read=0.1, cache_write=1.25, reasoning=4})
+check("cost_breakdown.input == 0.7", math.abs(bd.input - 0.7) < 1e-9)
+check("cost_breakdown.output == 0.8", math.abs(bd.output - 0.8) < 1e-9)
+check("cost_breakdown.cached == 0.02", math.abs(bd.cached - 0.02) < 1e-9)
+check("cost_breakdown.cache_write == 0.125", math.abs(bd.cache_write - 0.125) < 1e-9)
+check("cost_breakdown.reasoning == 1.2", math.abs(bd.reasoning - 1.2) < 1e-9)
+local bsum = bd.input + bd.cached + bd.cache_write + bd.output + bd.reasoning
+local bcost = M.compute_cost({pt=1e6, ct=7e5, cached=2e5, cache_write=1e5, reasoning=3e5},
+    {input=1, output=2, cache_read=0.1, cache_write=1.25, reasoning=4})
+check("cost_breakdown sums to compute_cost", math.abs(bsum - bcost) < 1e-9)
+check("cost_breakdown components sum == 2.845", math.abs(bsum - 2.845) < 1e-9)
+check("cost_breakdown nil tokens is all-zero",
+    M.cost_breakdown(nil, {input=1}).input == 0)
+
+-- Test 9h: resolve_cost_breakdown returns nil on a miss (plain LuaJIT).
+local rbd, rsrc = M.resolve_cost_breakdown({pt=1e6, ct=0, cached=0, reasoning=0}, "glm-5.2", "workspace-gw-a")
+check("resolve_cost_breakdown miss is nil", rbd == nil)
+check("resolve_cost_breakdown miss source", rsrc == "unknown")
 
 -- Test 10: with no shared dict (plain LuaJIT), every lookup is a miss:
 -- billed cost is 0/unknown. Priced-branch provenance is covered by
