@@ -124,11 +124,15 @@ case "${1:-}" in
             compose logs --tail=200
         fi
         ;;
+    # --no-deps is mandatory: without it podman-compose `run` reconciles the
+    # migrate service's depends_on (clickhouse) and recreates/removes the
+    # project's dependent containers, tearing down an already-running stack.
+    # See docs/audits/AUDIT-GATEWAY-STACK-TEARDOWN-2026-10-03.md.
     migrate-up)
-        compose --profile migration run --rm migrate up
+        compose --profile migration run --rm --no-deps migrate up
         ;;
     migrate-status)
-        compose --profile migration run --rm migrate version
+        compose --profile migration run --rm --no-deps migrate version
         ;;
     migrate-force)
         version="${2:-}"
@@ -137,7 +141,7 @@ case "${1:-}" in
             usage
             exit 2
         fi
-        compose --profile migration run --rm migrate force "$version"
+        compose --profile migration run --rm --no-deps migrate force "$version"
         ;;
     *)
         usage

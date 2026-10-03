@@ -175,7 +175,11 @@
     - name: Check OpenBao container endpoint before start
       # 8201 is deliberately unpublished (REQ-SECURITY-HARDENING FR-5):
       # probe in-container health instead of the old host-port forward.
+      # Only meaningful when the unit is already active; on a cold/down stack
+      # (gateway_active.rc == 3) the container is absent and podman exec
+      # returns 125, which aborted the play before it could start the unit.
       tags: [start]
+      when: gateway_active.rc == 0
       ansible.builtin.shell: >
         {{ podman_path }} exec gw-openbao
         curl -sS -o /dev/null -w '%{http_code}' --max-time 3
@@ -183,7 +187,10 @@
         2>>{{ probe_log | quote }}
       register: gateway_host_health
       changed_when: false
-      failed_when: gateway_host_health.rc not in [0, 7, 28]
+      # Accept the "not running / not ready / connection error" codes so a
+      # just-(re)started unit (rc 125/255) does not fail `make gw-start`;
+      # only a genuinely unexpected code aborts the play.
+      failed_when: gateway_host_health.rc not in [0, 7, 28, 125, 255]
 
     - name: Start gateway compose when inactive
       tags: [start]
@@ -202,7 +209,10 @@
         enabled: true
       when:
         - gateway_active.rc == 0
-        - gateway_host_health.stdout | default('') not in ['200', '429', '501', '503']
+        # Only recreate on a real unhealthy HTTP code. Empty stdout (probe
+        # could not exec: container still starting up) must not trigger a
+        # redundant restart.
+        - gateway_host_health.stdout | default('') not in ['', '200', '429', '501', '503']
 
     - name: Restart gateway compose
       tags: [restart]
