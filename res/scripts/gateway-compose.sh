@@ -124,7 +124,7 @@ case "${1:-}" in
             compose logs --tail=200
         fi
         ;;
-    # --no-deps is mandatory: without it podman-compose `run` reconciles the
+    # --no-deps is mandatory: without it the migration runner reconciles the
     # migrate service's depends_on (clickhouse) and recreates/removes the
     # project's dependent containers, tearing down an already-running stack.
     # See docs/audits/AUDIT-GATEWAY-STACK-TEARDOWN-2026-10-03.md.

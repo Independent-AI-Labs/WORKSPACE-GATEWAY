@@ -130,8 +130,8 @@ services:
         condition: service_healthy
     volumes:
       - ../../conf/sql/migrations:/migrations:ro
-    # entrypoint holds the persistent flags so `podman-compose run --rm
-    # migrate <subcommand>` replaces ONLY args (subcommand), preserving
+    # entrypoint holds the persistent flags so a `--rm migrate
+    # <subcommand>` invocation replaces ONLY args (subcommand), preserving
     # -path and -database. Default command is "up"; overridden by
     # `run ... migrate version` for status, etc.
     entrypoint:

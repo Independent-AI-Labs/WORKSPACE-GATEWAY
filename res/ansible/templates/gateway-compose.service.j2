@@ -14,11 +14,10 @@ LimitNOFILE=1048576:1048576
 ExecStart={{ project_root }}/res/scripts/gateway-compose-up.sh {{ compose_cmd }} {{ podman_path }} {{ compose_file }}
 ExecStop={{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} stop -t 30 apisix
 ExecStop={{ compose_cmd }} --podman-path {{ podman_path }} -f {{ compose_file }} stop -t 30 clickhouse vector openbao prometheus grafana etcd
-# always (not on-failure): the 2026-10-03 teardown exited status 0, so
-# on-failure would not have restarted it. systemd does not restart after an
-# explicit `systemctl stop` (gw-stop/gw-restart), so this only self-heals
-# unexpected exits. See docs/audits/AUDIT-GATEWAY-STACK-TEARDOWN-2026-10-03.md.
-Restart=always
+# Restart ownership stays with the explicit make targets (gw-start/gw-restart).
+# systemd Restart= here would duplicate that (AUDIT-GATEWAY-AUTOMATION-2026-08:
+# combining container restart policy with systemd restart ownership loops).
+Restart=no
 RestartSec=15
 TimeoutStartSec=300
 TimeoutStopSec=90
