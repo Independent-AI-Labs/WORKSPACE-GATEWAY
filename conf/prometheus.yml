@@ -8,6 +8,10 @@ scrape_configs:
     static_configs:
       - targets: ['apisix:9100']
 
+  - job_name: 'workspace-rp'
+    static_configs:
+      - targets: ['rp-exporter:9187']
+
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']

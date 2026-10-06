@@ -271,13 +271,19 @@ assert_eq "Prometheus config exists" "ok" "ok"
 PROM_JSON=$(yaml_to_json "$PROM_FILE")
 
 SCRAPE_COUNT=$(echo "$PROM_JSON" | jq '.scrape_configs | length')
-assert_eq "Two scrape configs" "2" "$SCRAPE_COUNT"
+assert_eq "Three scrape configs" "3" "$SCRAPE_COUNT"
 
 HAS_APISIX_JOB=$(echo "$PROM_JSON" | jq '[.scrape_configs[] | select(.job_name == "gateway-apisix")] | length')
 assert_eq "Has gateway-apisix scrape job" "1" "$HAS_APISIX_JOB"
 
 APISIX_TARGET=$(echo "$PROM_JSON" | jq -r '.scrape_configs[] | select(.job_name == "gateway-apisix") | .static_configs[0].targets[0]')
 assert_eq "APISIX scrape target is apisix:9100" "apisix:9100" "$APISIX_TARGET"
+
+HAS_RP_JOB=$(echo "$PROM_JSON" | jq '[.scrape_configs[] | select(.job_name == "workspace-rp")] | length')
+assert_eq "Has workspace-rp scrape job" "1" "$HAS_RP_JOB"
+
+RP_TARGET=$(echo "$PROM_JSON" | jq -r '.scrape_configs[] | select(.job_name == "workspace-rp") | .static_configs[0].targets[0]')
+assert_eq "RP scrape target is rp-exporter:9187" "rp-exporter:9187" "$RP_TARGET"
 
 APISIX_METRICS_PATH=$(echo "$PROM_JSON" | jq -r '.scrape_configs[] | select(.job_name == "gateway-apisix") | .metrics_path')
 assert_eq "APISIX metrics path correct" "/apisix/prometheus/metrics" "$APISIX_METRICS_PATH"
