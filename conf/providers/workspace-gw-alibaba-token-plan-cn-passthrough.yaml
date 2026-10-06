@@ -4,8 +4,8 @@ name: "Workspace GW (Alibaba Cloud Token Plan (China) Passthrough)"
 provider:
   id: alibaba-token-plan-cn
   label: Alibaba Cloud Token Plan (China)
-route: "/token-plan-cn"
-npm: "@anthropic-ai/sdk"
+route: "/token-plan-cn/compatible-mode/v1"
+npm: "@ai-sdk/openai-compatible"
 auth:
   type: passthrough
 options:

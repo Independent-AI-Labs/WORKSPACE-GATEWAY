@@ -71,8 +71,8 @@ assert_eq "alibaba token-plan YAML name follows contract" "Workspace GW (Alibaba
 assert_eq "alibaba token-plan YAML provider.id" "alibaba-token-plan" "$(echo "$ATP_YAML" | jq -r '.provider.id')"
 assert_eq "alibaba token-plan YAML label" "Alibaba Cloud Token Plan" "$(echo "$ATP_YAML" | jq -r '.provider.label')"
 assert_eq "alibaba token-plan YAML auth type" "passthrough" "$(echo "$ATP_YAML" | jq -r '.auth.type')"
-assert_eq "alibaba token-plan YAML route" "/token-plan" "$(echo "$ATP_YAML" | jq -r '.route')"
-assert_eq "alibaba token-plan YAML npm" "@anthropic-ai/sdk" "$(echo "$ATP_YAML" | jq -r '.npm')"
+assert_eq "alibaba token-plan YAML route" "/token-plan/compatible-mode/v1" "$(echo "$ATP_YAML" | jq -r '.route')"
+assert_eq "alibaba token-plan YAML npm" "@ai-sdk/openai-compatible" "$(echo "$ATP_YAML" | jq -r '.npm')"
 assert_eq "alibaba token-plan YAML model_source.provider" "alibaba-token-plan" "$(echo "$ATP_YAML" | jq -r '.model_source.provider')"
 assert_eq "alibaba token-plan YAML pricing provider" "alibaba-token-plan" "$(echo "$ATP_YAML" | jq -r '.pricing.source.provider')"
 
@@ -81,7 +81,7 @@ assert_eq "alibaba token-plan-cn YAML id follows contract" "workspace-gw-alibaba
 assert_eq "alibaba token-plan-cn YAML name follows contract" "Workspace GW (Alibaba Cloud Token Plan (China) Passthrough)" "$(echo "$ATPC_YAML" | jq -r '.name')"
 assert_eq "alibaba token-plan-cn YAML provider.id" "alibaba-token-plan-cn" "$(echo "$ATPC_YAML" | jq -r '.provider.id')"
 assert_eq "alibaba token-plan-cn YAML auth type" "passthrough" "$(echo "$ATPC_YAML" | jq -r '.auth.type')"
-assert_eq "alibaba token-plan-cn YAML route" "/token-plan-cn" "$(echo "$ATPC_YAML" | jq -r '.route')"
+assert_eq "alibaba token-plan-cn YAML route" "/token-plan-cn/compatible-mode/v1" "$(echo "$ATPC_YAML" | jq -r '.route')"
 assert_eq "alibaba token-plan-cn YAML model_source.provider" "alibaba-token-plan-cn" "$(echo "$ATPC_YAML" | jq -r '.model_source.provider')"
 
 # --- routes mapped in the single-source route-provider map ---

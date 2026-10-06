@@ -74,8 +74,8 @@ assert_eq "relay-anthropic: sse-usage plugin present" "true" "$ANT_HAS_SSE"
 ANT_YAML=$(yaml_to_json "$REPO_ROOT/conf/providers/workspace-gw-anthropic-api-key.yaml")
 assert_eq "anthropic api-key YAML id follows contract" "workspace-gw-anthropic-api-key" "$(echo "$ANT_YAML" | jq -r '.id')"
 assert_eq "anthropic api-key YAML auth type" "api_key" "$(echo "$ANT_YAML" | jq -r '.auth.type')"
-assert_eq "anthropic api-key YAML route" "/anthropic" "$(echo "$ANT_YAML" | jq -r '.route')"
-assert_eq "anthropic api-key YAML npm" "@anthropic-ai/sdk" "$(echo "$ANT_YAML" | jq -r '.npm')"
+assert_eq "anthropic api-key YAML route" "/anthropic/v1" "$(echo "$ANT_YAML" | jq -r '.route')"
+assert_eq "anthropic api-key YAML npm" "@ai-sdk/anthropic" "$(echo "$ANT_YAML" | jq -r '.npm')"
 
 # --- ROUTE_PROVIDERS drift guard: every non-oauth provider route family is
 # --- mapped in cost_calc.lua for cost attribution (zai regression class) ---

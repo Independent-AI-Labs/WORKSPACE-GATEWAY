@@ -140,8 +140,8 @@ name: "Workspace GW (Alibaba Cloud Token Plan Passthrough)"
 provider:
   id: alibaba-token-plan
   label: Alibaba Cloud Token Plan
-route: "/token-plan"
-npm: "@anthropic-ai/sdk"
+route: "/token-plan/compatible-mode/v1"
+npm: "@ai-sdk/openai-compatible"
 auth:
   type: passthrough
 options:
@@ -151,16 +151,17 @@ options:
 context_limit_ceiling: 256000
 model_source:
   type: models_dev_provider
-  provider: qwen
+  provider: alibaba-token-plan
 pricing:
   source:
     type: models_dev
-    provider: qwen
+    provider: alibaba-token-plan
   missing_policy: unknown
 ```
 
 The China variant sets `provider.id: alibaba-token-plan-cn`,
-`label: Alibaba Cloud Token Plan (China)`, `route: /token-plan-cn`,
+`label: Alibaba Cloud Token Plan (China)`,
+`route: /token-plan-cn/compatible-mode/v1`,
 `id: workspace-gw-alibaba-token-plan-cn-passthrough`.
 
 Notes:
@@ -168,10 +169,13 @@ Notes:
   (`provider_sync_contract.lua`); no credentials are written to client auth
   stores and the opencode login tool skips auth for it
   (`opencode-provider-login.sh`). Clients supply their own `sk-sp-` key.
-- `npm` is `@anthropic-ai/sdk` because the primary coding-agent path is the
-  Anthropic-compatible `/apps/anthropic` protocol; the OpenAI-compatible
-  `/compatible-mode/v1` path is reachable through the same route for
-  OpenAI-SDK clients.
+- `npm` is `@ai-sdk/openai-compatible` (the provider package OpenCode knows;
+  `@anthropic-ai/sdk` is a raw SDK, not an AI SDK provider factory, and fails
+  provider init). The OpenCode `baseURL` is the route **plus the plan's
+  OpenAI-compatible base path** (`/token-plan/compatible-mode/v1`), so the
+  SDK's `/chat/completions` lands on the plan endpoint. The relay route itself
+  stays path-transparent, so Anthropic-protocol clients can still use
+  `/token-plan/apps/anthropic` directly.
 - `model_source` follows the repo's models.dev pattern (all existing
   providers use `models_dev_provider`); the live endpoint catalog is recorded
   in RES section 3. See OQ in REQ section 6 on models.dev id coverage.
@@ -226,8 +230,8 @@ pass through verbatim. Gateway-side failures are the common relay stack only
 |------|---------|-------------|
 | `conf/apisix.yaml` | 2 `relay-alibaba-token-plan*` routes | passthrough, identity encoding |
 | `conf/apisix.yaml.j2` | identical route blocks | drift-kept in sync |
-| `conf/providers/workspace-gw-alibaba-token-plan-passthrough.yaml` | Intl OpenCode provider | passthrough, models.dev qwen |
-| `conf/providers/workspace-gw-alibaba-token-plan-cn-passthrough.yaml` | China OpenCode provider | passthrough, models.dev qwen |
+| `conf/providers/workspace-gw-alibaba-token-plan-passthrough.yaml` | Intl OpenCode provider | passthrough, models.dev alibaba-token-plan |
+| `conf/providers/workspace-gw-alibaba-token-plan-cn-passthrough.yaml` | China OpenCode provider | passthrough, models.dev alibaba-token-plan-cn |
 | `plugins/custom/cost_calc.lua` | `ROUTE_PROVIDERS` mapping (single source) | 2 new entries |
 | `tests/config/test_alibaba_token_plan_routes.sh` | route assertions | new, sourced by `test_apisix_yaml.sh` |
 | `tests/config/test_apisix_yaml.sh` | route count | 16 -> 18 |

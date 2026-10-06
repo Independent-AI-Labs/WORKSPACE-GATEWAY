@@ -95,7 +95,7 @@ no provider-oauth engine, and no gateway OAuth route for Anthropic.
 ## 3. Provider definition
 
 The single provider file uses `provider.id: anthropic`, `route:
-/anthropic`, `npm: "@anthropic-ai/sdk"`, and anthropic models.dev
+/anthropic/v1`, `npm: "@ai-sdk/anthropic"`, and anthropic models.dev
 source/pricing, with `auth.type: api_key`.
 
 ```yaml
@@ -103,8 +103,8 @@ source/pricing, with `auth.type: api_key`.
 id: workspace-gw-anthropic-api-key
 name: "Workspace GW (Anthropic API Key)"
 provider: { id: anthropic, label: Anthropic }
-route: "/anthropic"
-npm: "@anthropic-ai/sdk"
+route: "/anthropic/v1"
+npm: "@ai-sdk/anthropic"
 auth:
   type: api_key
 options: { headers: { X-Tenant-ID: default, X-User-ID: agent } }

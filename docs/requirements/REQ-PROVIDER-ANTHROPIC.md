@@ -111,7 +111,7 @@ provider, and the built-in OpenCode `anthropic` provider for Claude Pro/Max.
 
 | ID | Requirement |
 |----|-------------|
-| FR-3.1 | The repository SHALL provision exactly one Anthropic provider file, following the existing provider YAML schema and id contract, using `provider.id: anthropic` and `npm: "@anthropic-ai/sdk"`: `workspace-gw-anthropic-api-key` (auth `api_key`). |
+| FR-3.1 | The repository SHALL provision exactly one Anthropic provider file, following the existing provider YAML schema and id contract, using `provider.id: anthropic` and `npm: "@ai-sdk/anthropic"`: `workspace-gw-anthropic-api-key` (auth `api_key`). |
 | FR-3.2 | The provider MUST use the single `/anthropic` route; no additional gateway route, upstream, or auth surface is introduced. |
 | FR-3.3 | The built-in OpenCode provider id `anthropic` MUST NOT be defined or overridden by any committed provider file or static fragment. (The subscription path selects it, but routing is injected at runtime via `ANTHROPIC_BASE_URL`, never by committed provider config.) |
 | FR-3.4 | The repository MUST NOT ship a custom static-config fragment for Anthropic. The API-key provider is installed by `make setup-providers`; the subscription path is wired by `make setup-anthropic-max`. |
@@ -141,7 +141,7 @@ provider, and the built-in OpenCode `anthropic` provider for Claude Pro/Max.
 | ID | Requirement |
 |----|-------------|
 | FR-6.1 | Model catalog and pricing for the API-key provider SHALL sync from models.dev namespace `anthropic`; model ids MUST NOT be remapped. The subscription path uses the built-in provider's own models.dev catalog. |
-| FR-6.2 | Provider display MUST use the `@anthropic-ai/sdk` npm package id for Anthropic-protocol clients. |
+| FR-6.2 | Provider display MUST use the `@ai-sdk/anthropic` npm package id for Anthropic-protocol clients. |
 
 ### FR-7: Security
 

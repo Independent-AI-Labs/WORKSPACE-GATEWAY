@@ -4,8 +4,8 @@ name: "Workspace GW (Anthropic API Key)"
 provider:
   id: anthropic
   label: Anthropic
-route: "/anthropic"
-npm: "@anthropic-ai/sdk"
+route: "/anthropic/v1"
+npm: "@ai-sdk/anthropic"
 auth:
   type: api_key
 options:
