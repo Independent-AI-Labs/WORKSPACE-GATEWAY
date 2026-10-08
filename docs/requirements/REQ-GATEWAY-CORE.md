@@ -5,7 +5,7 @@
 **Type:** Requirements
 **Specification:** [SPEC-GATEWAY-CORE](../specifications/SPEC-GATEWAY-CORE.md)
 
-> Mandates the APISIX gateway core: deployment in traditional/etcd mode, the 18 relay routes and their auth modes, upstreams (OpenCode, OpenAI, Moonshot Kimi, Anthropic, Z.ai, Alibaba Cloud Token Plan, llamafile VM, local Admin API), and the built-in/custom plugin configuration per route. Single source of truth: [`conf/apisix.yaml`](../../conf/apisix.yaml) (routes) and [`conf/config.yaml`](../../conf/config.yaml) (deployment + plugin registration). Excluded: telemetry schema, cost calculation, and plugin-internal contracts (owned by REQ-BILLING-TELEMETRY, REQ-COST-CALC, SPEC-PLUGIN-FOUNDATION).
+> Mandates the APISIX gateway core: deployment in traditional/etcd mode, the 18 routes and their auth modes, upstreams (OpenCode, OpenAI, Moonshot Kimi, Anthropic, Z.ai, Alibaba Cloud Token Plan, llamafile VM, local Admin API), and the built-in/custom plugin configuration per route. Single source of truth: [`conf/apisix.yaml`](../../conf/apisix.yaml) (routes) and [`conf/config.yaml`](../../conf/config.yaml) (deployment + plugin registration). Excluded: telemetry schema, cost calculation, and plugin-internal contracts (owned by REQ-BILLING-TELEMETRY, REQ-COST-CALC, SPEC-PLUGIN-FOUNDATION).
 
 ---
 
@@ -68,6 +68,7 @@ Define the required behavior of the gateway data plane: how it is deployed, whic
 | FR-2.10 | `relay-openai` (`/openai/*`) MUST rewrite to `/backend-api/codex/responses` on `chatgpt.com:443` (https, pass_host node) and MUST attach `provider-oauth` with `protocol: chatgpt_device` (ChatGPT device-code OAuth). |
 | FR-2.11 | `relay-zai-key` (`/zai-key/*`) and `relay-zai-key-v1` (`/zai-key/v1/*`) MUST rewrite to `/api/coding/paas/v4/$1` on `api.z.ai:443` (https, pass_host node) and MUST attach neither `provider-oauth` nor `key-resolver` (gateway-provisioned key / passthrough). |
 | FR-2.12 | `relay-anthropic` (`/anthropic/*`) MUST rewrite to `/$1` on `api.anthropic.com:443` (https, pass_host node), MUST NOT attach any auth-injecting or auth-stripping plugin (client credentials reach the upstream byte-identical), and MUST set `accept-encoding: identity` so SSE usage telemetry reads plaintext. |
+| FR-2.13 | `relay-anthropic-coding-plan` (`/anthropic-coding-plan/*`) MUST rewrite to `/$1` on the same `api.anthropic.com:443` upstream (https, pass_host node), MUST NOT attach any auth-injecting or auth-stripping plugin, and MUST set `accept-encoding: identity`. It is a byte-identical twin of `relay-anthropic` that exists so coding-plan (Claude Pro/Max subscription) traffic is attributable to a separate provider id. |
 | FR-2.14 | `relay-alibaba-token-plan` (`/token-plan/*`) MUST rewrite to `/$1` on `token-plan.ap-southeast-1.maas.aliyuncs.com:443` (https, pass_host node), MUST NOT attach an auth plugin (client passthrough), and MUST set `accept-encoding: identity`. |
 | FR-2.15 | `relay-alibaba-token-plan-cn` (`/token-plan-cn/*`) MUST rewrite to `/$1` on `token-plan.cn-beijing.maas.aliyuncs.com:443` (https, pass_host node), MUST NOT attach an auth plugin (client passthrough), and MUST set `accept-encoding: identity`. |
 

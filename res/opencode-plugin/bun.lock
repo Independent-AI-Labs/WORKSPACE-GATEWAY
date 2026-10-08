@@ -5,6 +5,7 @@
     "": {
       "name": "workspace-gateway",
       "dependencies": {
+        "@ex-machina/opencode-anthropic-auth": "1.8.5",
         "@opencode-ai/plugin": "1.18.14",
       },
       "devDependencies": {
@@ -16,6 +17,8 @@
   },
   "packages": {
     "@ai-sdk/provider": ["@ai-sdk/provider@3.0.8", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ=="],
+
+    "@ex-machina/opencode-anthropic-auth": ["@ex-machina/opencode-anthropic-auth@1.8.5", "", { "peerDependencies": { "@opencode-ai/plugin": "*" } }, "sha512-3a+HYVCBG1YgKms/Vk+mVpXVXzKlokdYBuTmkEh6AP4WL9f60rTfbVBdtMcbIvvPkqhpgF7mrMc24BXR8B3p1Q=="],
 
     "@msgpackr-extract/msgpackr-extract-darwin-arm64": ["@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ=="],
 

@@ -9,9 +9,10 @@
   },
   "scripts": {
     "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit",
-    "test": "bun test workspace-gateway-auth.test.ts"
+    "test": "bun test"
   },
   "dependencies": {
+    "@ex-machina/opencode-anthropic-auth": "1.8.5",
     "@opencode-ai/plugin": "1.18.14"
   },
   "devDependencies": {

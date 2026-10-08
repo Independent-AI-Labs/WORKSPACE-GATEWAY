@@ -100,11 +100,11 @@ section that owns each concern: [Plugins](#plugins) (request path),
 
 ### Sample deployments in this repo
 
-All 18 relay routes as registered in APISIX (definitions in
+All 18 routes as registered in APISIX (definitions in
 [`conf/apisix.yaml`](conf/apisix.yaml), provider config in
 [`conf/providers/`](conf/providers/)):
 
-![APISIX dashboard: all 18 relay routes registered by the gateway](res/apisix-dashboard-routes.png)
+![APISIX dashboard: all 18 routes registered by the gateway](res/apisix-dashboard-routes.png)
 
 In this sample, OpenCode Go exposes 20+ models (MiniMax, Kimi, GLM,
 DeepSeek, Qwen, MiMo, HY3) and OpenCode Zen serves the free/Zen model set
@@ -470,18 +470,20 @@ login script above, which fetches each ready-made block from
 - `workspace-gw-kimi-api-key`: API-key passthrough for Kimi
 - `workspace-gw-zai-api-key`: API-key passthrough for Z.ai GLM (Coding Plan endpoint)
 - `workspace-gw-anthropic-api-key`: API-key passthrough for Anthropic
+- `workspace-gw-anthropic-coding-plan-passthrough`: coding-plan (Claude Pro/Max) passthrough, auth client-side
 - `workspace-gw-openai-device-oauth`: device OAuth for OpenAI (ChatGPT)
 - `workspace-gw-alibaba-token-plan-passthrough`: API-key passthrough, Alibaba Token Plan
 - `workspace-gw-alibaba-token-plan-cn-passthrough`: API-key passthrough, Alibaba Token Plan (China)
 
 For the gateway-brokered OAuth providers, the login script starts the device
-flow and prints the verification URL. Claude Pro/Max is different: it is not a
-gateway provider at all. `make setup-anthropic-max` adds the maintained
-community plugin (`@ex-machina/opencode-anthropic-auth`) to the built-in
-OpenCode `anthropic` provider and prints the `ANTHROPIC_BASE_URL` needed to
-route model traffic through the gateway; the OAuth exchange runs client-side
-against Anthropic, so the gateway hosts no Anthropic auth and never handles the
-credential.
+flow and prints the verification URL. Claude Pro/Max auth is client-side:
+`make setup-anthropic-max` adds the maintained community plugin
+(`@ex-machina/opencode-anthropic-auth`) to the built-in OpenCode `anthropic`
+provider and prints the `ANTHROPIC_BASE_URL` needed to route model traffic
+through the gateway (default `/anthropic`; set `GW_ROUTE=/anthropic-coding-plan`
+or `ANTHROPIC_BASE_URL=<gateway>/anthropic-coding-plan` to use the coding-plan
+passthrough entry). The OAuth exchange runs client-side against Anthropic, so
+the gateway hosts no Anthropic auth and never handles the credential.
 
 Each provider receives the full enriched catalog, because opencode drops
 providers that expose zero models. The two Go providers

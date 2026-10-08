@@ -638,6 +638,55 @@ routes:
         clickhouse_user: "apisix_rw"
         clickhouse_password_env: "CH_APISIX_PASSWORD"
 
+  - id: relay-anthropic-coding-plan
+    # Byte-identical twin of relay-anthropic on its own prefix
+    # (REQ-PROVIDER-ANTHROPIC FR-1.4/FR-2.5). It exists solely so coding-plan
+    # (Claude Pro/Max subscription) traffic is attributed to a separate
+    # provider id; it still holds no credential and no auth plugin.
+    uri: /anthropic-coding-plan/*
+    upstream:
+      type: roundrobin
+      scheme: https
+      pass_host: node
+      nodes:
+        "api.anthropic.com:443": 1
+    plugins:
+      proxy-rewrite:
+        regex_uri: ["^/anthropic-coding-plan/(.*)", "/$1"]
+        headers:
+          set:
+            accept-encoding: "identity"
+      key-meta: {}
+      limit-count:
+        count: 100
+        time_window: 60
+        rejected_code: 429
+        key_type: var
+        key: http_x_key_hash
+        policy: local
+      prometheus:
+        prefer_name: true
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      http-logger:
+        uri: "http://vector:8080/ingest"
+        method: POST
+        content_type: "application/json"
+        batch_max_size: 1
+        include_req_body: true
+        include_resp_body: true
+        max_req_body_bytes: 262144
+        max_resp_body_bytes: 1048576
+      proxy-buffering:
+        disable: true
+      redact:
+        patterns_file: "/etc/apisix/redact-patterns.json"
+      sse-usage:
+        clickhouse_addr: "http://clickhouse:8123"
+        clickhouse_user: "apisix_rw"
+        clickhouse_password_env: "CH_APISIX_PASSWORD"
+
   - id: relay-llamafile
     uri: /llamafile/*
     # local infra upstream (LAN llamafile host): kept in sync with the

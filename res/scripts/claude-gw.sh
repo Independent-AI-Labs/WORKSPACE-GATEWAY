@@ -5,8 +5,8 @@ set -euo pipefail
 # Start Claude Code with the WORKSPACE gateway as its Anthropic backend.
 #
 # The only thing redirected is the API endpoint: ANTHROPIC_BASE_URL. The
-# gateway's /anthropic route (REQ/SPEC-PROVIDER-ANTHROPIC) bare-proxies
-# api.anthropic.com and passes ALL auth through untouched, so the CLI
+# gateway's /anthropic-coding-plan route (REQ/SPEC-PROVIDER-ANTHROPIC)
+# bare-proxies api.anthropic.com and passes ALL auth through untouched, so the CLI
 # keeps using its own standard mechanisms: /login runs the normal
 # browser flow against claude.ai, credentials stay in the CLI's own
 # store, refresh goes through the CLI as usual, and every request
@@ -16,7 +16,9 @@ set -euo pipefail
 #
 # Environment overrides (all optional):
 #   GW_BASE_URL  gateway origin (default: http://localhost:9080)
-#   GW_ROUTE     Anthropic route prefix (default: /anthropic)
+#   GW_ROUTE     Anthropic route prefix
+#                (default: /anthropic-coding-plan, the coding-plan
+#                passthrough route; set /anthropic for the API-key route)
 #   CLAUDE_BIN   claude executable (default: claude from PATH)
 #   WORKSPACE_GUARD_SANITIZED_SINK  guard strip-report sink
 #                (default set below: liveaudit; override to stderr to
@@ -25,7 +27,7 @@ set -euo pipefail
 # Usage: bash res/scripts/claude-gw.sh [claude args...]
 
 GW_BASE_URL="${GW_BASE_URL:-http://localhost:9080}"
-GW_ROUTE="${GW_ROUTE:-/anthropic}"
+GW_ROUTE="${GW_ROUTE:-/anthropic-coding-plan}"
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 
 # Claude Code shells out to git constantly and parses its output; a

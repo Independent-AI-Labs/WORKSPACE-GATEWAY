@@ -41,7 +41,7 @@ fi
 
 assert_eq "Valid YAML (parseable)" "ok" "ok"
 
-assert_eq "Exactly 17 routes" "17" "$(echo "$JSON_DATA" | jq '.routes | length')"
+assert_eq "Exactly 18 routes" "18" "$(echo "$JSON_DATA" | jq '.routes | length')"
 assert_eq "http-logger metadata log_format_extra (model|stream; seed-routes.sh, survives the 256 KiB body cap)" '$sse_model|$sse_stream' "$(echo "$JSON_DATA" | jq -r '(.plugin_metadata[] | select(.id == "http-logger")).log_format_extra | "\(.model)|\(.stream)"')"
 # --- relay-opencode (passthrough, no key-resolver) ---
 OC_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-opencode")][0]')

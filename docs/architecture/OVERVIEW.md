@@ -40,12 +40,15 @@ Defined in [`conf/apisix.yaml`](../../conf/apisix.yaml), grouped by upstream.
 | Route id | Prefix | Auth |
 |----------|--------|------|
 | `relay-anthropic` | `/anthropic/*` | None (bare passthrough) |
+| `relay-anthropic-coding-plan` | `/anthropic-coding-plan/*` | None (bare passthrough) |
 
-One provider-sync entry rides this route: `workspace-gw-anthropic-api-key`
-(client API key). Claude Pro/Max is not a gateway provider: it uses the
-built-in OpenCode `anthropic` provider plus the maintained community auth
-plugin, routed at runtime via `ANTHROPIC_BASE_URL`. The gateway performs no
-Anthropic auth; the OAuth exchange runs client-side against Anthropic.
+Two provider-sync entries ride these routes: `workspace-gw-anthropic-api-key`
+(client API key) and `workspace-gw-anthropic-coding-plan-passthrough`
+(coding plan / subscription, `passthrough`). Claude Pro/Max auth is
+client-side: the built-in OpenCode `anthropic` provider plus the maintained
+community auth plugin, routed at runtime via `ANTHROPIC_BASE_URL`, or the
+coding-plan passthrough entry. The gateway performs no Anthropic auth; the
+OAuth exchange runs client-side against Anthropic.
 
 ### Z.ai (`api.z.ai:443`, rewrite to `/api/coding/paas/v4/`)
 

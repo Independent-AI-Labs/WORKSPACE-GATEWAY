@@ -20,7 +20,7 @@
 - [`plugins/custom/provider-sync.lua`](../../plugins/custom/provider-sync.lua): plugin phases and HTTP endpoints
 - [`plugins/custom/provider_sync_catalog.lua`](../../plugins/custom/provider_sync_catalog.lua): catalog load/enrich/sync logic
 - [`plugins/custom/provider_sync_pricing.lua`](../../plugins/custom/provider_sync_pricing.lua): sole `pricing:*` writer
-- [`conf/providers/`](../../conf/providers): 12 provider definition YAMLs
+- [`conf/providers/`](../../conf/providers): 13 provider definition YAMLs
 - [`res/scripts/opencode-provider-login.sh`](../../res/scripts/opencode-provider-login.sh): thin client login script
 - [`res/opencode-plugin/workspace-gateway-auth.ts`](../../res/opencode-plugin/workspace-gateway-auth.ts): gateway-exec OpenCode auth plugin
 - [`conf/apisix.yaml`](../../conf/apisix.yaml): `gateway-provider-sync` route
@@ -79,6 +79,7 @@ it is consulted only within each provider's declared namespace.
 | FR-1.7 | `model_aliases` MAY map alias ids to real model ids; aliases MUST receive a deep copy of the target model entry. |
 | FR-1.8 | `model_source.filter` (optional) MAY carry `include` / `exclude` lists of Lua patterns matched against normalized model ids. `exclude` patterns MUST drop matching ids; a non-empty `include` list MUST keep only matching ids. Applies to every `model_source.type`. |
 | FR-1.9 | Files that fail to parse or lack an `id` MUST be skipped with a warning, never causing a 5xx. |
+| FR-1.10 | `auth.methods` (optional) MAY declare client auth methods as a list of `{ id, flow, label, route? }`. `flow` MUST be one of `device_authorization`, `authorization_code`, `client_oauth`. A method's `route` is optional: a route-less method is pure client-side metadata and MUST NOT provision a gateway route or credential. `auth.methods` is independent of `auth.type`, so a `passthrough` provider may carry client-side methods. |
 
 ### FR-2: Sync & Enrichment
 
@@ -113,8 +114,8 @@ it is consulted only within each provider's declared namespace.
 | FR-4.1 | `GET /gateway/providers` MUST return a sorted JSON list of `{ id, name, auth_type }`. |
 | FR-4.2 | `GET /gateway/providers/{id}` MUST return the full enriched provider, or 404 `{ "error": "provider not found" }`. |
 | FR-4.3 | `GET /gateway/providers/{id}/opencode` MUST return an OpenCode provider block whose `options.baseURL` is built at request time from scheme/host/port plus the provider `route`. |
-| FR-4.4 | The `/opencode` response MUST include `auth_type`; for `auth.type == "oauth"` it MUST include `auth_route` and explicit `auth_methods` with method ids and flow types (plus `label` and the method `route`). |
-| FR-4.5 | The OpenCode auth engine (`res/opencode-plugin/workspace-gateway-auth.ts`) MUST be loadable through OpenCode's standard `plugin` config array and MUST consume the method-specific gateway routes. |
+| FR-4.4 | The `/opencode` response MUST include `auth_type` and, whenever `auth.methods` is non-empty, explicit `auth_methods` with each method's id, flow, and `label`, plus its `route` only when the method declares one. A route-less method (e.g. `client_oauth`) MUST be emitted without `auth_route`. For `auth.type == "oauth"` providers the `auth_route` field remains present. |
+| FR-4.5 | An OpenCode auth engine MUST be loadable through OpenCode's standard `plugin` config array: `res/opencode-plugin/workspace-gateway-auth.ts` for gateway-executed method flows, `res/opencode-plugin/workspace-gateway-anthropic-plan.ts` for route-less `client_oauth`. |
 | FR-4.6 | `POST /gateway/providers/sync` MUST trigger a sync and return 200 with `{ ok, providers_loaded, models_enriched }`, 202 when a sync is already running, or 503 on failure. |
 | FR-4.7 | All JSON responses MUST set `Content-Type: application/json`; unmatched URIs MUST return 404. |
 | FR-4.8 | When the catalog is unavailable (cache empty and sync failed), endpoints MUST return 503 `{ "error": "provider catalog unavailable" }`. |
@@ -129,8 +130,9 @@ it is consulted only within each provider's declared namespace.
 | FR-5.4 | For `api_key`/`virtual_key`, the script MUST prompt for the key unless `--no-prompt` is set (then fail). |
 | FR-5.5 | The script MUST insert or replace only the matching `provider.<id>` entry, preserving all other providers and top-level keys; JSONC input is rewritten as plain JSON. |
 | FR-5.6 | The script MUST merge `{ "<id>": { "type": "api", "key": "<token>" } }` into the auth file and set its permissions to `600`. |
-| FR-5.7 | For every provider with a non-empty `auth_methods` list, the script MUST register the gateway auth engine (`res/opencode-plugin/workspace-gateway-auth.ts`) in the OpenCode config `plugin` array. Because OpenCode collapses config entries that share one target file (last entry wins), each provider MUST get its own generated wrapper `~/.config/opencode/plugin/wg-auth-<provider-id>.ts` (imports the engine, bakes `{provider, gateway}` options) referenced as a plain string entry. Registration MUST be idempotent (rewrite wrapper, replace entry in place, no duplicates), MUST preserve unrelated plugin entries, and MUST remove the wrapper and entry (including earlier `file://` tuple entries) when a provider loses its methods. Providers without methods MUST NOT get an entry. |
+| FR-5.7 | For every provider with a non-empty `auth_methods` list, the script MUST register the appropriate auth engine in the OpenCode config `plugin` array, dispatching on the first method's `flow`: `res/opencode-plugin/workspace-gateway-auth.ts` for gateway-executed flows, `res/opencode-plugin/workspace-gateway-anthropic-plan.ts` for route-less `client_oauth`. Because OpenCode collapses config entries that share one target file (last entry wins), each provider MUST get its own generated wrapper `~/.config/opencode/plugin/wg-auth-<provider-id>.ts` (imports the engine, bakes `{provider, gateway}` options) referenced as a plain string entry. Registration MUST be idempotent (rewrite wrapper, replace entry in place, no duplicates), MUST preserve unrelated plugin entries, and MUST remove the wrapper and entry (including earlier `file://` tuple entries) when a provider loses its methods. Providers without methods MUST NOT get an entry. |
 | FR-5.8 | The script MUST write exactly one OpenCode config file: `<config dir>/opencode.jsonc`, where `<config dir>` is `$OPENCODE_CONFIG_DIR` when set, else `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`. It MUST NOT write a secondary `opencode.json`. Because OpenCode deep-merges every `config.json`, `opencode.json`, and `opencode.jsonc` in the config directory (`packages/opencode/src/config/config.ts` `loadGlobal`), a stale sibling unions its providers and models into the generated config. When an explicit `--config-file` is not given, the script MUST refuse to run (non-zero exit, no write) if a non-empty `config.json` or `opencode.json` sibling exists, and MUST print the exact remediation (`rm -f <sibling>`). |
+| FR-5.9 | For a provider whose first method flow is `client_oauth`, the script MUST register the client-side wrapper engine (FR-5.7) and MUST NOT attempt any gateway auth request, MUST NOT prompt for a credential, and MUST NOT write an auth entry. |
 
 ### FR-6: Security Model
 
@@ -190,6 +192,8 @@ the APISIX image; provider dir mounted into the container.)
 | FR-2.7/2.8 models.dev metadata enrichment | Implemented | provider_sync_catalog.lua `build_models_from_endpoint` + `provider_sync_metadata.lua` |
 | FR-2.9 reasoning variants + modalities | Implemented | `provider_sync_metadata.lua` `variants`/`modalities` |
 | FR-2.10 output clamped to context | Implemented | `provider_sync_metadata.lua` `scale_limit` |
-| FR-5.7 plugin registration | Implemented | opencode-provider-login.sh `register_auth_plugin` |
-| FR-4.5 OAuth plugin | Implemented | res/opencode-plugin/workspace-gateway-auth.ts |
+| FR-5.7 plugin registration (flow dispatch) | Implemented | opencode-client-lib.sh `register_auth_plugin` |
+| FR-4.5 gateway-exec OAuth plugin | Implemented | res/opencode-plugin/workspace-gateway-auth.ts |
+| FR-1.10/FR-4.4 route-less `client_oauth` methods | Implemented | provider-sync.lua `build_opencode_block`; conf/providers/workspace-gw-anthropic-coding-plan-passthrough.yaml |
+| FR-4.5/FR-5.9 client-side plan engine | Implemented | res/opencode-plugin/workspace-gateway-anthropic-plan.ts |
 | FR-6.x security model | Implemented | conf/apisix.yaml `gateway-provider-sync` route (limit-count 60/60s) |

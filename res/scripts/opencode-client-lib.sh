@@ -61,21 +61,30 @@ strip_jsonc_comments() {
 }
 
 # --- OpenCode auth plugin registration (FR-5.7) ---
-# Registers the gateway-owned auth plugin for OAuth providers. OpenCode
-# collapses config plugin entries that share one target file (last entry
-# wins), so each provider gets a tiny generated wrapper with baked options
-# under ~/.config/opencode/plugin/ and a plain string spec entry. Idempotent:
-# the wrapper is rewritten and the entry replaced in place; unrelated plugin
-# entries are preserved; providers without OAuth methods get neither.
+# Registers the gateway-owned auth plugin for providers with declared auth
+# methods. OpenCode collapses config plugin entries that share one target file
+# (last entry wins), so each provider gets a tiny generated wrapper with baked
+# options under ~/.config/opencode/plugin/ and a plain string spec entry.
+# The engine is chosen from the first method's flow: a client_oauth flow runs
+# entirely in the OpenCode client (the thin wrapper over the community
+# Anthropic plugin) and needs no gateway auth route; every other flow uses the
+# gateway-exec engine. Idempotent: the wrapper is rewritten and the entry
+# replaced in place; unrelated plugin entries are preserved; providers without
+# methods get neither.
 # Globals read: PROVIDER_ID, GATEWAY, CONFIG_FILE, OPENCODE_RESP, REPO_ROOT,
 # MERGED_CONFIG (updated in place).
 register_auth_plugin() {
-  local engine plugin_dir wrapper method_count fileurl
-  engine="$REPO_ROOT/res/opencode-plugin/workspace-gateway-auth.ts"
+  local engine plugin_dir wrapper method_count first_flow fileurl
   plugin_dir="$(dirname "$CONFIG_FILE")/plugin"
   wrapper="$plugin_dir/wg-auth-${PROVIDER_ID}.ts"
-  fileurl="file://${engine}"
   method_count=$(echo "$OPENCODE_RESP" | jq -r '(.auth_methods // []) | length')
+  first_flow=$(echo "$OPENCODE_RESP" | jq -r '(.auth_methods // [])[0].flow // ""')
+  if [ "$first_flow" = "client_oauth" ]; then
+    engine="$REPO_ROOT/res/opencode-plugin/workspace-gateway-anthropic-plan.ts"
+  else
+    engine="$REPO_ROOT/res/opencode-plugin/workspace-gateway-auth.ts"
+  fi
+  fileurl="file://${engine}"
 
   #Keep every entry except this provider's own string entry and any prior
   #engine tuple entry carrying this provider id; the register branch then

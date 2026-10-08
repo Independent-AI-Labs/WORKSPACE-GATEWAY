@@ -122,11 +122,12 @@ confused with native `openid-connect`. See
 [SPEC-PROVIDER-OPENAI](../specifications/SPEC-PROVIDER-OPENAI.md) and
 [SPEC-PROVIDER-KIMI](../specifications/SPEC-PROVIDER-KIMI.md).
 
-Anthropic is deliberately excluded from `provider-oauth`. Its API-key
-provider entry is client-authenticated (`workspace-gw-anthropic-api-key`),
-and Claude Pro/Max runs on the built-in OpenCode `anthropic` provider via a
-maintained community plugin. The gateway never mints, stores, or refreshes
-an Anthropic credential. See
+Anthropic is deliberately excluded from `provider-oauth`. Its provider
+entries are client-authenticated: `workspace-gw-anthropic-api-key` (api_key)
+and `workspace-gw-anthropic-coding-plan-passthrough` (passthrough for the
+Claude Pro/Max subscription endpoints). Claude Pro/Max also runs on the
+built-in OpenCode `anthropic` provider via a maintained community plugin. The
+gateway never mints, stores, or refreshes an Anthropic credential. See
 [SPEC-PROVIDER-ANTHROPIC](../specifications/SPEC-PROVIDER-ANTHROPIC.md).
 
 | Direction | Plugin | Purpose |

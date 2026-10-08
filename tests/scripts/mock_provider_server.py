@@ -49,7 +49,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json([
                 {"id": "test-oauth", "auth_type": "oauth"},
                 {"id": "test-api-key", "auth_type": "api_key"},
+                {"id": "test-client-oauth", "auth_type": "passthrough"},
             ])
+            return
+        if self.path.startswith("/gateway/providers/test-client-oauth/opencode"):
+            self._send_json({
+                "provider": {
+                    "name": "Test Client OAuth",
+                    "npm": "@ai-sdk/anthropic",
+                    "options": {"baseURL": "http://gateway/anthropic-coding-plan/v1"},
+                    "models": {"m1": {"name": "M1"}},
+                },
+                "auth_type": "passthrough",
+                "auth_methods": [
+                    {
+                        "id": "anthropic-plan-client-oauth",
+                        "flow": "client_oauth",
+                        "label": "Claude Pro/Max",
+                    }
+                ],
+            })
             return
         if self.path.startswith("/gateway/providers/test-oauth/opencode"):
             self._send_json({

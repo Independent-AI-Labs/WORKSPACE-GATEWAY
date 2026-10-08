@@ -189,6 +189,46 @@ v2.1.196 Remote Control is disabled when `ANTHROPIC_BASE_URL` is not
 `api.anthropic.com`. Everything else (models, streaming, tools,
 count_tokens) behaves identically.
 
+### F6: Routing a client-side OAuth plugin through a path-prefixed gateway route
+
+The coding-plan provider is added through the OpenCode TUI by reusing the
+community plugin's OAuth hook, but three of that plugin's behaviours make a
+naive reuse fail against a gateway route that prefixes the Anthropic path
+(`/anthropic-coding-plan/v1/messages`):
+
+1. **Auth is keyed by provider id.** `ProviderAuth` builds
+   `hooks[providerID]` from each plugin's `auth.provider`
+   (`packages/opencode/src/provider/auth.ts`), and `provider.ts` binds the
+   loader's `getAuth` to `plugin.auth.provider`. The community plugin
+   hardcodes `auth.provider = "anthropic"`, so a new provider id cannot
+   reuse it as-is; the hook must be re-keyed.
+2. **Refresh persistence is hardcoded.** On refresh the plugin calls
+   `client.auth.set({ path: { id: "anthropic" }, ... })`. Re-keyed without
+   also redirecting that write, the refreshed token would be stored under
+   the wrong provider and go stale on restart.
+3. **`ANTHROPIC_BASE_URL` overrides only the origin.** `transform.rewriteUrl`
+   copies `baseUrl.protocol` and `baseUrl.host` (never the path), so
+   pointing it at `<gateway>/anthropic-coding-plan` yields
+   `<gateway>/v1/messages` (path dropped). A config provider's
+   `options.baseURL`, which carries the route path, is therefore the only
+   correct routing lever. `?beta=true` is also added only when the request
+   `pathname` is exactly `/v1/messages`, so a prefixed path misses it and
+   the OAuth token is sent on the wrong (non-beta) path.
+
+Consequence: a thin client-side wrapper is required to (a) re-key the hook
+to the gateway provider id, (b) redirect the refresh write to that id, and
+(c) append `beta=true` for the prefixed messages path. This wrapper ships as
+`res/opencode-plugin/workspace-gateway-anthropic-plan.ts`, contains **no**
+Anthropic OAuth constants, makes **no** gateway call, and leaves the gateway
+a pure model-traffic passthrough. The upstream constants and PKCE exchange
+remain the community plugin's code, running in the OpenCode client process.
+
+This also corrects the earlier assumption that the built-in `anthropic`
+provider could be routed through a prefixed route via
+`ANTHROPIC_BASE_URL`: with the pinned community plugin it cannot (origin-only
+rewrite). The built-in provider remains usable only against a gateway that
+serves the Anthropic API at its root.
+
 ## 4. Risks
 
 - **Header/query fidelity:** OAuth tokens only work on the beta path;
@@ -212,12 +252,14 @@ count_tokens) behaves identically.
 | Plane | Proxiable through GW | Mode |
 |-------|---------------------|------|
 | Model traffic incl. client's auth headers | Yes, fully | Bare passthrough, zero auth logic |
-| Login (browser authorize + code exchange) | No (client-owned) | Community plugin `@ex-machina/opencode-anthropic-auth` on the built-in `anthropic` provider |
+| Login (browser authorize + code exchange) | No (client-owned) | Community plugin `@ex-machina/opencode-anthropic-auth`, re-keyed to `workspace-gw-anthropic-coding-plan-passthrough` by the thin wrapper (F6) |
 | Token refresh | No (client-owned) | Client-side OpenCode/OAuth refresh |
 | Device-style login | Not upstream | Rejected; no gateway facade |
 
 This is the basis for REQ-PROVIDER-ANTHROPIC (one gateway API-key
-provider plus a zero-gateway-auth subscription path on the built-in
-provider), the minimal `res/scripts/claude-gw.sh` wrapper (sets exactly
-one environment variable), and the community plugin that supplies the
-subscription method the OpenCode build no longer ships.
+provider plus a zero-gateway-auth subscription path: the coding-plan
+passthrough provider with a TUI-addable client-side OAuth method supplied
+by the thin wrapper over the community plugin), the minimal
+`res/scripts/claude-gw.sh` wrapper (sets exactly one environment
+variable), and the community plugin that supplies the subscription method
+the OpenCode build no longer ships.

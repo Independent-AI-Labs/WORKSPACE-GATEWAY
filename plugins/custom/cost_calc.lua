@@ -53,6 +53,7 @@ M.ROUTE_PROVIDERS = {
     ["relay-zai-key"] = "workspace-gw-zai-api-key",
     ["relay-zai-key-v1"] = "workspace-gw-zai-api-key",
     ["relay-anthropic"] = "workspace-gw-anthropic-api-key",
+    ["relay-anthropic-coding-plan"] = "workspace-gw-anthropic-coding-plan-passthrough",
     ["relay-alibaba-token-plan"] = "workspace-gw-alibaba-token-plan-passthrough",
     ["relay-alibaba-token-plan-cn"] = "workspace-gw-alibaba-token-plan-cn-passthrough",
     ["relay-llamafile"] = "workspace-gw-llamafile-no-auth",

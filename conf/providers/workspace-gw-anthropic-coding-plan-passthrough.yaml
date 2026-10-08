@@ -1,0 +1,27 @@
+---
+id: workspace-gw-anthropic-coding-plan-passthrough
+name: "Workspace GW (Anthropic Coding Plan Passthrough)"
+provider:
+  id: anthropic-coding-plan
+  label: Anthropic Coding Plan
+route: "/anthropic-coding-plan/v1"
+npm: "@ai-sdk/anthropic"
+auth:
+  type: passthrough
+  methods:
+    - id: anthropic-plan-client-oauth
+      flow: client_oauth
+      label: Claude Pro/Max
+options:
+  headers:
+    X-Tenant-ID: default
+    X-User-ID: agent
+context_limit_ceiling: 256000
+model_source:
+  type: models_dev_provider
+  provider: anthropic
+pricing:
+  source:
+    type: models_dev
+    provider: anthropic
+  missing_policy: unknown

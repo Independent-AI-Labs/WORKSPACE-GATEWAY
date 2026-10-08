@@ -14,3 +14,4 @@ safe_exceptions:
   - workspace-gw-alibaba-token-plan-cn-passthrough.yaml
   - .env.prod.example
   - workspace-gw-anthropic-api-key.yaml
+  - workspace-gw-anthropic-coding-plan-passthrough.yaml

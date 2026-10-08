@@ -57,15 +57,38 @@ gateway retains upstream refresh tokens and performs upstream refresh; the
 plugin never contacts upstream OAuth endpoints directly and never hosts an
 inline interpreter callback server.
 
+### Anthropic coding-plan wrapper (`client_oauth`)
+
+`workspace-gateway-anthropic-plan.ts` is a second, distinct engine for
+route-less client-side auth methods (`flow: client_oauth`). It wraps the pinned
+community plugin `@ex-machina/opencode-anthropic-auth`, which performs the
+Claude Pro/Max PKCE exchange entirely in the client process. The wrapper makes
+three adaptations and makes no gateway call:
+
+- re-keys the community hook's `provider` from `anthropic` to the gateway
+  provider id;
+- proxies `input.client` so the community plugin's refresh write
+  (`auth.set({ path: { id: "anthropic" } })`) targets the gateway id;
+- appends `?beta=true` for any request path ending `/v1/messages` (the community
+  plugin only does so for pathname exactly `/v1/messages`; the gateway route is
+  prefixed).
+
+The login script registers it automatically for any provider whose first
+`auth_methods` flow is `client_oauth`. The wrapper holds no Anthropic OAuth
+constant and the gateway performs no Anthropic auth; see
+[REQ-PROVIDER-ANTHROPIC](../../docs/requirements/REQ-PROVIDER-ANTHROPIC.md) and
+[SPEC-PROVIDER-ANTHROPIC](../../docs/specifications/SPEC-PROVIDER-ANTHROPIC.md).
+
 ## Tests
 
-The unit test is `workspace-gateway-auth.test.ts`. Prefer the Make targets,
-which pin the Bun binary and working directory:
+Unit tests are `workspace-gateway-auth.test.ts` (gateway-exec flows) and
+`workspace-gateway-anthropic-plan.test.ts` (the client-side wrapper). Prefer the
+Make targets, which pin the Bun binary and working directory:
 
 ```bash
 make plugin-install BUN="$BUN"        # bun install --frozen-lockfile
 make plugin-type-check BUN="$BUN"     # tsc --noEmit via the local toolchain
-make plugin-test BUN="$BUN"           # bun test workspace-gateway-auth.test.ts
+make plugin-test BUN="$BUN"           # bun test (whole res/opencode-plugin dir)
 ```
 
 Direct invocation (equivalent, from the repository root):
@@ -74,17 +97,22 @@ Direct invocation (equivalent, from the repository root):
 cd res/opencode-plugin
 bun install --frozen-lockfile
 bun ./node_modules/typescript/bin/tsc --noEmit
-bun test workspace-gateway-auth.test.ts
+bun test
 ```
 
-The test covers method registration, pending and slow-down device polling,
-terminal device errors, browser callback success, browser callback state
-validation, and prevention of a gateway callback exchange on invalid state.
+The gateway-auth test covers method registration, pending and slow-down device
+polling, terminal device errors, browser callback success, browser callback
+state validation, and prevention of a gateway callback exchange on invalid
+state. The wrapper test covers hook re-keying, refresh-write redirection, and
+the `beta=true` query addition for prefixed message paths.
 
 ## Packaging Invariants
 
 - Keep the published `@opencode-ai/plugin` dependency in the gateway-owned Bun
   manifest and lockfile.
+- Keep the community plugin `@ex-machina/opencode-anthropic-auth` exact-pinned
+  in the gateway-owned Bun manifest and lockfile; the wrapper depends on its
+  internals, so version drift must be a deliberate change.
 - Keep `import type { Hooks, Plugin, PluginOptions } from
   "@opencode-ai/plugin"` aligned with the public package; do not replace it
   with local structural types.

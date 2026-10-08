@@ -70,12 +70,39 @@ assert_eq "relay-anthropic: limit-count key is http_x_key_hash" "http_x_key_hash
 ANT_HAS_SSE=$(echo "$ANT_ROUTE" | jq '.plugins | has("sse-usage")')
 assert_eq "relay-anthropic: sse-usage plugin present" "true" "$ANT_HAS_SSE"
 
-# --- anthropic provider YAML follows the naming contract ---
+# --- relay-anthropic-coding-plan (bare passthrough twin, NO auth plugin) ---
+ANTCP_ROUTE=$(echo "$JSON_DATA" | jq -c '[.routes[] | select(.id == "relay-anthropic-coding-plan")][0]')
+ANTCP_URI=$(echo "$ANTCP_ROUTE" | jq -r '.uri')
+assert_eq "relay-anthropic-coding-plan: uri is /anthropic-coding-plan/*" "/anthropic-coding-plan/*" "$ANTCP_URI"
+ANTCP_NODE=$(echo "$ANTCP_ROUTE" | jq -r '.upstream.nodes | keys[]')
+assert_eq "relay-anthropic-coding-plan: upstream node is api.anthropic.com:443" "api.anthropic.com:443" "$ANTCP_NODE"
+ANTCP_HAS_OA=$(echo "$ANTCP_ROUTE" | jq 'has("plugins") and (.plugins | has("provider-oauth"))')
+assert_eq "relay-anthropic-coding-plan: NO provider-oauth (client credentials pass through)" "false" "$ANTCP_HAS_OA"
+ANTCP_HAS_KR=$(echo "$ANTCP_ROUTE" | jq '.plugins | has("key-resolver")')
+assert_eq "relay-anthropic-coding-plan: NO key-resolver" "false" "$ANTCP_HAS_KR"
+ANTCP_REWRITE=$(echo "$ANTCP_ROUTE" | jq -c '.plugins["proxy-rewrite"].regex_uri')
+assert_eq "relay-anthropic-coding-plan: rewrite strips its prefix only" '["^/anthropic-coding-plan/(.*)","/$1"]' "$ANTCP_REWRITE"
+ANTCP_ENCODING=$(echo "$ANTCP_ROUTE" | jq -r '.plugins["proxy-rewrite"].headers.set["accept-encoding"]')
+assert_eq "relay-anthropic-coding-plan: forces identity encoding" "identity" "$ANTCP_ENCODING"
+ANTCP_HAS_SSE=$(echo "$ANTCP_ROUTE" | jq '.plugins | has("sse-usage")')
+assert_eq "relay-anthropic-coding-plan: sse-usage plugin present" "true" "$ANTCP_HAS_SSE"
+
+# --- anthropic provider YAMLs follow the naming contract ---
 ANT_YAML=$(yaml_to_json "$REPO_ROOT/conf/providers/workspace-gw-anthropic-api-key.yaml")
 assert_eq "anthropic api-key YAML id follows contract" "workspace-gw-anthropic-api-key" "$(echo "$ANT_YAML" | jq -r '.id')"
 assert_eq "anthropic api-key YAML auth type" "api_key" "$(echo "$ANT_YAML" | jq -r '.auth.type')"
 assert_eq "anthropic api-key YAML route" "/anthropic/v1" "$(echo "$ANT_YAML" | jq -r '.route')"
 assert_eq "anthropic api-key YAML npm" "@ai-sdk/anthropic" "$(echo "$ANT_YAML" | jq -r '.npm')"
+
+ANTCP_YAML=$(yaml_to_json "$REPO_ROOT/conf/providers/workspace-gw-anthropic-coding-plan-passthrough.yaml")
+assert_eq "anthropic coding-plan YAML id follows contract" "workspace-gw-anthropic-coding-plan-passthrough" "$(echo "$ANTCP_YAML" | jq -r '.id')"
+assert_eq "anthropic coding-plan YAML name follows contract" "Workspace GW (Anthropic Coding Plan Passthrough)" "$(echo "$ANTCP_YAML" | jq -r '.name')"
+assert_eq "anthropic coding-plan YAML auth type" "passthrough" "$(echo "$ANTCP_YAML" | jq -r '.auth.type')"
+assert_eq "anthropic coding-plan YAML route" "/anthropic-coding-plan/v1" "$(echo "$ANTCP_YAML" | jq -r '.route')"
+assert_eq "anthropic coding-plan YAML npm" "@ai-sdk/anthropic" "$(echo "$ANTCP_YAML" | jq -r '.npm')"
+assert_eq "anthropic coding-plan YAML declares one client_oauth method" "1" "$(echo "$ANTCP_YAML" | jq '.auth.methods | length')"
+assert_eq "anthropic coding-plan client flow" "client_oauth" "$(echo "$ANTCP_YAML" | jq -r '.auth.methods[0].flow')"
+assert_eq "anthropic coding-plan client method is route-less (client-side only)" "none" "$(echo "$ANTCP_YAML" | jq -r '.auth.methods[0].route // "none"')"
 
 # --- ROUTE_PROVIDERS drift guard: every non-oauth provider route family is
 # --- mapped in cost_calc.lua for cost attribution (zai regression class) ---

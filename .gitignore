@@ -26,6 +26,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Git-guard sanitized-command log (WORKSPACE-GUARD, never versioned)
+.liveaudit
+
 # Secrets
 .env
 .env.*

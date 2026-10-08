@@ -33,7 +33,7 @@ fi
 COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-workspace-gateway-dev}"
 
 usage() {
-    printf 'Usage: %s {build|down|restart-service SERVICE|recreate-service SERVICE|logs [SERVICE]|migrate-up|migrate-status|migrate-force VERSION|exec SERVICE -- CMD [ARGS...]}\n' "$0" >&2
+    printf 'Usage: %s {build|down|restart-service SERVICE|recreate-service SERVICE|reload-plugins [--force]|logs [SERVICE]|migrate-up|migrate-status|migrate-force VERSION|exec SERVICE -- CMD [ARGS...]}\n' "$0" >&2
 }
 
 if [ ! -x "$COMPOSE_BIN" ]; then
@@ -97,6 +97,39 @@ case "${1:-}" in
             *) echo "ERROR: recreate-service supports grafana|clickhouse|vector|openbao|prometheus|etcd (apisix is systemd-foreground; use gw-restart)" >&2; usage; exit 2 ;;
         esac
         compose up -d --force-recreate "$service"
+        ;;
+    reload-plugins)
+        # Apply changed custom Lua plugins to a running APISIX without a
+        # container restart. Plugin mounts are read-only bind mounts, but the
+        # running Lua VM keeps the code loaded at start; `apisix reload`
+        # re-reads it. Skip when no plugin file is newer than the container
+        # start (pass --force to reload regardless).
+        force=0
+        [ "${2:-}" = "--force" ] && force=1
+        container_id="$("$PODMAN_PATH" ps -q \
+            --filter label=io.podman.compose.project="$COMPOSE_PROJECT" \
+            --filter label=io.podman.compose.service=apisix)"
+        if [ -z "$container_id" ]; then
+            echo "apisix not running; nothing to reload"
+            exit 0
+        fi
+        started="$("$PODMAN_PATH" inspect -f '{{.State.StartedAt}}' "$container_id")"
+        # Podman returns RFC3339 with partial-second precision; trim to whole
+        # seconds so `date -d` parses consistently across podman versions.
+        started_whole="${started%%.*}"
+        started_epoch="$(date -d "$started_whole" +%s)"
+        newest=0
+        for plugin_file in "$REPO_ROOT"/plugins/custom/*.lua; do
+            plugin_mtime="$(stat -c %Y "$plugin_file")"
+            [ "$plugin_mtime" -gt "$newest" ] && newest="$plugin_mtime"
+        done
+        if [ "$force" -eq 0 ] && [ "$newest" -le "$started_epoch" ]; then
+            echo "apisix plugins already current (no plugin file newer than container start)"
+            exit 0
+        fi
+        echo "Reloading apisix to pick up plugin changes..."
+        "$PODMAN_PATH" exec "$container_id" apisix reload
+        echo "apisix plugins reloaded"
         ;;
     exec)
         # In-container ops through the reviewed wrapper (debug ports are

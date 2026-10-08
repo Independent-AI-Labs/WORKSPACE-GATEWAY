@@ -134,7 +134,7 @@ _compose-down:
 	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
 .PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-verify gw-status gw-logs gw-shell \
-        gw-restart-service gw-recreate-service gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
+        gw-restart-service gw-recreate-service gw-reload-plugins gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
         gw-sync-model-registry gw-recalc-costs gw-fix-model-attribution gw-check-model-attribution
 
 # Internal: apply desired runtime state (routes, ClickHouse schema, provider
@@ -143,6 +143,7 @@ _compose-down:
 _gw-apply:
 	$(LOAD_ENV) \
 	$(ANSIBLE_DEV) --tags start
+	$(MAKE) -s gw-reload-plugins
 
 gw-update-dictionaries: ## Refresh vendored profanity/VADER dictionaries from upstream
 	$(SCRIPT_BASH) res/scripts/update-dictionaries.sh
@@ -208,6 +209,9 @@ gw-restart-service: ## Restart one existing service without recreating it
 	echo "=== Restarting existing service: $(SVC) ==="
 	$(SCRIPT_BASH) res/scripts/gateway-compose.sh restart-service "$(SVC)"
 	echo "=== $(SVC) restarted ==="
+
+gw-reload-plugins: ## Hot-reload APISIX when plugins/custom/*.lua changed (FORCE=1 to always)
+	$(SCRIPT_BASH) res/scripts/gateway-compose.sh reload-plugins $(if $(FORCE),--force)
 
 gw-recreate-service: ## Recreate one service from the current compose (applies network/config changes); SVC=grafana
 	test -n "$(SVC)" || { echo "ERROR: SVC required. Usage: make gw-recreate-service SVC=grafana" >&2; exit 1; }
@@ -286,11 +290,11 @@ gw-security-matrix: ## Run the live lockdown verification matrix (tests/e2e/test
 # Model Sync
 # =============================================================================
 
-sync-models: ## Trigger provider model sync on the gateway
+sync-models: gw-reload-plugins ## Trigger provider model sync on the gateway
 	curl -sS -f --max-time 30 -X POST http://localhost:9080/gateway/providers/sync
 
 .PHONY: setup-providers
-setup-providers: ## Install ALL gateway providers into opencode config (auth skipped by default; REQUIRE_AUTH=1 to prompt)
+setup-providers: gw-reload-plugins ## Install ALL gateway providers into opencode config (auth skipped by default; REQUIRE_AUTH=1 to prompt)
 	bash $(REPO_ROOT)/res/scripts/opencode-provider-login.sh --all $(if $(REQUIRE_AUTH),--require-auth)
 
 .PHONY: setup-anthropic-max
@@ -347,7 +351,7 @@ plugin-type-check: ## Type-check the gateway-owned OpenCode plugin with Bun
 
 plugin-test: ## Run gateway-owned OpenCode plugin Bun tests
 	test -x "$(BUN)" || { echo "ERROR: Bun not found at $(BUN); install the pinned workspace Bun runtime or set BUN=/path/to/bun" >&2; exit 1; }
-	$(BUN) test "$(BUN_PLUGIN_DIR)/workspace-gateway-auth.test.ts"
+	$(BUN) test "$(BUN_PLUGIN_DIR)"
 
 test: ## Run all test stages (excludes live upstream API tests)
 	$(LOAD_ENV) \

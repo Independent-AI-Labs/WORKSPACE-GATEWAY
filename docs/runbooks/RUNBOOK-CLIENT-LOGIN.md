@@ -88,17 +88,26 @@ and its tests.
 
 ### 2b. Anthropic providers (client-authenticated, gateway stays a dumb proxy)
 
-Anthropic ships one ordinary gateway provider entry
-(`workspace-gw-anthropic-api-key`); the gateway holds no Anthropic
-credential and runs no OAuth. Claude Pro/Max is a second path that does
-**not** add a gateway provider entry: it uses the built-in OpenCode
-`anthropic` provider plus the maintained community plugin.
+Anthropic ships two ordinary gateway provider entries
+(`workspace-gw-anthropic-api-key` and
+`workspace-gw-anthropic-coding-plan-passthrough`); the gateway holds no
+Anthropic credential and runs no OAuth. Claude Pro/Max may additionally use
+the built-in OpenCode `anthropic` provider plus the maintained community
+plugin, which needs no gateway provider entry.
 
 - `workspace-gw-anthropic-api-key`, a regular API-key provider:
 
   ```bash
   bash res/scripts/opencode-provider-login.sh \
     --provider-id workspace-gw-anthropic-api-key --require-auth
+  ```
+
+- `workspace-gw-anthropic-coding-plan-passthrough`, a passthrough entry for
+  the subscription/coding-plan endpoints (client supplies its own credential):
+
+  ```bash
+  bash res/scripts/opencode-provider-login.sh \
+    --provider-id workspace-gw-anthropic-coding-plan-passthrough
   ```
 
 - Claude Pro/Max subscription: built-in `anthropic` provider, wired by
@@ -108,6 +117,8 @@ credential and runs no OAuth. Claude Pro/Max is a second path that does
   ```bash
   make setup-anthropic-max
   export ANTHROPIC_BASE_URL=http://localhost:9080/anthropic
+  # or, for the dedicated coding-plan passthrough route:
+  export ANTHROPIC_BASE_URL=http://localhost:9080/anthropic-coding-plan
   # then, in the OpenCode TUI:
   #   /connect -> Anthropic -> Claude Pro/Max
   ```
@@ -116,7 +127,8 @@ The community plugin performs the Anthropic OAuth exchange entirely in
 the OpenCode process, directly against Anthropic; it also injects the
 Claude Code request shape. The gateway hosts no OAuth route, no
 verification page, and holds no token. Model traffic relays through the
-gateway `/anthropic` route with the client's own credential attached.
+gateway `/anthropic` or `/anthropic-coding-plan` route with the client's own
+credential attached.
 
 > The Claude subscription is exercised only by the community plugin, not
 > by the gateway service. The built-in OpenCode `anthropic` provider is

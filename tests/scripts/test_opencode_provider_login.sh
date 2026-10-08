@@ -273,6 +273,35 @@ else
         "$BROWSER_ONLY_OUTPUT"
 fi
 
+# --- Test: client_oauth provider registers the client-side (anthropic-plan) engine ---
+CLIENT_OAUTH_RC=0
+CLIENT_OAUTH_OUTPUT=$(timeout 30 bash "$CLIENT_SCRIPT" \
+    --provider-id test-client-oauth \
+    --gateway "$GATEWAY" \
+    --config-file "$CONFIG_FILE" \
+    --auth-file "$AUTH_FILE" \
+    --no-browser < /dev/null 2>&1) || CLIENT_OAUTH_RC=$?
+
+assert_eq "client_oauth install exits 0" "0" "$CLIENT_OAUTH_RC"
+assert_contains "client_oauth reports no gateway auth" "No authentication required" "$CLIENT_OAUTH_OUTPUT"
+assert_contains "client_oauth registers its auth plugin" \
+    "Auth plugin registered for test-client-oauth" "$CLIENT_OAUTH_OUTPUT"
+CLIENT_OAUTH_WRAPPER="$(dirname "$CONFIG_FILE")/plugin/wg-auth-test-client-oauth.ts"
+if [ -f "$CLIENT_OAUTH_WRAPPER" ]; then
+    assert_contains "client_oauth wrapper imports the anthropic-plan engine" \
+        "res/opencode-plugin/workspace-gateway-anthropic-plan.ts" "$(cat "$CLIENT_OAUTH_WRAPPER")"
+    assert_contains "client_oauth wrapper bakes the provider id" \
+        'provider: "test-client-oauth"' "$(cat "$CLIENT_OAUTH_WRAPPER")"
+else
+    echo "[FAIL] client_oauth wrapper not created: $CLIENT_OAUTH_WRAPPER"
+    fail=$((fail + 1))
+fi
+if [ -f "$CONFIG_FILE" ]; then
+    CLIENT_OAUTH_BASEURL=$(jq -r '.provider."test-client-oauth".options.baseURL // "__missing__"' "$CONFIG_FILE")
+    assert_eq "client_oauth config carries the prefixed route baseURL" \
+        "http://gateway/anthropic-coding-plan/v1" "$CLIENT_OAUTH_BASEURL"
+fi
+
 # --- Test: api_key provider skips auth by default (config-only install) ---
 SKIP_CONFIG="$TMPDIR/opencode-skip.json"
 SKIP_AUTH="$TMPDIR/auth-skip.json"

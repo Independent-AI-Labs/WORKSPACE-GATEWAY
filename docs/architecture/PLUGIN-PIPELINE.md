@@ -98,12 +98,15 @@ bill and no provider load to rate-limit. See
 - **llamafile:** no auth plugins; per-IP rate limit; rewrite to `/`.
 - **openai route:** `provider-oauth` (ChatGPT device flow) on `relay-openai`;
   proxy-rewrite sends every path to `/backend-api/codex/responses`.
-- **anthropic route:** `relay-anthropic` is a bare passthrough (no auth
-  plugin); client credentials (API key or subscription OAuth bearer)
-  relay verbatim, rewriting to `/$1`. One provider-sync entry rides it,
-  `workspace-gw-anthropic-api-key` (API key). The subscription token is
-  minted client-side by the maintained community plugin on the built-in
-  `anthropic` provider, never by the gateway.
+- **anthropic routes:** `relay-anthropic` and `relay-anthropic-coding-plan`
+  are byte-identical bare passthroughs (no auth plugin); client credentials
+  (API key or subscription OAuth bearer) relay verbatim, rewriting to `/$1`.
+  Each carries its own provider-sync entry (`workspace-gw-anthropic-api-key`
+  for the API key, `workspace-gw-anthropic-coding-plan-passthrough` for the
+  coding plan, `passthrough`) so the two traffic classes stay separately
+  attributable. The subscription token is minted client-side by the
+  maintained community plugin, re-keyed to the coding-plan provider by the
+  repository's thin wrapper, never by the gateway.
 - **zai routes:** own-key passthrough with `key-meta`; rewrite to
   `/api/coding/paas/v4/`.
 - **alibaba routes:** own-key passthrough with `key-meta`; rewrite to `/$1`.

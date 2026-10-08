@@ -92,16 +92,20 @@ local function build_opencode_block(provider, gateway_base)
 
     local auth_route = nil
     local auth_methods = nil
-    if provider.auth and provider.auth.type == "oauth" then
-        auth_methods = provider.auth.methods or {
+    if provider.auth and provider.auth.methods and #provider.auth.methods > 0 then
+        --Declared methods are authoritative and may be route-less: a
+        --client_oauth flow runs entirely in the OpenCode client (no gateway
+        --auth route), so auth_route is emitted only when a method declares one.
+        auth_methods = provider.auth.methods
+        auth_route = auth_methods[1].route
+    elseif provider.auth and provider.auth.type == "oauth" then
+        auth_methods = {
             {
                 id = provider.id .. "-headless",
                 flow = "device_authorization",
                 route = provider.route .. "/auth",
             },
         }
-        --auth_route follows the first declared method's route; method
-        --metadata is authoritative, never reconstructed independently.
         auth_route = auth_methods[1].route
     end
 
