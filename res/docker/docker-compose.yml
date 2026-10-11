@@ -147,8 +147,16 @@ services:
     image: timberio/vector@sha256:1163571c8b59ab6755c1b5488bb2f129151c3b72130ad0500b10420fcc504d9d
     container_name: gw-vector
     command: ["--config", "/etc/vector/vector.toml"]
+    # Host-journal access for the WORKSPACE-RP service_log source (W8). The
+    # caller must be in the systemd-journal group; keep-groups carries that
+    # supplementary group into the rootless container. See
+    # docs/runbooks/RUNBOOK-DEPLOYMENT.md.
+    group_add:
+      - keep-groups
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
     env_file:
       - ../../.env
     depends_on:

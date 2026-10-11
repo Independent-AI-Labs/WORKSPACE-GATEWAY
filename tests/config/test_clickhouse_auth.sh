@@ -64,6 +64,8 @@ assert_eq "grafana_ro grant on request_bodies is explicitly revoked (db-wide gra
 # ── least-privilege writers ───────────────────────────────────────────────
 assert_eq "vector_rw INSERT-only on request_log + request_bodies" "1" \
     "$(printf '%s' "$PROVISION_BODY" | grep -c 'GRANT INSERT ON llm_gateway.request_bodies')"
+assert_eq "vector_rw INSERT on service_log (RP logs)" "1" \
+    "$(printf '%s' "$PROVISION_BODY" | grep -c 'GRANT INSERT ON llm_gateway.service_log')"
 assert_eq "apisix_rw INSERT-only on usage_log" "1" \
     "$(printf '%s' "$PROVISION_BODY" | grep -c 'GRANT INSERT ON llm_gateway.usage_log')"
 assert_eq "migrator scoped to llm_gateway.*" "1" \

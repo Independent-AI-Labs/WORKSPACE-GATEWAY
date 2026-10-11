@@ -169,6 +169,14 @@ assert_contains "000016 adds cost_reasoning to usage_log" "$CATEGORY_UP" "cost_r
 assert_contains "000016 adds cost_cache_write to usage_log" "$CATEGORY_UP" "cost_cache_write"
 assert_not_contains "000016 must not DROP usage_log" "$CATEGORY_UP" "$KW_DROP_TABLE llm_gateway.usage_log"
 
+# 000017: WORKSPACE-RP service-log table (W8 Vector source for the new service).
+assert_eq "migration 000017_create_service_log.up.sql exists" "true" \
+    "$(if [ -f "$MIGRATIONS_DIR/000017_create_service_log.up.sql" ]; then printf 'true'; else printf 'false'; fi)"
+SERVICE_LOG_UP_RC=0
+    SERVICE_LOG_UP="$(cat "$MIGRATIONS_DIR/000017_create_service_log.up.sql")" || SERVICE_LOG_UP_RC=$?
+assert_contains "000017 creates llm_gateway.service_log" "$SERVICE_LOG_UP" "$KW_CREATE_TABLE IF NOT EXISTS llm_gateway.service_log"
+assert_contains "000017 keeps a 13-month TTL" "$SERVICE_LOG_UP" "INTERVAL 13 MONTH"
+
 # ── (D) compose `migrate` service integration ───────────────────────────
 compose_body_rc=0
     compose_body="$(cat "$COMPOSE_FILE")" || compose_body_rc=$?

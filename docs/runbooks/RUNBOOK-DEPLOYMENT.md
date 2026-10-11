@@ -121,8 +121,9 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3030/api/health   # Gr
 
 ### 7. ClickHouse access
 
-Database `llm_gateway` (tables `request_log`, `request_bodies`, `usage_log`,
-`billing_ledger`, `billing_discrepancies`; migrations in `conf/sql/migrations/`).
+Database `llm_gateway` (tables `request_log`, `request_bodies`, `service_log`,
+`usage_log`, `billing_ledger`, `billing_discrepancies`; migrations in
+`conf/sql/migrations/`).
 All access is authenticated (RUNBOOK-SECRETS); conversation bodies live in
 `request_bodies`, readable only by `ops_admin`.
 
@@ -177,6 +178,34 @@ loopback; the API key is still required for every admin operation.
 
 Prod (`docker-compose.prod.yml`) does not publish the admin port: reach it
 via `podman exec gw-prod-apisix curl ...`.
+
+### 10. WORKSPACE-RP log collection
+
+The Vector config carries a second source, `journald_rp`, that tails the
+`workspace-rp.service` user unit and writes rows to `llm_gateway.service_log`
+(migration `000017`). Two host-side steps are required once per host:
+
+```bash
+# 1. Let the deploying user read the journal (log out and back in after this).
+sudo usermod -aG systemd-journal "$USER"
+
+# 2. Restart the stack so the kept supplementary group and the journal
+#    mounts (declared in both compose files) take effect.
+make gw-restart
+```
+
+The Vector container mounts `/run/log/journal` and `/var/log/journal`
+read-only and carries the caller's supplementary groups (`group_add:
+keep-groups`, rootless Podman). Verify rows arrive:
+
+```bash
+curl -u "$CH_OPS_USER:$CH_OPS_PASSWORD" -s 'http://localhost:8123/?database=llm_gateway' \
+  --data 'SELECT service, level, count() FROM service_log GROUP BY service, level'
+```
+
+No rows appear when the deploy user is not in `systemd-journal`, when the
+`workspace-rp.service` unit has not started, or when the journal has no
+entries for the current boot.
 
 ## Verification
 

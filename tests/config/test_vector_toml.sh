@@ -48,11 +48,11 @@ assert_eq "Path /ingest" "1" "$HAS_PATH"
 
 HAS_CLICKHOUSE_SINK_RC=0
 HAS_CLICKHOUSE_SINK=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" ) || { HAS_CLICKHOUSE_SINK_RC=$?; HAS_CLICKHOUSE_SINK="0"; }
-assert_eq "Sink type clickhouse (metadata + bodies)" "2" "$HAS_CLICKHOUSE_SINK"
+assert_eq "Sink type clickhouse (metadata + bodies + service_log)" "3" "$HAS_CLICKHOUSE_SINK"
 
 HAS_ENDPOINT_RC=0
 HAS_ENDPOINT=$(grep -c 'http://clickhouse:8123' "$VECTOR_TOML" ) || { HAS_ENDPOINT_RC=$?; HAS_ENDPOINT="0"; }
-assert_eq "Endpoint http://clickhouse:8123 (both sinks)" "2" "$HAS_ENDPOINT"
+assert_eq "Endpoint http://clickhouse:8123 (three sinks)" "3" "$HAS_ENDPOINT"
 
 HAS_TABLE_RC=0
 HAS_TABLE=$(grep -c 'table = "request_log"' "$VECTOR_TOML" ) || { HAS_TABLE_RC=$?; HAS_TABLE="0"; }
@@ -60,15 +60,15 @@ assert_eq "Table request_log" "1" "$HAS_TABLE"
 
 HAS_DATABASE_RC=0
 HAS_DATABASE=$(grep -c 'database = "llm_gateway"' "$VECTOR_TOML" ) || { HAS_DATABASE_RC=$?; HAS_DATABASE="0"; }
-assert_eq "Database is llm_gateway (both sinks)" "2" "$HAS_DATABASE"
+assert_eq "Database is llm_gateway (three sinks)" "3" "$HAS_DATABASE"
 
 HAS_SKIP_UNKNOWN_RC=0
 HAS_SKIP_UNKNOWN=$(grep -c 'skip_unknown_fields = true' "$VECTOR_TOML" ) || { HAS_SKIP_UNKNOWN_RC=$?; HAS_SKIP_UNKNOWN="0"; }
-assert_eq "skip_unknown_fields is true (both sinks)" "2" "$HAS_SKIP_UNKNOWN"
+assert_eq "skip_unknown_fields is true (three sinks)" "3" "$HAS_SKIP_UNKNOWN"
 
 HAS_REMAP_RC=0
 HAS_REMAP=$(grep -c 'type = "remap"' "$VECTOR_TOML" ) || { HAS_REMAP_RC=$?; HAS_REMAP="0"; }
-assert_eq "Has remap transform" "1" "$HAS_REMAP"
+assert_eq "Has remap transforms (request_log + service_log)" "2" "$HAS_REMAP"
 
 # model/stream arrive as structured fields (log_format_extra), parsed once by
 # sse-usage from the full body. Vector must NOT parse the capped body for them:
@@ -140,15 +140,15 @@ assert_eq "Remap uses generated alias map" "1" "$HAS_ALIAS_MAP"
 
 HAS_RETRY_RC=0
 HAS_RETRY=$(grep -c 'retry_attempts' "$VECTOR_TOML" ) || { HAS_RETRY_RC=$?; HAS_RETRY="0"; }
-assert_eq "ClickHouse sinks have retry_attempts (x2)" "2" "$HAS_RETRY"
+assert_eq "ClickHouse sinks have retry_attempts (x3)" "3" "$HAS_RETRY"
 
 HAS_BUFFER_RC=0
 HAS_BUFFER=$(grep -c 'when_full = "block"' "$VECTOR_TOML" ) || { HAS_BUFFER_RC=$?; HAS_BUFFER="0"; }
-assert_eq "ClickHouse sinks have memory buffer block policy (x2)" "2" "$HAS_BUFFER"
+assert_eq "ClickHouse sinks have memory buffer block policy (x3)" "3" "$HAS_BUFFER"
 
 HAS_BATCH_RC=0
 HAS_BATCH=$(grep -cx 'max_events = 1000' "$VECTOR_TOML" ) || { HAS_BATCH_RC=$?; HAS_BATCH="0"; }
-assert_eq "ClickHouse sinks have batch max_events=1000 (x2)" "2" "$HAS_BATCH"
+assert_eq "ClickHouse sinks have batch max_events=1000 (x3)" "3" "$HAS_BATCH"
 
 # --- event_id / timestamp math (must match sse-usage.lua) ---
 # APISIX http-logger sends `start_time` as integer MILLISECONDS since
@@ -184,15 +184,36 @@ assert_eq "Bodies sink writes request_bodies" "1" "$HAS_BODIES_TABLE"
 # Both sinks authenticate as vector_rw (basic auth; password from env).
 HAS_SINK_AUTH_RC=0
 HAS_SINK_AUTH=$(grep -c 'user = "vector_rw"' "$VECTOR_TOML" ) || { HAS_SINK_AUTH_RC=$?; HAS_SINK_AUTH="0"; }
-assert_eq "Sinks authenticate as vector_rw (x2)" "2" "$HAS_SINK_AUTH"
+assert_eq "Sinks authenticate as vector_rw (x3)" "3" "$HAS_SINK_AUTH"
 
 HAS_SINK_AUTH_PW_RC=0
 HAS_SINK_AUTH_PW=$(grep -c 'password = "${CH_VECTOR_PASSWORD}"' "$VECTOR_TOML" ) || { HAS_SINK_AUTH_PW_RC=$?; HAS_SINK_AUTH_PW="0"; }
-assert_eq "Sink passwords come from CH_VECTOR_PASSWORD env (x2)" "2" "$HAS_SINK_AUTH_PW"
+assert_eq "Sink passwords come from CH_VECTOR_PASSWORD env (x3)" "3" "$HAS_SINK_AUTH_PW"
 
-# Only ONE console/debug sink remains absent (two clickhouse sinks).
+# Only ONE console/debug sink remains absent (three clickhouse sinks).
 SINK_COUNT_RC=0
 SINK_COUNT=$(grep -c 'type = "clickhouse"' "$VECTOR_TOML" ) || { SINK_COUNT_RC=$?; SINK_COUNT="0"; }
-assert_eq "Exactly two clickhouse sinks (request_log + request_bodies)" "2" "$SINK_COUNT"
+assert_eq "Exactly three clickhouse sinks (request_log + request_bodies + service_log)" "3" "$SINK_COUNT"
+
+# RP journald source guard.
+HAS_JOURNALD_SOURCE_RC=0
+HAS_JOURNALD_SOURCE=$(grep -c 'type = "journald"' "$VECTOR_TOML" ) || { HAS_JOURNALD_SOURCE_RC=$?; HAS_JOURNALD_SOURCE="0"; }
+assert_eq "Has journald source for the RP unit" "1" "$HAS_JOURNALD_SOURCE"
+
+HAS_RP_UNIT_RC=0
+HAS_RP_UNIT=$(grep -c '_SYSTEMD_USER_UNIT = \["workspace-rp.service"\]' "$VECTOR_TOML" ) || { HAS_RP_UNIT_RC=$?; HAS_RP_UNIT="0"; }
+assert_eq "journald source filters to workspace-rp.service" "1" "$HAS_RP_UNIT"
+
+HAS_SERVICE_COL_RC=0
+HAS_SERVICE_COL=$(grep -c '^\.service = "workspace-rp"' "$VECTOR_TOML" ) || { HAS_SERVICE_COL_RC=$?; HAS_SERVICE_COL="0"; }
+assert_eq "service_log remap stamps service=workspace-rp" "1" "$HAS_SERVICE_COL"
+
+HAS_SERVICE_TABLE_RC=0
+HAS_SERVICE_TABLE=$(grep -c 'table = "service_log"' "$VECTOR_TOML" ) || { HAS_SERVICE_TABLE_RC=$?; HAS_SERVICE_TABLE="0"; }
+assert_eq "service_log sink writes table service_log" "1" "$HAS_SERVICE_TABLE"
+
+HAS_SERVICE_SINK_RC=0
+HAS_SERVICE_SINK=$(grep -c 'inputs = \["parse_service_log"\]' "$VECTOR_TOML" ) || { HAS_SERVICE_SINK_RC=$?; HAS_SERVICE_SINK="0"; }
+assert_eq "service_log sink consumes the service-log remap" "1" "$HAS_SERVICE_SINK"
 
 summary

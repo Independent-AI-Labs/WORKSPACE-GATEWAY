@@ -319,6 +319,17 @@ assert_eq "Vector loads .env (CH_VECTOR_PASSWORD for sink auth)" "1" "$VECTOR_EN
 VECTOR_CMD=$(echo "$JSON_DATA" | jq -r '[.services.vector.command[] | select(. == "/etc/vector/vector.toml")] | length')
 assert_eq "Vector command specifies vector.toml config" "1" "$VECTOR_CMD"
 
+VECTOR_JOURNAL_LOG_RC=0
+VECTOR_JOURNAL_LOG=$(echo "$VECTOR_MOUNTS" | grep -c "/var/log/journal:/var/log/journal:ro" ) || { VECTOR_JOURNAL_LOG_RC=$?; VECTOR_JOURNAL_LOG="0"; }
+assert_eq "Vector mounts /var/log/journal (RP journald source)" "1" "$VECTOR_JOURNAL_LOG"
+
+VECTOR_JOURNAL_RUN_RC=0
+VECTOR_JOURNAL_RUN=$(echo "$VECTOR_MOUNTS" | grep -c "/run/log/journal:/run/log/journal:ro" ) || { VECTOR_JOURNAL_RUN_RC=$?; VECTOR_JOURNAL_RUN="0"; }
+assert_eq "Vector mounts /run/log/journal (RP journald source)" "1" "$VECTOR_JOURNAL_RUN"
+
+VECTOR_KEEP_GROUPS=$(echo "$JSON_DATA" | jq -r '[.services.vector.group_add[]? | select(. == "keep-groups")] | length')
+assert_eq "Vector keeps caller supplementary groups (systemd-journal)" "1" "$VECTOR_KEEP_GROUPS"
+
 ETCD_CONTAINER=$(echo "$JSON_DATA" | jq -r '.services.etcd.container_name')
 assert_eq "etcd container name is gw-etcd" "gw-etcd" "$ETCD_CONTAINER"
 

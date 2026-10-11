@@ -7,7 +7,7 @@
 # password from CH_OPS_PASSWORD, access_management=1). SQL-managed users:
 #   grafana_ro  readonly SELECT on llm_gateway.* + growth-panel system tables
 #               (NO request_bodies grant - dashboards/Explore cannot read bodies)
-#   vector_rw   INSERT request_log + request_bodies
+#   vector_rw   INSERT request_log + request_bodies + service_log
 #   apisix_rw   INSERT usage_log
 #   migrator    DDL/DML on llm_gateway.*
 # `default` (password via CLICKHOUSE_PASSWORD, no access management) is
@@ -48,6 +48,7 @@ chq "ALTER USER vector_rw IDENTIFIED BY '$CH_VECTOR_PASSWORD'"
 chq "ALTER USER vector_rw HOST IP $STACK_HOSTS"
 chq "GRANT INSERT ON llm_gateway.request_log TO vector_rw"
 chq "GRANT INSERT ON llm_gateway.request_bodies TO vector_rw"
+chq "GRANT INSERT ON llm_gateway.service_log TO vector_rw"
 
 chq "CREATE USER IF NOT EXISTS apisix_rw IDENTIFIED BY '$CH_APISIX_PASSWORD'"
 chq "ALTER USER apisix_rw IDENTIFIED BY '$CH_APISIX_PASSWORD'"

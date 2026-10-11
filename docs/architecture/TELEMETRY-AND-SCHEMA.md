@@ -27,7 +27,7 @@ Every client authenticates (REQ-SECURITY-HARDENING FR-1/FR-2); there is no
 passwordless network access. Users are provisioned by
 [`res/docker/clickhouse-provision.sh`](../../res/docker/clickhouse-provision.sh)
 (`make ch-provision` to re-run): `grafana_ro` (SELECT, readonly  -  **no
-`request_bodies` grant**), `vector_rw` (INSERT request_log/request_bodies),
+`request_bodies` grant**), `vector_rw` (INSERT request_log/request_bodies/service_log),
 `apisix_rw` (INSERT usage_log), `migrator` (DDL), `ops_admin` (ALL, host
 loopback / gw-ch gateway only). `default` is localhost-only with a strong
 password.
@@ -47,11 +47,20 @@ VRL remap extracts:
   sse-usage plugin writes their authoritative counts to `usage_log`)
 - `event_id` from route_id + integer-seconds start_time
 
-Sinks (both basic-auth as `vector_rw`, one remap  -  `skip_unknown_fields`
+A second source collects the WORKSPACE-RP knowledge store. `journald_rp`
+tails the `workspace-rp.service` user unit (filtered on
+`_SYSTEMD_USER_UNIT`), stamps `service=workspace-rp`, and a small remap maps
+the journal fields onto the `service_log` columns. The host deploy adds the
+caller to `systemd-journal` and mounts `/run/log/journal` and
+`/var/log/journal` into the Vector container; see
+[RUNBOOK-DEPLOYMENT](../runbooks/RUNBOOK-DEPLOYMENT.md).
+
+Sinks (basic-auth as `vector_rw`, one remap per source, `skip_unknown_fields`
 routes columns):
 
 - batch insert to `request_log` (metadata; no body columns)
 - batch insert to `request_bodies` (bodies + join keys only)
+- batch insert to `service_log` (RP process logs)
 
 Retry/backpressure: `retry_attempts=5`, memory buffer.
 
@@ -77,6 +86,13 @@ Written by Vector. `event_id`, `request_id`, `req_body`, `resp_body`,
 `timestamp`. Ungranted to `grafana_ro`; operator access via `ops_admin`
 only. Bodies are truncated upstream at http-logger limits and PII-tokenized
 in `req_body` by the `redact` plugin before logging.
+
+### service_log
+
+Written by Vector from the RP journald source (migration `000017`).
+Columns: `service` (always `workspace-rp`), `unit`, `container`, `level`
+(the journal `PRIORITY`), `pid`, `message`, `timestamp`. Readable by
+`grafana_ro`; written only by `vector_rw`.
 
 ### usage_log
 
@@ -122,8 +138,10 @@ retention; REQ-SECURITY-HARDENING FR-4). Tables use storage policy `tiered`
 ([`conf/clickhouse-storage-tiering.xml`](../../conf/clickhouse-storage-tiering.xml)):
 parts move to the `archive` volume and recompress `CODEC ZSTD(3)` (bodies at
 6 months, metadata at 12/18). Cost is controlled by compression and monitored
-by the ops-health growth panel + alert, not by deletion. Nightly backups go
-to `/mnt/ws-backup`. The container-local `backups` disk is the
+by the ops-health growth panel + alert, not by deletion. Nightly backups are
+copied out to `/mnt/ws-backup/workspace-gateway` (`GW_BACKUP_DIR`), keeping the
+newest `GW_BACKUP_KEEP` archives (default 5). The container-local `backups`
+disk is the
 `BACKUP DATABASE ... TO Disk('backups', ...)` target (also used by
 `res/scripts/recalc-costs.sh`); ClickHouse 24.8 gates the Disk engine behind
 `<backups><allowed_disk>backups</allowed_disk></backups>` in

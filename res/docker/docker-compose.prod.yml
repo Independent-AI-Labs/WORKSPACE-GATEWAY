@@ -104,8 +104,14 @@ services:
     image: timberio/vector@sha256:1163571c8b59ab6755c1b5488bb2f129151c3b72130ad0500b10420fcc504d9d
     container_name: gw-prod-vector
     command: ["--config", "/etc/vector/vector.toml"]
+    # Host-journal access for the WORKSPACE-RP service_log source (W8); see the
+    # dev compose vector service for the group rationale.
+    group_add:
+      - keep-groups
     volumes:
       - ../../conf/vector.toml:/etc/vector/vector.toml:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
     env_file:
       - ../../.env.prod
     depends_on:

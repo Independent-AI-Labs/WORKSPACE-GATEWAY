@@ -163,3 +163,56 @@ retry_attempts = 5
 retry_initial_backoff_secs = 1
 retry_max_duration_secs = 30
 timeout_secs = 30
+
+# WORKSPACE-RP knowledge store logs (W8: a Vector source for the new service).
+# The RP PostgreSQL and its exporter run under the workspace-rp.service user
+# unit, so their conmon stdout/stderr land in the host journal with
+# _SYSTEMD_USER_UNIT set. The host deploy script mounts /run/log/journal and
+# /var/log/journal into this container and keeps the caller's supplementary
+# groups (see res/docker/docker-compose.yml), so journalctl can read them.
+[sources.journald_rp]
+type = "journald"
+current_boot_only = true
+include_matches._SYSTEMD_USER_UNIT = ["workspace-rp.service"]
+
+[transforms.parse_service_log]
+type = "remap"
+inputs = ["journald_rp"]
+source = """
+.service = "workspace-rp"
+.unit = to_string!(get!(., ["_SYSTEMD_USER_UNIT"]) || "")
+.container = to_string!(get!(., ["CONTAINER_NAME"]) || "")
+.level = to_string!(get!(., ["PRIORITY"]) || "")
+.pid = to_int(get!(., ["_PID"]) || 0) ?? 0
+# Match request_log: a formatted string, so the ClickHouse sink never has to
+# coerce a native timestamp.
+.timestamp = format_timestamp!(.timestamp, "%Y-%m-%d %H:%M:%S%.3f")
+"""
+
+[sinks.clickhouse_service_log]
+type = "clickhouse"
+inputs = ["parse_service_log"]
+endpoint = "http://clickhouse:8123"
+database = "llm_gateway"
+table = "service_log"
+skip_unknown_fields = true
+
+[sinks.clickhouse_service_log.auth]
+strategy = "basic"
+user = "vector_rw"
+password = "${CH_VECTOR_PASSWORD}"
+
+[sinks.clickhouse_service_log.batch]
+max_events = 1000
+timeout_secs = 10
+
+[sinks.clickhouse_service_log.buffer]
+type = "memory"
+max_events = 10000
+when_full = "block"
+
+[sinks.clickhouse_service_log.request]
+retry_attempts = 5
+retry_initial_backoff_secs = 1
+retry_max_duration_secs = 30
+timeout_secs = 30
