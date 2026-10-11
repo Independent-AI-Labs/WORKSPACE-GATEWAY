@@ -89,10 +89,11 @@ and retaining all telemetry data indefinitely at controlled storage cost.
 | ID | Requirement |
 |----|-------------|
 | FR-4.1 | All `TTL ... DELETE` clauses (13-month retention) MUST be removed from every `llm_gateway` table; telemetry data is retained indefinitely. |
-| FR-4.2 | Tables MUST use storage policy `tiered` (`conf/clickhouse-storage-tiering.xml`): parts move to the `archive` volume (path inside the existing data volume) and are recompressed with `CODEC ZSTD(3)` on the schedule in migration `000011` (bodies at 6 months, metadata at 12/18 months). |
+| FR-4.2 | Tables MUST use storage policy `tiered` (`conf/clickhouse-storage-tiering.xml`): parts move to the `archive` volume (path inside the existing data volume) and are recompressed with `CODEC ZSTD(3)` on the schedule in migration `000011` (bodies at 6 months, metadata at 12/18 months). The archive volume MUST NOT live on the FUSE backup mount (unsupported for live MergeTree). |
 | FR-4.3 | A storage-growth panel (bytes on disk per table, free space, part counts from `system.parts`/`system.disks`) MUST exist on `gateway-ops-health`, and a Grafana unified alert MUST fire on low free space (<20%) or anomalous growth. |
 | FR-4.4 | The billing totals job MUST emit a warning when ClickHouse data growth exceeds the configured monthly budget. |
-| FR-4.5 | Nightly ClickHouse backups MUST be written to `/mnt/ws-backup` (10.9T FUSE volume) via a systemd timer; the archive tier MUST NOT live on the FUSE volume (unsupported for live MergeTree). |
+| FR-4.5 | Nightly ClickHouse backups MUST run from a systemd timer and write to the single destination named by the required `GW_BACKUP_DIR` setting. That destination MUST be a mount distinct from `/`, so an archive can never be written onto the encrypted root. |
+| FR-4.6 | The nightly backup job MUST bound retained archives to the required `GW_BACKUP_KEEP` count (newest kept). Before writing any archive it MUST prove the destination is a distinct, writable mount; when it is not, the job MUST exit non-zero and write nothing. |
 
 ### FR-5: Grafana Trust Model
 | ID | Requirement |

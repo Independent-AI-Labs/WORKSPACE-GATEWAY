@@ -1,26 +1,35 @@
 #!/bin/bash
 set -euo pipefail
 
-# Nightly ClickHouse backup (REQ-SECURITY-HARDENING FR-7, systemd unit
-# res/ansible/templates/gateway-ch-backup.{service,timer}.j2). Native BACKUP to the
-# container-local `backups` disk, copied out to a staging dir, then synced
-# to /mnt/ws-backup/workspace-gateway/ when that mount is writable
-# (fuseblk, root-owned: the existing root sync job picks it up otherwise -
-# see RUNBOOK-SECRETS).
+# Nightly ClickHouse backup (REQ-SECURITY-HARDENING FR-4.5/FR-4.6, systemd unit
+# res/ansible/templates/gateway-ch-backup.{service,timer}.j2). Resolves the
+# single destination from GW_BACKUP_DIR, proves it is a distinct writable mount,
+# runs the native BACKUP into the container-local `backups` disk, copies the
+# archive straight out with `podman cp`, then prunes to the newest
+# GW_BACKUP_KEEP. Each step fails the job before an archive can reach the
+# encrypted root.
 #
-# Env (from .env via systemd EnvironmentFile): CH_OPS_PASSWORD.
+# Env (required; from .env via systemd EnvironmentFile):
+#   CH_OPS_PASSWORD  ClickHouse ops credential.
+#   GW_BACKUP_DIR    destination root (a mount distinct from /).
+#   GW_BACKUP_KEEP   max archives retained, newest kept.
 
 CONTAINER="${CLICKHOUSE_CONTAINER:-gw-clickhouse}"
 PODMAN="${PODMAN:-${PODMAN_PATH:-podman}}"
-STAGING="${HOME}/.local/state/workspace-gateway/backups"
-WS_BACKUP="/mnt/ws-backup/workspace-gateway"
-STAGING_KEEP_DAYS=7
-BACKUP_KEEP_DAYS=30
 
 fail() { echo "[ch-backup] ERROR: $*" >&2; exit 1; }
 
 : "${CH_OPS_PASSWORD:?CH_OPS_PASSWORD not set (systemd EnvironmentFile=.env)}"
+: "${GW_BACKUP_DIR:?GW_BACKUP_DIR not set (systemd EnvironmentFile=.env)}"
+: "${GW_BACKUP_KEEP:?GW_BACKUP_KEEP not set (systemd EnvironmentFile=.env)}"
 CH_OPS_USER="${CH_OPS_USER:-ops_admin}"
+
+case "$GW_BACKUP_KEEP" in
+    ''|*[!0-9]*) fail "GW_BACKUP_KEEP must be a positive integer, got '${GW_BACKUP_KEEP}'" ;;
+esac
+if [ "$GW_BACKUP_KEEP" -lt 1 ]; then
+    fail "GW_BACKUP_KEEP must be >= 1, got ${GW_BACKUP_KEEP}"
+fi
 
 _SELF="${BASH_SOURCE[0]}"
 case "$_SELF" in
@@ -44,20 +53,30 @@ chq() {
         --user "$CH_OPS_USER" --password "$CH_OPS_PASSWORD" --multiquery
 }
 
-mkdir -p "$STAGING"
+# --- 0. Preflight: destination must be a separate, writable mount ---
+mkdir -p "$GW_BACKUP_DIR"
+ROOT_SRC="$(findmnt -no SOURCE /)"
+DEST_SRC="$(findmnt -no SOURCE --target "$GW_BACKUP_DIR")"
+if [ -z "$DEST_SRC" ]; then
+    fail "cannot resolve the filesystem for GW_BACKUP_DIR=${GW_BACKUP_DIR}"
+fi
+if [ "$DEST_SRC" = "$ROOT_SRC" ]; then
+    fail "GW_BACKUP_DIR=${GW_BACKUP_DIR} is on the root filesystem (${ROOT_SRC}); backups must land on a separate mount"
+fi
+if ! touch "${GW_BACKUP_DIR}/.gw-write-test"; then
+    fail "GW_BACKUP_DIR=${GW_BACKUP_DIR} is not writable by $(id -un)"
+fi
+rm -f "${GW_BACKUP_DIR}/.gw-write-test"
 
-# Idempotency: skip if today's backup already completed. A failed query
-# (e.g. system.backups empty) means no prior backup; treat as empty string.
+# --- 1. Create the backup in the container (idempotent) ---
+# A failed query (e.g. system.backups empty) means no prior backup; treat as
+# empty string. A failed/async leftover is dropped and retried; system.backups
+# is a non-persistent view, so removing the directory is the whole cleanup.
 STATUS=""
-# system.backups.name is the full spec Disk('backups', '<name>'), so match
-# by substring rather than equality on the bare name.
 if STATUS_FROM_CH="$(chq "$(sql_render ops/gateway-ch-backup/status.sql NAME="$NAME")")"; then
     STATUS="$STATUS_FROM_CH"
 fi
 if [ -n "${STATUS:-}" ] && [ "${STATUS:-}" != "BACKUP_CREATED" ]; then
-    # Failed/async leftover of a previous attempt: drop its files and retry.
-    # system.backups is a non-persistent SystemBackups view (no mutations,
-    # cleared on restart), so removing the directory is the whole cleanup.
     "$PODMAN" exec "$CONTAINER" rm -rf "/var/lib/clickhouse/backups/${NAME}"
 fi
 if [ "${STATUS:-}" = "BACKUP_CREATED" ]; then
@@ -67,23 +86,27 @@ else
     chq "$(sql_render ops/gateway-ch-backup/backup.sql NAME="$NAME")"
 fi
 
-# Copy out of the container volume to staging.
-rm -rf "${STAGING:?}/${NAME}"
-"$PODMAN" cp "${CONTAINER}:/var/lib/clickhouse/backups/${NAME}" "${STAGING}/${NAME}"
-echo "[ch-backup] staged ${STAGING}/${NAME}"
+# --- 2. Copy the finished archive out of the container ---
+DEST="${GW_BACKUP_DIR}/${NAME}"
+rm -rf "${DEST:?}"
+"$PODMAN" cp "${CONTAINER}:/var/lib/clickhouse/backups/${NAME}" "${DEST}"
+echo "[ch-backup] wrote ${DEST}"
 
-# Sync to ws-backup when the mount accepts writes from this user.
-if touch "${WS_BACKUP}/.gw-write-test"; then
-    rm -f "${WS_BACKUP}/.gw-write-test"
-    mkdir -p "$WS_BACKUP"
-    rsync -a --delete "${STAGING}/./" "$WS_BACKUP/"
-    find "$WS_BACKUP" -mindepth 1 -maxdepth 1 -type d -mtime "+${BACKUP_KEEP_DAYS}" \
-        -exec rm -rf {} +
-    echo "[ch-backup] synced to ${WS_BACKUP} (retention ${BACKUP_KEEP_DAYS}d)"
-else
-    echo "[ch-backup] WARN: ${WS_BACKUP} not writable; backup kept in ${STAGING} only" >&2
+# --- 3. Retention: keep the newest GW_BACKUP_KEEP archives ---
+shopt -s nullglob
+ARCHIVES=( "$GW_BACKUP_DIR"/gw-*/ )
+shopt -u nullglob
+if [ "${#ARCHIVES[@]}" -gt "$GW_BACKUP_KEEP" ]; then
+    mapfile -t ORDERED < <(
+        find "$GW_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'gw-*' \
+            -printf '%T@ %p\n' | sort -rn
+    )
+    i="$GW_BACKUP_KEEP"
+    while [ "$i" -lt "${#ORDERED[@]}" ]; do
+        OLD="${ORDERED[$i]#* }"
+        rm -rf "${OLD:?}"
+        echo "[ch-backup] pruned ${OLD}"
+        i=$((i + 1))
+    done
 fi
-
-find "$STAGING" -mindepth 1 -maxdepth 1 -type d -mtime "+${STAGING_KEEP_DAYS}" \
-    -exec rm -rf {} +
 echo "[ch-backup] done"

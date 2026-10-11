@@ -1,0 +1,11 @@
+[Unit]
+Description=Probe the WORKSPACE-GATEWAY dev stack every 2 minutes and recover if down
+
+[Timer]
+OnCalendar=*:0/2
+Persistent=true
+RandomizedDelaySec=30
+Unit=gateway-compose-healthcheck.service
+
+[Install]
+WantedBy=timers.target

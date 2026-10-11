@@ -134,8 +134,9 @@ _compose-down:
 	-$(SCRIPT_BASH) res/scripts/gateway-compose.sh down
 
 .PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-verify gw-status gw-logs gw-shell \
-        gw-restart-service gw-recreate-service gw-reload-plugins gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-install-crunch-timer \
-        gw-sync-model-registry gw-recalc-costs gw-fix-model-attribution gw-check-model-attribution
+        gw-restart-service gw-recreate-service gw-reload-plugins gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-backup gw-backup-status gw-install-timers gw-install-crunch-timer \
+        gw-sync-model-registry gw-recalc-costs gw-fix-model-attribution gw-check-model-attribution \
+        gw-healthcheck gw-healthcheck-probe
 
 # Internal: apply desired runtime state (routes, ClickHouse schema, provider
 # catalog) to the running stack. Never restarts containers. Every lifecycle
@@ -154,6 +155,14 @@ gw-sync-model-registry: ## Sync model-registry.yaml + provider local flags into 
 gw-crunch-usefulness: ## Run the rejection-language cruncher now (DAYS=N window, REBUILD=1 for clean recompute)
 	$(SCRIPT_BASH) res/scripts/crunch-usefulness.sh $(if $(DAYS),--days $(DAYS)) $(if $(REBUILD),--rebuild)
 
+gw-backup: ## Run the ClickHouse nightly backup now (destination/retention from GW_BACKUP_DIR/GW_BACKUP_KEEP in .env)
+	$(LOAD_ENV) \
+	$(SCRIPT_BASH) res/scripts/gateway-ch-backup.sh
+
+gw-backup-status: ## Show the ClickHouse backup destination, filesystem, retention, and archives
+	$(LOAD_ENV) \
+	$(SCRIPT_BASH) res/scripts/gateway-backup-status.sh
+
 gw-fix-model-attribution: ## Repair model identity across request_log/usage_log/billing_ledger (idempotent; dry-run unless APPLY=1)
 	$(SCRIPT_BASH) res/scripts/fix-model-attribution.sh $(if $(APPLY),--apply)
 
@@ -166,9 +175,11 @@ gw-recalc-costs: ## Recalculate historical cost (dry-run unless APPLY=1; LIMIT=N
 		$(if $(DAYS),--days $(DAYS)) $(if $(SOURCE),--source $(SOURCE)) \
 		$(if $(ALL),--all --confirm-all)
 
-gw-install-crunch-timer: ## Install + enable the daily maintenance timers (cruncher, ClickHouse backup, model-attribution check)
+gw-install-timers: ## (Re)render + enable the gateway maintenance timers (cruncher, ClickHouse backup, model-attribution check, stack healthcheck)
 	$(ANSIBLE_COMPOSE) --tags timers
-	echo "=== Maintenance timers installed: gateway-usefulness-crunch.timer, gateway-ch-backup.timer, gateway-model-attribution-check.timer ==="
+	echo "=== Maintenance timers registered: gateway-usefulness-crunch.timer, gateway-ch-backup.timer, gateway-model-attribution-check.timer, gateway-compose-healthcheck.timer ==="
+
+gw-install-crunch-timer: gw-install-timers ## Deprecated alias for gw-install-timers
 
 gw-build: _compose-build ## Build container images
 
@@ -240,6 +251,12 @@ gw-restart-grafana: ## Restart Grafana, wait healthy, reload provisioning
 gw-verify: ## Health report: container/endpoint status + one request through the gateway
 	$(LOAD_ENV) \
 	$(ANSIBLE_DEV) --tags status,sanity
+
+gw-healthcheck: ## Probe the dev stack and recover if down (3 attempts / 5 min), then alert
+	$(SCRIPT_BASH) res/scripts/gateway-compose-healthcheck.sh
+
+gw-healthcheck-probe: ## Probe the dev stack once, no recovery (exit 1 when down)
+	$(SCRIPT_BASH) res/scripts/gateway-compose-healthcheck.sh --probe
 
 gw-status: ## Show gateway systemd + container status
 	$(ANSIBLE_COMPOSE) --tags status

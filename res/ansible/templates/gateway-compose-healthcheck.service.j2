@@ -1,0 +1,18 @@
+[Unit]
+Description=WORKSPACE-GATEWAY dev stack liveness supervisor (probe + bounded recovery)
+Documentation=file://{{ project_root }}/docs/runbooks/RUNBOOK-DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ project_root }}
+EnvironmentFile={{ project_root }}/.env
+Environment=PATH={{ compose_cmd | dirname }}:{{ podman_bin_dir }}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=SHG_SCRIPT_PATH={{ podman_path }}
+Environment=PODMAN_PATH={{ podman_path }}
+# Recovery runs `make gw-start`, which can cold-boot the stack; allow the full
+# 3-attempt / 5-minute budget plus apply time to finish inside one run.
+TimeoutStartSec=600
+ExecStart={{ project_root }}/res/scripts/gateway-compose-healthcheck.sh
+SyslogIdentifier=gateway-compose-healthcheck

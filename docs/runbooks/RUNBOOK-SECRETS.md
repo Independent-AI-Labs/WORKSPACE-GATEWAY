@@ -93,11 +93,29 @@ re-provisioned on `gw-prod-redeploy` start.
 
 Nightly (systemd timer `gateway-ch-backup.timer`, unit in
 [`res/ansible/templates/`](../../res/ansible/templates/)): the
-`BACKUP DATABASE llm_gateway TO File('/backups/<date>')` statement into the
-staging directory, then synced to
-`/mnt/ws-backup/workspace-gateway/` via the existing root write path. If
-ws-backup is unwritable the backup stays in staging and the job logs a
-warning (always logged, REQ-SECURITY-HARDENING NFR-1.4).
+`BACKUP DATABASE llm_gateway TO File('/backups/<date>')` statement, then the
+archive is copied straight out of the container to the configured destination
+and older archives are pruned.
+
+Both variables are required (REQ-SECURITY-HARDENING FR-4.5/FR-4.6); the job
+reads them from `.env` and carries no built-in path.
+
+| Env var (`.env`) | Example | Meaning |
+|------------------|---------|---------|
+| `GW_BACKUP_DIR` | `/mnt/ws-backup/workspace-gateway` | Backup destination root; MUST be on a mount separate from `/` (off the encrypted root). |
+| `GW_BACKUP_KEEP` | `5` | Max archives retained; newest kept, older `gw-*` pruned. |
+
+The job proves `GW_BACKUP_DIR` sits on a mount other than `/` and accepts
+writes, then exits non-zero (always logged, REQ-SECURITY-HARDENING NFR-1.4)
+without writing an archive when either check fails (FR-4.6).
+
+Make targets:
+
+| Target | Action |
+|--------|--------|
+| `make gw-backup` | Run the backup now (same script/env the timer uses). |
+| `make gw-backup-status` | Read-only: destination, filesystem, retention, archives on disk. |
+| `make gw-install-timers` | (Re)render + enable all maintenance timers, including `gateway-ch-backup.timer`. |
 
 Restore drill (quarterly, into a scratch volume):
 

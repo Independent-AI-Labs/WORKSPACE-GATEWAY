@@ -217,11 +217,18 @@ healthchecks (ping/health endpoints  -  unauthenticated by design).
 ## 12. Backups
 
 `res/ansible/templates/gateway-ch-backup.{service,timer}.j2`: nightly
-`podman exec clickhouse clickhouse-client --password ... BACKUP DATABASE llm_gateway TO File('/backups/<date>')`
-writing to a staging dir, then sync to
-`/mnt/ws-backup/workspace-gateway/` through the existing root write path
-(A-3); falls back to staging-only with a logged warning if ws-backup is not
-writable.
+`podman exec clickhouse clickhouse-client --password ... BACKUP DATABASE llm_gateway TO File('/backups/<date>')`,
+then `podman cp` straight out of the container to the destination named by the
+required `GW_BACKUP_DIR` setting. The job resolves that one destination, proves
+it sits on a mount other than `/` and accepts writes, and exits non-zero
+without writing when either check fails (FR-4.5/FR-4.6). Retention is
+count-based: the newest `GW_BACKUP_KEEP` archives are kept and older `gw-*`
+directories pruned.
+
+Ops entry points: `make gw-backup` (run now), `make gw-backup-status`
+(read-only destination/retention/archive report,
+`res/scripts/gateway-backup-status.sh`), and `make gw-install-timers`
+(re-render + enable the maintenance timers, ansible `--tags timers`).
 
 ## 13. Edge Contract
 
@@ -246,6 +253,7 @@ allowlist) and the verification matrix executed from this host (V7).
 | `conf/grafana/dashboards/gateway-ops-health.json` | storage growth panel + alert |
 | `res/scripts/*.sh`, `Makefile` | ops auth, `ch-provision`, `etcd-auth-init` |
 | `res/ansible/templates/gateway-ch-backup.*.j2` | new  -  nightly backup |
+| `res/scripts/gateway-backup-status.sh` | new  -  read-only backup/retention report (`make gw-backup-status`) |
 | `.env.example` | full variable inventory, example values |
 | `tests/docker-compose.test.yml`, `tests/**` | fixture + client updates, new V1-V8 |
 

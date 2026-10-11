@@ -23,10 +23,13 @@
       - gateway-ch-backup.timer
       - gateway-model-attribution-check.service
       - gateway-model-attribution-check.timer
+      - gateway-compose-healthcheck.service
+      - gateway-compose-healthcheck.timer
     maintenance_timers:
       - gateway-usefulness-crunch.timer
       - gateway-ch-backup.timer
       - gateway-model-attribution-check.timer
+      - gateway-compose-healthcheck.timer
     systemd_dir: '{{ ansible_env.HOME }}/.config/systemd/user'
     venv_compose: '{{ project_root }}/.venv/bin/podman-compose'
     ci_podman: /opt/workspace-ci/.boot-linux/bin/podman
