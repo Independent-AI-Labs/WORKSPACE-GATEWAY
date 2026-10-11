@@ -255,7 +255,7 @@ REQ-DEPLOYMENT 16-17, `reinstall-hooks`, `lock-repo`):
   killing generator/checker skew (the deployed 2.7KB generator vs 22KB
   source mismatch that produced 22 phantom violations).
 
-### P3.4: Resolved: `.gitleaksignore` retired
+### P3.4: Resolved: the gitleaks ignore-file retired
 
 Closed 2026-09-28.
 
@@ -267,12 +267,12 @@ Closed 2026-09-28.
   `.env.prod` before gitleaks opens them.
 - [x] Reproduced the current behavior against the dev tree: the wrapper's own
   config passes clean with `.env` allowlisted; no `.env` finding is emitted.
-- [x] Confirmed `.gitleaksignore` was NOT inert - gitleaks 8.30.1 `dir` honors
-  it (its three entries suppress exactly `.env:generic-api-key:1/2/6`; removing
-  the file reveals those lines). It was still redundant under the
+- [x] Confirmed the gitleaks ignore-file was NOT inert - gitleaks 8.30.1 `dir`
+  honors it (its three entries suppress exactly `.env:generic-api-key:1/2/6`;
+  removing the file reveals those lines). It was still redundant under the
   wrapper and incomplete: it covered only 3 of the 11 secrets in `.env`.
-- [x] No wrapper defect found; no WORKSPACE-CI change required. Removed
-  `.gitleaksignore` from this repository as dead policy. The pre-commit
+- [x] No wrapper defect found; no WORKSPACE-CI change required. Removed the
+  gitleaks ignore-file from this repository as dead policy. The pre-commit
   gitleaks hook runs the same wrapper, so commit-time scanning is unaffected.
 
 ### P3.6: Documentation truth pass (added 2026-08-25)
@@ -335,6 +335,6 @@ This TODO is complete only when:
    holds after every regeneration without manual `chattr`.
 7. Exactly one CI tree (the deployed `/opt/workspace-ci`) generates GATEWAY
    hook configuration, enforced by drift checks.
-8. The `.gitleaksignore` question is resolved: wrapper behavior confirmed
+8. The gitleaks ignore-file question is resolved: wrapper behavior confirmed
    correct (it allowlists every git-ignored path) and the redundant ignore
    file removed (P3.4, 2026-09-28).
