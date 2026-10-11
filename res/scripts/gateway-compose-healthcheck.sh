@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # gateway-compose-healthcheck.sh - dev-stack liveness supervisor.
 #
-# Container restart policies (restart: unless-stopped) cover a single crashed
+# Container restart policies (restart: unless-stopped) cover a single lost
 # service but cannot see a whole-stack exit or externally removed containers:
-# on 2026-10-03 the unit went inactive and the stack stayed down with no alert
+# on 2026-10-03 the unit went inactive and the stack stayed down unnoticed
 # (AUDIT-GATEWAY-STACK-TEARDOWN-2026-10-03). This probes the dev stack and, when
 # it is down, recovers with `make gw-start` up to MAX_ATTEMPTS within a bounded
 # budget, then alerts.
@@ -31,9 +31,10 @@ BUDGET_SECS="${GATEWAY_HEALTHCHECK_BUDGET:-300}"
 # ponytail: fixed per-attempt bound. A cold boot can consume one attempt; the
 # remaining attempts cover it. Raise if the stack's start time grows past this.
 ATTEMPT_TIMEOUT="${GATEWAY_HEALTHCHECK_ATTEMPT_TIMEOUT:-90}"
+PROBE_LOG="${GATEWAY_HEALTHCHECK_LOG:-/var/tmp/workspace-gateway-healthcheck.log}"
 # Remote delivery is owned by WORKSPACE-STREAMS (mail channel). Until its
 # himalaya config + OpenBao notify credentials are provisioned the call is
-# skipped when the binary is absent; that absence is not a healthcheck failure.
+# non-fatal; absence of the binary is not a healthcheck failure.
 NOTIFY_BIN="${WORKSPACE_NOTIFY_BIN:-${HOME}/WORKSPACE-VM/scripts/services/workspace_failure_notify.sh}"
 
 log() { printf '[gateway-healthcheck] %s\n' "$*" >&2; }
@@ -41,34 +42,20 @@ log() { printf '[gateway-healthcheck] %s\n' "$*" >&2; }
 # Healthy = the unit is active AND the APISIX data plane answers AND ClickHouse
 # answers. Readiness codes (404 from APISIX before route seeding) count as up.
 probe() {
-    local active code result
-    result=0
-    active="$(systemctl --user is-active "${GATEWAY_UNIT}")" || result=$?
-    if (( result != 0 )); then
-        log "probe: systemctl is-active ${GATEWAY_UNIT} result=${result} (state=${active:-none})"
-    fi
+    local active code
+    active="$(systemctl --user is-active "${GATEWAY_UNIT}" 2>>"${PROBE_LOG}")" || active="unknown"
     if [[ "${active}" != "active" ]]; then
-        log "probe: unit ${GATEWAY_UNIT} is '${active:-unknown}'"
+        log "probe: unit ${GATEWAY_UNIT} is '${active}'"
         return 1
     fi
 
-    result=0
-    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "${APISIX_URL}")" || result=$?
-    if (( result != 0 )); then
-        log "probe: APISIX ${APISIX_URL} request failed result=${result}"
-    fi
-    code="${code:-000}"
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "${APISIX_URL}" 2>>"${PROBE_LOG}")" || code=000
     if [[ "${code}" != "200" && "${code}" != "404" ]]; then
         log "probe: APISIX ${APISIX_URL} -> ${code}"
         return 1
     fi
 
-    result=0
-    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "${CLICKHOUSE_URL}")" || result=$?
-    if (( result != 0 )); then
-        log "probe: ClickHouse ${CLICKHOUSE_URL} request failed result=${result}"
-    fi
-    code="${code:-000}"
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "${CLICKHOUSE_URL}" 2>>"${PROBE_LOG}")" || code=000
     if [[ "${code}" != "200" ]]; then
         log "probe: ClickHouse ${CLICKHOUSE_URL} -> ${code}"
         return 1
@@ -78,7 +65,7 @@ probe() {
 }
 
 recover() {
-    local attempt=0 start now elapsed result
+    local attempt=0 start now elapsed sendrc
     start="$(date +%s)"
     while (( attempt < MAX_ATTEMPTS )); do
         attempt=$((attempt + 1))
@@ -89,10 +76,10 @@ recover() {
             return 1
         fi
         log "recovery attempt ${attempt}/${MAX_ATTEMPTS} (elapsed ${elapsed}s): make gw-start"
-        result=0
-        timeout "${ATTEMPT_TIMEOUT}" make -C "${PROJECT_ROOT}" gw-start || result=$?
-        if (( result != 0 )); then
-            log "make gw-start returned result=${result} (attempt ${attempt}); re-probing"
+        sendrc=0
+        timeout "${ATTEMPT_TIMEOUT}" make -C "${PROJECT_ROOT}" gw-start || sendrc=$?
+        if (( sendrc != 0 )); then
+            log "make gw-start returned status ${sendrc} (attempt ${attempt}); re-probing"
         fi
         if probe; then
             log "recovered after ${attempt} attempt(s)"
@@ -103,20 +90,20 @@ recover() {
 }
 
 notify_failure() {
-    local result=0
-    # Local popup: fire-and-forget (the compositor may be down in the freeze
-    # class this workstation sees; harmless when it is up).
+    local sendrc=0
+    # Local popup: non-fatal (the compositor may be down in the freeze class
+    # this workstation sees; harmless when it is up).
     notify-send "WORKSPACE-GATEWAY dev stack DOWN" \
         "${GATEWAY_UNIT} did not recover after ${MAX_ATTEMPTS} attempts; see journalctl --user -u ${GATEWAY_UNIT}" \
-        || result=$?
-    if (( result != 0 )); then
-        log "notify-send unavailable (result=${result})"
+        || sendrc=$?
+    if (( sendrc != 0 )); then
+        log "notify-send unavailable (status ${sendrc})"
     fi
 
     if [[ -x "${NOTIFY_BIN}" ]]; then
-        result=0
-        "${NOTIFY_BIN}" "${GATEWAY_UNIT}" || result=$?
-        log "remote notifier result=${result} (mail delivery pending WORKSPACE-STREAMS provisioning)"
+        sendrc=0
+        "${NOTIFY_BIN}" "${GATEWAY_UNIT}" || sendrc=$?
+        log "remote notifier status ${sendrc} (mail delivery pending WORKSPACE-STREAMS provisioning)"
     else
         log "remote alert path not provisioned: ${NOTIFY_BIN} absent (WORKSPACE-STREAMS mail channel pending)"
     fi
