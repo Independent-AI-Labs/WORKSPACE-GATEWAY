@@ -105,7 +105,7 @@ printf '%s\n' "$SIG1"
 echo "---------------------------"
 
 N_ROWS=$(printf '%s\n' "$SIG1" | grep -c . ) || N_ROWS=0
-[ "$N_ROWS" = "5" ] && ok "all 5 rows recorded (unparseable row kept, FR-2.7)" || ko "expected 5 signal rows, got $N_ROWS"
+[ "$N_ROWS" = "6" ] && ok "all 6 rows recorded (unparseable row kept, FR-2.7)" || ko "expected 6 signal rows, got $N_ROWS"
 
 # Multiple upload parts are joined with '&' by the HTTP client, corrupting
 # the first TSV row of every block insert to "&<request_id>"
@@ -128,6 +128,9 @@ ROW_E=$(printf '%s\n' "$SIG1" | grep -a $'^crunch-test-e\t')
 echo "$ROW_E" | grep -q 'rm-rootfs' && ok "row E: guard rule id extracted from BLOCKED marker" || ko "row E guard_rules wrong: $ROW_E"
 echo "$ROW_E" | grep -q $'1\trm-rootfs\t1\t0' && ok "row E: friction counts (1 block, 1 user rejection, 0 rule denial)" || ko "row E friction wrong: $ROW_E"
 
+ROW_F=$(printf '%s\n' "$SIG1" | grep -a $'^crunch-test-f\t')
+echo "$ROW_F" | grep -q $'crunch-test-f\t1\t1\t1\t1\tshit' && ok "row F: Anthropic /v1/messages body crunched (followup profanity)" || ko "row F wrong (Anthropic URI scope): $ROW_F"
+
 # Idempotency: second run over the same window must converge byte-identically.
 RUN2=$(CLICKHOUSE_HOST="$CLICKHOUSE_HOST" CLICKHOUSE_PORT="$CLICKHOUSE_PORT" \
        APISIX_CONTAINER="$APISIX_CONTAINER" \
@@ -145,7 +148,7 @@ else
 fi
 
 N_ROWS_2=$(printf '%s\n' "$SIG2" | grep -c . ) || N_ROWS_2=0
-[ "$N_ROWS_2" = "5" ] && ok "no duplicate rows after re-run" || ko "row count after re-run: $N_ROWS_2"
+[ "$N_ROWS_2" = "6" ] && ok "no duplicate rows after re-run" || ko "row count after re-run: $N_ROWS_2"
 
 # Cleanup: remove seeded request_log + request_bodies rows, then re-crunch
 # the window so any REAL pre-existing signals for these hours are restored

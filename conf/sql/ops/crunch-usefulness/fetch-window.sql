@@ -29,7 +29,8 @@ SELECT request_id, model, toString(ts) AS ts, if(length(asst) > 0, 1, 0) AS is_f
       AND b.req_body != ''
       AND isValidJSON(b.req_body)
       AND JSONType(b.req_body, 'messages') = 'Array'
-      AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%')
+      AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%'
+           OR r.uri LIKE '%/v1/messages%')
 )
 UNION ALL
 SELECT r.request_id AS request_id, r.model AS model, toString(r.timestamp) AS ts, 0 AS is_followup,
@@ -37,7 +38,8 @@ SELECT r.request_id AS request_id, r.model AS model, toString(r.timestamp) AS ts
 FROM {{ DB }}.request_log AS r
 LEFT JOIN {{ DB }}.request_bodies AS b ON r.event_id = b.event_id
 WHERE r.timestamp >= '{{ WT0 }}' AND r.timestamp < '{{ WT1 }}'
-  AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%')
+  AND (r.uri LIKE '%/chat/completions%' OR r.uri LIKE '%/responses%'
+       OR r.uri LIKE '%/v1/messages%')
   AND (b.event_id = '' OR b.req_body = '' OR NOT isValidJSON(b.req_body)
        OR JSONType(b.req_body, 'messages') != 'Array')
 {{ LIMIT_CLAUSE }}

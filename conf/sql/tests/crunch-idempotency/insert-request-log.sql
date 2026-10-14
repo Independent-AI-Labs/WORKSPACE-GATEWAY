@@ -7,3 +7,4 @@ FORMAT JSONEachRow
 {"event_id":"00000000-0000-0000-0000-0000000000c1","request_id":"crunch-test-c","provider":"test","model":"test-model","stream":true,"method":"POST","uri":"/v1/chat/completions","status":200,"timestamp":"{{ WT0 }}"}
 {"event_id":"00000000-0000-0000-0000-0000000000d1","request_id":"crunch-test-d","provider":"test","model":"test-model","stream":true,"method":"POST","uri":"/v1/chat/completions","status":200,"timestamp":"{{ WT0 }}"}
 {"event_id":"00000000-0000-0000-0000-0000000000e1","request_id":"crunch-test-e","provider":"test","model":"test-model","stream":true,"method":"POST","uri":"/v1/chat/completions","status":200,"timestamp":"{{ WT0 }}"}
+{"event_id":"00000000-0000-0000-0000-0000000000f1","request_id":"crunch-test-f","provider":"anthropic-coding-plan","model":"claude-sonnet-4-5","stream":true,"method":"POST","uri":"/anthropic-coding-plan/v1/messages","status":200,"timestamp":"{{ WT0 }}"}

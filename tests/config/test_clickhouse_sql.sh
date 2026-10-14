@@ -278,6 +278,18 @@ RULE_RE_RC=0
 RULE_RE=$(grep -cF "extractAll(b.req_body, '[(]([a-z][a-z0-9-]+)[)] [(]2[0-9]{3}-[0-9]{2}-[0-9]{2}T')" "$CRUNCH" ) || { RULE_RE_RC=$?; RULE_RE="0"; }
 assert_eq "crunch extracts rule ids anchored before the ISO timestamp" "1" "$RULE_RE"
 
+# URI scope must cover the Anthropic Messages API (/v1/messages), not just
+# the OpenAI-compatible surfaces: claude traffic on the native routes has no
+# /chat/completions or /responses substring and was invisible to the score
+# family before this (p40/p47 + p34/p42/p43 all INNER JOIN request_signals).
+CRUNCH_HOURS="$REPO_ROOT/conf/sql/ops/crunch-usefulness/non-empty-hours.sql"
+URI_MSGS_RC=0
+URI_MSGS=$(grep -c "%/v1/messages%" "$CRUNCH" ) || { URI_MSGS_RC=$?; URI_MSGS="0"; }
+assert_eq "crunch fetch URI scope covers Anthropic Messages" "true" "$(if [ "$URI_MSGS" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
+URI_MSGS_HOURS_RC=0
+URI_MSGS_HOURS=$(grep -c "%/v1/messages%" "$CRUNCH_HOURS" ) || { URI_MSGS_HOURS_RC=$?; URI_MSGS_HOURS="0"; }
+assert_eq "crunch hour prequery URI scope covers Anthropic Messages" "true" "$(if [ "$URI_MSGS_HOURS" -ge 1 ]; then printf 'true'; else printf 'false'; fi)"
+
 # ── system log hygiene (text_log reached 143 GiB / 7.4B rows) ─────────
 CH_LOG_XML="$REPO_ROOT/conf/clickhouse-disable-metric-logs.xml"
 
