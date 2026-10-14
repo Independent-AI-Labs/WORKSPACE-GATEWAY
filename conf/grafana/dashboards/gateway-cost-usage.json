@@ -374,6 +374,98 @@
                 "value": 2
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate_input"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate_cached"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate_output"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "requests"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
           }
         ]
       },
@@ -391,9 +483,9 @@
         "minFontSize": 8,
         "maxFontSize": 22,
         "fontSize": 12,
-        "tooltipTemplate": "<div><strong>{{label}}</strong></div><div>{{value}} tokens &middot; {{fields.cost}} ({{percent}}%)</div>"
+        "tooltipTemplate": "<div><strong>{{label}}</strong></div><div>{{value}} tokens &middot; {{fields.cost}} ({{percent}}%)</div><div>&nbsp;</div><div>in {{fields.rate_input}} &middot; cached {{fields.rate_cached}} &middot; out {{fields.rate_output}} /Mtok</div><div>{{fields.requests}} requests &middot; {{fields.avg_cost}}/req</div>"
       },
-      "description": "Top 20 models by token volume over the selected range: each tile is a model sized by its token volume, with its spend in the tooltip. Tiles below the minimum area are merged into an overflow tile so no model collapses to an unreadable sliver. Includes migrated history."
+      "description": "Top 20 models by token volume over the selected range: each tile is a model sized by its token volume. The tooltip adds spend and its share of tokens, the per-category price card (effective input, cached-read and output $ per 1M tokens reconstructed from the billed per-category cost split), the request count and the average cost per request; '-' marks a category the model had no usage for in the range. Tiles below the minimum area are merged into an overflow tile so no model collapses to an unreadable sliver. Includes migrated history."
     },
     {
       "id": 46,

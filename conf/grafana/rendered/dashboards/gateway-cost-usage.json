@@ -346,7 +346,7 @@
         {
           "queryType": "table",
           "refId": "A",
-          "rawSql": "WITH per_model AS (\n    SELECT\n        model,\n        toInt64(sum(total_tokens)) AS tokens,\n        sum(cost) AS cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n    GROUP BY model\n    ORDER BY tokens DESC\n    LIMIT 20\n)\nSELECT\n    model,\n    tokens,\n    round(cost, 2) AS cost\nFROM per_model\nORDER BY tokens DESC",
+          "rawSql": "WITH per_model AS (\n    SELECT\n        model,\n        toInt64(sum(total_tokens)) AS tokens,\n        sum(cost) AS cost,\n        count() AS requests,\n        sum(greatest(prompt_tokens - cached_tokens - cache_write_tokens, 0)) AS input_tok,\n        sum(cached_tokens) AS cached_tok,\n        sum(greatest(completion_tokens - reasoning_tokens, 0)) AS output_tok,\n        sum(cost_input_uncached) AS input_cost,\n        sum(cost_cached) AS cached_cost,\n        sum(cost_output) AS output_cost\n    FROM llm_gateway.usage_log\n    WHERE $__timeFilter(timestamp) AND model != '' AND coalesce(nullIf(key_id,''), nullIf(api_key_id,''), 'unknown') IN (${api_key:singlequote}) AND model IN (${model:singlequote})\n    GROUP BY model\n    ORDER BY tokens DESC\n    LIMIT 20\n)\nSELECT\n    model,\n    tokens,\n    round(cost, 2) AS cost,\n    requests,\n    round(input_cost / nullIf(input_tok, 0) * 1000000, 4) AS rate_input,\n    round(cached_cost / nullIf(cached_tok, 0) * 1000000, 4) AS rate_cached,\n    round(output_cost / nullIf(output_tok, 0) * 1000000, 4) AS rate_output,\n    round(cost / nullIf(requests, 0), 6) AS avg_cost\nFROM per_model\nORDER BY tokens DESC",
           "format": "table"
         }
       ],
@@ -374,6 +374,98 @@
                 "value": 2
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate_input"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate_cached"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate_output"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "requests"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
           }
         ]
       },
@@ -391,9 +483,9 @@
         "minFontSize": 8,
         "maxFontSize": 22,
         "fontSize": 12,
-        "tooltipTemplate": "<div><strong>{{label}}</strong></div><div>{{value}} tokens &middot; {{fields.cost}} ({{percent}}%)</div>"
+        "tooltipTemplate": "<div><strong>{{label}}</strong></div><div>{{value}} tokens &middot; {{fields.cost}} ({{percent}}%)</div><div>&nbsp;</div><div>in {{fields.rate_input}} &middot; cached {{fields.rate_cached}} &middot; out {{fields.rate_output}} /Mtok</div><div>{{fields.requests}} requests &middot; {{fields.avg_cost}}/req</div>"
       },
-      "description": "Top 20 models by token volume over the selected range: each tile is a model sized by its token volume, with its spend in the tooltip. Tiles below the minimum area are merged into an overflow tile so no model collapses to an unreadable sliver. Includes migrated history."
+      "description": "Top 20 models by token volume over the selected range: each tile is a model sized by its token volume. The tooltip adds spend and its share of tokens, the per-category price card (effective input, cached-read and output $ per 1M tokens reconstructed from the billed per-category cost split), the request count and the average cost per request; '-' marks a category the model had no usage for in the range. Tiles below the minimum area are merged into an overflow tile so no model collapses to an unreadable sliver. Includes migrated history."
     },
     {
       "id": 46,

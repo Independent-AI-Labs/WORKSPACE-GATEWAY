@@ -127,9 +127,15 @@ P8_CARD=$(jq -r '[.panels[]|select(.id==8)][0].options.cardTemplate // ""' "$F")
 assert_eq "$LABEL: p8 uses the built-in measured tile face (no card template)" "" "$P8_CARD"
 P8_TIP=$(jq -r '[.panels[]|select(.id==8)][0].options.tooltipTemplate // ""' "$F")
 printf '%s' "$P8_TIP" | grep -q '{{fields.cost}}' && printf '%s' "$P8_TIP" | grep -q '{{percent}}' && { echo "[PASS] $LABEL: p8 tooltip templates spend + share"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p8 tooltip missing fields.cost/percent"; fail=$((fail+1)); }
+printf '%s' "$P8_TIP" | grep -q '{{fields.requests}}' && printf '%s' "$P8_TIP" | grep -q '{{fields.rate_input}}' && printf '%s' "$P8_TIP" | grep -q '{{fields.rate_cached}}' && printf '%s' "$P8_TIP" | grep -q '{{fields.rate_output}}' && { echo "[PASS] $LABEL: p8 tooltip carries requests + a per-category price card (input/cached/output)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p8 tooltip missing requests/price-card fields"; fail=$((fail+1)); }
+printf '%s' "$P8_TIP" | grep -q 'cost_per_mtok' && { echo "[FAIL] $LABEL: p8 tooltip still shows the blended single price"; fail=$((fail+1)); } || { echo "[PASS] $LABEL: p8 tooltip dropped the blended single price"; pass=$((pass+1)); }
 printf '%s' "$P8_TIP" | grep -q 'row(s)' && { echo "[FAIL] $LABEL: p8 tooltip still shows the useless row/area line"; fail=$((fail+1)); } || { echo "[PASS] $LABEL: p8 tooltip dropped the row/area line"; pass=$((pass+1)); }
 P8_SQL=$(jq -r '[.panels[]|select(.id==8)][0].targets[0].rawSql // ""' "$F")
 printf '%s' "$P8_SQL" | grep -q 'model' && printf '%s' "$P8_SQL" | grep -q 'tokens' && printf '%s' "$P8_SQL" | grep -q 'AS cost' && { echo "[PASS] $LABEL: p8 returns model/tokens/cost"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p8 missing model/tokens/cost"; fail=$((fail+1)); }
+printf '%s' "$P8_SQL" | grep -q 'AS requests' && printf '%s' "$P8_SQL" | grep -q 'AS rate_input' && printf '%s' "$P8_SQL" | grep -q 'AS rate_cached' && printf '%s' "$P8_SQL" | grep -q 'AS rate_output' && printf '%s' "$P8_SQL" | grep -q 'AS avg_cost' && { echo "[PASS] $LABEL: p8 returns requests + per-category rate columns"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p8 missing requests/rate columns"; fail=$((fail+1)); }
+printf '%s' "$P8_SQL" | grep -q 'cost_input_uncached' && printf '%s' "$P8_SQL" | grep -q 'cost_cached' && printf '%s' "$P8_SQL" | grep -q 'cost_output' && { echo "[PASS] $LABEL: p8 derives rates from the persisted per-category costs"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p8 not using per-category cost split"; fail=$((fail+1)); }
+P8_PRICE_UNIT=$(jq -r '[.panels[]|select(.id==8)][0].fieldConfig.overrides[]|select(.matcher.options=="rate_input")|.properties[]|select(.id=="unit")|.value' "$F")
+assert_eq "$LABEL: p8 input price renders as currency" "currencyUSD" "$P8_PRICE_UNIT"
 P8_FIXED=$(jq -r '[.panels[]|select(.id==8)][0].fieldConfig.defaults.color.fixedColor' "$F")
 assert_eq "$LABEL: p8 tiles render in a single brand color" "#247ba0" "$P8_FIXED"
 P8_UNIT=$(jq -r '[.panels[]|select(.id==8)][0].fieldConfig.defaults.unit' "$F")

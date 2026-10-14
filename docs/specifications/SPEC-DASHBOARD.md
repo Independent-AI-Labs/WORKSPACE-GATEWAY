@@ -204,13 +204,23 @@ table with `sum`, tooltip `single`.
 
 ```sql
 WITH per_model AS (
-  SELECT model, toInt64(sum(total_tokens)) AS tokens, sum(cost) AS cost
+  SELECT model, toInt64(sum(total_tokens)) AS tokens, sum(cost) AS cost,
+    count() AS requests,
+    sum(greatest(prompt_tokens - cached_tokens - cache_write_tokens, 0)) AS input_tok,
+    sum(cached_tokens) AS cached_tok,
+    sum(greatest(completion_tokens - reasoning_tokens, 0)) AS output_tok,
+    sum(cost_input_uncached) AS input_cost, sum(cost_cached) AS cached_cost,
+    sum(cost_output) AS output_cost
   FROM llm_gateway.usage_log
   WHERE $__timeFilter(timestamp) AND model != ''
     AND coalesce(...) IN (${api_key:singlequote}) AND model IN (${model:singlequote})
   GROUP BY model ORDER BY tokens DESC LIMIT 20
 )
-SELECT model, tokens, round(cost, 2) AS cost
+SELECT model, tokens, round(cost, 2) AS cost, requests,
+  round(input_cost / nullIf(input_tok, 0) * 1000000, 4) AS rate_input,
+  round(cached_cost / nullIf(cached_tok, 0) * 1000000, 4) AS rate_cached,
+  round(output_cost / nullIf(output_tok, 0) * 1000000, 4) AS rate_output,
+  round(cost / nullIf(requests, 0), 6) AS avg_cost
 FROM per_model ORDER BY tokens DESC
 ```
 
@@ -223,9 +233,17 @@ Rendered by the in-repo `gateway-treemap` plugin
 measured tile face, templated tooltips and min/max tile-area constraints. Each tile is one model:
 `textField: model` labels it, `sizeField: tokens` sets its area, and
 `colorField: ""` with `defaultColor: #247ba0` fills every tile with the single
-brand color. The tooltip is templated and carries the model's spend via
-`{{fields.cost}}` plus `{{percent}}`.
-`minTileArea: 1200` merges models below that pixel area into one overflow tile
+brand color. The tooltip is templated: the first line carries the model's spend
+via `{{fields.cost}}` plus `{{percent}}`, the second a per-category price card
+of effective `input` / `cached` (cache-read) / `output` rates in $ per 1M
+tokens (`{{fields.rate_input}}` / `{{fields.rate_cached}}` /
+`{{fields.rate_output}}`, unit `currencyUSD` decimals 3, `noValue: "-"` when
+the model had no usage in that category over the range), then the request count
+(`requests`, unit `short` decimals 0) and the average cost per request
+(`avg_cost`, unit `currencyUSD` decimals 4). The rates are reconstructed from
+the persisted per-category cost split (`cost_input_uncached` / `cost_cached` /
+`cost_output` over the matching token buckets) rather than a blended total, so
+they show the real input/output/cache price of the model. `minTileArea: 1200` merges models below that pixel area into one overflow tile
 (`otherLabel: "Other models"`) so no model collapses to an unreadable sliver;
 `maxTileArea: 60000` caps a dominant model and redistributes the freed area.
 The tile face is built in, not templated: percent share (largest, thin `300`),
@@ -240,7 +258,10 @@ flatten to the same size; the percent line is `1.5x` and the value `0.9x` the
 base, with scaled spacing (`0.28x` base) between the percent and name lines. Tile fill ramps from the neutral brand grey `#50514f` on the smallest tile
 to `#247ba0` on the largest so size reads as saturation.
 `tokens` renders with unit `short`; `cost` is a byName override to
-`currencyUSD` / decimals 2. The panel calls `useFieldConfig()` so Grafana
+`currencyUSD` / decimals 2; the price card columns `rate_input`, `rate_cached`
+and `rate_output` are `currencyUSD` / decimals 3 with `noValue: "-"`, `avg_cost`
+is `currencyUSD` / decimals 4 and `requests` is `short` / decimals 0.
+The panel calls `useFieldConfig()` so Grafana
 applies the dashboard's field config (unit/decimals/color) to its frames;
 Grafana's display-value text is composed with its `prefix`/`suffix` (so
 billions read `3.90 Bil`, not `3.90`). This panel queries `usage_log` directly

@@ -325,10 +325,21 @@ echo ""
 echo "--- Q8: p8 Model Distribution Consistency ---"
 P8D=$(exec_ch 8 A)
 P8_ROWS=$(echo "$P8D" | awk 'NF>0 {n++} END {print n+0}')
-while IFS=$'\t' read -r m tokens cost; do
+while IFS=$'\t' read -r m tokens cost reqs rin rcach rout acr; do
     [ -n "$m" ] && rp "Q8: '$m' model name present" || rf "Q8: empty model name"
     echo "$tokens" | grep -qE '^[0-9]+$' && rp "Q8: '$m' tokens integer ($tokens)" || rf "Q8: '$m' tokens malformed: $tokens"
     echo "$cost" | grep -qE '^[0-9]+(\.[0-9]{1,2})?$' && rp "Q8: '$m' cost numeric (\$$cost)" || rf "Q8: '$m' cost malformed: $cost"
+    echo "$reqs" | grep -qE '^[0-9]+$' && rp "Q8: '$m' requests integer ($reqs)" || rf "Q8: '$m' requests malformed: $reqs"
+    for _pair in "input:$rin" "cached:$rcach" "output:$rout" "avg:$acr"; do
+        _name="${_pair%%:*}"; _val="${_pair#*:}"
+        if [ "$_val" = '\N' ]; then
+            rp "Q8: '$_name' rate for '$m' absent in range (no usage)"
+        elif echo "$_val" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+            rp "Q8: '$_name' rate for '$m' numeric ($_val)"
+        else
+            rf "Q8: '$_name' rate for '$m' malformed: $_val"
+        fi
+    done
 done < <(echo "$P8D" | grep '.')
 P8_DUP=$(echo "$P8D" | grep '.' | cut -f1 | sort | uniq -d | awk 'NF>0 {n++} END {print n+0}')
 [ "$P8_DUP" = "0" ] && rp "Q8: p8 returns each model once" || rf "Q8: p8 returned duplicate models"
