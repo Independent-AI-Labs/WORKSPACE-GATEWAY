@@ -109,7 +109,7 @@ driving this design:
 | `cost_source` | `'provider_override'` when a `pricing.overrides` rate applied, `'models_dev'` when priced via models.dev in §4.1, else `'unknown'` | billed provenance; mirrors `resolve_cost` semantics |
 | `provider_id` | `resolve_provider(json_extract(data,'$.providerID'))`: `cost_calc.PROVIDER_ALIASES` remap, otherwise verbatim (no other provider) | aligns historical ids with canonical gateway ids |
 | `duration_ms` | `time.completed − time_created` when within `[0, 1h)`, else `0` | per-generation wall time; mirrors gateway sse-usage `duration_ms` |
-| `ttft_content_ms` | `min(part.time_created WHERE part.type != 'reasoning') − time_created`, clamped `[0, 1h)`, else `0` | first visible (text/tool) output; mirrors gateway `ttft_content_ms` |
+| `ttft_content_ms` | `min(part.time_created WHERE part.type IN ('text','reasoning','tool')) − time_created`, clamped `[0, 1h)`, else `0` | first output token (text/reasoning/tool), including thinking; mirrors gateway `ttft_content_ms` (completion includes reasoning, so the decode window must too) |
 | `pricing_source`, `pricing_snapshot` | `''` | no pricing catalog at migration time |
 | `timestamp` | `datetime(time_created/1000, 'unixepoch')` → ms precision | `time_created` is ms epoch |
 
@@ -351,6 +351,20 @@ catalog and the only pass that touches pre-existing `relay-*` rows, so
 migration → recalc → recalc-dry-run (0 corrections) is the converged
 sequence.
 
+### 6.1 Correcting timing without re-pricing
+
+A change to a timing rule (e.g. the `ttft_content_ms` definition in §3.1) does
+not require a full re-run, which would also re-price every migrated row from
+today's catalog. `res/scripts/backfill-migrated-ttft.sh` (env
+`OPENCODE_DBS`, `CH_OPS_PASSWORD`; `make gw-backfill-migrated-ttft
+[APPLY=1]`) reads the same sqlite `message`/`part` rows via
+`conf/sql/sqlite/opencode-stats/ttft-parts.sql`, loads the corrected value for
+each `ocm_<message_id>` into a transient Join-engine lookup
+(`ops/backfill-migrated-ttft/`), and issues one `joinGet`-driven mutation over
+`usage_log.ttft_content_ms` only (cost, cost_source and every other column
+are untouched). Idempotent (difference-guarded), dry-run by default, and drops
+the lookup table on exit.
+
 ## 7. Rollback
 
 Not automated (FR-4.3). Manual:
@@ -413,6 +427,10 @@ test; the dev stack is never touched.
    fields exactly per §3 map (jq over `FORMAT JSONEachRow` SELECT), and
    `billing_ledger` gained matching rows via the MV.
 4. Run again; assert 0 inserts (idempotency, AC-1/AC-2/AC-3).
+5. Force a stale `ttft_content_ms` on the reasoning-first fixture row, run
+   `backfill-migrated-ttft.sh --apply` (§6.1) against the same fresh
+   ClickHouse and sqlite copy; assert it is corrected to the reasoning part,
+   `cost` is untouched, and a second dry-run reports 0 rows to correct.
 
 ### 9.3 Full-database rehearsal (AC-5)
 
@@ -427,9 +445,11 @@ rehearsal for the real run against dev.
 
 | Item | Status | Evidence |
 |------|--------|----------|
-| `res/scripts/migrate-opencode-stats.sh` | Complete | fixture test 88/88 pass (2026-09-21, incl. §4.1 provider-scoped models.dev pricing, provider canonicalization, `cache_write_tokens`, gateway-route `uri`, `--force` gate, dry-run diff) |
-| `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + models.dev pricing + provider alias + rerun gate + `--full` rehearsal 88/88 pass (2026-09-21) |
+| `res/scripts/migrate-opencode-stats.sh` | Complete | fixture test 94/94 pass (2026-10-16, incl. §4.1 provider-scoped models.dev pricing, provider canonicalization, `cache_write_tokens`, gateway-route `uri`, `--force` gate, dry-run diff) |
+| `tests/test_migrate_opencode_stats.sh` | Complete | fixture + isolation + backup + idempotency + models.dev pricing + provider alias + rerun gate + §6.1 timing-only repair + `--full` rehearsal 94/94 pass (2026-10-16) |
+| `res/scripts/backfill-migrated-ttft.sh` (§6.1) | Complete | timing-only repair test in `test_migrate_opencode_stats.sh` (repairs one seeded stale TTFT, leaves cost, idempotent) |
 | Source probes | Complete | §1 (run 2026-08-28 against live opencode.db) |
 | Schema fit | Verified | all §3 destination columns exist in `conf/sql/clickhouse-init.sql` |
 | Production run against dev ClickHouse | Complete | re-run with computed pricing (2026-08-28) via the §6 step-5 reset procedure: 62,157 rows; cost_source upstream $999.30 / computed $893.98 / unknown 6,535 rows; second `--force` pass idempotent, gate blocks plain reruns; backups at `backups/2026-08-28-pre-migration/`, `-broken-migrated-rows/`, `-pre-repair/`, `-pre-pricing-rerun/`, `-pricing-rerun/` |
 | Production re-run, models.dev alignment (2026-09-21) | Complete | reset (§6 step 5) then `--force` insert: 75,259 usage_log + 75,259 request_log rows; `cost_source` upstream 45,304 / $1,813.23, computed 26,566 / $1,083.17, unknown 3,389; follow-up `recalc-costs.sh --apply --all --confirm-all` (`run-20260921095045-3486843`, backup `pre-recalc-20260921095045-3486843`) corrected 22,920 rows (22,203 live `relay-*` + 717 migrated) in 8 grouped `UPDATE`s, re-run a converged no-op; final dry-run `missing=0 differing=717 extra=0` (717 = sub-1e-7 Float64/Lua cost rounding on recalc-owned rows); backups at `backups/2026-09-21-pre-aligned-remigrate/`, `backups/2026-09-21-aligned-remigrate/` |
+| Timing repair, thinking-aware TTFT (2026-10-16) | Complete | §3.1 now stamps at the first output part of any type; existing rows repaired in place without re-pricing. Live provider rows: `make gw-backfill-ttft-reasoning APPLY=1` corrected 1,682 `claude-opus-5-5` thinking streams (decode p50 233.39 → 108.24 tok/s, qualifying streams 456 → 1,794, `remaining=0`). Migrated rows: `make gw-backfill-migrated-ttft APPLY=1` corrected 74,174 of 76,582 mapped messages (`remaining=0`, `cost` untouched, re-run 0 to correct). SQL in `conf/sql/ops/backfill-ttft-reasoning/` and `conf/sql/ops/backfill-migrated-ttft/` |

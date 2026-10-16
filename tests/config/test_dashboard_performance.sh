@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Structure tests for Dashboard: Gateway Model Performance
 # (conf/grafana/dashboards/gateway-model-performance.json)
-# Panels: prefill/decode speed (content-TTFT, p50), stream reliability
+# Panels: prefill/decode speed (output-TTFT, p50), stream reliability
 # (completed/cancel/abort), stream responsiveness (TTFT p50/p95 + goodput),
 # wasted tokens & cost, completed-response cost/time.
 # REQ-USEFULNESS-TELEMETRY FR-3/FR-6/FR-10.

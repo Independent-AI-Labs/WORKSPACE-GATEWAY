@@ -38,7 +38,7 @@ extract_opencode_rows() {
         t1=$(date +%s%3N)
         echo "[TIME] messages $((t1 - t0))ms" >&2
 
-        # First visible (non-reasoning) part per message: content TTFT input.
+        # First output part (text/reasoning/tool) per message: content TTFT input.
         t0=$(date +%s%3N)
         sqlite3 -cmd ".timeout 10000" -batch -separator $'\t' "$uri" \
             "$(sql_render sqlite/opencode-stats/firstpart.sql)" >> "$tmpd/firstpart.tsv"

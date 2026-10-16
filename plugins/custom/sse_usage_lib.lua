@@ -121,8 +121,20 @@ local function event_has_content(obj)
     if et:sub(-6) == ".delta" or et == "content_block_delta" then
         local d = obj.delta
         if type(d) == "string" and d ~= "" then return true end
-        --Anthropic content_block_delta: delta is a table carrying .text
-        if type(d) == "table" and type(d.text) == "string" and d.text ~= "" then return true end
+        --Anthropic content_block_delta: delta is a table carrying .text for
+        --visible answer text, .thinking for extended-thinking text, and
+        --.partial_json for streamed tool-call input. All three are generated
+        --output: the first content-bearing event stamps ttft_content_ms, so a
+        --reasoning model's TTFT marks the first generated token and
+        --completion_tokens/(duration-ttft) stays total throughput (Anthropic
+        --reports no separate reasoning-token count, so the numerator cannot be
+        --split). Counting only .text left thinking/tool-only streams with
+        --ttft_content_ms=0 and collapsed the decode window to the answer tail.
+        if type(d) == "table" then
+            if type(d.text) == "string" and d.text ~= "" then return true end
+            if type(d.thinking) == "string" and d.thinking ~= "" then return true end
+            if type(d.partial_json) == "string" and d.partial_json ~= "" then return true end
+        end
     end
     return false
 end

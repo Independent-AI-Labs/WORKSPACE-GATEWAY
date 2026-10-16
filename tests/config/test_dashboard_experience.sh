@@ -94,6 +94,11 @@ printf '%s' "$P40_SQL" | grep -qF 'ifNull' && { echo "[PASS] $LABEL: p40 missing
 printf '%s' "$P40_SQL" | grep -qF 'guard_blocks' && { echo "[FAIL] $LABEL: p40 must not merge friction into the score (separate construct)"; fail=$((fail+1)); } || { echo "[PASS] $LABEL: p40 excludes friction (reported separately)"; pass=$((pass+1)); }
 printf '%s' "$P40_SQL" | grep -qF 'ttft_content_ms' && { echo "[FAIL] $LABEL: p40 must not merge speed into the score"; fail=$((fail+1)); } || { echo "[PASS] $LABEL: p40 excludes speed factors"; pass=$((pass+1)); }
 printf '%s' "$P40_SQL" | grep -qF 'argMax(model, timestamp)' && { echo "[PASS] $LABEL: p40 switch factor uses window-free session abandonment (CH window-in-join trap)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 switch factor shape"; fail=$((fail+1)); }
+# Small-cohort cancel neutralization (2026-10-16): the >=30 gate counts
+# usage_log rows, but cancels are measured over the (much smaller) stream
+# cohort; below 100 streams a handful of disconnects swamps the 5% goalpost,
+# so the cancel index is neutral 0.5 instead of floored 0.05.
+printf '%s' "$P40_SQL" | grep -qF 'if(streams < 100, 0.5,' && { echo "[PASS] $LABEL: p40 neutrals the cancel index for tiny stream cohorts"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing small-cohort cancel guard"; fail=$((fail+1)); }
 P40_STEPS=$(jq -c '[.panels[]|select(.id==40)][0].fieldConfig.defaults.thresholds.steps' "$F")
 printf '%s' "$P40_STEPS" | grep -q '"value":40' && printf '%s' "$P40_STEPS" | grep -q '"value":70' && { echo "[PASS] $LABEL: p40 verdict bands at 40/70"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p40 missing 40/70 thresholds"; fail=$((fail+1)); }
 P40_DESC=$(jq -r '[.panels[]|select(.id==40)][0].description' "$F")
@@ -120,6 +125,7 @@ printf '%s' "$P47_CONTENT" | grep -qF 'PAI (adherence)' && printf '%s' "$P47_CON
 ! printf '%s' "$P47_STYLES" | grep -qE 'border-(top|left): 3px' && { echo "[PASS] $LABEL: p47 uses plain borders (no per-verdict colored accents)"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 still has colored border accents"; fail=$((fail+1)); }
 P47_SQL=$(jq -r '[.panels[]|select(.id==47)][0].targets[0].rawSql' "$F")
 printf '%s' "$P47_SQL" | grep -qF 'model_registry' && printf '%s' "$P47_SQL" | grep -qF "'\${include_local}'" && printf '%s' "$P47_SQL" | grep -q 'reqs >= 30' && { echo "[PASS] $LABEL: p47 honours include_local + >=30 gate"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 missing gates"; fail=$((fail+1)); }
+printf '%s' "$P47_SQL" | grep -qF 'if(streams < 100, 0.5,' && { echo "[PASS] $LABEL: p47 neutrals the cancel index for tiny stream cohorts"; pass=$((pass+1)); } || { echo "[FAIL] $LABEL: p47 missing small-cohort cancel guard"; fail=$((fail+1)); }
 
 # Key scoping (2026-09-27): the score must honour the api_key template variable
 # consistently -- gated + sig + spd + sess all carry the same client predicate,

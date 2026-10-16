@@ -318,7 +318,9 @@ TTL_EXPIRED=$(awk -F'\t' -v cutoff="$(( $(date +%s) - 397*86400 ))" \
 # whose provider has no models.dev price is 0/unknown. Key is
 # models_dev_provider : canonical(model), mirroring cost_calc.compute_cost.
 # Timing (mirrors gateway sse-usage): duration_ms = time.completed -
-# time_created; ttft_content_ms = first non-reasoning part - created;
+# time_created; ttft_content_ms = first output part (text/reasoning/tool)
+# - created; a reasoning model's first token is a reasoning part, so
+# completion INCLUDES reasoning and the decode window must too;
 # deltas outside [0, 1h) mean missing/corrupt timestamps -> 0.
 awk -F'\t' -v OFS='\t' '
     NR==FNR { gw_mdev[$1]=$4; next }
@@ -465,7 +467,7 @@ if [ -n "$BACKUP_DIR" ]; then
         cks=$(ch "$(sql_render ops/migrate-opencode-stats/table-checksum.sql DB="$DB" TABLE="$t")")
         printf '%s\trows=%s\tcityHash64sum=%s\n' "$t" "$cnt" "$cks" \
             >> "$BACKUP_DIR/manifest.txt"
-        if ! ch_exec_file "$(sql_render ops/migrate-opencode-stats/table-native-dump.sql DB="$DB" TABLE="$t")" 600 > "$BACKUP_DIR/$t.native"; then
+        if ! ch_exec "$(sql_render ops/migrate-opencode-stats/table-native-dump.sql DB="$DB" TABLE="$t")" 600 > "$BACKUP_DIR/$t.native"; then
             echo "[FAIL] backup dump of $t failed" >&2
             exit 1
         fi

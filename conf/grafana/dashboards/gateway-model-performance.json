@@ -79,8 +79,8 @@
   "panels": [
     {
       "id": 30,
-      "title": "Prefill Speed by Model (p50 tok/s, content-TTFT)",
-      "description": "How fast a model digests your prompt: prompt tokens divided by time-to-first-visible-output, median (p50) over streams with valid timing. Includes migrated history (timing reconstructed from opencode message and part timestamps). Windows under 100 ms are discarded as degenerate.",
+      "title": "Prefill Speed by Model (p50 tok/s, output-TTFT)",
+      "description": "How fast a model digests your prompt: prompt tokens divided by time-to-first-output-token (including reasoning), median (p50) over streams with valid timing. Includes migrated history (timing reconstructed from opencode message and part timestamps). Windows under 100 ms are discarded as degenerate.",
       "type": "bargauge",
       "datasource": {
         "uid": "clickhouse",
@@ -147,8 +147,8 @@
     },
     {
       "id": 44,
-      "title": "Decode Speed by Model (p50 tok/s, content-TTFT)",
-      "description": "How fast a model writes once it has started: completion tokens divided by generation time after the first visible output, median (p50). Includes migrated history. Windows under 100 ms are discarded as degenerate.",
+      "title": "Decode Speed by Model (p50 tok/s, output-TTFT)",
+      "description": "How fast a model writes once it has started: completion tokens (including reasoning) divided by generation time after the first output token, median (p50). Includes migrated history. Windows under 100 ms are discarded as degenerate.",
       "type": "bargauge",
       "datasource": {
         "uid": "clickhouse",
@@ -338,7 +338,7 @@
     {
       "id": 48,
       "title": "Stream Responsiveness (TTFT)",
-      "description": "How quickly a model starts answering: median and 95th-percentile time to first visible content, plus the share of streams that start within 2 seconds. Streams with no recorded TTFT are excluded; models with under 100 requests are hidden.",
+      "description": "How quickly a model starts answering: median and 95th-percentile time to first output token (including reasoning), plus the share of streams that start within 2 seconds. Streams with no recorded TTFT are excluded; models with under 100 requests are hidden.",
       "type": "stat",
       "datasource": {
         "uid": "clickhouse",

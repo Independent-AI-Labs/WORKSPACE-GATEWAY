@@ -302,6 +302,30 @@ local function content_detection_tests()
     end
 
     do
+        --Anthropic extended-thinking delta counts as generated output, so a
+        --reasoning model stamps TTFT at its first token instead of the answer
+        --tail (which collapsed the decode window).
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\n')
+        assert_eq(has_content, true, "content[9] anthropic thinking_delta")
+    end
+
+    do
+        --Anthropic tool-call input streams as input_json_delta/partial_json;
+        --tool-only turns must also stamp TTFT.
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"a\\":"}}\n\n')
+        assert_eq(has_content, true, "content[10] anthropic input_json_delta")
+    end
+
+    do
+        --Empty thinking/partial_json frames are lifecycle, not content.
+        local _, _, _, _, has_content = sse_lib.scan_sse_for_usage(
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":""}}\n\n')
+        assert_eq(has_content, false, "content[11] empty thinking_delta")
+    end
+
+    do
         --Fifth return value is additive: old four-value contract unchanged.
         local usage, model, done, cost = sse_lib.scan_sse_for_usage(
             'data: {"model":"m","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2,"estimated_cost":0.01}}\n\n')

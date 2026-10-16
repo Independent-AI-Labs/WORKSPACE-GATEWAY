@@ -135,7 +135,7 @@ _compose-down:
 
 .PHONY: gw-build gw-start gw-stop gw-restart gw-update gw-verify gw-status gw-logs gw-shell \
         gw-restart-service gw-recreate-service gw-reload-plugins gw-restart-grafana gw-update-dictionaries gw-crunch-usefulness gw-backup gw-backup-status gw-install-timers gw-install-crunch-timer \
-        gw-sync-model-registry gw-recalc-costs gw-fix-model-attribution gw-check-model-attribution \
+        gw-sync-model-registry gw-recalc-costs gw-fix-model-attribution gw-check-model-attribution gw-backfill-ttft-reasoning gw-backfill-migrated-ttft \
         gw-healthcheck gw-healthcheck-probe
 
 # Internal: apply desired runtime state (routes, ClickHouse schema, provider
@@ -168,6 +168,14 @@ gw-fix-model-attribution: ## Repair model identity across request_log/usage_log/
 
 gw-check-model-attribution: ## Read-only guard: fail if telemetry model attribution has drifted
 	$(SCRIPT_BASH) res/scripts/fix-model-attribution.sh --check
+
+gw-backfill-ttft-reasoning: ## Repair Anthropic thinking-stream ttft_content_ms in usage_log (idempotent; dry-run unless APPLY=1)
+	$(LOAD_ENV) \
+	$(SCRIPT_BASH) res/scripts/backfill-ttft-reasoning.sh $(if $(APPLY),--apply)
+
+gw-backfill-migrated-ttft: ## Repair ttft_content_ms for opencode-migrated rows from opencode.db parts (idempotent; dry-run unless APPLY=1)
+	$(LOAD_ENV) \
+	$(SCRIPT_BASH) res/scripts/backfill-migrated-ttft.sh $(if $(APPLY),--apply)
 
 gw-recalc-costs: ## Recalculate historical cost (dry-run unless APPLY=1; LIMIT=N default 100, DAYS=N, SOURCE=list)
 	$(SCRIPT_BASH) res/scripts/recalc-costs.sh \

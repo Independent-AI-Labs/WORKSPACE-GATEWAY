@@ -231,7 +231,7 @@ assert_eq "completion_tokens=output+reasoning" "60" "$(echo "$U1" | jq -r .compl
 assert_eq "total_tokens=prompt+completion" "170" "$(echo "$U1" | jq -r .total_tokens)"
 assert_eq "reasoning_tokens" "10" "$(echo "$U1" | jq -r .reasoning_tokens)"
 assert_eq "cached_tokens=cache.read" "7" "$(echo "$U1" | jq -r .cached_tokens)"
-assert_eq "billed cost from provider-scoped models.dev price" "0.0012" "$(echo "$U1" | jq -r .cost)"
+assert_eq "billed cost from provider-scoped models.dev price" "0.00123" "$(echo "$U1" | jq -r .cost)"
 assert_eq "cost_source models_dev (priced)" "models_dev" "$(echo "$U1" | jq -r .cost_source)"
 assert_eq "opencode-recorded cost kept as reported_cost" "0.5" "$(echo "$U1" | jq -r .reported_cost)"
 assert_eq "is_stream=1" "1" "$(echo "$U1" | jq -r .is_stream)"
@@ -272,7 +272,7 @@ assert_eq "migrated abort values are only 0/1/2" "0" \
 # --------------------------------------- timing migration (message times)
 assert_eq "duration_ms = completed - created" "1500" \
     "$(chq_t select-by-event "COLS=duration_ms" "TABLE=usage_log" "EID=ocm_msg_a01")"
-assert_eq "ttft_content_ms = first non-reasoning part - created" "2" \
+assert_eq "ttft_content_ms = first output part (incl. reasoning) - created" "1" \
     "$(chq_t select-by-event "COLS=ttft_content_ms" "TABLE=usage_log" "EID=ocm_msg_a01")"
 assert_eq "aborted message keeps its timing" "200" \
     "$(chq_t select-by-event "COLS=duration_ms" "TABLE=usage_log" "EID=ocm_msg_a02")"
@@ -284,6 +284,26 @@ assert_eq "request_log upstream_response_time_s = duration_ms/1000" "1.5" \
     "$(chq_t select-by-event "COLS=upstream_response_time_s" "TABLE=request_log" "EID=ocr_msg_a01")"
 assert_eq "request_log upstream_response_time_s b02" "0.1" \
     "$(chq_t select-by-event "COLS=upstream_response_time_s" "TABLE=request_log" "EID=ocr_msg_b02")"
+
+# ------------------------ backfill-migrated-ttft (timing-only repair)
+# Seed a stale content TTFT on a reasoning-first row, then repair it from the
+# same sqlite source without re-pricing. ocm_msg_a01's first output part is the
+# +1ms reasoning part (set-ttft.sql forces 99 first).
+ch_exec "$(sql_render tests/migrate-opencode-stats/set-ttft.sql EID=ocm_msg_a01 EXPR=99)" 300 "$CH_URL"
+assert_eq "seeded stale ttft" "99" \
+    "$(chq_t select-by-event "COLS=ttft_content_ms" "TABLE=usage_log" "EID=ocm_msg_a01")"
+BF_HOST_PORT="${CH_URL#http://}"
+export CLICKHOUSE_HOST="${BF_HOST_PORT%%:*}"
+export CLICKHOUSE_PORT="${BF_HOST_PORT##*:}"
+BF_APPLY=$(OPENCODE_DBS="$SRC_COPY" bash "$REPO_ROOT/res/scripts/backfill-migrated-ttft.sh" --apply 2>&1)
+echo "$BF_APPLY"
+assert_eq "backfill repairs ttft from the reasoning part" "1" \
+    "$(chq_t select-by-event "COLS=ttft_content_ms" "TABLE=usage_log" "EID=ocm_msg_a01")"
+assert_eq "backfill leaves cost untouched" "0.00123" \
+    "$(chq_t select-by-event "COLS=cost" "TABLE=usage_log" "EID=ocm_msg_a01")"
+BF_DRY=$(OPENCODE_DBS="$SRC_COPY" bash "$REPO_ROOT/res/scripts/backfill-migrated-ttft.sh" 2>&1)
+assert_eq "backfill is idempotent (nothing to correct)" "true" \
+    "$(text_matches "$BF_DRY" 'rows to correct: 0')"
 
 R1=$(chq_t select-by-event "COLS=session_id, project_id, parent_session_id, agent_name, opencode_version, user_agent, method, uri, status, stream, request_size, response_size, client_type" "TABLE=request_log" "EID=ocr_msg_a01" "FORMAT= FORMAT JSONEachRow")
 assert_eq "request session_id" "s1" "$(echo "$R1" | jq -r .session_id)"
@@ -341,7 +361,7 @@ assert_eq "no row with reasoning>completion" "0" \
 # ---------------------------------------------------------- billing MV
 BL=$(chq_t select-by-event "COLS=model_name, cost, provider" "TABLE=billing_ledger" "EID=ocm_msg_a01" "FORMAT= FORMAT JSONEachRow")
 assert_eq "billing_ledger MV row model" "kimi-k3" "$(echo "$BL" | jq -r .model_name)"
-assert_eq "billing_ledger MV row cost" "0.0012" "$(echo "$BL" | jq -r .cost)"
+assert_eq "billing_ledger MV row cost" "0.00123" "$(echo "$BL" | jq -r .cost)"
 
 # ---------------------------------------------------------- rerun gate
 GUARD_RC=0

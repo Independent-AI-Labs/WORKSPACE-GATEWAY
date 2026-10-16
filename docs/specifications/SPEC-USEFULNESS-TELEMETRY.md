@@ -56,12 +56,24 @@ per-refresh body scanning.
 
 `scan_sse_for_usage(complete)` currently returns `usage, model, done, cost`.
 Extended contract: `usage, model, done, cost, has_content` where `has_content`
-is true when the scanned batch contains any event with non-empty textual
+is true when the scanned batch contains any event with non-empty generated
 delta: OpenAI chat format `choices[0].delta.{content,reasoning_content}`,
 Responses-API frames with type `response.output_text.delta` (or
-`reasoning_text.delta`) carrying non-empty text. Boolean-or across the batch;
-the caller stamps time once. Pure string scanning, no new allocations beyond
-existing per-event parsing.
+`reasoning_text.delta`) carrying non-empty text, and Anthropic
+`content_block_delta` carrying non-empty `delta.{text,thinking,partial_json}`
+(visible text, extended-thinking text, and streamed tool-call input are all
+generated output). Boolean-or across the batch; the caller stamps time once.
+Pure string scanning, no new allocations beyond existing per-event parsing.
+
+Counting Anthropic `thinking`/`partial_json` is essential: Anthropic
+reports no separate reasoning-token count, so `completion_tokens`
+(`output_tokens`) includes thinking tokens. If `has_content` ignored
+`delta.thinking`, `ttft_content_ms` would be stamped at the first *answer*
+token (after thinking finished), and `completion_tokens / (duration_ms −
+ttft_content_ms)` would divide the whole generation's tokens by the answer
+tail only, inflating decode speed by an order of magnitude (claude-opus-5-5:
+234.76 tok/s measured vs ~100 over the real generation) and zeroing coverage
+for thinking-only/tool-only turns (75% of its streams).
 
 ### 2.2 `plugins/custom/sse-usage.lua`
 
@@ -419,8 +431,17 @@ factor that reaches its goalpost is floored at 0.05 instead of 0 ,  the
 geometric mean annihilates the whole composite on any zero component (the
 UNDP 2010 zero-collapse critique, Anand et al.), which turned a 52.3%-vs-50%
 goalpost crossing into a full-zero Overall for terra and made the composite
-hyper-sensitive to one constant. Models require ≥ 30 requests (kills the
-tiny-sample ties the old ≥2-model gate produced). Session abandonment is
+hyper-sensitive to one constant. The stream-derived **cancel factor** carries
+the same small-sample problem the request gate cannot catch: the gate counts
+`usage_log` rows, but cancels are measured over the much smaller stream
+cohort (`countIf(is_stream = 1)`), so a handful of client disconnects swamps
+the 5% goalpost. When `streams < 100` the cancel index is neutral 0.5 (not
+measured), matching the `ifNull` neutral; minicpm5-1b (76 streams, 5 cancels =
+6.58%) moved from a floored 0.05 index (PAI 36.8 / Overall 60.7) to PAI 79.4
+/ Overall 89.1. The abort factor is left measured (it is the Reliability
+construct and 0-abort cohorts are not dragged by a single event). Models
+require ≥ 30 requests (kills the tiny-sample ties the old ≥2-model gate
+produced). Session abandonment is
 contaminated by multi-model interleaving (sessions that alternate models
 penalize every participant): documented on the panels as a heuristic.
 
@@ -477,9 +498,15 @@ Conventions: identical to SPEC-DASHBOARD §3 variables plus:
   materialized by `res/scripts/sync-model-registry.sh` (`make
   gw-sync-model-registry`) from `conf/providers/*.yaml` `local: true`
   flags. Migrated timing (2026-09-17) also lights the speed and avg-latency
-  panels for all models: the migration now writes `duration_ms` /
-  `ttft_content_ms` from opencode `time.completed` + first non-reasoning
-  part timestamps, and `upstream_response_time_s = duration_ms / 1000`.
+  panels for all models: the migration writes `duration_ms` /
+  `ttft_content_ms` from opencode `time.completed` + first output part
+  (text/reasoning/tool) timestamps, and `upstream_response_time_s =
+  duration_ms / 1000` (the part-type rule is §3.1 of SPEC-STATS-MIGRATION).
+  Historical rows already migrated under
+  the old first-non-reasoning rule are repaired in place without re-pricing by
+  `make gw-backfill-migrated-ttft APPLY=1` (SPEC-STATS-MIGRATION §6.1); live
+  provider rows with the same thinking-latency inflation are repaired by
+  `make gw-backfill-ttft-reasoning APPLY=1` (`res/scripts/backfill-ttft-reasoning.sh`).
 - Relevance gate CTE used by every per-model query:
 ```sql
 WITH gated AS (
