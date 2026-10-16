@@ -41,7 +41,7 @@ summary() {
 
 assert_present() {
     local desc="$1" haystack="$2" needle="$3"
-    if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+    if grep -qF -- "$needle" <<<"$haystack"; then
         echo "[PASS] $desc"
         pass=$((pass + 1))
     else
@@ -52,7 +52,7 @@ assert_present() {
 
 assert_absent() {
     local desc="$1" haystack="$2" needle="$3"
-    if printf '%s' "$haystack" | grep -qF -- "$needle"; then
+    if grep -qF -- "$needle" <<<"$haystack"; then
         echo "[FAIL] $desc -- unexpected needle present: [$needle]"
         fail=$((fail + 1))
     else
